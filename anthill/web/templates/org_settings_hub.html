@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Organisation{% endblock %}
+{% block page_title %}Organisation{% endblock %}
+{% block content %}
+
+<style>
+  .manage-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin:6px 0 20px}
+  .manage-tabs a{padding:8px 14px;font-size:14px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap}
+  .manage-tabs a:hover{color:var(--text)}
+  .manage-tabs a.active{color:var(--primary);border-bottom-color:var(--primary)}
+  .org-panel{display:none}
+  .org-panel.active{display:block}
+  .manage-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .manage-sub{font-size:13px;margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted)}
+  .advrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;margin-top:8px;opacity:.7}
+  .advrow-name{font-weight:600;font-size:13px}
+  .advrow-d{font-size:12px;color:var(--muted)}
+  .advrow-cta{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+  .adv-contact{margin-top:10px;font-size:12px;color:var(--muted)}
+  .adv-contact a{color:var(--accent,#2f6b4f);font-weight:600;text-decoration:none}
+  .admin-badge{font-size:12px;font-weight:600;color:var(--accent,#2f6b4f);background:var(--bg-subtle);border:1px solid var(--border);border-radius:999px;padding:2px 9px;vertical-align:middle;margin-left:6px}
+</style>
+
+<div class="dash-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+  <div>
+    <h2 style="font-size:20px;margin:0">Manage {{ org.name }}<span class="admin-badge">Admin</span></h2>
+    <p class="text-muted" style="margin:2px 0 0;font-size:13px">Your organisation's team, model and knowledge - separate from your daily workspace.
+      {% if org_connected %}<span class="badge badge-active">backend connected</span>{% else %}<span class="badge badge-pending">no backend yet</span>{% endif %}</p>
+  </div>
+</div>
+
+<div class="manage-tabs" id="org-tabs">
+  <a href="#" data-ot="members" class="active" onclick="setOT('members');return false">Members</a>
+  <a href="#" data-ot="model" onclick="setOT('model');return false">Model &amp; compute</a>
+  <a href="#" data-ot="knowledge" onclick="setOT('knowledge');return false">Knowledge</a>
+  <a href="#" data-ot="integrations" onclick="setOT('integrations');return false">Integrations</a>
+  <a href="#" data-ot="metrics" onclick="setOT('metrics');return false">Metrics</a>
+</div>
+
+{% macro hub(href, icon, title, desc) %}
+<a href="{{ href }}" class="card" style="display:block;text-decoration:none;padding:14px 16px;color:inherit">
+  <div style="font-weight:600;font-size:14px"><i data-lucide="{{ icon }}"></i> {{ title }}</div>
+  <div class="text-sm text-muted" style="margin-top:4px">{{ desc }}</div>
+</a>
+{% endmacro %}
+
+<!-- ── Members ─────────────────────────────────────────────────────────────── -->
+<div class="org-panel active" data-ot="members">
+  <div class="manage-grid">
+    {{ hub('/users', 'users', 'Users', 'Invite people, set roles, deactivate.') }}
+    {{ hub('/teams', 'folder-kanban', 'Projects', "The org's projects - each with its own wiki + members.") }}
+  </div>
+</div>
+
+<!-- ── Model & compute ─────────────────────────────────────────────────────── -->
+<div class="org-panel" data-ot="model">
+  <div class="manage-grid">
+    {{ hub('/settings/organization', 'cloud', 'Cloud & model', 'The shared model server the org runs on - connect or provision it (no local option at org scale).') }}
+    {{ hub('/training', 'graduation-cap', 'Tuning', 'Fine-tune the org model on your gold examples.') }}
+    {{ hub('/settings/general', 'building-2', 'General', 'Organisation name and identity.') }}
+  </div>
+  <h3 class="manage-sub">Infrastructure</h3>
+  <div class="manage-grid">
+    {{ hub('/backend', 'server', 'Backend', 'Where the backend runs and what is stored.') }}
+    {{ hub('/backup', 'download', 'Backup & restore', 'Export or restore the whole install.') }}
+    {{ hub('/settings/appliance', 'hard-drive', 'Appliance', 'Make this Mac the always-on org backend.') }}
+    {{ hub('/settings/remote', 'globe', 'Remote access', 'Reach the backend from off the local network.') }}
+    {{ hub('/settings/automation', 'zap', 'Automation', 'How the agent reacts to inputs, and whether low-risk wiki promotions auto-approve.') }}
+    {{ hub('/settings/events', 'inbox', 'Inbound events', 'Slack, webhook, and email triggers.') }}
+  </div>
+</div>
+
+<!-- ── Knowledge ───────────────────────────────────────────────────────────── -->
+<div class="org-panel" data-ot="knowledge">
+  <div class="manage-grid">
+    {{ hub('/settings/organization/wiki', 'library', 'Org wiki', 'Where the shared knowledge base is hosted; everyone you invite draws on it.') }}
+    {{ hub('/skills', 'sparkles', 'Org skills', 'Reusable skills shared across the organization.') }}
+  </div>
+</div>
+
+<!-- ── Integrations ────────────────────────────────────────────────────────── -->
+<div class="org-panel" data-ot="integrations">
+  <div class="manage-grid">
+    {{ hub('/connectors/mcp', 'blocks', 'Integrations', 'Connect + govern the MCP integrations the org brain can use.') }}
+    {{ hub('/agent-access', 'key-round', 'Agent access', 'API tokens + scopes for external agents.') }}
+  </div>
+  <h3 class="manage-sub">Coming soon</h3>
+  <div class="advrow"><div class="advrow-main"><span class="advrow-name">Slack</span><span class="advrow-d">Ask your organisation's AI from Slack.</span></div><span class="advrow-cta">coming soon</span></div>
+  <div class="advrow"><div class="advrow-main"><span class="advrow-name">Google Drive</span><span class="advrow-d">Keep the org wiki in sync with shared drives.</span></div><span class="advrow-cta">coming soon</span></div>
+  <div class="advrow"><div class="advrow-main"><span class="advrow-name">GitHub</span><span class="advrow-d">Let agents open and review pull requests.</span></div><span class="advrow-cta">coming soon</span></div>
+  <div class="adv-contact">Need an integration sooner? Email <a href="mailto:dev@anthill.run">dev@anthill.run</a>.</div>
+</div>
+
+<!-- ── Metrics ─────────────────────────────────────────────────────────────── -->
+<div class="org-panel" data-ot="metrics">
+  <div class="manage-grid">
+    {{ hub('/metrics', 'bar-chart-3', 'Metrics', 'Usage and activity across the organization.') }}
+    {{ hub('/audit', 'scroll-text', 'Audit log', 'Every inference call and knowledge change, on the record.') }}
+  </div>
+</div>
+
+<script>
+// Manage-Org tabs: show one panel at a time (mockup: Members / Model / Knowledge / Integrations /
+// Metrics). Every admin link stays in the DOM under its tab, so all destinations remain reachable.
+function setOT(t) {
+  document.querySelectorAll('#org-tabs a').forEach(function (a) { a.classList.toggle('active', a.dataset.ot === t); });
+  document.querySelectorAll('.org-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.ot === t); });
+}
+</script>
+{% endblock %}

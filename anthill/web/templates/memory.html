@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Memory{% endblock %}
+{% block page_title %}Memory{% endblock %}
+{% block content %}
+{% include "_knowledge_tabs.html" %}
+
+<div class="card mb-2" style="background:var(--bg-subtle)" id="memory-explainer">
+  <div class="flex items-center justify-between">
+  <h2 style="font-size:16px;margin:0 0 8px">What is this?</h2>
+  <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.memory.start();return false" class="text-sm">Take a tour</a>
+  </div>
+  <p class="text-sm" style="margin:0 0 8px">
+    Memory is what Anthill remembers from your everyday chats and tasks, so it gets
+    smarter without you marking anything. It sits between the <b>cache</b> (reuses a
+    near-identical answer) and the <b>wiki</b> (curated, reviewed knowledge): short,
+    durable facts and preferences that are <b>recalled automatically</b> into future answers.
+  </p>
+  <p class="text-sm text-muted" style="margin:0">
+    Personal by default. When the same fact turns up for two or more people it is
+    <b>auto-promoted</b> - to your shared <b>team</b> if you have one, otherwise
+    <b>org-wide</b> - so it's recalled for everyone. An admin can also promote by hand,
+    and you can turn any memory into a reviewed <b>wiki</b> page. Delete anything you don't want kept.
+  </p>
+</div>
+
+<!-- auto-memory control: pause/resume the automatic distillation -->
+<div class="flex justify-between items-center mb-2" id="memory-auto-toggle"
+     style="gap:12px;flex-wrap:wrap;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+  <span class="text-sm">
+    <b>Auto-remember from chats &amp; tasks:</b>
+    {% if auto_off %}<span class="badge badge-member">paused</span>
+    <span class="text-muted">Anthill is not learning new memories automatically; existing ones still work.</span>
+    {% else %}<span class="badge badge-active">on</span>
+    <span class="text-muted">Anthill quietly saves durable facts from your chats, tasks, and agent runs.</span>{% endif %}
+  </span>
+  <form method="post" action="/memory/auto-toggle" style="margin:0">
+    <button class="btn btn-outline btn-sm">{{ 'Resume' if auto_off else 'Pause' }}</button>
+  </form>
+</div>
+
+{# This fills in on its own as you chat - "+ Add memory" is the manual, optional path, so it stays
+   secondary weight (outline, not primary) rather than competing with the automatic story above. #}
+<div class="flex justify-between items-center mb-2" style="gap:12px;flex-wrap:wrap">
+  <form method="get" action="/memory" style="margin:0;flex:1;min-width:200px">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search memory…"
+           style="width:100%">
+  </form>
+  <button onclick="document.getElementById('add-mem').style.display='block'"
+          id="add-mem-btn" class="btn btn-outline btn-sm" title="Optional - memory usually fills in on its own">+ Add memory (optional)</button>
+</div>
+
+<div id="add-mem" style="display:none" class="card mb-2">
+  <form method="post" action="/memory/add" style="display:flex;gap:10px;align-items:flex-end">
+    <div class="form-group" style="margin:0;flex:1">
+      <label>Teach Anthill a durable fact or preference</label>
+      <input type="text" name="text" required maxlength="500"
+             placeholder="e.g. We use Postgres for billing and Stripe for payments.">
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </form>
+</div>
+
+{% if items %}
+<div style="overflow-x:auto">
+<table>
+  <thead><tr><th>Memory</th><th>Kind</th><th>Scope</th><th>From</th><th></th></tr></thead>
+  <tbody>
+  {% for m in items %}
+  <tr>
+    <td>{{ m.text }}</td>
+    <td><span class="badge badge-member">{{ m.kind }}</span></td>
+    <td>{% if m.scope == 'org' %}<span class="badge badge-active">org</span>
+        {% elif m.scope == 'team' %}<span class="badge badge-active">team</span>
+        {% else %}<span class="badge badge-member">personal</span>{% if m.pinned_personal %} <span title="Kept personal - never auto-shared">&#128204;</span>{% endif %}{% endif %}
+        {% if m.scope in ['org', 'team'] and m.corroborations and m.corroborations > 1 %}<br><span class="text-sm text-muted">shared by {{ m.corroborations }}</span>{% endif %}</td>
+    <td class="text-sm text-muted">
+      {% if m.source == 'chat' and m.source_id %}<a href="/chat/{{ m.source_id }}" title="Open the chat this came from">chat &rarr;</a>
+      {% elif m.source == 'task' and m.source_id %}<a href="/tasks/{{ m.source_id }}/result" title="Open the task this came from">task &rarr;</a>
+      {% elif m.source == 'agent' and m.source_id %}<a href="/agents/{{ m.source_id }}" title="Open the agent this came from">agent &rarr;</a>
+      {% else %}{{ m.source }}{% endif %}
+    </td>
+    <td style="white-space:nowrap">
+      {% if m.scope == 'personal' %}
+      <button type="button" class="btn btn-outline btn-sm" onclick="var e=document.getElementById('edit-{{ m.id }}');e.style.display=(e.style.display==='table-row'?'none':'table-row')">Edit</button>
+      <form method="post" action="/memory/{{ m.id }}/keep-personal" style="display:inline;margin:0">
+        <button class="btn btn-outline btn-sm" title="{{ 'Let this be shared if colleagues have it too' if m.pinned_personal else 'Never auto-share this memory, even if colleagues have it' }}">{{ 'Allow sharing' if m.pinned_personal else 'Keep personal' }}</button>
+      </form>
+      {% endif %}
+      {% if m.scope != 'org' %}
+      <form method="post" action="/memory/{{ m.id }}/wiki" style="display:inline;margin:0">
+        <input type="hidden" name="target_scope" value="personal">
+        <button class="btn btn-outline btn-sm" title="Propose a wiki page from this memory (goes through review)">&rarr; Wiki</button>
+      </form>
+      {% endif %}
+      {% if user.get('role') == 'admin' and m.scope != 'org' %}
+      <form method="post" action="/memory/{{ m.id }}/promote" style="display:inline;margin:0">
+        <button class="btn btn-outline btn-sm" title="Recall this for everyone in the org">Promote to org</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/memory/{{ m.id }}/delete" style="display:inline;margin:0">
+        <button class="btn btn-danger btn-sm">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {% if m.scope == 'personal' %}
+  <tr id="edit-{{ m.id }}" style="display:none">
+    <td colspan="5">
+      <form method="post" action="/memory/{{ m.id }}/edit" style="display:flex;gap:10px;align-items:center">
+        <input type="text" name="text" value="{{ m.text }}" maxlength="500" style="flex:1" required>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:30px">
+  <p class="text-muted">No memory yet. It fills in as you chat and run tasks - or add one above.</p>
+</div>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  anthillWalkthrough('memory', [
+    {sel: '#memory-explainer', title: 'What memory is', body: 'Durable facts and preferences Anthill picks up from your chats and tasks, recalled automatically - no marking anything.'},
+    {sel: '#memory-auto-toggle', title: 'Pause any time', body: 'Turn auto-remembering off if you would rather Anthill not learn from a conversation. Existing memories keep working.'},
+    {sel: '#add-mem-btn', title: 'Teach it directly', body: 'You can also add a fact by hand instead of waiting for it to come up in conversation.'},
+  ], {autostart: false});
+});
+</script>
+{% endblock %}

@@ -1,0 +1,98 @@
+# ASDD - intake gate (deterministic half of the pipeline).
+#
+# Security posture (standards/security.md): this workflow ingests UNTRUSTED pull-request content. It runs
+# READ-ONLY (contents: read, plus pull-requests: read only to COUNT the author's open PRs for the
+# anti-flood cap), holds no write scope and no deploy secrets, and posts nothing. Untrusted fields are
+# written to files and handed to the check as DATA paths, never interpolated into a command or a prompt.
+# The job's own pass/fail is the status check; the model-driven review lenses and the write-scoped
+# publish step live in a separate workflow.
+
+name: ASDD intake
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read # read-only: count the author's open PRs for the anti-flood cap. No write scope.
+
+concurrency:
+  group: asdd-intake-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  intake:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base (trusted scripts + config only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          # Keep the read-only token (the job is permissions: contents: read, so no write scope): it is
+          # needed to fetch the PR head ref on a private repo. Untrusted content is still only data.
+          persist-credentials: true
+
+      - name: Collect PR content as data (untrusted, never executed)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .asdd-work
+          printf '%s' "$PR_BODY" > .asdd-work/body.md
+          printf '%s' "$LABELS_JSON" | jq -r '.[].name' > .asdd-work/labels.txt
+          # Fetch the PR head into a NAMED ref so HEAD_SHA is deterministic. `rev-parse FETCH_HEAD`
+          # can resolve to the base sha when two refs are fetched, which made the range base..head
+          # empty (and the DCO check see 0 commits). --depth covers the PR's commit range.
+          git fetch --no-tags --depth=200 origin "+refs/pull/${PR_NUMBER}/head:refs/anthill-pr-head" "$BASE_SHA"
+          HEAD_SHA="$(git rev-parse refs/anthill-pr-head)"
+          git log "$BASE_SHA".."$HEAD_SHA" --format='%B%x00' > .asdd-work/commits.txt
+          # Changed files (for the spec-gate: did the PR add/edit a docs/specs/*.md?). Names only.
+          # --name-status (not --name-only): the spec gate must count an ADDED/MODIFIED spec, not a
+          # DELETED one, so a PR that deletes a docs/specs/*.md while changing code can't pass the gate.
+          git diff --name-status "$BASE_SHA".."$HEAD_SHA" > .asdd-work/changed.txt
+          { echo "pr_number=$PR_NUMBER"; echo "head_sha=$HEAD_SHA"; } > .asdd-work/meta.env
+          # Spec-gate toggle from the BASE .asdd.yml (trusted). intake-check.sh does the pattern match.
+          REQ_SPEC="$(grep -E '^[[:space:]]*require_spec:' .asdd.yml 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*([a-z]+).*/\1/' || true)"
+          echo "require_spec=${REQ_SPEC:-false}" >> .asdd-work/meta.env
+          # Anti-flood cap (ASDD 3): count the author's open PRs (read-only) and read the cap from the
+          # BASE .asdd.yml (trusted checkout). PR_AUTHOR is a GitHub login, not free-form body text, and
+          # is passed as an argument, not interpolated into a command. intake-check.sh does the compare;
+          # an API hiccup leaves the count empty, which the check treats as "skip", never a false block.
+          CAP="$(grep -E '^[[:space:]]*max_open_prs_per_author:' .asdd.yml 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/' || true)"
+          OPEN="$(gh pr list --repo "$REPO" --state open --author "$PR_AUTHOR" --limit 100 --json number | jq 'length' 2>/dev/null || echo '')"
+          { echo "max_open_prs=${CAP:-0}"; echo "open_pr_count=${OPEN}"; } >> .asdd-work/meta.env
+          # Owner override: author (trusted event metadata) + the `owner-override` label, checked against
+          # the owners in the BASE COMMIT's .asdd.yml (git show $BASE_SHA:, NOT the working tree - a PR
+          # cannot self-authorize by editing .asdd.yml). `|| echo false` so it is inert before the script
+          # exists in base (self-heals after merge).
+          git show "$BASE_SHA:.asdd.yml" > .asdd-work/base-asdd.yml 2>/dev/null || : > .asdd-work/base-asdd.yml
+          OVR="$(bash .github/asdd/owner-override.sh "$PR_AUTHOR" .asdd-work/labels.txt .asdd-work/base-asdd.yml 2>/dev/null || echo false)"
+          echo "override=${OVR}" >> .asdd-work/meta.env
+
+      - name: Intake gate (disclosure + DCO + lane tag)
+        run: bash .github/asdd/intake-check.sh .asdd-work intake.json
+
+      - name: Verdict
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -f intake.json ] || { echo "intake did not produce a result"; exit 1; }
+          passed="$(jq -r .passed intake.json)"
+          {
+            echo "## ASDD intake"
+            if [ "$passed" = "true" ]; then
+              echo "Passed: disclosure, DCO sign-off, and exactly one lane tag are present."
+            else
+              echo "Not passing yet. Fix these, then push again:"
+              jq -r '.problems[] | "- " + .' intake.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$passed" = "true" ]

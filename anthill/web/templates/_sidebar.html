@@ -1,0 +1,402 @@
+{# Global app navigation rail. Included by base.html and (so the rail is never lost) by the
+   standalone chat page. Needs `request`, `user`, and the _nav_context context processor's
+   `nav_badges` / `nav_teams` / `nav_org` in the render context. #}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="ah-mound" viewBox="0 0 28 24">
+    <path d="M3.5 20.2 A10.6 9.2 0 0 1 24.5 20.2 Z" fill="#81B49A"/>
+    <path d="M3.5 20.2 A10.6 9.2 0 0 1 24.5 20.2 L21.5 20.2 A7.6 6.6 0 0 0 6.5 20.2 Z" fill="#3D8B63" opacity=".55"/>
+    <path d="M8.4 15 Q14 12.4 19.6 15" stroke="#15462F" stroke-width=".9" fill="none" opacity=".6"/>
+    <path d="M10 17.4 Q14 15.6 18 17.4" stroke="#15462F" stroke-width=".9" fill="none" opacity=".5"/>
+    <ellipse cx="14" cy="9.2" rx="1.7" ry="1.15" fill="#081C13"/>
+    <line x1="1.5" y1="20.4" x2="26.5" y2="20.4" stroke="#081C13" stroke-width="1.2" opacity=".28"/>
+  </symbol>
+  <symbol id="ah-ant" viewBox="0 0 24 14">
+    <g fill="currentColor"><ellipse cx="6" cy="7" rx="4" ry="3"/><ellipse cx="12" cy="7" rx="2.3" ry="2.3"/><ellipse cx="16" cy="7" rx="2" ry="2"/></g>
+    <g stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none">
+      <path d="M10 8 L7 12 M12 8.4 L11 13 M13.6 8 L16 12"/>
+      <path d="M10 6 L7 2.6 M12 5.6 L11 1.4 M13.6 6 L16 2.6" opacity=".5"/>
+      <path d="M17 6 L20 3 M17 6.6 L20 5.2"/>
+    </g>
+  </symbol>
+  {# Escalation variant (chat.html's build-indicator, swapped in via setEscalating()): same ant, plus a
+     small cape trailing behind the abdomen - the marching direction is left-to-right (head/antennae at
+     x~17-20), so the cape flows off the back at x~0-6. Founder: "superman ants with a cape". Cape colour
+     is fixed (not currentColor) so it always reads as a cape regardless of the ant body's own colour. #}
+  <symbol id="ah-ant-cape" viewBox="0 0 24 14">
+    <path d="M4.2 3 Q-1.2 1 0.3 7 Q-1.2 13 4.2 11 Q2.5 7 4.2 3 Z" fill="#E2A93B" opacity=".9"/>
+    <g fill="currentColor"><ellipse cx="6" cy="7" rx="4" ry="3"/><ellipse cx="12" cy="7" rx="2.3" ry="2.3"/><ellipse cx="16" cy="7" rx="2" ry="2"/></g>
+    <g stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none">
+      <path d="M10 8 L7 12 M12 8.4 L11 13 M13.6 8 L16 12"/>
+      <path d="M10 6 L7 2.6 M12 5.6 L11 1.4 M13.6 6 L16 2.6" opacity=".5"/>
+      <path d="M17 6 L20 3 M17 6.6 L20 5.2"/>
+    </g>
+  </symbol>
+  <symbol id="ah-logo" viewBox="0 0 200 126">
+    <path d="M44,116 C48,62 78,40 100,40 C122,40 152,62 156,116 Z" fill="#3D8B63"/>
+    <path d="M78,68 Q100,49 122,68" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M67,88 Q100,63 133,88" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M58,105 Q100,79 142,105" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M85,116 Q85,99 100,99 Q115,99 115,116 Z" fill="#081C13"/>
+    <line x1="30" y1="116" x2="170" y2="116" stroke="#15462F" stroke-width="3.2" stroke-linecap="round"/>
+  </symbol>
+</svg>
+<aside class="sidebar">
+  <div class="brand-block"{% if nav_profile %} style="border-top:3px solid {{ nav_profile.colour }}"{% endif %}>
+    <a href="/" class="brand" title="Back to dashboard"><svg class="brand-mark" viewBox="0 0 28 24" aria-hidden="true"><use href="#ah-mound"/></svg><span class="wordmark">Anthill</span></a>
+    {% if nav_org %}<div class="brand-org" title="{{ nav_org }}">{{ nav_org }}</div>{% endif %}
+    {# The profile chip: the always-visible "which isolated account am I in" indicator and the
+       switcher. The colour is the profile's own, so each profile looks distinct at a glance. #}
+    {% if nav_profile %}
+    <div class="profile-chip-wrap">
+      <button type="button" class="profile-chip" onclick="toggleProfileMenu(event)"
+              aria-haspopup="true" aria-expanded="false"
+              title="You are in the &quot;{{ nav_profile.name }}&quot; profile - click to switch or manage">
+        <span class="profile-dot" style="background:{{ nav_profile.colour }}"></span>
+        <span class="profile-chip-name">{{ nav_profile.name }}</span>
+        <i data-lucide="chevrons-up-down" class="profile-chip-caret">⇅</i>
+      </button>
+      <div class="profile-menu" id="profile-menu" role="menu">
+        <div class="profile-menu-label">Profiles on this device</div>
+        {% for p in nav_profiles %}
+        {% if p.current %}
+        <div class="profile-menu-item is-current"><span class="profile-dot" style="background:{{ p.colour }}"></span><span class="profile-menu-name">{{ p.name }}</span><span class="profile-menu-badge">current</span></div>
+        {% else %}
+        <button type="button" class="profile-menu-item" onclick="anthillSwitchProfile('{{ p.id }}')"><span class="profile-dot" style="background:{{ p.colour }}"></span><span class="profile-menu-name">{{ p.name }}</span><span class="profile-menu-open">Open</span></button>
+        {% endif %}
+        {% endfor %}
+        <div class="profile-menu-sep"></div>
+        <a href="/profile" class="profile-menu-link" role="menuitem">Profile settings</a>
+        <a href="/profiles" class="profile-menu-link" role="menuitem">Manage profiles</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {# `chat_mode` (set by chat.html before the include) merges the conversation list into the rail
+     under Workspace and folds the other groups so the chat is the focus. Off everywhere else. #}
+  {% set chat_mode = chat_mode | default(false) %}
+  {# `workspace_mode` (chat/tasks/agents, from _nav_context) folds the lower groups so the work is
+     the focus; `chat_mode` additionally merges the conversation list into the rail (chat only). #}
+  {% set workspace_mode = workspace_mode | default(false) %}
+  {# `nav_locked` (set by the first-run wizard pages) deters navigating away mid-setup - a UI
+     deterrent only (nav-locked greys + disables pointer events on every link); no route enforces the
+     wizard order beyond the dashboard's own redirect gates, so direct URL entry still works exactly
+     as it does today. #}
+  {% set nav_locked = nav_locked | default(false) %}
+  <nav{% if chat_mode or workspace_mode or nav_locked %} class="{% if chat_mode %}chat-mode {% endif %}{% if workspace_mode %}workspace-mode {% endif %}{% if nav_locked %}nav-locked{% endif %}"{% endif %}>
+    {# Task-based groups; admin-only items are gated per item (no top-level "ADMIN" wall) so
+       related things sit together (Wiki + Wiki review, Metrics + Audit). Roles: admin | member. #}
+    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i data-lucide="layout-dashboard">🏠</i>Dashboard</a>
+    <a href="/notifications" class="{% if '/notifications' in request.url.path %}active{% endif %}"><i data-lucide="bell">🔔</i>Notifications{% if nav_badges and nav_badges.notifications %}<span class="nav-badge">{{ nav_badges.notifications }}</span>{% endif %}</a>
+
+    {# Primary work surfaces - Chat, Tasks, Agents, Knowledge - as one flat block (no section label);
+       a `navcut` divider below separates them from setup/admin. #}
+    <div class="nav-group">
+      <a href="/chat" class="{% if '/chat' in request.url.path %}active{% endif %}"><i data-lucide="message-circle">💬</i>Chat</a>
+      {% if chat_mode and conversations is defined %}
+      {# Pinned chats sit at the top; folders group the rest; chats in no folder ("unfiled") keep the
+         plane split. #}
+      {% set folders = folders | default([]) %}
+      {% set pinned_convs = conversations | selectattr('pinned') | list %}
+      {% set unpinned = conversations | rejectattr('pinned') | list %}
+      {% set unfiled = unpinned | selectattr('folder_id', 'none') | list %}
+      {# The three homes (docs/specs/no-homeless-chats.md): Personal = solo, a Project = team,
+         Organization = org - the plane column, named, so every chat has a visible home and none is
+         homeless. Split unfiled chats by home; a team chat is never mislabelled Personal. #}
+      {% set org_convs = unfiled | selectattr('plane', 'equalto', 'org') | list %}
+      {% set team_convs = unfiled | selectattr('plane', 'equalto', 'team') | list %}
+      {% set personal_convs = unfiled | rejectattr('plane', 'equalto', 'org') | rejectattr('plane', 'equalto', 'team') | list %}
+      {# Show the home headings only when more than the Personal home is in play (an Org backend is
+         connected, or Org/Project chats exist); a Personal-only user keeps the simple single list. #}
+      {% set show_homes = org_plane_available or org_convs or team_convs %}
+      {# Each rail conversation is a row: the link + a delete control that appears on hover, so a
+         conversation can be deleted right from the list (not only the open one). #}
+      {% macro conv_item(c, cls, suffix, dot) %}
+      <div class="rail-conv-row">
+        <a href="/chat/{{ c.id }}" class="rail-conv {{ cls }}{% if active_conv and c.id == active_conv.id %} active{% endif %}" title="{{ c.title }}{{ suffix }}">{% if dot %}<span class="plane-dot plane-dot-{{ dot }}"></span>{% endif %}{{ c.title }}</a>
+        {# All three actions share one absolutely-positioned group so they lay out side by side, rather
+           than each <form> positioning itself at the identical spot (that stacked pin/rename/delete
+           exactly on top of each other - only the last-painted one was ever clickable). #}
+        <div class="rail-conv-actions">
+          <form method="post" action="/chat/{{ c.id }}/pin" class="rail-conv-act"><button type="submit" class="rail-conv-del-btn" title="{{ 'Unpin' if c.pinned else 'Pin to top' }}" aria-label="{{ 'Unpin conversation' if c.pinned else 'Pin conversation' }}"><i data-lucide="{{ 'pin-off' if c.pinned else 'pin' }}">📌</i></button></form>
+          <form method="post" action="/chat/{{ c.id }}/rename" class="rail-conv-act" onsubmit="var t=prompt('Rename conversation:', this.title.value); if(t===null) return false; this.title.value=t;"><input type="hidden" name="title" value="{{ c.title }}"><button type="submit" class="rail-conv-del-btn" title="Rename conversation" aria-label="Rename conversation"><i data-lucide="pencil">✏️</i></button></form>
+          <form method="post" action="/chat/{{ c.id }}/delete" class="rail-conv-act" onsubmit="return confirm('Delete this conversation?')"><button type="submit" class="rail-conv-del-btn danger" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2">🗑</i></button></form>
+        </div>
+      </div>
+      {% endmacro %}
+      {# A folder is a collapsible group of the user's chats; deleting it only unfiles its chats. #}
+      {% macro folder_group(f) %}
+      {% set fconvs = unpinned | selectattr('folder_id', 'equalto', f.id) | list %}
+      <details class="rail-folder" open>
+        <summary class="rail-conv-section rail-folder-summary"><span>📁 {{ f.name }}</span><form method="post" action="/folders/{{ f.id }}/delete" onsubmit="return confirm('Delete this folder? Its chats are kept, just unfiled.')"><button type="submit" class="rail-conv-del-btn danger" title="Delete folder" aria-label="Delete folder"><i data-lucide="trash-2">🗑</i></button></form></summary>
+        {% for c in fconvs %}{{ conv_item(c, 'rail-conv-' ~ ('org' if c.plane == 'org' else 'solo'), '', ('org' if c.plane == 'org' else 'solo')) }}{% endfor %}
+      </details>
+      {% endmacro %}
+      <div class="rail-convs">
+        {# Search / sort the rail's chats without leaving the page (client-side): filter by title, flip
+           Recent<->A-Z, and click any section heading to collapse it. Only shown when there are chats. #}
+        {% if pinned_convs or unpinned or folders %}
+        <div class="rail-convtools">
+          <input id="railSearch" class="rail-convsearch" type="text" placeholder="Search chats" aria-label="Search chats" autocomplete="off">
+          <button id="railSort" type="button" class="rail-convsort" title="Sort chats" aria-label="Sort chats">Recent</button>
+        </div>
+        {% endif %}
+        {% if show_homes %}
+        <div class="rail-newchat-row">
+          {# One model per account: both run on the org model in an org account - the choice is SHARING.
+             "+ New chat" is a PRIVATE (Personal) chat on your own wiki; "+ Org chat" is SHARED with the
+             org wiki. In a Solo account there is no org, so only the private new chat shows. #}
+          <form method="post" action="/chat/new"><input type="hidden" name="plane" value="solo"><button class="btn btn-primary rail-newchat rail-newchat-solo">+ New chat</button></form>
+          {% if org_plane_available %}
+          <form method="post" action="/chat/new"><input type="hidden" name="plane" value="org"><button class="btn rail-newchat rail-newchat-org">+ Org chat</button></form>
+          {% endif %}
+        </div>
+        {% set dot_of = {'org': 'org', 'team': 'team'} %}
+        {% if pinned_convs %}
+        <div class="rail-conv-section">Pinned</div>
+        {% for c in pinned_convs %}{{ conv_item(c, 'rail-conv-' ~ dot_of.get(c.plane, 'solo'), '', dot_of.get(c.plane, 'solo')) }}{% endfor %}
+        {% endif %}
+        {# Personal: the user's private, always-local home. Standalone (unfiled) chats sit right under the
+           heading so a new one is easy to find; a user's personal Folders group the rest, below (#414). #}
+        <div class="rail-conv-section">Personal</div>
+        {% for c in personal_convs %}{{ conv_item(c, 'rail-conv-solo', ' (Personal)', 'solo') }}{% endfor %}
+        {% for f in folders %}{{ folder_group(f) }}{% endfor %}
+        {# Projects: each team's shared chats under the project name, so a team chat has its own home. #}
+        {% for t in nav_teams %}
+        {% set tconvs = team_convs | selectattr('team_id', 'equalto', t.id) | list %}
+        {% if tconvs %}
+        <div class="rail-conv-section">{{ t.name }}</div>
+        {% for c in tconvs %}{{ conv_item(c, 'rail-conv-team', ' (' ~ t.name ~ ')', 'team') }}{% endfor %}
+        {% endif %}
+        {% endfor %}
+        {# A team chat whose project is not in this list (e.g. you left the team) still gets a home. #}
+        {% set known_team_ids = nav_teams | map(attribute='id') | list %}
+        {% set orphan_team = team_convs | rejectattr('team_id', 'in', known_team_ids) | list %}
+        {% if orphan_team %}
+        <div class="rail-conv-section">Projects</div>
+        {% for c in orphan_team %}{{ conv_item(c, 'rail-conv-team', ' (Project)', 'team') }}{% endfor %}
+        {% endif %}
+        {# Organization: the org-wide space (org cloud model + org wiki). #}
+        {% if org_convs %}
+        <div class="rail-conv-section">Organization</div>
+        {% for c in org_convs %}{{ conv_item(c, 'rail-conv-org', ' (Organization)', 'org') }}{% endfor %}
+        {% endif %}
+        {% else %}
+        <form method="post" action="/chat/new"><button class="btn btn-primary rail-newchat">+ New chat</button></form>
+        {% if pinned_convs %}
+        <div class="rail-conv-section">Pinned</div>
+        {% for c in pinned_convs %}{{ conv_item(c, '', '', '') }}{% endfor %}
+        {% endif %}
+        {% for c in unfiled %}{{ conv_item(c, '', '', '') }}{% endfor %}
+        {% for f in folders %}{{ folder_group(f) }}{% endfor %}
+        {% endif %}
+        {% if pinned_convs or unpinned or folders %}
+        <form method="post" action="/folders/new" class="rail-newfolder"><input type="text" name="name" placeholder="+ New folder for your chats" maxlength="80" aria-label="New personal folder name" title="Group your own chats into a folder. Personal to you - not a team or project."></form>
+        {% endif %}
+        {# The rail holds only the most recent chats; everything stays reachable + searchable here. #}
+        <a href="/chat/history" class="rail-seeall{% if request.url.path == '/chat/history' %} active{% endif %}" title="Search and browse all your chats"><i data-lucide="search">🔎</i>Search / see all chats</a>
+      </div>
+      {% endif %}
+      <a href="/tasks" class="{% if '/tasks' in request.url.path %}active{% endif %}"><i data-lucide="list-checks">🤖</i>Tasks</a>
+      <a href="/agents" class="{% if '/agents' in request.url.path %}active{% endif %}"><i data-lucide="bot">🤖</i>Agents</a>
+    </div>
+
+    {# The cut: everything below is setup / admin, kept visually apart from the daily work above. #}
+    <div class="navcut"></div>
+
+    {# In a workspace (chat/tasks/agents) the secondary nav folds into one collapsed "More" so the
+       work is the focus (the mockup rail); everywhere else the groups stay open. #}
+    {% if workspace_mode %}
+    <details class="nav-group nav-more">
+      <summary class="nav-section nav-more-summary">More</summary>
+    {% endif %}
+
+    <div class="nav-group">
+      {% set _sp = request.url.path %}
+      {# Lower group (below the cut): Knowledge and Projects - the shared knowledge/work spaces - sit here
+         with Settings, apart from the daily work surfaces (Chat/Tasks/Agents) above. #}
+      <a href="/wiki" class="{% if _sp.startswith('/wiki') or _sp.startswith('/snippets') or _sp.startswith('/memory') or _sp.startswith('/skills') %}active{% endif %}"><i data-lucide="library">📚</i>Knowledge{% if user and user.role == 'admin' and nav_badges and nav_badges.review %}<span class="nav-badge">{{ nav_badges.review }}</span>{% endif %}</a>
+      <a href="/teams" class="{% if '/teams' in _sp %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>Projects</a>
+      {% for t in nav_teams %}<a href="/wiki/team/{{ t.id }}" class="{% if _sp == '/wiki/team/' ~ t.id %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>{{ t.name }}</a>{% endfor %}
+      {# Settings: the single settings entry. Your personal setup (Model / Knowledge / Personality /
+         This device / Privacy) lives on /personalize, one workflow per tab; the shared Organisation
+         settings are reached from there. Active on any settings/model/org-config sub-page. When on
+         /personalize, its sub-sections show as sub-items. #}
+      <a href="/personalize" class="{% if _sp.startswith('/personalize') or _sp.startswith('/settings') or _sp.startswith('/models') or _sp.startswith('/training') or _sp.startswith('/backend') or _sp.startswith('/backup') or _sp.startswith('/agent-access') %}active{% endif %}"><i data-lucide="settings">⚙️</i>Settings</a>
+      {% if _sp.startswith('/personalize') %}
+      <div class="settings-subrail">
+        <a href="/personalize#model">Model</a>
+        <a href="/personalize#knowledge">Knowledge</a>
+        <a href="/personalize#personality">Personality</a>
+        <a href="/personalize#privacy">Privacy</a>
+        <a href="/personalize#device">This device</a>
+        {% if user and user.role == 'admin' %}<a href="/personalize#org">Organisation</a>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# Metrics & Audit are org-level insights, not rail items: they live on the Dashboard (admin view)
+       and under Org settings -> Insights. #}
+
+    {# Users, Integrations and Org settings all fold into the single Settings entry above (its
+       "Organisation" card -> the org hub, admins only), so the rail below the cut ends at Settings.
+       Integrations is admin-managed there; members reach it through an admin. #}
+
+    {# Help (Contribute / How it works / Setup / Take a tour) is no longer a rail group; it lives in the
+       sidebar footer below, so the main nav stays task-focused. #}
+    {% if workspace_mode %}</details>{% endif %}
+  </nav>
+  {# Footer: a compact account chip + Sign out, with Help/How-it-works/Setup/Take-a-tour/Enable-notifications
+     tucked into a "..." overflow so the footer is not a pile of links. #}
+  <div class="sidebar-footer">
+    <div class="footer-row">
+      <a href="/profile" class="footer-account" title="Profile &amp; account">
+        <span class="footer-av">{{ (nav_profile.name[0] if nav_profile and nav_profile.name else 'A') | upper }}</span>
+        <span class="footer-who">{% if nav_profile %}{{ nav_profile.name }}{% else %}Account{% endif %}<small>{% if nav_org %}{{ nav_org }}{% else %}Solo &middot; private{% endif %}</small></span>
+      </a>
+      <button type="button" class="footer-help-btn" onclick="toggleHelpMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Help and more" title="Help &amp; more"><i data-lucide="more-horizontal">⋯</i></button>
+    </div>
+    {% if user %}<a href="/logout" class="footer-signout">Sign out</a>{% endif %}
+    <div class="footer-help-menu" id="footer-help-menu" role="menu" hidden>
+      <a href="/docs/how-it-works" role="menuitem">How it works</a>
+      <a href="/docs/setup" role="menuitem">Setup</a>
+      <a href="javascript:void(0)" onclick="window.anthillTour&&anthillTour.start()" role="menuitem">Take a tour</a>
+      <a href="/contribute" role="menuitem">Contribute</a>
+      <a href="javascript:void(0)" onclick="window.enableNotifications&&enableNotifications()" role="menuitem">Enable notifications</a>
+    </div>
+  </div>
+  <script>
+    // Lives with the rail so it works on every page the rail appears on (base.html pages AND the
+    // standalone chat page), not only where a page happened to define it.
+    // Fold a nav group open/closed (workspace pages: chat / tasks / agents).
+    function toggleNavGroup(header) { header.parentElement.classList.toggle('expanded'); }
+    // The profile chip menu: open/close, and close on an outside click or Escape.
+    function toggleProfileMenu(ev) {
+      ev.stopPropagation();
+      var m = document.getElementById('profile-menu');
+      if (!m) return;
+      var open = m.classList.toggle('open');
+      var btn = ev.currentTarget;
+      if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    // Footer "..." overflow: Help / How it works / Setup / Take a tour / Enable notifications.
+    function toggleHelpMenu(ev) {
+      ev.stopPropagation();
+      var m = document.getElementById('footer-help-menu');
+      if (!m) return;
+      var opening = m.hidden;
+      m.hidden = !opening;
+      var btn = ev.currentTarget;
+      if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    }
+    document.addEventListener('click', function (e) {
+      var m = document.getElementById('profile-menu');
+      if (m && m.classList.contains('open') && !e.target.closest('.profile-chip-wrap')) {
+        m.classList.remove('open');
+      }
+      var h = document.getElementById('footer-help-menu');
+      if (h && !h.hidden && !e.target.closest('.sidebar-footer')) h.hidden = true;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var m = document.getElementById('profile-menu');
+      if (m) m.classList.remove('open');
+      var h = document.getElementById('footer-help-menu');
+      if (h) h.hidden = true;
+    });
+    // Switch to another profile. In the desktop app this restarts the backend against that
+    // profile's data; a plain browser can't spawn a process, so send them to Manage profiles
+    // (which shows the exact command).
+    function anthillSwitchProfile(id) {
+      var t = window.__TAURI__;
+      if (t && t.core && typeof t.core.invoke === 'function') {
+        t.core.invoke('open_profile', { id: id }).catch(function (e) {
+          showToast('Could not open that profile: ' + e, 'error');
+        });
+      } else {
+        window.location.href = '/profiles';
+      }
+    }
+
+    // Conversation rail: client-side search / sort / collapse over the chats already in the rail (the
+    // full archive stays at /chat/history). Purely presentational - no request, nothing persisted.
+    (function () {
+      var wrap = document.querySelector('.rail-convs');
+      if (!wrap) return;
+      var rows = Array.prototype.slice.call(wrap.querySelectorAll('.rail-conv-row'));
+      if (!rows.length) return;
+      rows.forEach(function (r, i) { r.dataset.ord = i; });  // stable "Recent" order to restore to
+      var azSort = false;
+
+      function titleOf(r) {
+        var a = r.querySelector('.rail-conv');
+        return (a ? a.textContent : '').trim().toLowerCase();
+      }
+      // Top-level (non-folder) section headings, in document order; folders are their own <details>.
+      function flatSections() {
+        return Array.prototype.filter.call(wrap.children, function (el) {
+          return el.classList && el.classList.contains('rail-conv-section');
+        });
+      }
+      function rowsAfter(sec) {
+        var out = [], n = sec.nextElementSibling;
+        while (n && !(n.classList && n.classList.contains('rail-conv-section'))) {
+          if (n.classList && n.classList.contains('rail-conv-row')) out.push(n);
+          n = n.nextElementSibling;
+        }
+        return out;
+      }
+
+      // SEARCH: hide non-matching rows, then hide any heading / folder left with nothing visible.
+      var box = document.getElementById('railSearch');
+      function applySearch() {
+        var q = (box && box.value || '').trim().toLowerCase();
+        rows.forEach(function (r) { r.classList.toggle('rail-hidden', !!q && titleOf(r).indexOf(q) === -1); });
+        flatSections().forEach(function (sec) {
+          var rs = rowsAfter(sec);
+          if (!rs.length) return;
+          var vis = rs.some(function (r) { return !r.classList.contains('rail-hidden'); });
+          sec.classList.toggle('rail-hidden', !vis);
+        });
+        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-folder'), function (d) {
+          var vis = d.querySelector('.rail-conv-row:not(.rail-hidden)');
+          d.classList.toggle('rail-hidden', !!q && !vis);
+        });
+      }
+      if (box) box.addEventListener('input', applySearch);
+
+      // COLLAPSE: click a top-level heading to fold its rows (folders already fold natively).
+      flatSections().forEach(function (sec) {
+        var chev = document.createElement('span');
+        chev.className = 'rail-cgchev';
+        chev.textContent = '▾';
+        sec.appendChild(chev);
+        sec.addEventListener('click', function () {
+          var collapsed = sec.classList.toggle('collapsed');
+          rowsAfter(sec).forEach(function (r) { r.classList.toggle('rail-collapsed', collapsed); });
+        });
+      });
+
+      // SORT: Recent (original order) <-> A-Z, within each heading run and each folder.
+      function cmp(a, b) {
+        return azSort ? titleOf(a).localeCompare(titleOf(b)) : (a.dataset.ord - b.dataset.ord);
+      }
+      function reorder(list, insertAfter, parent) {
+        if (!list.length) return;
+        list.sort(cmp);
+        var frag = document.createDocumentFragment();
+        list.forEach(function (r) { frag.appendChild(r); });  // detaches from DOM
+        if (insertAfter) insertAfter.after(frag); else parent.appendChild(frag);
+      }
+      var sortBtn = document.getElementById('railSort');
+      if (sortBtn) sortBtn.addEventListener('click', function () {
+        azSort = !azSort;
+        sortBtn.textContent = azSort ? 'A-Z' : 'Recent';
+        flatSections().forEach(function (sec) { reorder(rowsAfter(sec), sec, null); });
+        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-folder'), function (d) {
+          reorder(Array.prototype.slice.call(d.querySelectorAll('.rail-conv-row')), null, d);
+        });
+        applySearch();  // keep any active filter applied after the reshuffle
+      });
+    })();
+  </script>
+</aside>

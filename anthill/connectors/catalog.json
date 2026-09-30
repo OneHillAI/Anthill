@@ -1,0 +1,237 @@
+[
+  {
+    "id": "filesystem",
+    "name": "Filesystem",
+    "category": "documents",
+    "summary": "Read and search files in a folder you grant.",
+    "tier": "verified",
+    "upstream": "io.modelcontextprotocol/filesystem",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-filesystem {path}",
+    "auth": {
+      "type": "none",
+      "fields": [
+        {"key": "path", "label": "Folder to share", "placeholder": "/Users/you/Documents", "required": true, "target": "command"}
+      ]
+    },
+    "scopes": ["read files", "list a directory", "search file contents"],
+    "provides_files": true,
+    "guided": true,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+  },
+  {
+    "id": "google-drive",
+    "name": "Google Drive",
+    "category": "documents",
+    "summary": "Search and read your organisation's Google Drive files.",
+    "tier": "verified",
+    "upstream": "io.modelcontextprotocol/gdrive",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-gdrive",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["search Drive", "read a Drive file"],
+    "provides_files": true,
+    "guided": false,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive",
+    "note": "Needs Google Cloud OAuth credentials. Follow the setup guide to authorise, then Test."
+  },
+  {
+    "id": "microsoft-365",
+    "name": "Microsoft 365",
+    "category": "documents",
+    "summary": "OneDrive, SharePoint and Outlook documents for your work account.",
+    "tier": "community",
+    "upstream": "io.github.softeria/ms-365-mcp-server",
+    "transport": "stdio",
+    "command": "npx -y @softeria/ms-365-mcp-server",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["search files", "read a document", "read mail"],
+    "provides_files": true,
+    "guided": false,
+    "setup_url": "https://github.com/softeria/ms-365-mcp-server",
+    "note": "Sign in with your Microsoft work account during setup (device-code flow)."
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "category": "documents",
+    "summary": "Search and read Notion pages and databases.",
+    "tier": "verified",
+    "upstream": "io.github.makenotion/notion-mcp",
+    "transport": "http",
+    "endpoint": "https://mcp.notion.com/mcp",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["search pages", "read a page", "query a database"],
+    "provides_files": true,
+    "guided": false,
+    "setup_url": "https://www.notion.so/help/mcp",
+    "note": "Authorise Anthill from your Notion workspace during setup."
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "category": "development",
+    "summary": "Repositories, issues and pull requests on GitHub.",
+    "tier": "verified",
+    "upstream": "io.github.github/github-mcp-server",
+    "transport": "http",
+    "endpoint": "https://api.githubcopilot.com/mcp/",
+    "auth": {
+      "type": "token",
+      "header": "Authorization: Bearer ",
+      "fields": [
+        {"key": "token", "label": "GitHub access token", "placeholder": "github_pat_...", "required": true, "target": "auth"}
+      ]
+    },
+    "scopes": ["read repos", "search code", "read and comment on issues and PRs"],
+    "provides_files": false,
+    "guided": true,
+    "setup_url": "https://github.com/github/github-mcp-server"
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "category": "development",
+    "summary": "Issues, projects and cycles in Linear.",
+    "tier": "verified",
+    "upstream": "com.linear/linear-mcp",
+    "transport": "http",
+    "endpoint": "https://mcp.linear.app/mcp",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["read and create issues", "read projects"],
+    "provides_files": false,
+    "guided": false,
+    "setup_url": "https://linear.app/docs/mcp",
+    "note": "Authorise Anthill in Linear during setup."
+  },
+  {
+    "id": "atlassian",
+    "name": "Jira and Confluence",
+    "category": "development",
+    "summary": "Atlassian Jira issues and Confluence pages.",
+    "tier": "community",
+    "upstream": "com.atlassian/atlassian-mcp",
+    "transport": "http",
+    "endpoint": "https://mcp.atlassian.com/v1/sse",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["read and create Jira issues", "search Confluence pages"],
+    "provides_files": true,
+    "guided": false,
+    "setup_url": "https://www.atlassian.com/platform/remote-mcp-server",
+    "note": "Connects over SSE, which Anthill is adding next; one-click OAuth is not live for Atlassian yet."
+  },
+  {
+    "id": "sentry",
+    "name": "Sentry",
+    "category": "development",
+    "summary": "Errors, issues and releases in Sentry.",
+    "tier": "community",
+    "upstream": "com.sentry/sentry-mcp",
+    "transport": "http",
+    "endpoint": "https://mcp.sentry.dev/mcp",
+    "auth": {"type": "oauth", "fields": []},
+    "scopes": ["read issues", "read events"],
+    "provides_files": false,
+    "guided": false,
+    "setup_url": "https://docs.sentry.io/product/sentry-mcp/",
+    "note": "Authorise Anthill in Sentry during setup."
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "category": "communication",
+    "summary": "Read and post messages in your Slack workspace.",
+    "tier": "verified",
+    "upstream": "io.modelcontextprotocol/slack",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-slack",
+    "auth": {
+      "type": "token",
+      "fields": [
+        {"key": "bot_token", "label": "Slack bot token", "placeholder": "xoxb-...", "required": true, "target": "env", "env": "SLACK_BOT_TOKEN"},
+        {"key": "team_id", "label": "Slack team ID", "placeholder": "T0123456789", "required": true, "target": "env", "env": "SLACK_TEAM_ID"}
+      ]
+    },
+    "scopes": ["read channels", "read messages", "post a message"],
+    "provides_files": false,
+    "guided": true,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
+    "note": "Create a Slack bot, then paste its token and your team ID. Anthill stores them encrypted and runs the connector with them."
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "category": "communication",
+    "summary": "Read and post messages in your Discord server.",
+    "tier": "community",
+    "upstream": "io.github.pasympa/discord-mcp",
+    "transport": "stdio",
+    "command": "npx -y @pasympa/discord-mcp@2.0.0",
+    "auth": {
+      "type": "token",
+      "fields": [
+        {"key": "bot_token", "label": "Discord bot token", "placeholder": "your bot token", "required": true, "target": "env", "env": "DISCORD_TOKEN"}
+      ]
+    },
+    "scopes": ["read channels", "read messages", "post a message"],
+    "provides_files": false,
+    "guided": true,
+    "setup_url": "https://www.npmjs.com/package/@pasympa/discord-mcp",
+    "note": "Community MCP server (not an official Anthropic/Discord package), pinned to a reviewed version (@2.0.0) so a later release cannot silently change what runs with your bot token - review its scopes before use. Create a Discord application and bot, invite it with only the permissions you need, then paste its token. Anthill stores it encrypted and runs the connector with it."
+  },
+  {
+    "id": "sqlite",
+    "name": "SQLite",
+    "category": "database",
+    "summary": "Query a SQLite database file (read-only friendly).",
+    "tier": "community",
+    "upstream": "io.modelcontextprotocol/sqlite",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-sqlite --db-path {path}",
+    "auth": {
+      "type": "none",
+      "fields": [
+        {"key": "path", "label": "Database file", "placeholder": "/Users/you/data.db", "required": true, "target": "command"}
+      ]
+    },
+    "scopes": ["list tables", "run read queries"],
+    "provides_files": false,
+    "guided": true,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite"
+  },
+  {
+    "id": "git",
+    "name": "Git repository",
+    "category": "development",
+    "summary": "Read history, diffs and files of a local Git repo.",
+    "tier": "verified",
+    "upstream": "io.modelcontextprotocol/git",
+    "transport": "stdio",
+    "command": "uvx mcp-server-git --repository {path}",
+    "auth": {
+      "type": "none",
+      "fields": [
+        {"key": "path", "label": "Repository path", "placeholder": "/Users/you/Projects/repo", "required": true, "target": "command"}
+      ]
+    },
+    "scopes": ["read history", "read diffs", "read files"],
+    "provides_files": true,
+    "guided": true,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/git"
+  },
+  {
+    "id": "fetch",
+    "name": "Web fetch",
+    "category": "web",
+    "summary": "Fetch a web page and read it as clean text.",
+    "tier": "verified",
+    "upstream": "io.modelcontextprotocol/fetch",
+    "transport": "stdio",
+    "command": "uvx mcp-server-fetch",
+    "auth": {"type": "none", "fields": []},
+    "scopes": ["fetch a URL", "read page text"],
+    "provides_files": false,
+    "guided": true,
+    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch"
+  }
+]

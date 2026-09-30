@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}MCP{% endblock %}
+{% block page_title %}MCP connectors{% endblock %}
+{% block content %}
+
+{% if saved == 'added' %}<div class="alert alert-ok">MCP server added. <b>Test</b> it, then <b>Approve</b> to let agents use its tools.</div>{% endif %}
+{% if saved == 'connected' %}<div class="alert alert-ok">Connected over OAuth. <b>Test</b> to load its tools, then <b>Approve</b>.</div>{% endif %}
+{% if error == 'oauth_failed' %}<div class="alert alert-warn">OAuth could not complete. See the connector's error detail below and try Connect again.</div>{% endif %}
+{% if error == 'oauth_denied' %}<div class="alert alert-warn">Authorization was cancelled or denied. Click Connect to try again.</div>{% endif %}
+{% if error == 'oauth_http_only' %}<div class="alert alert-warn">OAuth is only for hosted (HTTP) connectors.</div>{% endif %}
+{% if error == 'oauth_https' %}<div class="alert alert-warn">OAuth providers require an <b>HTTPS</b> address (plain HTTP is allowed only on <code>localhost</code>). Enable HTTPS / remote access for this server, then connect.</div>{% endif %}
+{% if saved == 'approved' %}<div class="alert alert-ok">Approved. Grant an agent the <code>mcp</code> scope (Agent access) so it can use these tools.</div>{% endif %}
+{% if saved == 'rejected' %}<div class="alert alert-ok">Request rejected; the requester was notified.</div>{% endif %}
+{% if error == 'missing_fields' %}<div class="alert alert-warn">Provide a name and the URL (HTTP) or command (stdio).</div>{% endif %}
+
+<div class="card mb-2" style="background:var(--bg-subtle)">
+  <h2 style="font-size:16px;margin:0 0 8px">Connect tools over MCP</h2>
+  <p class="text-sm" style="margin:0 0 6px">
+    MCP (Model Context Protocol) is the standard way agents reach external tools and
+    data. Connect any MCP server here instead of hand-writing a connector. A new server
+    stays <b>pending</b> until you test and <b>approve</b> it - only approved servers'
+    tools reach agents, and every call is scope-gated (the <code>mcp</code> scope) and
+    audited.
+  </p>
+  {% if not mcp_available %}
+  <p class="text-sm" style="margin:0;color:var(--danger)">
+    The MCP runtime is not installed here. It needs <b>Python 3.10+</b> and
+    <code>pip install -e ".[mcp]"</code>. You can still register servers; their tools
+    activate once the runtime is available.
+  </p>
+  {% endif %}
+</div>
+
+<style>
+  .connector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:0 0 6px}
+  .connector-tile{text-align:left;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;
+    background:var(--bg);cursor:pointer;transition:border-color .12s,box-shadow .12s;font:inherit;color:inherit}
+  .connector-tile:hover{border-color:var(--accent,#c2410c);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+</style>
+
+<h3 style="font-size:15px;margin:0 0 8px">Add a connector</h3>
+<p class="text-sm text-muted" style="margin:0 0 12px">Pick a service. Anthill fills in the connection details so you do not have to find a server URL; you just confirm and (where needed) sign in. Each connector stays <b>pending</b> until you Test and Approve it.</p>
+
+{% for label, items in catalog_groups %}
+<div class="text-sm" style="font-weight:600;margin:12px 0 6px">{{ label }}</div>
+<div class="connector-grid">
+  {% for e in items %}
+  <button type="button" class="connector-tile" onclick="pickConnector('{{ e.id }}')">
+    <div class="flex items-center justify-between" style="gap:6px">
+      <span style="font-weight:600">{{ e.name }}</span>
+      <span class="badge badge-{{ 'active' if e.tier=='verified' else 'member' }}">{{ e.tier }}</span>
+    </div>
+    <div class="text-sm text-muted" style="margin:4px 0 8px;line-height:1.35">{{ e.summary }}</div>
+    <span class="text-sm" style="font-weight:500;color:{% if e.guided %}var(--success,#15803d){% else %}var(--muted){% endif %}">
+      {% if e.guided %}Connect now{% else %}Requires provider setup{% endif %}
+    </span>
+  </button>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<p id="custom-prompt" class="text-sm" style="margin:14px 0 0">
+  Not listed?
+  <a href="#" onclick="document.getElementById('add-mcp').style.display='block';this.parentElement.style.display='none';return false">Add a custom MCP server</a>
+  <span class="text-muted">(advanced - you supply the URL or command)</span>
+</p>
+
+<div id="guided-add" class="card mb-2" style="display:none;margin-top:12px">
+  <div class="flex items-center justify-between" style="margin-bottom:6px">
+    <h3 id="ga-name" style="font-size:16px;margin:0"></h3>
+    <span id="ga-tier" class="badge"></span>
+  </div>
+  <p id="ga-summary" class="text-sm text-muted" style="margin:0 0 8px"></p>
+  <div id="ga-exposes" class="text-sm" style="margin:0 0 10px"></div>
+  <div id="ga-fields" style="display:flex;flex-direction:column;gap:10px"></div>
+  <div id="ga-setup" class="text-sm" style="margin:8px 0 0"></div>
+  <div class="flex gap-2" style="margin-top:12px">
+    <button type="button" class="btn btn-primary" onclick="submitGuided()">Add</button>
+    <button type="button" class="btn btn-outline" onclick="document.getElementById('guided-add').style.display='none'">Cancel</button>
+  </div>
+  <p class="text-sm text-muted" style="margin:8px 0 0">Auth is encrypted at rest. Nothing reaches agents until you Approve it.</p>
+</div>
+
+<form id="catalog-form" method="post" action="/mcp/servers" style="display:none">
+  <input type="hidden" name="name"><input type="hidden" name="transport">
+  <input type="hidden" name="url"><input type="hidden" name="command">
+  <input type="hidden" name="auth_header"><input type="hidden" name="env_json"><input type="hidden" name="catalog_id">
+</form>
+
+<div id="add-mcp" style="display:none" class="card mb-2">
+  <form method="post" action="/mcp/servers" style="display:flex;flex-direction:column;gap:10px">
+    <input type="hidden" name="catalog_id" value="">
+    <input type="text" name="name" required placeholder="Name (e.g. an internal tool)"
+           style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <label class="text-sm">Transport
+      <select name="transport" onchange="mcpTransport(this.value)" style="margin-left:6px">
+        <option value="http">HTTP (remote)</option>
+        <option value="stdio">stdio (local command)</option>
+      </select>
+    </label>
+    <input type="text" name="url" id="mcp-url" placeholder="https://server.example/mcp"
+           style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <input type="text" name="command" id="mcp-cmd" placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem /path"
+           style="display:none;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <input type="text" name="auth_header" placeholder="Optional auth, e.g. Authorization: Bearer xxx"
+           style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <div class="flex gap-2">
+      <button type="submit" class="btn btn-primary">Add</button>
+      <button type="button" class="btn btn-outline" onclick="document.getElementById('add-mcp').style.display='none'">Cancel</button>
+    </div>
+    <p class="text-sm text-muted" style="margin:0">This is an unvetted custom server. Auth is encrypted at rest. It starts <b>pending</b> - nothing reaches agents until you approve it.</p>
+  </form>
+</div>
+
+<hr style="margin:22px 0;border:none;border-top:1px solid var(--border)">
+<h3 style="font-size:15px;margin:0 0 8px">Connected MCP servers</h3>
+
+{% if servers %}
+<div class="card">
+<table>
+  <thead><tr><th>Server</th><th>Target</th><th>Status</th><th>Tools</th><th></th></tr></thead>
+  <tbody>
+  {% for s in servers %}
+  <tr>
+    <td><b>{{ s.name }}</b><br><span class="text-sm text-muted">{{ s.transport }}{% if s.status == 'requested' %} · member request{% endif %}{% if s.oauth_http %} · OAuth{% if s.oauth_connected %} <span style="color:var(--success,#15803d)">connected</span>{% else %} (not connected){% endif %}{% endif %}</span></td>
+    <td class="text-sm" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.url or s.command }}</td>
+    <td><span class="badge badge-{{ 'active' if s.status=='approved' else ('member' if s.status=='disabled' else 'pending') }}">{{ s.status }}</span></td>
+    <td class="text-sm">
+      {% if s.tool_list %}{{ s.tool_list|length }}: {{ s.tool_list[:4]|join(', ') }}{% if s.tool_list|length > 4 %}…{% endif %}
+      {% elif s.last_error %}<span style="color:var(--danger)">error</span>
+      {% else %}<span class="text-muted">untested</span>{% endif %}
+    </td>
+    <td>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if s.oauth_http %}<a href="/mcp/servers/{{ s.id }}/oauth/start" class="btn {{ 'btn-outline' if s.oauth_connected else 'btn-primary' }} btn-sm">{{ 'Reconnect' if s.oauth_connected else 'Connect' }}</a>{% endif %}
+        <form method="post" action="/mcp/servers/{{ s.id }}/test" style="margin:0"><button class="btn btn-outline btn-sm">Test</button></form>
+        {% if s.status != 'approved' %}<form method="post" action="/mcp/servers/{{ s.id }}/approve" style="margin:0"><button class="btn btn-success btn-sm">Approve</button></form>{% endif %}
+        {% if s.status not in ['approved', 'rejected'] %}<form method="post" action="/mcp/servers/{{ s.id }}/reject" style="margin:0" onsubmit="this.reason.value = prompt('Reason (optional):') || ''"><input type="hidden" name="reason"><button class="btn btn-outline btn-sm">Reject</button></form>{% endif %}
+        {% if s.status == 'approved' %}<form method="post" action="/mcp/servers/{{ s.id }}/disable" style="margin:0"><button class="btn btn-outline btn-sm">Disable</button></form>{% endif %}
+        <form method="post" action="/mcp/servers/{{ s.id }}/remove" style="margin:0"><button class="btn btn-danger btn-sm" onclick="return confirm('Remove {{ s.name }}?')">✕</button></form>
+      </div>
+      {% if s.last_error %}<div class="text-sm" style="color:var(--danger);margin-top:4px">{{ s.last_error }}</div>{% endif %}
+      {% if s.status == 'rejected' and s.reject_reason %}<div class="text-sm text-muted" style="margin-top:4px">Rejected: {{ s.reject_reason }}</div>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:30px"><p class="text-muted">No MCP servers yet. Add one above to give agents new tools without writing code.</p></div>
+{% endif %}
+
+<hr style="margin:26px 0;border:none;border-top:1px solid var(--border)">
+
+<div class="card mb-2" style="background:var(--bg-subtle)">
+  <h2 style="font-size:16px;margin:0 0 8px">Expose Anthill over MCP (server)</h2>
+  <p class="text-sm" style="margin:0">
+    Let other tools query your org brain over MCP. <b>Off by default.</b> You choose exactly which
+    resources are exposed, each external <b>consumer</b> gets its own scoped token and (in review
+    mode) must be <b>approved</b> before any query is answered, and <b>every query is recorded</b>.
+  </p>
+</div>
+
+{% if saved == 'exposure' %}<div class="alert alert-ok">Exposure settings saved.</div>{% endif %}
+{% if saved == 'token' %}<div class="alert alert-ok">Access token rotated - update any external clients.</div>{% endif %}
+
+<div class="card mb-2">
+  <form method="post" action="/connectors/mcp/expose" onsubmit="return confirmExpose(this)">
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input type="checkbox" name="mcp_server_enabled" {% if cfg and cfg.mcp_server_enabled %}checked{% endif %}>
+      <b>Enable the MCP server</b>
+    </label>
+    <div class="text-sm" style="margin:0 0 4px">Expose these resources:</div>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_wiki" {% if cfg and cfg.mcp_expose_wiki %}checked{% endif %}> Wiki - answers from the org wiki + cache</label>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_cache" {% if cfg and cfg.mcp_expose_cache %}checked{% endif %}> Cache - cached answers only</label>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_memory" {% if cfg and cfg.mcp_expose_memory %}checked{% endif %}> Memory - durable org memory</label>
+    <div class="form-group" style="margin-top:10px">
+      <label>Review mode</label>
+      <select name="mcp_review_mode">
+        <option value="review" {% if not cfg or cfg.mcp_review_mode != 'log_only' %}selected{% endif %}>Review - a consumer must be admin-approved before any query is answered (default)</option>
+        <option value="log_only" {% if cfg and cfg.mcp_review_mode == 'log_only' %}selected{% endif %}>Log only - answer registered consumers immediately; audit every query</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:10px">Save exposure</button>
+  </form>
+
+  {% if cfg and cfg.mcp_server_enabled %}
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+    <div class="text-sm"><b>Endpoint:</b> <code style="user-select:all">{{ base_url }}/mcp</code></div>
+    <p class="text-sm text-muted" style="margin:6px 0 0">Each consumer authenticates with its <b>own</b>
+      token (<code>Authorization: Bearer &lt;token&gt;</code>). In review mode a consumer is denied
+      until you approve it below; revoking stops its token immediately.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% if saved == 'consumer' %}<div class="alert alert-ok">Consumer updated.</div>{% endif %}
+
+<div class="card mb-2">
+  <h3 style="font-size:15px;margin:0 0 8px">Consumers (who may query the org brain)</h3>
+  {% if consumers %}
+  <table>
+    <thead><tr><th>Name</th><th>Purpose</th><th>Scopes</th><th>Status</th><th>Token</th><th></th></tr></thead>
+    <tbody>
+    {% for con in consumers %}
+    <tr>
+      <td>{{ con.name }}</td>
+      <td class="text-sm text-muted">{{ con.purpose }}</td>
+      <td class="text-sm">{{ con.scope_list | join(', ') or '-' }}</td>
+      <td>
+        {% if con.status == 'approved' %}<span class="badge badge-active">approved</span>
+        {% elif con.status == 'revoked' %}<span class="badge badge-member">revoked</span>
+        {% else %}<span class="badge">pending</span>{% endif %}
+      </td>
+      <td><code style="user-select:all;font-size:12px">{{ con.token }}</code></td>
+      <td style="white-space:nowrap">
+        {% if con.status != 'approved' %}
+        <form method="post" action="/connectors/mcp/consumers/{{ con.id }}/approve" style="display:inline"><button class="btn btn-outline btn-sm">Approve</button></form>
+        {% endif %}
+        {% if con.status != 'revoked' %}
+        <form method="post" action="/connectors/mcp/consumers/{{ con.id }}/revoke" style="display:inline"><button class="btn btn-outline btn-sm" onclick="return confirm('Revoke this consumer? Its token stops working immediately.')">Revoke</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0 0 10px">No consumers yet. Add one, hand it the token, then approve it.</p>
+  {% endif %}
+
+  <form method="post" action="/connectors/mcp/consumers/add" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+    <div class="grid-2">
+      <div class="form-group" style="margin:0"><label>Name</label><input type="text" name="name" placeholder="Partner app" required></div>
+      <div class="form-group" style="margin:0"><label>Purpose</label><input type="text" name="purpose" placeholder="what it needs the org brain for"></div>
+    </div>
+    <div class="text-sm" style="margin:8px 0 4px">Allowed resources (least privilege):</div>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="scope_wiki"> Wiki</label>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="scope_cache"> Cache</label>
+    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="scope_memory"> Memory</label>
+    <button type="submit" class="btn btn-primary" style="margin-top:10px">Add consumer</button>
+  </form>
+</div>
+
+<h3 style="font-size:15px;margin:18px 0 8px">Access log</h3>
+{% if access_log %}
+<div class="card">
+<table>
+  <thead><tr><th>When</th><th>Client</th><th>Tool</th><th>Query</th></tr></thead>
+  <tbody>
+  {% for r in access_log %}
+  <tr>
+    <td class="text-sm text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+    <td class="text-sm">{{ r.client or '-' }}</td>
+    <td class="text-sm">{{ r.tool }}</td>
+    <td class="text-sm" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.args_summary }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:20px"><p class="text-muted">No external MCP access yet.</p></div>
+{% endif %}
+
+<script>
+const CONNECTOR_CATALOG = {{ catalog|tojson }};
+let CURRENT_CONNECTOR = null;
+
+function pickConnector(id) {
+  const e = CONNECTOR_CATALOG.find(c => c.id === id);
+  if (!e) return;
+  CURRENT_CONNECTOR = e;
+  document.getElementById('ga-name').textContent = e.name;
+  const tier = document.getElementById('ga-tier');
+  tier.textContent = e.tier;
+  tier.className = 'badge badge-' + (e.tier === 'verified' ? 'active' : 'member');
+  document.getElementById('ga-summary').textContent = e.summary || '';
+  const scopes = (e.scopes || []);
+  document.getElementById('ga-exposes').innerHTML =
+    scopes.length ? '<b>Gives the agent:</b> ' + scopes.map(escapeHtml).join(', ') : '';
+  const wrap = document.getElementById('ga-fields');
+  wrap.innerHTML = '';
+  const fields = (e.auth && e.auth.fields) || [];
+  for (const f of fields) {
+    const lab = document.createElement('label');
+    lab.className = 'text-sm';
+    lab.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+    lab.textContent = f.label + (f.required ? ' *' : '');
+    const inp = document.createElement('input');
+    inp.id = 'ga-field-' + f.key;
+    inp.placeholder = f.placeholder || '';
+    if (f.target === 'auth') inp.type = 'password';
+    inp.style.cssText = 'padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)';
+    lab.appendChild(inp);
+    wrap.appendChild(lab);
+  }
+  let setup = '';
+  const isOAuthHttp = e.auth && e.auth.type === 'oauth' && e.transport === 'http';
+  if (isOAuthHttp) setup += '<div class="alert alert-ok" style="margin:0 0 6px">One-click connect: after you add this, you will be sent to ' + escapeHtml(e.name) + ' to authorize. No setup needed.</div>';
+  else if (!e.guided) setup += '<div class="alert alert-warn" style="margin:0 0 6px">This connector needs setup on the provider side first (sign-in or credentials). Add it, follow the guide, then Test.</div>';
+  if (e.note) setup += '<div class="text-muted">' + escapeHtml(e.note) + '</div>';
+  if (e.setup_url) setup += '<div style="margin-top:4px"><a href="' + encodeURI(e.setup_url) + '" target="_blank" rel="noopener">Open the setup guide</a></div>';
+  document.getElementById('ga-setup').innerHTML = setup;
+  const panel = document.getElementById('guided-add');
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function submitGuided() {
+  const e = CURRENT_CONNECTOR;
+  if (!e) return;
+  let command = e.command || '', endpoint = e.endpoint || '', auth = '';
+  const env = {};
+  for (const f of ((e.auth && e.auth.fields) || [])) {
+    const el = document.getElementById('ga-field-' + f.key);
+    const val = (el ? el.value : '').trim();
+    if (f.required && !val) { showToast(f.label + ' is required.', 'error'); return; }
+    if (!val) continue;
+    if (f.target === 'command') command = command.split('{' + f.key + '}').join(val);
+    else if (f.target === 'endpoint') endpoint = endpoint.split('{' + f.key + '}').join(val);
+    else if (f.target === 'auth') auth = ((e.auth && e.auth.header) || 'Authorization: Bearer ') + val;
+    else if (f.target === 'env') env[f.env || f.key] = val;
+  }
+  const fm = document.getElementById('catalog-form');
+  fm.name.value = e.name;
+  fm.transport.value = e.transport;
+  fm.url.value = endpoint;
+  fm.command.value = command;
+  fm.auth_header.value = auth;
+  fm.env_json.value = Object.keys(env).length ? JSON.stringify(env) : '';
+  fm.catalog_id.value = e.id;
+  fm.submit();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function mcpTransport(v) {
+  document.getElementById('mcp-url').style.display = (v === 'http') ? 'block' : 'none';
+  document.getElementById('mcp-cmd').style.display = (v === 'stdio') ? 'block' : 'none';
+}
+function confirmExpose(form) {
+  if (form.mcp_server_enabled.checked) {
+    return confirm('You are exposing your org brain (the checked resources) to external tools that hold the token. Approve?');
+  }
+  return true;
+}
+</script>
+{% endblock %}

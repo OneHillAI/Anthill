@@ -1,0 +1,158 @@
+# Full-codebase security audit - runs weekly and on every push to main.
+#
+# Purpose: catch CVEs disclosed AFTER a PR merged (pip-audit) and surface SAST findings
+# (bandit) across the entire anthill package, not just the diff. This is the complement to
+# the per-PR gates in pr-validation.yml, which scan only the changed delta.
+#
+# Schedule: Monday 09:00 UTC. Can also be triggered manually via workflow_dispatch.
+#
+# Security posture: READ-ONLY token throughout. No secrets required - all tools run
+# against the checked-out source tree and the published PyPI vulnerability database.
+
+name: Security audit
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # every Monday at 09:00 UTC
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dep-audit:
+    name: Dependency CVE audit (full install)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install all non-torch optional extras + pip-audit
+        # Installs ci, docs, push, aws, and mcp extras to cover the widest possible dep surface.
+        # sentence-transformers (embed extra) is excluded: torch has no wheels for all runner
+        # Python versions. The ci extra already pulls the torch-free subset.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci,docs,push,aws,mcp]" pip-audit
+
+      - name: pip-audit - fail on any known CVE
+        # --skip-editable: anthill itself has no PyPI entry to check.
+        # --desc on: print the CVE description inline for triage.
+        # --ignore-vuln PYSEC-2026-1325: ecdsa P-256 timing side-channel; no upstream fix, transitive via
+        #   python-jose, unreachable here (JWTs are HS256/HMAC, no ECDSA signing). Revisit if fixed.
+        run: |
+          pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325 2>&1 | tee /tmp/audit.txt
+          {
+            echo "## Dependency CVE audit"
+            echo '```'
+            cat /tmp/audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sast-full:
+    name: SAST full codebase (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: bandit - anthill package (MEDIUM+MEDIUM, report-only)
+        # Scans the full package at MEDIUM severity + MEDIUM confidence - same threshold as the
+        # advisory AI review lens. Findings are written to the job summary for visibility.
+        # This step does NOT fail the job; it surfaces trends without blocking main. Only new code
+        # introduced in a PR is blocked (pr-validation.yml security job, HIGH+HIGH threshold).
+        # Promote individual rules to the HIGH+HIGH PR gate once they are triaged as true positives.
+        run: |
+          bandit -r anthill -ll -ii -q -f txt > /tmp/bandit.txt 2>&1 || true
+          ISSUES=$(grep -c "Issue:" /tmp/bandit.txt || true)
+          {
+            echo "## SAST - bandit (MEDIUM+MEDIUM, full package)"
+            echo "_${ISSUES} finding(s). This step is report-only; new code in PRs is gated at HIGH+HIGH._"
+            echo '```'
+            cat /tmp/bandit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Escalate to a hard failure only if HIGH+HIGH findings exist on main - these are
+          # the same findings the PR gate would have caught, so their presence on main means
+          # the gate was bypassed and needs attention.
+          bandit -r anthill -lll -iii -q
+
+  license-audit:
+    name: License audit (full install)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install all non-torch optional extras + pip-licenses
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci,docs,push,aws,mcp]" pip-licenses
+
+      - name: License report
+        run: |
+          pip-licenses --format=json --output-file=/tmp/licenses.json
+          pip-licenses --format=plain-vertical --with-authors | tee /tmp/licenses.txt
+          {
+            echo "## License report (full install)"
+            echo '```'
+            cat /tmp/licenses.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check for UNKNOWN licenses
+        # UNKNOWN license = pip-licenses found no license metadata. A hard failure, because an
+        # undeterminable license needs manual review before it can be distributed - EXCEPT for packages
+        # on the reviewed allowlist below, whose license IS known but ships no classifier (issue #489).
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+
+          # Known-but-unclassified: normalized package name -> its actual, reviewed license. These ship no
+          # license classifier so pip-licenses reports UNKNOWN; do not fail the build for them, but keep
+          # failing for genuinely undeterminable licenses. Resolving (documenting the real license) rather
+          # than suppressing, per the AGPL + commercial + foundation posture.
+          ALLOWLIST = {
+              # Transitive build dep of torch (Linux/CUDA only); not shipped in any Anthill artifact.
+              "cuda-toolkit": "NVIDIA CUDA Toolkit EULA (proprietary)",
+              # Astral's protobuf models, pulled in by `sigstore` (model-catalog verification). The 0.0.6
+              # wheel ships no license classifier so pip-licenses reports UNKNOWN; the repo LICENSE is MIT
+              # (github.com/astral-sh/sigstore-models/blob/main/LICENSE, "Copyright (c) 2025 Astral").
+              "sigstore-models": "MIT",
+          }
+          norm = lambda n: n.strip().lower().replace("_", "-")
+
+          data = json.load(open("/tmp/licenses.json"))
+          unknown, allowed = [], []
+          for p in data:
+              if p["License"].strip() != "UNKNOWN":
+                  continue
+              (allowed if norm(p["Name"]) in ALLOWLIST else unknown).append((p["Name"], p["Version"]))
+          for name, ver in allowed:
+              print(f"::notice::{name}=={ver} has no license classifier; allowlisted as "
+                    f"{ALLOWLIST[norm(name)]}.")
+          for name, ver in unknown:
+              print(f"::error::{name}=={ver} has UNKNOWN license - add a license classifier, confirm the "
+                    "license and add it to the allowlist, or drop the dependency.")
+          if unknown:
+              sys.exit(1)
+          print(f"All {len(data)} installed packages have identifiable or allowlisted licenses.")
+          PYEOF

@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}{{ agent.name }}{% endblock %}
+{% block page_title %}Agent · {{ agent.name }}{% endblock %}
+{% block content %}
+
+<div class="flex justify-between items-center mb-2">
+  <div>
+    <span class="plane-dot plane-dot-{{ 'org' if agent.plane == 'org' else 'solo' }}"></span>
+    <span class="text-sm text-muted">{{ agent.plane|capitalize }} · runs {{ agent.schedule }} ·
+      <span class="badge {% if agent.status == 'active' %}badge-active{% else %}badge-pending{% endif %}">{{ agent.status }}</span>
+    </span>
+  </div>
+  <a href="/agents" class="btn btn-outline btn-sm">← All agents</a>
+</div>
+
+{% if live %}
+<div class="alert alert-running text-sm agent-live" style="margin-bottom:12px">
+  <span class="live-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2E86C1;margin-right:6px"></span>
+  This agent is running now (or about to). This page refreshes automatically until it finishes.
+</div>
+{% endif %}
+
+{# Run now / pause are OPERATE actions - any project member may do them on a shared project agent (#419).
+   Delete stays with the creator/admin (can_write), so a fellow member sees a read-only-but-runnable view. #}
+{% if can_operate %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+  <form method="post" action="/agents/{{ agent.id }}/run-now" style="margin:0">
+    <button class="btn btn-primary btn-sm">▶ Run now</button>
+  </form>
+  <form method="post" action="/agents/{{ agent.id }}/toggle" style="margin:0">
+    <button class="btn btn-outline btn-sm">{% if agent.status == 'active' %}Pause{% else %}Resume{% endif %}</button>
+  </form>
+  {% if can_write %}
+  <form method="post" action="/agents/{{ agent.id }}/delete" style="margin:0"
+        onsubmit="return confirm('Delete this agent and its pending approvals?')">
+    <button class="btn btn-danger btn-sm">Delete</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- pending approvals: the human gate -->
+{% set pending = approvals | selectattr('status', 'equalto', 'pending') | list %}
+{% if pending %}
+<div class="card mb-2" style="border-color:var(--warn)">
+  <h3 style="margin-bottom:8px;color:var(--warn)">&#9888; Actions awaiting your approval ({{ pending|length }})</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    This agent proposed consequential actions. They were <b>not</b> run automatically - approve to execute
+    one now under the agent's own scope, or reject to discard it.
+  </p>
+  {% for ap in pending %}
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+    <div class="text-sm"><b>{{ ap.tool }}</b> <span class="text-muted">· scope: {{ ap.scope or 'other' }}</span></div>
+    {% if ap.rationale %}<div class="text-sm text-muted" style="margin:4px 0">Context: {{ ap.rationale[:200] }}</div>{% endif %}
+    <pre class="text-sm" style="white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin:6px 0;overflow-x:auto">{{ ap.args_pretty }}</pre>
+    {% if can_write %}
+    <div style="display:flex;gap:8px">
+      <form method="post" action="/agents/{{ agent.id }}/approvals/{{ ap.id }}/approve" style="margin:0">
+        <button class="btn btn-primary btn-sm">Approve &amp; run</button>
+      </form>
+      <form method="post" action="/agents/{{ agent.id }}/approvals/{{ ap.id }}/reject" style="margin:0">
+        <button class="btn btn-outline btn-sm">Reject</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- run history: every past run, newest first (the newest expanded) -->
+<div class="card mb-2">
+  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted">· {{ agent.run_count }} run{{ '' if agent.run_count == 1 else 's' }}</span></h3>
+  {% if runs %}
+  {% for r in runs %}
+  <details class="agent-run" {% if loop.first %}open{% endif %}
+           style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+    <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="text-sm text-muted">{% if r.finished_at %}<span data-utc="{{ r.finished_at|utc_iso }}">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% endif %}</span>
+      <span class="badge">{{ r.trigger }}</span>
+      {% if r.status == 'running' %}
+      <span class="badge badge-running">running&hellip;</span>
+      {% elif r.status == 'error' %}
+      <span class="badge badge-danger">error</span>
+      {% elif r.verify_needs_review %}
+      <span class="badge badge-warning">&#9888; needs review</span>
+      {% else %}
+      <span class="badge badge-active">ok</span>
+      {% endif %}
+      {% if r.duration_ms %}<span class="text-sm text-muted">{{ (r.duration_ms / 1000)|round(1) }}s</span>{% endif %}
+    </summary>
+    {% if r.verify_needs_review and r.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin:8px 0 2px">
+      &#9888; Verifier (confidence {{ r.verify_confidence }}): {{ r.verify_reason }}
+    </div>
+    {% endif %}
+    {% if r.status == 'running' %}
+    <div class="text-sm text-muted" style="margin:8px 0 0">The agent is running now. This page refreshes automatically.</div>
+    {% else %}
+    <pre style="white-space:pre-wrap;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:10px;margin:8px 0 0;overflow-x:auto">{{ r.error if r.status == 'error' else r.result }}</pre>
+    {% endif %}
+  </details>
+  {% endfor %}
+  {% else %}
+  <p class="text-sm text-muted">This agent has not run yet. Use <b>Run now</b> to start it.</p>
+  {% endif %}
+</div>
+
+<!-- configuration / edit -->
+<div class="card mb-2">
+  <h3 style="margin-bottom:12px">Configuration</h3>
+  {% if can_write %}
+  <form method="post" action="/agents/{{ agent.id }}/edit">
+    <div class="form-group">
+      <label>Persona</label>
+      <textarea name="persona" rows="2">{{ agent.persona }}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Mandate</label>
+      <textarea name="mandate" rows="3" required>{{ agent.mandate }}</textarea>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Runs</label>
+        <select name="schedule">
+          {% for s in schedules %}<option value="{{ s }}" {% if agent.schedule == s %}selected{% endif %}>{{ 'On demand' if s == 'manual' else s|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Governance</label>
+        <select name="governance">
+          {% for g in governance_opts %}<option value="{{ g }}" {% if agent.governance == g %}selected{% endif %}>{{ g|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Model <span class="text-sm text-muted">(open models only; the default routes automatically)</span></label>
+      {% if available_models %}
+      <select name="model">
+        <option value="" {% if not agent.model %}selected{% endif %}>Use the default{% if available_models %} ({{ available_models[0] }}){% endif %}</option>
+        {% for mdl in available_models %}<option value="{{ mdl }}" {% if agent.model == mdl %}selected{% endif %}>{{ mdl }}{% if loop.first %} (council lead){% endif %}</option>{% endfor %}
+        {% if agent.model and agent.model not in available_models %}<option value="{{ agent.model }}" selected>{{ agent.model }} (not in your council)</option>{% endif %}
+      </select>
+      {% else %}
+      <input type="text" name="model" value="{{ agent.model }}" placeholder="default">
+      {% endif %}
+    </div>
+    <div class="form-group">
+      <label>Tools it may use
+        <span class="text-sm text-muted">(none checked = the safe default: web, wiki, files, docs)</span></label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        {% for s in scopes %}
+        <label class="flex gap-2" style="align-items:center;margin:0;cursor:pointer">
+          <input type="checkbox" name="connectors" value="{{ s }}" {% if s in agent_scopes %}checked{% endif %}> <span>{{ s }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+  </form>
+  {% else %}
+  <div class="text-sm"><b>Persona:</b> {{ agent.persona or '—' }}</div>
+  <div class="text-sm" style="margin-top:6px"><b>Mandate:</b> {{ agent.mandate }}</div>
+  <div class="text-sm text-muted" style="margin-top:6px">Model: {{ agent.model or 'default (auto-routed)' }} · Governance: {{ agent.governance }}</div>
+  <div class="text-sm text-muted" style="margin-top:6px">Tools: {{ agent.connectors or 'default (web, wiki, files, docs)' }}</div>
+  {% endif %}
+</div>
+
+<!-- approval history -->
+{% set resolved = approvals | rejectattr('status', 'equalto', 'pending') | list %}
+{% if resolved %}
+<div class="card">
+  <h3 style="margin-bottom:8px">Approval history</h3>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>Tool</th><th>Decision</th><th>When</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for ap in resolved %}
+    <tr>
+      <td class="text-sm">{{ ap.tool }}</td>
+      <td><span class="badge {% if ap.status == 'approved' %}badge-active{% else %}badge-member{% endif %}">{{ ap.status }}</span></td>
+      <td class="text-sm text-muted">{{ ap.reviewed_at.strftime('%m-%d %H:%M') if ap.reviewed_at else '-' }}</td>
+      <td class="text-sm text-muted">{{ (ap.result or '')[:80] }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if live %}
+{# Watch the run: reload every few seconds until it settles (mirrors the provisioning auto-refresh).
+   The `live` flag is false once the newest run is no longer "running" and nothing is due, so this
+   stops on its own. #}
+<script>setTimeout(function () { window.location.reload(); }, 4000);</script>
+{% endif %}
+{% endblock %}

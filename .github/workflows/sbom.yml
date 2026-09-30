@@ -1,0 +1,49 @@
+name: sbom
+
+# Software Bill of Materials (Assure layer, issue #355). Generates a CycloneDX SBOM of the app's
+# runtime dependency set so every build has an auditable, machine-readable inventory of what ships.
+# Runs on dependency changes, on main, and on demand, so the generation is exercised in CI; the release
+# workflow can later download and attach this SBOM to the GitHub Release (owner-verified, not here).
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - ".github/workflows/sbom.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install the app's runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Install CycloneDX generator
+        run: pip install "cyclonedx-bom>=7,<8"
+      - name: Generate CycloneDX SBOM
+        run: |
+          cyclonedx-py environment --of JSON -o sbom.cyclonedx.json
+          python -c "import json; d=json.load(open('sbom.cyclonedx.json')); n=len(d.get('components', [])); print(f'CycloneDX {d[\"specVersion\"]}, {n} components'); assert d.get('bomFormat')=='CycloneDX' and n>0, 'empty or invalid SBOM'"
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cyclonedx.json
+          if-no-files-found: error

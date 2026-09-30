@@ -1,0 +1,144 @@
+# ASDD - adoption config for the Anthill repo. The reference workflows and scripts read it.
+# See OneHillAI/ASDD (STANDARD.md) for what each field means.
+
+standard_version: "0.1"
+
+# Agent runtime for the model-driven review lenses (generic OpenAI-compatible adapter). The runtime is
+# LIVE: the review gate runs real reviews via the endpoint + key in the repo's ASDD_MODEL_URL / ASDD_MODEL
+# variables and the ASDD_RUNTIME_TOKEN secret (falls back to a labelled dry-run if those are unset). The
+# intake gate below is deterministic and needs no runtime.
+runtime: generic
+
+# Fleet model roster (spec: docs/specs/asdd-model-roster.md). The developer is BRING-YOUR-OWN (Claude
+# Code as the interface), or the dev_council below; the project does NOT provision a standing developer.
+# The project provisions only the governance and support models below, so the heterogeneity invariant
+# holds: the developer MUST differ from every test model and the reviewer SHOULD differ from the developer.
+#
+# HARD RULE: no Chinese-origin models in any role (DeepSeek, GLM, Kimi, MiniMax, Qwen are OUT), regardless
+# of hosting, code-behaviour and poisoned-weights risk. The governance agents run non-Chinese open weights
+# (US and EU origin, Meta / OpenAI / Mistral / Google), EU-hosted on Berget (Sweden), OpenAI-compatible at
+# https://api.berget.ai/v1, the same provider and model choices as the asdd-run fleet. This is a swap
+# from the earlier MiniMax assignments, which the rule now forbids. The agents that see code stay EU-hosted.
+# This block RECORDS the roster; the operator wires each model per run, and the CI review gate reads its
+# model from the ASDD_MODEL_URL / ASDD_MODEL variables + the ASDD_RUNTIME_TOKEN secret (owner-managed).
+models:
+  developer: "anthropic:claude-opus-4-8"   # BYO (or the dev_council below); the contributor's own key, NOT provisioned
+  test_author: "meta-llama/Llama-3.3-70B-Instruct"   # US-origin open, EU-hosted; MUST differ from developer
+  test_runner: "meta-llama/Llama-3.3-70B-Instruct"   # US-origin open, EU-hosted; MUST differ from developer
+  reviewer: "openai/gpt-oss-120b"        # independent merge-reviewer; OpenAI open, EU-sovereign (diffs stay in the EU)
+  documentation: "mistralai/Mistral-Medium-3.5-128B"   # post-merge doc / impact-log sync; Mistral (EU) open, EU-hosted
+  interaction: "google/gemma-4-31B-it"   # member / public interaction surface; Google open, EU-hosted
+
+# The developer council (OPTIONAL frontier produce loop). 2 to 5 diverse models propose, cross-critique,
+# a lead synthesises one result, and the test agents verify it. Runs on runware (frontier); the LAST
+# model is the lead synthesiser (the arbiter). Opus is a PROPOSER only, never the lead, because Opus is
+# also the Claude Code BYO-developer interface, an operator that arbitrates its own council is an echo
+# chamber. Its full transcripts are captured to the private operate repo as the distillation corpus.
+# Wire via the per-member ASDD_MODEL_URL__COUNCIL_<i> / ASDD_RUNTIME_TOKEN__COUNCIL_<i> env (runware),
+# kept separate from the shared Berget vars the operate roster uses (the resolver reads per-member first).
+dev_council:
+  models:
+    - "anthropic-claude-opus-4-8"   # proposer
+    - "google-gemini-3-1-pro"       # proposer
+    - "openai:gpt@5.6-sol"          # lead synthesiser (GPT-5.6)
+  max_critique_rounds: 1
+  max_refine_rounds: 1
+  max_tokens: 8000
+
+# Humans approve and merge. New adopters MUST start advisory (STANDARD 5.3).
+merge_posture: advisory
+
+# Max agent actions per workflow run (STANDARD 3.6), enforced by the policy decision point.
+max_actions_per_run: 5
+
+# Anti-flood: the most PRs one author may have open at once. Intake fails a PR whose author is already
+# over this, so no single author can flood the queue (the pattern ASDD exists to stop). Generous by
+# default; 0 or unset disables the check. The intake workflow counts (read-only); intake-check.sh compares.
+max_open_prs_per_author: 20
+
+# Owner review override: a PR AUTHORED BY one of these GitHub logins AND carrying the `owner-override`
+# label is exempt from the ASDD gates BLOCKING its merge (intake requirements + the review's
+# request-changes/security-block status). The gates still run and comment - the override only stops them
+# blocking, and every use is recorded. Author-bound (only the owner's own PRs) + an explicit label = a
+# deliberate, auditable escape hatch, not a silent bypass. Empty => no one is exempt. See
+# docs/specs/owner-review-override.md.
+review_override_owners:
+  - "welsbach"
+
+# Spec-driven by default: a non-trivial PR (any lane but `chore`) must be based on a spec - it references
+# an existing docs/specs/*.md or adds one it implements. Intake fails a spec-less change; the live `spec`
+# lens says what to add. false/unset disables the check. See docs/specs/mandatory-spec-gate.md.
+require_spec: true
+
+# Protected paths: a defect here is high-impact, so changes stay human-approved (mirror .github/CODEOWNERS).
+protected_paths:
+  - ".github/**"
+  - "scripts/**"
+  - "Anthill.spec"
+  - "pyproject.toml"
+  - "anthill/hybrid/**"
+  - "anthill/web/audit.py"
+  - "anthill/web/crypto.py"
+  - "anthill/web/mcp_oauth.py"
+  - "anthill/wiki/**"
+  - "anthill/node_agent/**"
+  - "certs/**"
+  - "anthill/training/**"
+  - "anthill/lifecycle/evaluate.py"
+  - "anthill/cloud/aws.py"
+  - "docs/OKGF.md"
+
+# Agent identities operating on this repo (commit author login or email substring). An agent commit
+# from one of these MUST carry the `Agent:` trailer (STANDARD 1.2). Empty => nothing enforced yet.
+# Trailer format (parsed by scripts/release_notes.py for agent/human attribution):
+#   Agent: <agent-or-model> (automated, instructed-by: <human handle>)
+agents:
+  - "onehill-dev-agent[bot]"
+
+# Lane tags. Intake requires exactly one of these on every PR (Anthill charters, Section 2).
+lane_labels:
+  - "pillar:privacy"
+  - "pillar:knowledge"
+  - "pillar:model"
+  - "pillar:platform"
+  - "pillar:feature"
+  - "chore"
+
+# Allow-listed triage labels for the (future) triage agent (STANDARD 3.3).
+triage_labels:
+  - "bug"
+  - "enhancement"
+  - "documentation"
+  - "security"
+  - "good first issue"
+  - "needs-triage"
+
+# How this repository ships. Adopted from OneHillAI/ASDD v0.3.0, the existing-project path
+# (docs/guides/adopt-existing-project.md). This is a binding OUTPUT CONTRACT for any agent proposing a
+# change: it tells the agent where the artefacts go so it stops guessing, and cli/conventions-check.py
+# holds a change to it. Every field is optional and an undeclared field is never checked, so this
+# declares only what Anthill already enforces by hand. The gate judges the change, never the tree, so it
+# is safe on a mature repo. Wired REPORT-ONLY at the observe stage
+# (.github/workflows/asdd-conventions.yml): it reports, it never blocks.
+#
+# Deliberately NOT declared yet, because the naive check does not match Anthill's real rule and would
+# cry wolf at the observe stage (fed back to the framework as adoption findings):
+#   - impact_log: Anthill records docs/SYSTEM_IMPACT_LOG.md POST-merge, so an in-PR check reports every
+#     feature PR as missing. Declare it once the documentation agent fills it in the same change.
+#   - spec_dir:   require_spec (enforced by intake) already allows REFERENCING an existing spec; the
+#     conventions check instead wants a spec file touched in the diff, which is stricter and wrong here.
+conventions:
+  exempt_lanes: [chore]                  # chore skips the changelog requirement
+  changelog:
+    mode: fragment                       # add changelog.d/<id>.<category>.md; never edit CHANGELOG.md directly
+    fragment_glob: "changelog.d/*.md"
+    fragment_pattern: "changelog.d/<id>.<category>.md"
+    categories: [added, changed, deprecated, removed, fixed, security]
+    assembled_file: "CHANGELOG.md"       # assembled at a release cut by scripts/build_changelog.py
+  style:
+    spelling: british
+    banned_chars: ["–", "—"]   # the em/en-dash slop gate; CI already bans these in .md and .py
+  preflight: "ruff check anthill tests && ruff format --check anthill tests && mypy anthill && pytest -n 2 --dist loadscope"
+  exemplars:
+    - "https://github.com/OneHillAI/Anthill/pull/641"   # feature: spec, changelog fragment, tests
+    - "https://github.com/OneHillAI/Anthill/pull/638"    # fix: one fragment, tight scope

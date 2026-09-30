@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Anthill desktop shell: run the backend sidecar, navigate the window to the local server, and self-update. The window loads the backend over http://127.0.0.1:<free-port>/<path>, so IPC (the open_profile command) is scoped to that local origin below. The urls MUST carry a path wildcard (/**) - a Tauri v2 remote glob with no path matches nothing, so the invoke was silently dropped before reaching Rust (issue #388, tauri-apps/tauri#11622).",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*/**", "http://localhost:*/**"]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "shell:allow-execute",
+    "updater:default"
+  ]
+}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Organization backup{% endblock %}
+{% block page_title %}Organization <span style="font-size:13px;color:var(--muted);font-weight:normal">- backup &amp; restore</span>{% endblock %}
+{% block content %}
+{% include "_org_tabs.html" %}
+
+
+{% if request.query_params.get('restored') %}<div class="alert alert-ok">✅ Backup restored. <b>Restart Anthill</b> for it to take effect (the running process still holds the old database open).</div>{% endif %}
+{% if request.query_params.get('error') %}<div class="alert alert-danger">⚠️ Restore failed - the file wasn't a valid Anthill backup, or it couldn't be read. Nothing was changed.</div>{% endif %}
+
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Download a full backup</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    One archive with everything that isn't reproducible from the code: the database
+    (settings, memory, gold examples, cache), the wiki, files, skills, and the
+    <b>encryption keys</b>. Keep it somewhere safe - it can be reloaded on this or a new machine.
+    Data lives in <code>{{ data_home }}</code>.
+  </p>
+  <div class="alert alert-warn" style="margin-bottom:14px">
+    🔒 The archive includes <code>secrets.env</code> (JWT + AES keys). Anyone with it can decrypt your
+    stored provider keys - store it like a password.
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <a class="btn btn-primary" href="/backup/export?model=1"><i data-lucide="download">⬇️</i> Download full backup{% if models %} (with model){% endif %}</a>
+    <a class="btn btn-outline" href="/backup/export?model=0">Data only (smaller, no model)</a>
+  </div>
+  {% if models %}
+  <p class="text-sm text-muted" style="margin-top:10px">
+    Fine-tuned model{{ 's' if models|length > 1 else '' }} included: {% for m in models %}<code>{{ m }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+    The full backup embeds the model weights, so a restore needs no retraining (larger file).
+  </p>
+  {% else %}
+  <p class="text-sm text-muted" style="margin-top:10px">No fine-tuned org model yet - the backup is data only (the model is retrained from gold when you enable training).</p>
+  {% endif %}
+</div>
+
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Restore from a backup</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    Replaces the current database, wiki, files, skills, and keys with the archive's contents. A safety
+    copy of the <b>current</b> state is taken first, so a mistaken restore is itself reversible.
+    <b>Restart Anthill</b> after restoring.
+  </p>
+  <form method="post" action="/backup/restore" enctype="multipart/form-data"
+        onsubmit="return confirm('Restore from this backup? It overwrites the current data (a safety copy is taken first), and you will need to restart Anthill.');">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="file" name="file" accept=".gz,.tar.gz,application/gzip" required>
+      <button type="submit" class="btn btn-outline"><i data-lucide="upload">⬆️</i> Restore</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Automatic pre-migration snapshots</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    Before any version that changes the database schema, Anthill copies the database here automatically
+    (the last few are kept). These are the safety net for an update - you never have to remember.
+  </p>
+  {% if snapshots %}
+  <table class="table">
+    <thead><tr><th>Snapshot</th><th style="text-align:right">Size</th></tr></thead>
+    <tbody>
+      {% for s in snapshots %}<tr><td><code>{{ s.name }}</code></td><td style="text-align:right">{{ s.size_mb }} MB</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-sm text-muted">No snapshots yet - one is written automatically the first time an update changes the schema.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

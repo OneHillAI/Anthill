@@ -1,0 +1,14 @@
+# Rust build output
+/target
+
+# Tauri-generated schemas/code
+/gen
+
+# Sidecar backend binaries (built per-OS in CI; see binaries/README.md)
+binaries/*
+!binaries/.gitkeep
+!binaries/README.md
+
+# Generated app icons (see icons/README.md)
+icons/*
+!icons/README.md

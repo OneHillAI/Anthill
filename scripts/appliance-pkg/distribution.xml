@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>Anthill Appliance</title>
+  <organization>org.onehill</organization>
+  <options customize="never" require-scripts="true" hostArchitectures="arm64,x86_64"/>
+  <welcome language="en"><![CDATA[
+This configures this Mac as an always-on Anthill org backend:
+
+  - it never sleeps and restarts after a power cut,
+  - it runs the dashboard for your team on the local network, and
+  - on Apple Silicon it can also train the org model on-device.
+
+Install the Anthill app first if you have not. For the GPU to stay available after a
+reboot, enable auto-login for this user (System Settings -> Users & Groups -> Login Options).
+  ]]></welcome>
+  <choices-outline>
+    <line choice="default">
+      <line choice="org.onehill.anthill.appliance"/>
+    </line>
+  </choices-outline>
+  <choice id="default"/>
+  <choice id="org.onehill.anthill.appliance" visible="false">
+    <pkg-ref id="org.onehill.anthill.appliance"/>
+  </choice>
+  <pkg-ref id="org.onehill.anthill.appliance" version="0" onConclusion="none">appliance-component.pkg</pkg-ref>
+</installer-gui-script>

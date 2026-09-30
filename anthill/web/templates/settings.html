@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+
+<form method="post" action="/settings">
+<div style="display:flex;flex-direction:column;gap:16px">
+
+<div class="card">
+  <h3 style="margin-bottom:14px">Local inference <span class="text-sm text-muted">(this device)</span></h3>
+  <div class="form-group">
+    <label>Ollama server URL</label>
+    <input type="text" name="ollama_url" value="{{ cfg.ollama_url }}"
+           placeholder="http://localhost:11434">
+  </div>
+  <div class="form-group">
+    <label>Semantic cache threshold (τ)<button type="button" class="help" aria-label="What is the cache threshold">?<span class="help-pop">How close a match must be to reuse a cached answer. Higher is stricter: fewer hits, but safer. Lower reuses more, with more risk of a wrong answer.</span></button></label>
+    <input type="number" name="cache_threshold" value="{{ cfg.cache_threshold }}"
+           min="0.5" max="1.0" step="0.01">
+  </div>
+</div>
+
+<div class="card settings-savebar">
+  <button type="submit" class="btn btn-primary">Save settings</button>
+</div>
+
+</div>
+</form>
+
+<div class="card" style="margin-top:16px">
+  <h3 style="margin-bottom:12px">Cloud privacy <span class="text-sm text-muted">(PII scrubbing)</span><button type="button" class="help" aria-label="About PII scrubbing">?<span class="help-pop">Before any text goes to a cloud model, Anthill redacts personal information. The privacy pack adds redaction of free-text names and locations.</span></button></h3>
+  {% if presidio_available %}
+  <p class="text-sm"><span class="badge badge-active">Full</span> Covers {{ scrub_coverage }}, including names and locations.</p>
+  {% else %}
+  <p class="text-sm" style="margin:0 0 12px"><span class="badge badge-pending">Partial</span> Covers {{ scrub_coverage }}. Names and locations are not redacted yet.</p>
+  {% if privacy_pack_can_install %}
+  <form method="post" action="/privacy-pack/install" style="display:inline">
+    <button id="privacy-install-btn" type="submit" class="btn btn-sm btn-primary"
+            {% if privacy_installing %}disabled{% endif %}>
+      {% if privacy_installing %}Installing...{% else %}Install privacy pack{% endif %}
+    </button>
+  </form>
+  <button type="button" class="help" aria-label="About the privacy pack">?<span class="help-pop">Adds name and location redaction (Microsoft Presidio plus a small model). Takes a few minutes; you can leave this page while it installs.</span></button>
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0">Not available in the packaged app. Run from source or a server install, or <code>anthill privacy-pack</code>.</p>
+  {% endif %}
+  {% endif %}
+</div>
+
+<script>
+// showToast + the queued-toast reader are global (base.html); just fire the save confirmation.
+{% if saved %}document.addEventListener('DOMContentLoaded', function () { showToast('Settings saved.', 'success'); });{% endif %}
+// Privacy-pack install runs in the background; poll for completion so the page updates without a manual
+// refresh, and survives leaving/returning to the page (state is server-side).
+(function () {
+  if (!{{ 'true' if privacy_installing else 'false' }}) return;
+  function poll() {
+    fetch('/privacy-pack/status', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (s.installing) { setTimeout(poll, 4000); return; }
+        showToast(s.available ? 'Privacy pack installed - names and locations are now redacted.'
+                              : 'Privacy pack install did not complete.', s.available ? 'success' : 'error');
+        setTimeout(function () { window.location.href = '/settings'; }, 1600);
+      })
+      .catch(function () { setTimeout(poll, 6000); });
+  }
+  setTimeout(poll, 4000);
+})();
+</script>
+{% endblock %}

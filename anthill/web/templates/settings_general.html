@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Organization{% endblock %}
+{% block page_title %}Organization <span style="font-size:13px;color:var(--muted);font-weight:normal">- general</span>{% endblock %}
+{% block content %}
+{% include "_org_tabs.html" %}
+
+{% if saved %}<div class="alert alert-ok">✅ Saved.</div>{% endif %}
+{% if error == 'name' %}<div class="alert alert-danger">Enter an organization name.</div>{% endif %}
+
+<form method="post" action="/settings/organization/name" class="card" style="max-width:760px">
+  <h3 style="margin-bottom:6px">Organization name</h3>
+  <div class="form-group" style="margin:0">
+    <div class="flex gap-2" style="align-items:center">
+      <input type="text" name="org_name" value="{{ org.name }}" placeholder="Acme Corp" style="flex:1">
+      <button type="submit" class="btn btn-primary">Save name</button>
+    </div>
+    <p class="text-sm text-muted" style="margin-top:6px">Optional at setup - name your organization here
+      whenever you like. It shows in the sidebar and on invites.</p>
+  </div>
+</form>
+
+<div class="card" style="max-width:760px;margin-top:16px">
+  <h3 style="margin-bottom:6px">What lives where</h3>
+  <p class="text-sm text-muted" style="margin:0">
+    The org's cloud provider and the shared model it serves are under
+    <a href="/settings/organization">Cloud &amp; model</a>. Where the always-on backend runs and what is in
+    it is on the <a href="/backend">Backend</a> tab; download or restore everything from
+    <a href="/backup">Backup</a>. Your own local model and the wiki/agent knobs are under
+    <a href="/settings">Settings</a>.
+  </p>
+</div>
+{% endblock %}

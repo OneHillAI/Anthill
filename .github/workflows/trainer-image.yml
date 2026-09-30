@@ -1,0 +1,30 @@
+name: trainer-image
+
+# Builds + publishes the GPU trainer image to GHCR. Manual / tag-triggered ONLY (never on normal PRs):
+# the image is multi-GB CUDA and is validated on a real GPU host by the owner, so it must not run in
+# the model-free PR CI. Tag `trainer-vX.Y.Z` or run the workflow by hand to publish.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "trainer-v*"
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.trainer
+          push: true
+          tags: ghcr.io/onehillai/anthill-trainer:latest

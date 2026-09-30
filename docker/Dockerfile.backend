@@ -1,0 +1,29 @@
+# The always-on org BACKEND image: the Anthill web app (wiki + review + dashboard) for a cloud host
+# (e.g. a RunPod CPU pod provisioned alongside the model). Built + pushed by
+# .github/workflows/backend-image.yml.
+#
+# Contains ONLY the app code - no org data, users, or secrets. Each org runs this same image in its OWN
+# cloud account, and its data is seeded onto its own pod separately. So the image is shared/public; the
+# running instance + data are per-org and private.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY anthill/ ./anthill/
+
+RUN pip install --no-cache-dir -e .
+
+# Pre-download BGE-M3 so the backend starts fast (semantic cache/search); without it the embedder lazily
+# downloads on first use and falls back to keyword search meanwhile.
+RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')"
+
+# Persist all org state on the mounted volume (the provisioner mounts /data); the entrypoint roots the
+# data paths here and generates the JWT + at-rest keys on first boot if absent.
+ENV ANTHILL_HOME=/data
+VOLUME ["/data"]
+EXPOSE 8000
+
+CMD ["python", "-m", "anthill.server"]

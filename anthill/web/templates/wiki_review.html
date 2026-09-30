@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Wiki review{% endblock %}
+{% block page_title %}{{ "Your wiki" if scope == "personal" else "Organization wiki" }} <span style="font-size:13px;color:var(--muted);font-weight:normal">- review</span>{% endblock %}
+{% block content %}
+{% include "_wiki_tabs.html" %}
+
+{% if not reviews %}
+<div class="alert alert-ok">No pending wiki updates - the queue is clear.</div>
+{% else %}
+<p class="text-muted mb-2">
+  {{ reviews|length }} change(s) the agent flagged for a human. Clean changes already
+  auto-applied. Edit the text if needed, then approve - or reject to discard.
+</p>
+{% for rev in reviews %}
+<div class="card mt-4">
+  <div class="flex justify-between items-center mb-2">
+    <div>
+      <b style="font-size:16px">{{ rev.slug }}</b>
+      <span class="text-sm text-muted" style="margin-left:10px">submitted {{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+    </div>
+    <div class="flex gap-2">
+      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ f }}</span>{% endfor %}
+    </div>
+  </div>
+
+  {# Provenance: a verifiable content fingerprint of exactly what this would write, plus a link back to
+     the chat it came from when the source is known. #}
+  {% if rev.provenance_hash or rev.source_conversation_id %}
+  <p class="text-sm text-muted mb-2">
+    <span style="font-family:var(--font-mono)" title="Content fingerprint of exactly what this would write">&#9741; {{ rev.provenance_hash[:12] }}</span>
+    {% if rev.source_conversation_id %} &middot; from <a href="/chat/{{ rev.source_conversation_id }}">the chat it came from</a>{% endif %}
+  </p>
+  {% endif %}
+
+  {% if rev.outline %}
+  <div class="card mb-2" style="background:var(--bg-subtle)">
+    <b class="text-sm">Agent review</b>
+    <p class="text-sm" style="margin:6px 0 0;line-height:1.6">{{ rev.outline }}</p>
+  </div>
+  {% elif rev.diff_summary %}
+  <p class="text-sm text-muted mb-2">{{ rev.diff_summary }}</p>
+  {% endif %}
+
+  <form method="post" action="/wiki/review/{{ rev.id }}/approve">
+    <textarea name="content" spellcheck="false"
+      style="width:100%;min-height:220px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">{{ rev.content }}</textarea>
+    <div class="flex gap-2 mt-2">
+      <button class="btn btn-success btn-sm">Approve</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('form').reset()">Revert edits</button>
+    </div>
+  </form>
+  <form method="post" action="/wiki/review/{{ rev.id }}/reject" class="mt-2">
+    <button class="btn btn-danger btn-sm">Reject</button>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="card mt-4">
+  <h3>What is the wiki review queue?</h3>
+  <p class="text-sm" style="margin-top:8px;line-height:1.7">
+    Every wiki change is first checked by an agent. Clean changes apply automatically;
+    only the ones it flags - a possible contradiction, duplicate, broken link, or
+    personal data - wait here. <b>Approve</b> writes the page (edit the text first to
+    correct it); <b>Reject</b> discards it. All decisions are logged in the audit
+    trail.
+    {% if scope == "personal" %}This queue is your personal wiki - only you see and approve these.
+    {% else %}Team changes are approved by the team owner on the team page; this queue is
+    the org wiki.{% endif %}
+  </p>
+</div>
+{% endblock %}

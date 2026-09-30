@@ -1,0 +1,627 @@
+/* Self-hosted brand typeface (offline-safe; variable font covers 400-600). */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/static/fonts/plus-jakarta-sans.woff2') format('woff2');
+}
+
+:root {
+  /* ── Design tokens (Wave 1) - one clean bright world ─────────────────────────────
+     Accent = deep pine green (action colour), distinct from the brighter --success grass.
+     Soil tones are kept for the anthill mound / warm identity, not for UI chrome. */
+
+  /* type scale: minor third (1.2), 16px base */
+  --fs-1:13px; --fs-2:14px; --fs-3:16px; --fs-4:19px; --fs-5:23px; --fs-6:28px; --fs-7:33px;
+  /* spacing: 8pt grid */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+
+  /* soil (identity / the mound) */
+  --soil:#7A5230; --soil-light:#A9743A; --clay:#8B5E3C; --clay-light:#A9743A;
+  --sand:#C6924E; --cream:#FAF7F2;
+
+  /* green accent (action) - replaces the old amber brand accent */
+  --accent:#2F6B4F; --accent-dk:#255A41; --accent-soft:#DCEAE2;
+  /* soft tints for icon chips/pills, matching the hue and exact opacity .badge-clay/.alert-warn
+     already use for their own dark-mode treatment (Dashboard redesign, founder ask 2026-09-28). */
+  --clay-soft:#F1E4D4; --warn-soft:#F8ECD6;
+
+  /* semantic neutrals (light) - cool bright working canvas */
+  --bg:#F7F8FA; --surface:#FFFFFF; --bg-subtle:#EDEFF2;
+  --border:rgba(20,22,28,.09); --border-strong:rgba(20,22,28,.15);
+  --primary:#2F6B4F; --primary-dk:#255A41;
+  --danger:#B23B3B; --success:#2F8D5B; --warn:#B0721C;
+  --text:#20201E; --muted:#5C5A55;
+
+  /* light sidebar - one bright world, no dark rail */
+  --sidebar-bg:#FFFFFF; --sidebar-text:#3B3B39; --sidebar-active:#2F6B4F;
+  --sidebar-hover:#F1F3F6; --sidebar-border:rgba(20,22,28,.08);
+  --code-bg:#1E1B18; --code-text:#EDE7DE;
+
+  --font-sans:'Plus Jakarta Sans', system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* App chrome + chat run on the native system UI font (crisp, app-like, zero web dependency so
+     it stays offline-safe); the brand wordmark and headings keep --font-sans for warmth. */
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --sidebar-w:232px; --radius:12px; --radius-sm:8px;
+}
+/* Dark theme. Applied two ways so the Appearance control (Light/Dark/System) works:
+   (a) System dark - the OS preference, UNLESS the user has forced light (data-theme="light");
+   (b) an explicit data-theme="dark" (forced dark, regardless of OS).
+   Light is the base :root; forcing it just excludes both rules below. The var block is duplicated
+   because CSS can't share one declaration block across a media-query boundary. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Clean neutral charcoal (not warm brown), green accent lifted for contrast. Structure comes
+       from hairline borders + separated surfaces, sidebar (darkest) < content < cards. */
+    --bg:#141619; --surface:#1D2024; --bg-subtle:#24282D;
+    --border:rgba(235,238,242,.11); --border-strong:rgba(235,238,242,.20);
+    --text:#EAECEF; --muted:#9BA1A9;
+    --accent:#4E9E78; --accent-dk:#3E8A66; --accent-soft:rgba(78,158,120,.16);
+    --clay-soft:rgba(200,160,120,.16); --warn-soft:rgba(217,154,70,.16);
+    --primary:#4E9E78; --primary-dk:#3E8A66; --success:#57B37E;
+    --sidebar-bg:#101215; --sidebar-text:#B7BDC5; --sidebar-active:#F0F2F5;
+    --sidebar-hover:#1D2024; --sidebar-border:rgba(235,238,242,.09);
+    --code-bg:#0F1113; --code-text:#E6E9ED;
+  }
+  /* .badge-* below are defined once, further down this file, with light-mode-only hardcoded hex -
+     never redefined for dark, so a role/status badge (users, tasks, agents, teams - any screen using
+     them) rendered pale-on-pale with poor contrast in dark mode. Same semantic colors, translucent
+     dark-mode-appropriate versions (design-language consistency pass, founder ask 2026-09-26). */
+  :root:not([data-theme="light"]) .badge-admin,
+  :root:not([data-theme="light"]) .badge-active,
+  :root:not([data-theme="light"]) .badge-hit { background: rgba(78,158,120,.18); color: #8FD9B4; }
+  :root:not([data-theme="light"]) .badge-member,
+  :root:not([data-theme="light"]) .badge-clay { background: rgba(200,160,120,.20); color: #E0C4A0; }
+  :root:not([data-theme="light"]) .badge-pending,
+  :root:not([data-theme="light"]) .badge-amber,
+  :root:not([data-theme="light"]) .badge-warning { background: rgba(217,154,70,.18); color: #E8B87A; }
+  :root:not([data-theme="light"]) .badge-danger,
+  :root:not([data-theme="light"]) .badge-miss { background: rgba(178,59,59,.22); color: #E89A9A; }
+  :root:not([data-theme="light"]) .badge-oauth,
+  :root:not([data-theme="light"]) .badge-running { background: rgba(66,133,244,.18); color: #8AB4F8; border-color: rgba(66,133,244,.35); }
+  :root:not([data-theme="light"]) .alert-warn { background: rgba(217,154,70,.16); color: #E8B87A; }
+  :root:not([data-theme="light"]) .alert-ok { background: rgba(78,158,120,.16); border-color: rgba(78,158,120,.35); color: #8FD9B4; }
+  :root:not([data-theme="light"]) .alert-err,
+  :root:not([data-theme="light"]) .alert-danger { background: rgba(178,59,59,.18); border-color: rgba(178,59,59,.35); color: #E89A9A; }
+  :root:not([data-theme="light"]) .alert-running { background: rgba(66,133,244,.16); border-color: rgba(66,133,244,.35); color: #8AB4F8; }
+}
+:root[data-theme="dark"] {
+  --bg:#141619; --surface:#1D2024; --bg-subtle:#24282D;
+  --border:rgba(235,238,242,.11); --border-strong:rgba(235,238,242,.20);
+  --text:#EAECEF; --muted:#9BA1A9;
+  --accent:#4E9E78; --accent-dk:#3E8A66; --accent-soft:rgba(78,158,120,.16);
+  --clay-soft:rgba(200,160,120,.16); --warn-soft:rgba(217,154,70,.16);
+  --primary:#4E9E78; --primary-dk:#3E8A66; --success:#57B37E;
+  --sidebar-bg:#101215; --sidebar-text:#B7BDC5; --sidebar-active:#F0F2F5;
+  --sidebar-hover:#1D2024; --sidebar-border:rgba(235,238,242,.09);
+  --code-bg:#0F1113; --code-text:#E6E9ED;
+}
+:root[data-theme="dark"] .badge-admin,
+:root[data-theme="dark"] .badge-active,
+:root[data-theme="dark"] .badge-hit { background: rgba(78,158,120,.18); color: #8FD9B4; }
+:root[data-theme="dark"] .badge-member,
+:root[data-theme="dark"] .badge-clay { background: rgba(200,160,120,.20); color: #E0C4A0; }
+:root[data-theme="dark"] .badge-pending,
+:root[data-theme="dark"] .badge-amber,
+:root[data-theme="dark"] .badge-warning { background: rgba(217,154,70,.18); color: #E8B87A; }
+:root[data-theme="dark"] .badge-danger,
+:root[data-theme="dark"] .badge-miss { background: rgba(178,59,59,.22); color: #E89A9A; }
+:root[data-theme="dark"] .badge-oauth,
+:root[data-theme="dark"] .badge-running { background: rgba(66,133,244,.18); color: #8AB4F8; border-color: rgba(66,133,244,.35); }
+:root[data-theme="dark"] .alert-warn { background: rgba(217,154,70,.16); color: #E8B87A; }
+:root[data-theme="dark"] .alert-ok { background: rgba(78,158,120,.16); border-color: rgba(78,158,120,.35); color: #8FD9B4; }
+:root[data-theme="dark"] .alert-err,
+:root[data-theme="dark"] .alert-danger { background: rgba(178,59,59,.18); border-color: rgba(178,59,59,.35); color: #E89A9A; }
+:root[data-theme="dark"] .alert-running { background: rgba(66,133,244,.16); border-color: rgba(66,133,244,.35); color: #8AB4F8; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Base is 16px (the readable floor). Reading line-height for long-form prose lives in .doc-body. */
+body { font-family: var(--font-ui);
+  background: var(--bg); color: var(--text); font-size: 16px;
+  -webkit-font-smoothing: antialiased; line-height: 1.5; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+/* Headings keep the brand typeface for warmth (system-ui has tighter built-in metrics, so a
+   touch less negative tracking reads better than the old -0.02em). */
+h1,h2,h3,h4 { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+
+/* layout */
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: var(--sidebar-w); background: var(--sidebar-bg); color: var(--sidebar-text);
+  display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar .brand-block { border-bottom: 1px solid var(--sidebar-border); }
+.sidebar .brand { display: flex; align-items: center; gap: 9px;
+  padding: 18px 16px 8px; font-size: 19px; font-weight: 600;
+  color: var(--sidebar-active); font-family: var(--font-sans);
+  letter-spacing: -0.03em; text-decoration: none; }
+.sidebar .brand:hover { text-decoration: none; }
+.sidebar .brand .wordmark { display: inline; }
+.sidebar .brand .accent { color: var(--accent); }
+.sidebar .brand-mark { width: 26px; height: 23px; display: block; flex-shrink: 0; }
+/* Indented to line up under the "Anthill" wordmark (mark 20 + pad 16 + gap 9) so it reads as
+   part of the rail, in line with the nav labels, not jutting out at the far-left edge. */
+.sidebar .brand-org { padding: 0 16px 12px 45px; font-size: 12px; font-weight: 600;
+  color: var(--sidebar-text); letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar nav { padding: 12px 0; flex: 1; }
+.sidebar nav .navcut { height: 1px; background: var(--border); margin: 10px 20px; }
+.sidebar .nav-section { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 10px 20px 4px; font-weight: 700; }
+/* Pending-count notification dot, pushed to the right edge of a nav item (e.g. Wiki review,
+   Integrations). A crisp circle that reads as an alert: a thin dark ring lifts the amber off the
+   dark rail so it pops, and a single-digit count stays a perfect circle. */
+.sidebar nav a .nav-badge { margin-left: auto; background: var(--accent); color: #fff;
+  font-size: 10.5px; font-weight: 800; line-height: 1; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.22); }
+.sidebar nav > .nav-section:first-child { margin-top: 0; }
+.sidebar nav a { display: flex; align-items: center; gap: 11px; padding: 9px 20px;
+  color: var(--sidebar-text); font-size: 15px; font-weight: 500;
+  border-left: 3px solid transparent; }
+.sidebar nav a:hover, .sidebar nav a.active { color: var(--sidebar-active);
+  background: var(--sidebar-hover); border-left-color: var(--accent); text-decoration: none; }
+/* First-run wizard (setup_account_type.html / model_picker.html): a UI deterrent against navigating
+   away mid-setup, not an enforcement - sign-out/profile in .sidebar-footer stay clickable. */
+.sidebar nav.nav-locked a { pointer-events: none; opacity: .45; cursor: not-allowed; }
+.sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+.sidebar nav a i[data-lucide] { width: 18px; flex-shrink: 0; text-align: center;
+  font-style: normal; font-size: 15px; line-height: 1; }
+
+/* ── Chat-mode rail (set by chat.html) ────────────────────────────────────────
+   The conversation list nests under Workspace and the other groups fold, so the chat is the
+   focus and there is no separate conversations column. Off on every non-chat page. */
+.sidebar nav.chat-mode .rail-convs { padding: 2px 0 8px; }
+.sidebar nav.chat-mode .rail-newchat { width: calc(100% - 24px); margin: 4px 12px 8px;
+  font-size: 13.5px; padding: 8px 10px; background: var(--accent-soft); color: var(--accent);
+  border: 1px solid transparent; font-weight: 600; }
+.sidebar nav.chat-mode .rail-newchat:hover { background: var(--accent); color: #fff; }
+.sidebar nav.chat-mode a.rail-conv { display: block; padding: 7px 16px 7px 30px; font-size: 14px;
+  font-weight: 500; color: var(--sidebar-text); border-left: 3px solid transparent;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar nav.chat-mode a.rail-conv:hover { background: var(--sidebar-hover); color: var(--sidebar-active); }
+.sidebar nav.chat-mode a.rail-conv.active { background: var(--sidebar-hover);
+  color: var(--sidebar-active); border-left-color: var(--accent); }
+/* Two-plane chat list: an Org (shared cloud model) section in brand amber, and a Solo (local,
+   private) section in a distinct cool tone, so the two are never confused at a glance. */
+.sidebar nav.chat-mode .rail-conv-section { padding: 8px 16px 2px; font-size: 10px;
+  font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sidebar-text);
+  opacity: .55; }
+/* Conversation-rail search / sort / collapse (client-side; see the rail script in _sidebar.html). */
+.sidebar nav.chat-mode .rail-convtools { display: flex; gap: 6px; padding: 4px 12px 8px; }
+.sidebar nav.chat-mode .rail-convsearch { flex: 1; min-width: 0; font-size: 12px; padding: 5px 9px;
+  border: 1px solid var(--sidebar-border, rgba(255,255,255,.14)); border-radius: 8px;
+  background: rgba(255,255,255,.06); color: var(--sidebar-text); }
+.sidebar nav.chat-mode .rail-convsearch::placeholder { color: var(--sidebar-text); opacity: .5; }
+.sidebar nav.chat-mode .rail-convsort { font-size: 11px; font-weight: 600; color: var(--sidebar-text);
+  background: rgba(255,255,255,.06); border: 1px solid var(--sidebar-border, rgba(255,255,255,.14));
+  border-radius: 8px; padding: 0 9px; cursor: pointer; white-space: nowrap; }
+.sidebar nav.chat-mode .rail-convsort:hover { background: rgba(255,255,255,.12); }
+.sidebar nav.chat-mode .rail-conv-section { cursor: pointer; }
+.sidebar nav.chat-mode .rail-conv-section .rail-cgchev { float: right; font-size: 9px;
+  transition: transform .15s; opacity: .6; }
+.sidebar nav.chat-mode .rail-conv-section.collapsed .rail-cgchev { transform: rotate(-90deg); }
+.sidebar nav.chat-mode .rail-conv-row.rail-hidden,
+.sidebar nav.chat-mode .rail-conv-row.rail-collapsed,
+.sidebar nav.chat-mode .rail-conv-section.rail-hidden,
+.sidebar nav.chat-mode details.rail-folder.rail-hidden { display: none; }
+
+/* Modal dialog (Tasks / Agents create forms). */
+.modal { position: fixed; inset: 0; top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(20,20,18,.45); z-index: 50; overflow: auto; }
+dialog.modal { width: auto; max-width: none; height: auto; max-height: none; margin: 0; padding: 0;
+  border: 0; color: inherit; }
+dialog.modal:not([open]) { display: none; }
+dialog.modal[open] { display: block; }
+dialog.modal::backdrop { background: transparent; }
+.modal.task-modal-fallback-open { top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%;
+  z-index: 10010; }
+.task-modal-background { pointer-events: none; }
+.modal-card { width: 100%; max-width: 560px; margin: 7vh auto; background: var(--bg, #fff);
+  border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.28);
+  padding: 22px; }
+.modal-h { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 14px; }
+.modal-x { font-size: 22px; line-height: 1; color: var(--muted); background: none; border: 0;
+  cursor: pointer; padding: 0 4px; }
+.modal-x:hover { color: var(--text); }
+.sidebar nav.chat-mode .rail-newchat-row { display: flex; gap: 6px; margin: 2px 12px 6px; }
+.sidebar nav.chat-mode .rail-newchat-row .rail-newchat { width: auto; flex: 1; margin: 0; }
+.sidebar nav.chat-mode .rail-newchat-solo { background: transparent;
+  border: 1px solid #5BA88F; color: #8FD3BC; }
+.sidebar nav.chat-mode .rail-newchat-solo:hover { background: rgba(91,168,143,.15); }
+.sidebar nav.chat-mode .rail-newchat-org { background: var(--accent); border: 1px solid var(--accent);
+  color: #fff; }
+.sidebar nav.chat-mode .plane-dot { display: inline-block; width: 7px; height: 7px;
+  border-radius: 50%; margin-right: 7px; margin-left: -14px; vertical-align: middle; }
+.sidebar nav.chat-mode .plane-dot-org { background: var(--accent); }
+.sidebar nav.chat-mode .plane-dot-solo { background: #5BA88F; }
+.sidebar nav.chat-mode .plane-dot-team { background: var(--clay-light); }
+.sidebar nav.chat-mode a.rail-conv-solo.active { border-left-color: #5BA88F; }
+.sidebar nav.chat-mode a.rail-conv-team.active { border-left-color: var(--clay-light); }
+.sidebar nav.chat-mode .rail-newchat-org:disabled { opacity: .45; cursor: not-allowed; }
+/* Per-conversation actions (pin/rename/delete): reveal on hover, so a chat can be managed right from
+   the list. The three sit in ONE absolutely-positioned group, laid out side by side with flex - each
+   used to position itself independently at this same spot, which stacked all three exactly on top of
+   each other (only the last-painted button was ever actually clickable). */
+.sidebar nav.chat-mode .rail-conv-row { position: relative; }
+.sidebar nav.chat-mode .rail-conv-row a.rail-conv { padding-right: 78px; }
+.sidebar nav.chat-mode .rail-conv-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: none; align-items: center; gap: 4px; }
+.sidebar nav.chat-mode .rail-conv-row:hover .rail-conv-actions { display: flex; }
+.sidebar nav.chat-mode .rail-conv-act { margin: 0; }
+.sidebar nav.chat-mode .rail-conv-del { margin: 0; display: none; }
+.sidebar nav.chat-mode .rail-conv-row:hover .rail-conv-del { display: block; }
+.sidebar nav.chat-mode .rail-conv-del-btn { background: none; border: 0; cursor: pointer; padding: 2px 5px;
+  font-size: 12px; line-height: 1; color: var(--sidebar-text); opacity: .65; border-radius: 4px;
+  display: inline-flex; align-items: center; }
+/* Pin/rename hover with the sidebar's own neutral interactive colour (matches a.rail-conv:hover) - the
+   warm "danger" orange belongs to Delete alone (.rail-conv-del-btn.danger), not every action in the
+   group (founder ask, 2026-09-30: sharing one hover colour across all three read as "weird", since a
+   plain rename/pin now visually warned like a destructive action). */
+.sidebar nav.chat-mode .rail-conv-del-btn:hover { opacity: 1; color: var(--sidebar-active); background: var(--sidebar-hover); }
+.sidebar nav.chat-mode .rail-conv-del-btn.danger:hover { color: #E0795B; background: rgba(0,0,0,.25); }
+.sidebar nav.chat-mode .rail-conv-del-btn i { width: 12px; height: 12px; }
+/* Personal Folders (#414): the folder NAME is the prominent element (a real title, not an uppercase
+   micro-label), its delete control is subtle and hover-only, and "+ New folder" is a quiet secondary
+   input - so folders read as personal chat organisation, not a shared/team thing. */
+.sidebar nav.chat-mode .rail-folder { margin: 1px 0; }
+.sidebar nav.chat-mode .rail-folder-summary { display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; padding: 5px 12px 4px 16px; font-size: 13px; font-weight: 600;
+  text-transform: none; letter-spacing: 0; opacity: .92; list-style: none; cursor: pointer; }
+.sidebar nav.chat-mode .rail-folder-summary::-webkit-details-marker { display: none; }
+.sidebar nav.chat-mode .rail-folder-summary > span { min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del { position: static; transform: none; display: block; }
+.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del-btn { opacity: 0; padding: 1px 4px; flex: none; }
+.sidebar nav.chat-mode .rail-folder-summary:hover .rail-conv-del-btn { opacity: .55; }
+.sidebar nav.chat-mode .rail-newfolder { margin: 5px 12px 6px; }
+.sidebar nav.chat-mode .rail-newfolder input { width: 100%; background: transparent;
+  color: var(--sidebar-text); border: 1px dashed var(--sidebar-border); border-radius: 6px;
+  padding: 5px 9px; font-size: 11.5px; }
+.sidebar nav.chat-mode .rail-newfolder input::placeholder { color: var(--sidebar-text); opacity: .5; }
+.sidebar nav.chat-mode .rail-newfolder input:focus { border-style: solid; border-color: var(--accent);
+  outline: none; }
+/* Org-plane offline banner above the composer: an Org chat whose backend is unreachable. */
+.plane-banner { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px;
+  background: rgba(200,120,30,.12); border: 1px solid rgba(200,120,30,.4); color: var(--text); }
+/* Global action-feedback toast (#284): a fixed overlay, visible regardless of scroll. showToast() in
+   base.html; used app-wide in place of raw alert(). */
+.toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 9999;
+  max-width: 560px; padding: 12px 18px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  line-height: 1.4; box-shadow: 0 6px 24px rgba(0,0,0,.28); cursor: pointer; }
+.toast-success { background: #1A4A2A; color: #EAF6EE; border: 1px solid #2E7D4F; }
+.toast-error { background: #5A1A1A; color: #FBE3E3; border: 1px solid #C0392B; }
+/* Foldable groups: the section header toggles; its items hide until the group is expanded. Active on
+   any workspace page (chat / tasks / agents), so the lower groups (General, Insights, Organization,
+   Help) collapse there and the work is the focus. Default is collapsed; one click reopens. */
+.sidebar nav.workspace-mode .nav-foldable .nav-section { cursor: pointer; display: flex;
+  align-items: center; justify-content: space-between; }
+.sidebar nav.workspace-mode .nav-foldable .nav-section::after { content: "\25B8"; font-size: 9px;
+  opacity: .55; transition: transform .12s; }
+.sidebar nav.workspace-mode .nav-foldable.expanded .nav-section::after { transform: rotate(90deg); }
+.sidebar nav.workspace-mode .nav-foldable:not(.expanded) > a { display: none; }
+/* Workspace "More" fold (chat/tasks/agents): one collapsed home for the secondary nav. Native
+   <details> so it needs no JS; the groups inside stay grouped when opened. */
+.sidebar nav .nav-more { margin-top: 6px; }
+.sidebar nav .nav-more > summary { list-style: none; cursor: pointer; }
+.sidebar nav .nav-more > summary::-webkit-details-marker { display: none; }
+.sidebar nav .nav-more > summary.nav-section { display: flex; align-items: center; }
+.sidebar nav .nav-more > summary::after { content: "\25B8"; font-size: 9px; opacity: .55;
+  margin-left: 6px; transition: transform .12s; }
+.sidebar nav .nav-more[open] > summary::after { transform: rotate(90deg); }
+.sidebar nav .nav-more[open] { padding-bottom: 8px; }
+
+/* ── Profile chip: which isolated device profile this window is + the switcher (brand block) ──
+   The colour is the profile's own, so Personal and Work look different at a glance. */
+.sidebar .profile-chip-wrap { position: relative; padding: 0 12px 12px; }
+.sidebar .profile-chip { display: flex; align-items: center; gap: 8px; width: 100%;
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--sidebar-border); border-radius: 8px;
+  padding: 6px 9px; color: var(--sidebar-active); font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: left; }
+.sidebar .profile-chip:hover { background: rgba(255, 255, 255, .09); }
+.sidebar .profile-chip-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .profile-chip-caret { width: 14px; height: 14px; opacity: .6; flex-shrink: 0; }
+.profile-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }
+.sidebar .profile-menu { display: none; position: absolute; left: 12px; right: 12px;
+  top: calc(100% - 6px); z-index: 60; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(26, 17, 10, .28);
+  padding: 6px; }
+.sidebar .profile-menu.open { display: block; }
+.sidebar .profile-menu-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 700; padding: 4px 8px; }
+.sidebar .profile-menu-item { display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 0; border-radius: 6px; padding: 7px 8px; font: inherit; font-size: 13px;
+  color: var(--text); cursor: pointer; text-align: left; }
+.sidebar .profile-menu-item:hover { background: var(--bg-subtle); }
+.sidebar .profile-menu-item.is-current { cursor: default; }
+.sidebar .profile-menu-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .profile-menu-badge { font-size: 10px; color: var(--muted); font-weight: 600; }
+.sidebar .profile-menu-open { font-size: 11px; color: var(--accent); font-weight: 700; }
+.sidebar .profile-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.sidebar .profile-menu-link { display: block; padding: 7px 8px; font-size: 13px; border-radius: 6px;
+  color: var(--text); }
+.sidebar .profile-menu-link:hover { background: var(--bg-subtle); text-decoration: none; }
+/* Topbar identity: your name + profile dot, a quiet link to the profile hub (was a bare user id). */
+.topbar-identity { display: inline-flex; align-items: center; gap: 7px; color: var(--muted);
+  font-size: 13px; text-decoration: none; }
+.topbar-identity:hover { color: var(--text); text-decoration: none; }
+.topbar-identity-name { max-width: 180px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+
+/* inline content icons (Lucide) - size to the surrounding text */
+i[data-lucide] { display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05em; height: 1.05em; vertical-align: -0.15em; font-style: normal; }
+i[data-lucide] svg { width: 1em; height: 1em; }
+.sidebar .sidebar-footer { padding: 16px 20px; font-size: 13.5px; color: var(--muted);
+  border-top: 1px solid var(--sidebar-border); }
+/* Settings sub-items in the rail (shown when on /personalize), indented like the chat conversation rail. */
+.sidebar nav .settings-subrail { display: flex; flex-direction: column; margin: 2px 0 6px; }
+.sidebar nav .settings-subrail a { font-size: 13px; color: var(--sidebar-text); opacity: .8;
+  padding: 5px 16px 5px 44px; text-decoration: none; border-radius: 6px; }
+.sidebar nav .settings-subrail a:hover { background: var(--sidebar-hover); opacity: 1; }
+/* Footer: a compact account chip + Sign out + a "..." Help overflow (was a pile of links). */
+.sidebar .footer-row { display: flex; align-items: center; gap: 8px; }
+.sidebar .footer-account { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
+  color: var(--sidebar-text); text-decoration: none; padding: 6px; border-radius: 8px; }
+.sidebar .footer-account:hover { background: var(--sidebar-hover); }
+.sidebar .footer-av { width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+  color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px;
+  font-weight: 700; flex: none; }
+.sidebar .footer-who { display: flex; flex-direction: column; line-height: 1.2; min-width: 0;
+  font-size: 13px; font-weight: 600; overflow: hidden; }
+.sidebar .footer-who small { font-size: 11px; font-weight: 400; opacity: .6; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.sidebar .footer-help-btn { flex: none; width: 30px; height: 30px; border: 0; background: none;
+  color: var(--sidebar-text); opacity: .7; border-radius: 8px; cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center; }
+.sidebar .footer-help-btn:hover { background: var(--sidebar-hover); opacity: 1; }
+.sidebar .footer-signout { display: inline-block; margin-top: 6px; font-size: 12px;
+  color: var(--sidebar-text); opacity: .65; text-decoration: none; }
+.sidebar .footer-signout:hover { opacity: 1; }
+.sidebar .footer-help-menu { display: flex; flex-direction: column; margin-top: 8px; gap: 2px;
+  border-top: 1px solid var(--sidebar-border); padding-top: 8px; }
+.sidebar .footer-help-menu[hidden] { display: none; }
+.sidebar .footer-help-menu a { font-size: 13px; color: var(--sidebar-text); opacity: .8;
+  text-decoration: none; padding: 4px 6px; border-radius: 6px; }
+.sidebar .footer-help-menu a:hover { background: var(--sidebar-hover); opacity: 1; }
+.main { flex: 1; display: flex; flex-direction: column; overflow: auto; }
+.topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 12px 28px; display: flex; align-items: center; gap: 12px; font-size: 15px; }
+.topbar .page-title { font-weight: 600; font-size: 19px; flex: 1; }
+/* Secondary action: an outline button so it does not compete with each screen's true primary. */
+.btn-install { background: transparent; color: var(--accent); font-weight: 600; font-size: 13px;
+  border: 1px solid var(--accent); border-radius: 18px; padding: 5px 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; transition: background .12s, color .12s; }
+.btn-install:hover { background: var(--accent); color: #1A110A; }
+.content { padding: 32px; flex: 1; }
+/* Full-width Save bar: spans the whole form (not a half-width card) and carries a full-width
+   primary button, so saving is one clear page-wide action. */
+.settings-savebar { display: flex; flex-direction: column; }
+.settings-savebar .btn-primary { width: 100%; }
+
+/* cards */
+.card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; box-shadow: 0 1px 3px rgba(26,17,10,.06); }
+.card h3 { font-size: 13px; color: var(--muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.card .big { font-size: 32px; font-weight: 600; color: var(--text); }
+.metric-i { position: absolute; top: 10px; right: 12px; color: var(--muted);
+  cursor: help; font-size: 13px; user-select: none; }
+.metric-i:hover { color: var(--accent); }
+/* Icon chip: a small colored anchor for a stat tile, card header, or list row, so a surface's color
+   encodes what it means (accent = action/output, clay = knowledge, warn = waiting on you, muted =
+   secondary) instead of every surface defaulting to the same gray regardless of meaning. Promoted from
+   the Dashboard redesign so any page's stat cards/rows can reuse it (Metrics, dashboard.html). */
+.ic-chip { width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center;
+  justify-content: center; flex: none; }
+.ic-chip i, .ic-chip svg { width: 16px; height: 16px; }
+.ic-accent { background: var(--accent-soft); color: var(--accent-dk); }
+.ic-clay   { background: var(--clay-soft); color: var(--soil); }
+.ic-warn   { background: var(--warn-soft); color: var(--warn); }
+.ic-muted  { background: var(--bg-subtle); color: var(--muted); }
+/* speech-to-text mic button */
+.mic-btn { background: transparent; border: 1px solid var(--border-strong); color: var(--muted);
+  border-radius: 8px; width: 36px; height: 36px; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; flex-shrink: 0; }
+.mic-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mic-btn:disabled { opacity: .5; cursor: default; }
+.mic-btn:disabled:hover { color: var(--muted); border-color: var(--border-strong); }
+.mic-btn.dictating { color: #fff; background: var(--danger); border-color: var(--danger);
+  animation: micpulse 1s ease-in-out infinite; }
+@keyframes micpulse { 50% { opacity: .6; } }
+.card .sub { font-size: 14px; color: var(--muted); margin-top: 2px; }
+
+/* Reusable collapsed-disclosure pattern for "the headline action is enough for most people; here is
+   more control if you want it" (first used by _compute_chooser.html's own scoped .cc-adv - this is
+   the same visual language promoted to global scope so other surfaces, e.g. the Knowledge templates,
+   can reuse it without duplicating the CSS per template). */
+.adv-disclosure { margin-top: 16px; }
+.adv-disclosure summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+.adv-disclosure summary::-webkit-details-marker { display: none; }
+.adv-disclosure summary::before { content: "\203A"; margin-right: 6px; display: inline-block; transition: .15s; color: var(--muted); }
+.adv-disclosure[open] summary::before { transform: rotate(90deg); }
+.adv-disclosure > .adv-disclosure-body { margin-top: 10px; }
+
+.grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }
+@media(max-width:900px){ .grid-4{grid-template-columns:repeat(2,1fr);} .grid-2{grid-template-columns:1fr;} }
+
+/* alerts */
+.alert { border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; font-size: 14px; }
+.alert-warn { background: #FBEFD6; border: 1px solid var(--accent-soft); color: #6B4A08; }
+.alert-ok   { background: #D0EAD8; border: 1px solid #9CCBAE; color: #1A4A2A; }
+.alert-err  { background: #F5D7D7; border: 1px solid #E3A9A9; color: #6B1A1A; }
+/* .alert-danger: used across settings_organization/general/slack/discord.html and backup.html for
+   every error banner on those pages, but was never defined anywhere - rendered as plain unstyled text,
+   in both themes, exactly the same "referenced but nonexistent class" bug as .badge-amber/.badge-clay
+   (found and fixed earlier in this pass). Same red family as .alert-err. */
+.alert-danger { background: #F5D7D7; border: 1px solid #E3A9A9; color: #6B1A1A; }
+/* "live now" banner (agent_detail.html, task_result.html) - was a raw inline style duplicated
+   verbatim across both files with no dark-mode counterpart. Same blue as .badge-running. */
+.alert-running { background: #DCEBF8; border: 1px solid #9FC4DE; color: #1B5E86; }
+.alert-info { background: var(--bg-subtle); border: 1px solid var(--border-strong); color: var(--clay); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th { text-align: left; padding: 10px 14px; background: var(--bg-subtle);
+  border-bottom: 2px solid var(--border); font-weight: 600; }
+td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-subtle); }
+
+/* forms */
+.form-group { margin-bottom: 16px; }
+label { display: block; font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+input[type=text], input[type=email], input[type=password],
+input[type=number], select, textarea {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong);
+  border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--text);
+  font-family: inherit; }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(47,107,79,.22); }
+
+/* help popover (Wave 2): the ONLY sanctioned inline help. A "?" next to a label opens a small
+   popover on hover/focus. Replaces standing explanatory prose. Usage:
+   <button type="button" class="help" aria-label="More info">?<span class="help-pop">text</span></button> */
+.help { position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0; margin-left: 5px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid var(--border-strong); background: none; color: var(--muted);
+  font: 700 11px/1 var(--font-ui); cursor: help; vertical-align: middle; }
+.help:hover, .help:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
+.help .help-pop { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%); width: 232px; max-width: 60vw; padding: 9px 11px; z-index: 90;
+  background: var(--text); color: var(--surface); border-radius: 8px;
+  font: 400 12.5px/1.45 var(--font-ui); letter-spacing: 0; text-align: left; text-transform: none;
+  white-space: normal; box-shadow: 0 6px 20px rgba(0,0,0,.22); }
+.help .help-pop::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--text); }
+.help:hover .help-pop, .help:focus .help-pop, .help:focus-within .help-pop { display: block; }
+.help-pop a { color: var(--accent-soft); font-weight: 600; }
+/* expand the hit target to >= 26px without growing the glyph (WCAG target size) */
+.help::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; }
+/* smart flip: JS adds .help-pop--down when the upward popover would clip at the top */
+.help .help-pop--down { bottom: auto; top: calc(100% + 8px); }
+.help .help-pop--down::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--text); }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px;
+  border-radius: 8px; border: none; cursor: pointer; font-size: 15px;
+  font-weight: 600; font-family: inherit; transition: .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-dk); text-decoration: none; color: #fff; }
+.btn-danger  { background: var(--danger); color: #fff; }
+.btn-danger:hover { background: #8A2424; text-decoration: none; color: #fff; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #235640; text-decoration: none; color: #fff; }
+.btn-clay    { background: var(--clay); color: #fff; }
+.btn-clay:hover { background: var(--soil); text-decoration: none; color: #fff; }
+.btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+.btn-outline:hover { background: var(--bg-subtle); text-decoration: none; }
+.btn-sm { padding: 5px 10px; font-size: 13px; }
+.btn-google { background: var(--surface); border: 1px solid var(--border-strong); color: var(--text);
+  width: 100%; justify-content: center; }
+.btn-google:hover { background: var(--bg-subtle); text-decoration: none; }
+
+/* badges */
+.badge { display: inline-block; padding: 2px 9px; border-radius: 9999px;
+  font-size: 11px; font-weight: 500; letter-spacing: .04em; }
+.badge-admin   { background: var(--accent-soft); color: #6B3C08; }
+.badge-member  { background: #E8D5C0; color: #5A3520; }
+.badge-active  { background: #D0EAD8; color: #1A4A2A; }
+.badge-pending { background: #F5E2BE; color: #6B4A08; }
+.badge-danger  { background: #F5D0D0; color: #6B1A1A; }
+.badge-hit     { background: #D0EAD8; color: #1A4A2A; }
+.badge-miss    { background: #F5D0D0; color: #6B1A1A; }
+/* .badge-amber/.badge-clay: used across teams.html, team_detail.html, skills.html, wiki.html and
+   wiki_review.html but were never defined anywhere - rendered as unstyled plain pills (no background
+   or color at all, in either theme). Same amber/clay hue families as -pending/-member above. */
+.badge-amber   { background: #F5E2BE; color: #6B4A08; }
+.badge-clay    { background: #E8D9C8; color: #7A5230; }
+/* OAuth-provider tag (users.html) - was a raw inline style with no dark-mode counterpart. */
+.badge-oauth   { background: #E8F0FE; color: #1A73E8; }
+/* "running" status (agent_detail.html, task_result.html run-history rows and live banner) - was a raw
+   inline style duplicated verbatim across both files with no dark-mode counterpart. */
+.badge-running { background: #DCEBF8; color: #1B5E86; border: 1px solid #9FC4DE; }
+/* .badge-warning: used in settings_organization.html for "provisioning..."/"cold start" states, but
+   like .badge-amber/.badge-clay above, was never defined - rendered as an unstyled plain pill. Same
+   amber family as .badge-pending. */
+.badge-warning { background: #F5E2BE; color: #6B4A08; }
+
+/* settings hub tab bar - the infra/config pages are tabs of Settings */
+.settings-tabs, .knowledge-tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--border);
+  margin-bottom: 22px; }
+.settings-tabs a, .knowledge-tabs a { padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--muted);
+  text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.settings-tabs a:hover, .knowledge-tabs a:hover { color: var(--text); text-decoration: none; }
+.settings-tabs a.active, .knowledge-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+/* Knowledge hub guidance: a light per-tab hint + a re-openable hub-level self-explanation card. */
+.know-hint { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px;
+  font-size: 13px; color: var(--muted); }
+.know-hint a { font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none; white-space: nowrap; }
+.know-hint a:hover { text-decoration: underline; }
+.know-intro { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-subtle);
+  padding: 16px 18px; margin: 0 0 20px; }
+.know-intro[hidden] { display: none; }
+.know-intro-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.know-intro-h h4 { margin: 0; font-size: 15px; }
+.know-intro-x { border: 0; background: none; font-size: 20px; line-height: 1; color: var(--muted);
+  cursor: pointer; padding: 0 4px; }
+.know-intro p { font-size: 13px; line-height: 1.6; color: var(--text); margin: 8px 0 0; }
+.know-intro-foot { color: var(--muted) !important; font-size: 13px !important; }
+.know-intro .btn { margin-top: 12px; }
+
+/* auth pages */
+.auth-wrap { display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; background: linear-gradient(160deg,#EEF2EF,#E3EAE6); }
+.auth-box { background: var(--surface); border-radius: 16px; padding: 40px;
+  width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(26,17,10,.30); }
+.auth-box h1 { font-size: 24px; margin-bottom: 6px; }
+.auth-box .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted);
+  font-size: 13px; margin: 20px 0; }
+.divider::before, .divider::after { content:''; flex:1; border-top: 1px solid var(--border); }
+
+/* wiki diff */
+.diff-add { background: #D0EAD8; }
+.diff-del { background: #F5D0D0; }
+pre.wiki-content { white-space: pre-wrap; font-family: var(--font-mono);
+  font-size: 13px; background: var(--bg-subtle); border-radius: 8px; padding: 14px;
+  border: 1px solid var(--border); max-height: 300px; overflow-y: auto; }
+
+/* sparkline placeholder */
+.sparkline { height: 40px; background: linear-gradient(90deg,var(--sand),var(--accent-soft));
+  border-radius: 4px; }
+
+/* docs - prose stays at a comfortable reading size/measure (the app chrome is denser) */
+.doc-body { max-width: 760px; font-size: 15px; }
+.doc-body h1 { font-size: 30px; margin-bottom: 8px; }
+.doc-body h2 { font-size: 22px; margin: 28px 0 10px; border-bottom: 1px solid var(--border);
+  padding-bottom: 6px; }
+.doc-body h3 { font-size: 17px; margin: 20px 0 8px; }
+.doc-body p  { line-height: 1.7; margin-bottom: 12px; }
+.doc-body ul, .doc-body ol { padding-left: 24px; margin-bottom: 12px; line-height: 1.7; }
+.doc-body code { background: var(--bg-subtle); padding: 1px 5px; border-radius: 4px;
+  font-family: var(--font-mono); font-size: 13px; }
+.doc-body pre { background: var(--code-bg); color: var(--code-text); padding: 16px;
+  border-radius: 8px; overflow-x: auto; margin-bottom: 16px; font-size: 13px; }
+.doc-body pre code { background: none; padding: 0; color: inherit; }
+
+/* misc */
+.mt-4 { margin-top: 24px; }
+.mb-2 { margin-bottom: 12px; }
+.text-muted { color: var(--muted); }
+.text-sm { font-size: 13px; }
+.flex { display: flex; }
+.gap-2 { gap: 10px; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+
+@media (max-width: 720px) {            /* mobile / installed PWA */
+  :root { --sidebar-w: 180px; }
+  .content { padding: 18px; }
+  .sidebar nav a { padding: 8px 14px; font-size: 14px; }
+}

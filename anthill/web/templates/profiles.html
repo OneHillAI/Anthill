@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Profiles{% endblock %}
+{% block page_title %}Profiles{% endblock %}
+{% block content %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin:0 0 16px">
+  A profile is a separate, fully isolated account on this device - its own chats, wiki, models and
+  data. Profiles never share anything with each other. The one you are signed into now is marked
+  <b>Active</b>.
+</p>
+
+{% if error %}
+<div class="alert alert-danger" style="margin:0 0 16px;max-width:760px">
+  <p class="text-sm" style="margin:0">{{ error }}</p>
+</div>
+{% endif %}
+
+<div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+  {% for p in profiles %}
+  <div class="card">
+    <form method="post" action="/profiles/{{ p.id }}/edit"
+          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <input type="color" name="colour" value="{{ p.colour }}" title="Colour"
+             style="width:32px;height:32px;padding:2px;flex:0 0 auto">
+      <input type="text" name="name" value="{{ p.name }}" maxlength="60" required
+             aria-label="Profile name" style="flex:1 1 200px">
+      {% if p.current %}<span class="badge badge-active">Active</span>{% endif %}
+      <button type="submit" class="btn btn-outline btn-sm">Save</button>
+    </form>
+    <div class="text-sm text-muted"
+         style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        {{ p.id }} &middot; <span style="font-family:monospace">{{ p.data_dir }}</span>
+      </span>
+      {% if not p.current %}
+      <button type="button" class="btn btn-outline btn-sm profile-open" data-id="{{ p.id }}">Open</button>
+      <code class="profile-open-cli">anthill web --profile {{ p.id }}</code>
+      {% endif %}
+      {% if p.deletable %}
+      {# Two-click confirm instead of window.confirm(): the desktop app's webview does not reliably run
+         native confirm()/alert() dialogs, which silently cancelled the delete. type="button" so the
+         form only submits from JS after the second click. #}
+      <form method="post" action="/profiles/{{ p.id }}/delete" class="profile-del" style="margin-left:auto">
+        <button type="button" class="btn btn-danger btn-sm profile-del-btn">Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card" style="max-width:760px;margin-top:20px">
+  <h3 style="margin:0 0 6px">Create a profile</h3>
+  <p class="text-sm text-muted" style="margin:0 0 14px">
+    A new profile starts empty and completely separate.
+    {% if over_cap %}
+      You already have more than {{ soft_cap }} - that is fine, but note each one you open at the same
+      time uses its own memory.
+    {% else %}
+      Most people need two or three (for example, personal and work).
+    {% endif %}
+  </p>
+  <form method="post" action="/profiles"
+        style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div class="form-group" style="flex:1 1 220px;margin:0">
+      <label>Name</label>
+      <input type="text" name="name" placeholder="Work" required maxlength="60">
+    </div>
+    <div class="form-group" style="flex:0 0 120px;margin:0">
+      <label>Colour</label>
+      <input type="color" name="colour" value="#059669" style="height:40px;padding:2px;width:100%">
+    </div>
+    <button type="submit" class="btn btn-primary">Create profile</button>
+  </form>
+</div>
+
+<p class="text-sm text-muted" style="max-width:760px;margin-top:16px">
+  In the desktop app, <b>Open</b> switches to another profile. Having two open at once (in separate
+  tabs) is coming next. From a terminal, a profile runs with the command shown beside it.
+</p>
+
+<script>
+  (function () {
+    var t = window.__TAURI__;
+    var inApp = !!(t && t.core && typeof t.core.invoke === "function");
+
+    // Show errors in the page, not via alert() - the desktop app's webview does not reliably show
+    // native alert()/confirm() dialogs, which is why failures used to look like "nothing happened".
+    function showError(msg) {
+      var box = document.getElementById("profile-js-error");
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "profile-js-error";
+        box.className = "alert alert-danger";
+        box.style.cssText = "margin:0 0 16px;max-width:760px";
+        var wrap = document.querySelector(".content") || document.body;
+        wrap.insertBefore(box, wrap.firstChild);
+      }
+      box.innerHTML = '<p class="text-sm" style="margin:0">' + msg + "</p>";
+      box.scrollIntoView({ block: "nearest" });
+    }
+
+    // Open: switch the window to another profile (desktop app only).
+    document.querySelectorAll(".profile-open").forEach(function (btn) {
+      if (!inApp) {
+        // A plain browser can't start another backend process; the CLI hint covers it.
+        btn.style.display = "none";
+        return;
+      }
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        btn.textContent = "Opening...";
+        Promise.resolve(t.core.invoke("open_profile", { id: btn.dataset.id })).catch(function (e) {
+          btn.disabled = false;
+          btn.textContent = "Open";
+          showError("Could not open that profile: " + (e && e.message ? e.message : e));
+        });
+      });
+    });
+
+    // Delete: two-click confirm (no window.confirm, which the webview may ignore). First click arms
+    // the button; a second click within 4s submits. Auto-resets so nothing is deleted by accident.
+    document.querySelectorAll(".profile-del").forEach(function (form) {
+      var btn = form.querySelector(".profile-del-btn");
+      if (!btn) return;
+      var armed = false, orig = btn.textContent, timer = null;
+      btn.addEventListener("click", function () {
+        if (armed) {
+          form.submit();
+          return;
+        }
+        armed = true;
+        btn.textContent = "Click again to delete";
+        timer = setTimeout(function () {
+          armed = false;
+          btn.textContent = orig;
+        }, 4000);
+      });
+    });
+
+    if (inApp) {
+      // The CLI hint is redundant next to a working Open button in the app.
+      document.querySelectorAll(".profile-open-cli").forEach(function (el) {
+        el.style.display = "none";
+      });
+    }
+  })();
+</script>
+
+{% endblock %}

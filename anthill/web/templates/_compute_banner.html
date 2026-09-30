@@ -1,0 +1,15 @@
+{# Reusable "your compute isn't set up yet" notice - drop into any page with `compute_ready` and
+   `setup_href` already in the render context (see app.py's _compute_readiness). A real link when
+   `setup_href` is set; plain "ask an admin" text when it's None (a non-admin can't reach the
+   admin-only /settings/organization, so never link them into a 403). #}
+{% macro compute_banner(compute_ready, setup_href) %}
+{% if not compute_ready %}
+<div class="alert alert-info">
+  {% if setup_href %}
+  Your compute isn't set up yet. <a href="{{ setup_href }}">Finish setup</a>.
+  {% else %}
+  Your compute isn't set up yet. Ask an admin to finish setup.
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}

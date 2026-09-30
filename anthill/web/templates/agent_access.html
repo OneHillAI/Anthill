@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Agent access{% endblock %}
+{% block page_title %}Agent access{% endblock %}
+{% block content %}
+
+{% set scope_help = {
+  "web":    "Search the internet and fetch the text of web pages.",
+  "wiki":   "Read and search the org wiki, and write draft pages (which go to review).",
+  "files":  "List and read local files on this machine.",
+  "docs":   "Create documents (e.g. generate a PDF).",
+  "email":  "Read the inbox and draft replies (sending still needs your approval).",
+  "slack":  "Read and post messages via the Slack connector.",
+  "notion": "Read and write pages via the Notion connector.",
+  "jira":   "Read and update issues via the Jira connector.",
+  "gdrive": "Read and write files via the Google Drive connector.",
+  "msgraph":"Access Microsoft 365 (OneDrive / Outlook) via the Graph connector."
+} %}
+
+<div class="card mb-2" style="background:var(--bg-subtle)">
+  <h2 style="font-size:16px;margin:0 0 8px">What is this page?</h2>
+  <p class="text-sm" style="margin:0 0 8px">
+    When Anthill does work on its own - answering in <b>agent mode</b>, or running a
+    <b>scheduled task</b> - it acts under a named <b>agent identity</b>, not as you.
+    Each identity has a fixed set of <b>scopes</b> (what it's allowed to touch).
+    This is what makes automation safe and auditable:
+  </p>
+  <ul class="text-sm" style="margin:0 0 8px;padding-left:18px">
+    <li><b>Attributable</b> - every action is logged against the identity that did it (see the audit table below).</li>
+    <li><b>Least-privilege</b> - an identity can only use tools inside its scopes; anything else is blocked.</li>
+    <li><b>Revocable</b> - disable an identity and it stops acting immediately.</li>
+  </ul>
+  <p class="text-sm" style="margin:0">
+    Risky actions (like sending an email) still ask for your per-action approval <i>on top</i> of scopes.
+    You normally don't need to create identities by hand - they're made automatically the first time
+    chat-agent mode or the scheduler runs. Create one manually only to pre-set its scopes.
+  </p>
+</div>
+
+<div class="flex justify-between items-center mb-2">
+  <h2 style="font-size:16px">Identities</h2>
+  <button onclick="document.getElementById('new-agent').style.display='block'"
+          class="btn btn-primary btn-sm">+ New identity</button>
+</div>
+
+<div id="new-agent" style="display:none" class="card mb-2">
+  <form method="post" action="/agent-access/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div class="form-group" style="margin:0;flex:1;min-width:160px">
+      <label>Name</label>
+      <input type="text" name="name" required placeholder="e.g. research-bot">
+    </div>
+    <div class="form-group" style="margin:0;min-width:160px">
+      <label>Type</label>
+      <select name="agent_type">
+        <option value="custom">custom</option>
+        <option value="scheduler">scheduler</option>
+        <option value="chat">chat</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Create</button>
+  </form>
+  <p class="text-sm text-muted" style="margin-top:10px;margin-bottom:4px">
+    <b>Type</b> labels what kind of automation this identity governs (it's how the
+    system attributes actions to the right identity):
+  </p>
+  <ul class="text-sm text-muted" style="margin:0 0 8px;padding-left:18px">
+    <li><b>chat</b> - the agent that runs when you turn on <i>Agent mode</i> in chat.</li>
+    <li><b>scheduler</b> - the background runner that executes your scheduled/event tasks.</li>
+    <li><b>custom</b> - your own agent, for anything else you wire up.</li>
+  </ul>
+  <p class="text-sm text-muted" style="margin:0">
+    New identities start with least-privilege scopes (web, wiki, files, docs).
+    Grant connector scopes (slack, notion, jira, gdrive, msgraph, email) on the
+    identity's card below as needed.
+  </p>
+</div>
+
+{% if identities %}
+{% for a in identities %}
+<div class="card mt-4">
+  <div class="flex justify-between items-center mb-2">
+    <div>
+      <b style="font-size:15px">{{ a.name }}</b>
+      <span class="badge badge-member">{{ a.agent_type }}</span>
+      {% if a.active %}<span class="badge badge-active">active</span>
+      {% else %}<span class="badge badge-member">disabled</span>{% endif %}
+    </div>
+    <form method="post" action="/agent-access/{{ a.id }}/toggle" style="margin:0">
+      <button class="btn btn-sm {% if a.active %}btn-danger{% else %}btn-success{% endif %}">
+        {{ 'Disable' if a.active else 'Enable' }}
+      </button>
+    </form>
+  </div>
+  <form method="post" action="/agent-access/{{ a.id }}/scopes">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+      {% set granted = a.scopes.split(',') %}
+      {% for s in all_scopes %}
+      <label class="toggle-opt" style="font-size:13px" title="{{ scope_help.get(s, s) }}">
+        <input type="checkbox" name="scope_{{ s }}" {% if s in granted %}checked{% endif %}>
+        {{ s }}
+      </label>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm">Save scopes</button>
+  </form>
+</div>
+{% endfor %}
+{% else %}
+<div class="card" style="text-align:center;padding:30px">
+  <p class="text-muted">No agent identities yet. They're created automatically
+  the first time the scheduler or chat agent runs - or add one above.</p>
+</div>
+{% endif %}
+
+<div class="card mt-4">
+  <h3 style="margin-bottom:12px">Recent agent actions (audit)</h3>
+  {% if recent %}
+  <table>
+    <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for e in recent %}
+    <tr>
+      <td class="text-sm text-muted" style="white-space:nowrap">
+        {{ e.created_at.strftime('%m-%d %H:%M:%S') if e.created_at else '-' }}</td>
+      <td><span class="badge {% if e.event == 'agent.blocked' %}badge-member{% else %}badge-active{% endif %}">{{ e.event }}</span></td>
+      <td class="text-sm">{{ e.detail }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted text-sm">No agent actions logged yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

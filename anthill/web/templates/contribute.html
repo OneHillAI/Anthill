@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Contribute{% endblock %}
+{% block page_title %}Contribute to Anthill{% endblock %}
+{% block content %}
+
+<div class="card mb-2" style="background:var(--bg-subtle)">
+  <h2 style="font-size:16px;margin:0 0 8px">Suggest an improvement to Anthill</h2>
+  <p class="text-sm" style="margin:0 0 8px">
+    Describe a feature, bug, or improvement in plain words. Anthill's <b>intake agent</b> turns it into a
+    clear spec - problem, proposed solution, acceptance criteria - that the project can act on. You can
+    attach reference code as a hint; it is kept as <b>reference only</b>, never merged as-is (a developer
+    re-derives from the spec).
+  </p>
+  <p class="text-sm text-muted" style="margin:0">
+    Nothing here is added to your wiki or model - the agent only drafts a spec for review. Every draft is
+    marked as agent-written and recorded in the audit log.
+  </p>
+</div>
+
+{% if saved %}<div class="alert alert-ok">✅ Thanks - your suggestion was drafted into a spec below.</div>{% endif %}
+{% if minted == '1' %}<div class="alert alert-ok">✅ GitHub issue created.</div>{% endif %}
+{% if minted == 'unconfigured' %}<div class="alert alert-warn">GitHub issue creation isn't configured on this install (set the contribution repo + token).</div>{% endif %}
+{% if minted == 'failed' %}<div class="alert alert-err">Could not create the GitHub issue - check the repo, token, and permissions.</div>{% endif %}
+{% if minted == 'notaccepted' %}<div class="alert alert-warn">Only an accepted proposal can be turned into a GitHub issue.</div>{% endif %}
+
+<div class="flex justify-between items-center mb-2">
+  <h2 style="font-size:16px">Suggest something</h2>
+  <button onclick="document.getElementById('new-suggestion').style.display='block'"
+          class="btn btn-primary btn-sm">+ New suggestion</button>
+</div>
+
+<div id="new-suggestion" class="card mb-2" style="display:none">
+  <form method="post" action="/contribute">
+    <div class="form-group">
+      <label>What would make Anthill better? <span class="text-muted">- describe it in plain words</span></label>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <textarea name="idea" rows="4" required style="flex:1"
+          placeholder="e.g. It would help if scheduled tasks could email me a summary when they finish, so I don't have to open the app to check."></textarea>
+        <button type="button" class="mic-btn" onclick="anthillDictate('idea', this)"
+                title="Voice type"><i data-lucide="mic">🎤</i></button>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Type</label>
+        <select name="kind">
+          {% for k in kinds %}<option value="{{ k }}">{{ k|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Reference code <span class="text-muted">(optional - a hint, never merged as-is)</span></label>
+      <textarea name="reference_code" rows="4" style="font-family:var(--font-mono, monospace);font-size:13px"
+        placeholder="Paste a snippet or sketch if you have one. It is stored as a reference, not a diff."></textarea>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary">Draft a spec</button>
+      <button type="button" class="btn btn-outline"
+              onclick="document.getElementById('new-suggestion').style.display='none'">Cancel</button>
+    </div>
+  </form>
+</div>
+
+{% set kind_badge = {'feature':'clay','bug':'amber','improvement':'clay'} %}
+{% set status_badge = {'submitted':'member','triaged':'clay','accepted':'active','parked':'member','minted':'active','merged':'active'} %}
+
+{% if proposals %}
+<h2 style="font-size:16px;margin-top:18px">Submitted suggestions</h2>
+{% for p in proposals %}
+<div class="card mt-4">
+  <div class="flex justify-between items-center mb-2" style="gap:10px;flex-wrap:wrap">
+    <div>
+      <span class="badge badge-{{ kind_badge.get(p.kind, 'clay') }}">{{ p.kind }}</span>
+      <b style="font-size:15px">{{ p.title }}</b>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span class="badge badge-{{ status_badge.get(p.status, 'member') }}">{{ p.status }}</span>
+      <span class="text-sm text-muted">priority: {{ p.priority }}</span>
+    </div>
+  </div>
+  {% if p.completeness == 'needs_detail' %}
+  <p class="text-sm" style="margin:0 0 8px;color:var(--warn)">&#9888; Needs more detail before it can be acted on.</p>
+  {% endif %}
+  <pre class="wiki-content" style="max-height:260px;white-space:pre-wrap">{{ p.spec }}</pre>
+  {% if p.reference_code %}
+  <details style="margin-top:8px">
+    <summary class="text-sm text-muted" style="cursor:pointer">Reference code (stored as data, not a diff)</summary>
+    <pre class="text-sm" style="white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin:6px 0;overflow-x:auto">{{ p.reference_code[:4000] }}</pre>
+  </details>
+  {% endif %}
+  {# The park reason is public, with reasons (shown to everyone once a proposal is parked). #}
+  {% if p.status == 'parked' and p.triage_reasons %}
+  <div class="text-sm" style="margin-top:8px;padding:8px 10px;background:var(--bg-subtle);border-radius:6px">
+    <b>Parked:</b> {{ p.triage_reasons }}
+  </div>
+  {% endif %}
+  <div class="text-sm text-muted" style="margin-top:8px">
+    {% if p.agent_drafted %}Spec drafted by the intake agent &middot; {% endif %}
+    {% if p.proposer_handle %}proposed by {{ p.proposer_handle }}{% endif %}
+    {% if p.issue_url %} &middot; <a href="{{ p.issue_url }}" target="_blank" rel="noopener">GitHub issue #{{ p.issue_number }} &rarr;</a>{% endif %}
+  </div>
+
+  {# Relevance triage - admin only. The governance reviewer advises; the admin decides (accept/park). #}
+  {% if is_admin %}
+  <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+    {% if p.triage_recommendation %}
+    <div class="text-sm" style="margin-bottom:8px">
+      <b>Reviewer suggests:</b>
+      <span class="badge badge-{{ 'active' if p.triage_recommendation == 'accept' else 'member' }}">{{ p.triage_recommendation }}</span>
+      {% if p.triage_relevance %}<span class="text-muted">relevance: {{ p.triage_relevance }}</span>{% endif %}
+      <span class="text-muted">(advisory - you decide)</span>
+      {% if p.triage_reasons %}<div class="text-muted" style="margin-top:4px">{{ p.triage_reasons }}</div>{% endif %}
+    </div>
+    {% endif %}
+    {% if p.status in ('submitted', 'triaged') %}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <form method="post" action="/contribute/{{ p.id }}/triage" style="margin:0">
+        <button class="btn btn-outline btn-sm">{{ 'Re-assess' if p.triage_recommendation else 'Assess relevance' }}</button>
+      </form>
+      <form method="post" action="/contribute/{{ p.id }}/decide" style="margin:0">
+        <input type="hidden" name="decision" value="accept">
+        <button class="btn btn-primary btn-sm">Accept onto roadmap</button>
+      </form>
+      <form method="post" action="/contribute/{{ p.id }}/decide" style="display:flex;gap:6px;align-items:center;margin:0">
+        <input type="hidden" name="decision" value="park">
+        <input type="text" name="reason" placeholder="Reason (shown to the proposer)" style="font-size:13px;width:220px">
+        <button class="btn btn-outline btn-sm">Park</button>
+      </form>
+    </div>
+    {% endif %}
+    {# Accepted -> a human explicitly mints a GitHub issue (attributed, reference code as data). #}
+    {% if p.status == 'accepted' %}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="text-sm text-muted">Accepted onto the roadmap.</span>
+      <form method="post" action="/contribute/{{ p.id }}/mint" style="margin:0">
+        <button class="btn btn-primary btn-sm"><i data-lucide="github">🔗</i> Create GitHub issue</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div class="card" style="text-align:center;padding:30px">
+  <p class="text-muted">No suggestions yet. Click <b>+ New suggestion</b> to describe one and let the
+    intake agent draft a spec.</p>
+</div>
+{% endif %}
+
+{% endblock %}

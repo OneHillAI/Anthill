@@ -1,0 +1,113 @@
+# ASDD - autonomous merge for the founder's own safe-lane PRs.
+#
+# What it does: when a PR is labelled, this enables GitHub's NATIVE auto-merge on it IF the PR clears
+# every gate below. It does not merge anything itself - it only flips the "auto-merge" switch. GitHub
+# then completes the merge only once ALL required status checks pass AND any CODEOWNERS review required
+# by a protected path is satisfied. So branch protection, not this file, is the real gate: a bug here
+# cannot merge a PR that fails CI or touches a protected path.
+#
+# WHO can auto-merge (governance): ONLY pull requests authored by an account on ALLOWED_AUTHORS below,
+# which today is exactly @welsbach. NOTE (2026-07-28): agent sessions now open PRs under the
+# OneHill-Dev-Agent App identity (see AGENTS.md, "Agent identity"), not @welsbach's own account, so this
+# allowlist as written does NOT cover agent-authored PRs - they are left for a human to merge, same as
+# any protected-path change. Widening ALLOWED_AUTHORS to include the App's bot login is a deliberate,
+# separate decision (it would let checks-passing agent PRs merge with no human click on safe lanes);
+# left untouched here on purpose pending that call. A future external contributor is a different account
+# and never qualifies either way. The allowlist is hardcoded here on purpose: changing who can auto-merge
+# is a change to `.github/`, so it is itself a CODEOWNERS-reviewed commit, not a silent settings toggle.
+#
+# PUBLIC-REPO SAFETY (when the repo opens up):
+#   - External contributors PR from a FORK. The job `if` requires head.repo == base repo, so fork PRs
+#     never even reach the token. (The author gate would also reject them.)
+#   - External contributors cannot add a lane label (labels need write access), so they cannot arm this.
+#   - This workflow NEVER checks out or runs PR head code - it only calls the GitHub API - so a hostile
+#     PR cannot execute anything here despite `pull_request_target`.
+#   - Before flipping the repo public, decide the review policy for fork PRs (they need a maintainer
+#     merge regardless; this file leaves them entirely alone).
+#
+# WHICH lanes (governance): exactly one lane label, in {chore, pillar:platform, pillar:feature,
+# pillar:knowledge, pillar:model}, and NOT pillar:privacy and NOT `security`. Privacy/security, auth and
+# crypto (also guarded by path via CODEOWNERS), unlabelled, and multi-lane PRs are left for a human.
+#
+# DORMANT until set up: with no ANTHILL_BOT_APP_ID secret, this is a clean no-op (it evaluates the policy
+# and stops). Reuses the OneHill-Dev-Agent GitHub App (id 4414006, installed org-wide on OneHillAI) that
+# already opens agent-authored PRs - one App, not a second bot identity. Add ANTHILL_BOT_APP_ID=4414006
+# and ANTHILL_BOT_APP_KEY (the App's private key) as repository secrets to activate it. Until then
+# merging this file changes nothing.
+
+name: ASDD auto-merge
+
+on:
+  pull_request_target:
+    types: [labeled, unlabeled, opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: read # the App token minted below carries write scope; the workflow GITHUB_TOKEN stays read-only
+
+concurrency:
+  group: asdd-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  automerge:
+    # Draft PRs and forks never qualify. head.repo == base repo blocks fork PRs from reaching the token.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate author + lane policy
+        id: policy
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          # Hardcoded, version-controlled allowlist. Add an account here only via a reviewed .github/ PR.
+          ALLOWED_AUTHORS="welsbach"
+          author_ok=false
+          for a in $ALLOWED_AUTHORS; do [ "$a" = "$AUTHOR" ] && author_ok=true; done
+
+          names="$(jq -r '.[]' <<<"$LABELS")"
+          lane_count=$(grep -cxE 'pillar:(privacy|knowledge|model|platform|feature)|chore' <<<"$names" || true)
+          safe=$(grep -cxE 'chore|pillar:(platform|feature|knowledge|model)' <<<"$names" || true)
+          blocked=$(grep -cxE 'pillar:privacy|security' <<<"$names" || true)
+
+          ok=false
+          if [ "$author_ok" = true ] && [ "$lane_count" -eq 1 ] && [ "$safe" -eq 1 ] && [ "$blocked" -eq 0 ]; then
+            ok=true
+          fi
+          echo "eligible=$ok" >> "$GITHUB_OUTPUT"
+          echo "author=$AUTHOR author_ok=$author_ok lane_count=$lane_count safe=$safe blocked=$blocked -> eligible=$ok"
+
+      - name: Check the bot App is installed
+        id: cfg
+        env:
+          APP_ID: ${{ secrets.ANTHILL_BOT_APP_ID }}
+        run: |
+          if [ -n "${APP_ID:-}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHILL_BOT_APP_ID is not set - auto-merge stays dormant until the App is installed. No PR is merged."
+          fi
+
+      - name: Mint bot token
+        if: steps.policy.outputs.eligible == 'true' && steps.cfg.outputs.configured == 'true'
+        id: apptoken
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
+          private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}
+
+      - name: Enable native auto-merge
+        if: steps.policy.outputs.eligible == 'true' && steps.cfg.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # --auto: GitHub merges only after required checks pass and required reviews are satisfied.
+          # --squash: keep main linear; the PR body (with the Agent: trailer) becomes the commit message.
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --squash
+          echo "Auto-merge enabled for #$PR; GitHub completes it once checks + CODEOWNERS reviews are green."

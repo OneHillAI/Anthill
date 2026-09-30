@@ -1,0 +1,13 @@
+{# Sub-tab bar for the Wiki menu (one menu: Pages + Principles + Review). `wiki_url` is this scope's
+   base wiki URL; `active_wiki_tab` is pages | principles | review. Review is the org review queue
+   (admin) OR the user's own personal-upload queue - folded in here instead of being its own rail item.
+   The personal Review tab is what lets a solo user approve a flagged upload (issue #428). #}
+<div class="settings-tabs">
+  <a href="{{ wiki_url }}" class="{% if active_wiki_tab == 'pages' %}active{% endif %}">Pages</a>
+  <a href="{{ wiki_url }}?tab=principles" class="{% if active_wiki_tab == 'principles' %}active{% endif %}">Principles</a>
+  {% if scope == 'org' and user and user.role == 'admin' %}
+  <a href="/wiki/review" class="{% if active_wiki_tab == 'review' %}active{% endif %}">Review{% if nav_badges and nav_badges.review %} <span class="nav-badge">{{ nav_badges.review }}</span>{% endif %}</a>
+  {% elif scope == 'personal' and (active_wiki_tab == 'review' or (nav_badges and nav_badges.personal_review)) %}
+  <a href="/wiki/review/personal" class="{% if active_wiki_tab == 'review' %}active{% endif %}">Review{% if nav_badges and nav_badges.personal_review %} <span class="nav-badge">{{ nav_badges.personal_review }}</span>{% endif %}</a>
+  {% endif %}
+</div>

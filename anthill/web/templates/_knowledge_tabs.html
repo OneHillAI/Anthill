@@ -1,0 +1,66 @@
+{# Knowledge hub sub-tab bar. Wiki, Snippets, Memory and Skills are one "Knowledge" area in the rail
+   (see _sidebar.html); this bar switches between the four surfaces. Active state is derived from the
+   request path so no route/handler change is needed to render it. Snippets sits next to Wiki because a
+   snippet is a self-added wiki element (docs/specs/knowledge-onboarding-and-guidance.md); a later change
+   folds it fully into the Wiki surface. #}
+{% set _kp = request.url.path %}
+<div class="knowledge-tabs">
+  <a href="/wiki" class="{% if _kp.startswith('/wiki') %}active{% endif %}">Wiki{% if user and user.role == 'admin' and nav_badges and nav_badges.review %} <span class="nav-badge">{{ nav_badges.review }}</span>{% endif %}</a>
+  <a href="/snippets" class="{% if _kp.startswith('/snippets') %}active{% endif %}">Snippets</a>
+  <a href="/memory" class="{% if _kp.startswith('/memory') %}active{% endif %}">Memory</a>
+  <a href="/skills" class="{% if _kp.startswith('/skills') %}active{% endif %}">Skills</a>
+  <a href="/knowledge/suggestions" class="{% if _kp.startswith('/knowledge/suggestions') %}active{% endif %}">Suggestions{% if nav_badges and nav_badges.suggestions %} <span class="nav-badge">{{ nav_badges.suggestions }}</span>{% endif %}</a>
+</div>
+
+{# A light per-tab hint + a re-openable hub-level self-explanation. This is the guidance that leads now,
+   instead of four separate per-surface auto-tours (those stay replayable via each tab's "Take a tour").
+   See docs/specs/knowledge-guidance-reconciliation.md. #}
+{% set _hint = {
+  '/wiki': 'Your knowledge base - your AI writes pages here as you work; you steer and approve.',
+  '/snippets': 'Save any answer as a personal wiki note in one click.',
+  '/memory': 'Facts your AI remembers on its own, recalled when they are relevant.',
+  '/skills': 'Reusable procedures your AI follows - adopt a template or teach one.'
+} %}
+{% set _tabkey = '/wiki' if _kp.startswith('/wiki') else '/snippets' if _kp.startswith('/snippets') else '/memory' if _kp.startswith('/memory') else '/skills' if _kp.startswith('/skills') else '/wiki' %}
+<div class="know-hint">
+  <span>{{ _hint[_tabkey] }}</span>
+  <a href="#" onclick="anthillKnowIntro(true);return false">What is this?</a>
+</div>
+
+<div class="know-intro" id="know-intro" hidden>
+  <div class="know-intro-h">
+    <h4>This is your Living wiki</h4>
+    <button type="button" class="know-intro-x" aria-label="Close" onclick="anthillKnowIntro(false)">&times;</button>
+  </div>
+  <p>Your AI builds its own knowledge as you work - it writes <b>wiki</b> pages from your chats, uploads
+    and research; remembers useful facts on its own in <b>memory</b>; and follows reusable <b>skills</b>
+    you teach it. You steer and approve - you do not hand-write pages. It is all yours, on your own storage.</p>
+  <p class="know-intro-foot">Snippets are just a fast way to save an answer as a wiki note. You can replay
+    any tab's short tour from its "Take a tour" link.</p>
+  <button type="button" class="btn btn-primary btn-sm" onclick="anthillKnowIntro(false)">Got it</button>
+</div>
+
+<script>
+// Hub-level self-explanation: shown once (reusing the /walkthroughs completion API, surface
+// "knowledge-hub"), dismissible, and re-openable from the "What is this?" hint above.
+(function () {
+  var card = document.getElementById('know-intro');
+  if (!card) return;
+  window.anthillKnowIntro = function (show) {
+    card.hidden = !show;
+    if (!show) {
+      try {
+        fetch('/walkthroughs/done', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'surface=knowledge-hub',
+        });
+      } catch (e) {}
+    }
+  };
+  fetch('/walkthroughs/status?surface=knowledge-hub')
+    .then(function (r) { return r.json(); })
+    .then(function (s) { if (s && !s.done) card.hidden = false; })
+    .catch(function () {});
+})();
+</script>

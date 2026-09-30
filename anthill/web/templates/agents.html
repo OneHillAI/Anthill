@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Agents{% endblock %}
+{% block page_title %}Agents{% endblock %}
+{% block content %}
+
+<div class="flex justify-between items-center mb-2">
+  <p class="text-muted text-sm" style="margin:0">A named worker with a standing mandate, like an employee with a role.<button type="button" class="help" aria-label="How agents work">?<span class="help-pop">An agent runs toward its mandate on its own, using your memory, wiki and skills. Consequential actions are cross-checked by a second model and held for your approval. Solo agents are private to you; Organization agents are shared and governed.</span></button></p>
+  <button onclick="document.getElementById('new-agent').style.display='block'"
+          class="btn btn-primary btn-sm">+ New agent</button>
+</div>
+
+{% if is_admin %}
+<!-- org-wide agent defaults + run cap (admin) -->
+<details class="card mb-2">
+  <summary style="cursor:pointer;font-weight:600">Agent defaults
+    <span class="text-sm text-muted">- org-wide defaults for new agents + the per-run cap</span></summary>
+  <form method="post" action="/agents/settings" style="margin-top:12px">
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Default governance <span class="text-sm text-muted">(for new agents)</span></label>
+        <select name="agent_default_governance">
+          <option value="standard" {% if default_governance != 'strict' %}selected{% endif %}>Standard</option>
+          <option value="strict" {% if default_governance == 'strict' %}selected{% endif %}>Strict</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Max steps per run <span class="text-sm text-muted">(1-50; the tool-loop cost cap)</span></label>
+        <input type="number" name="agent_max_steps" min="1" max="50" value="{{ max_steps }}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Default model <span class="text-sm text-muted">(new agents use this; auto-route picks your council lead)</span></label>
+      {% if available_models %}
+      <select name="agent_default_model">
+        <option value="" {% if not default_model %}selected{% endif %}>Auto-route{% if available_models %} - currently {{ available_models[0] }}{% endif %}</option>
+        {% for mdl in available_models %}<option value="{{ mdl }}" {% if default_model == mdl %}selected{% endif %}>{{ mdl }}{% if loop.first %} (council lead){% endif %}</option>{% endfor %}
+        {% if default_model and default_model not in available_models %}<option value="{{ default_model }}" selected>{{ default_model }} (not in your council)</option>{% endif %}
+      </select>
+      {% else %}
+      <input type="text" name="agent_default_model" value="{{ default_model }}" placeholder="e.g. qwen3:14b">
+      {% endif %}
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm">Save defaults</button>
+  </form>
+</details>
+{% endif %}
+
+<p class="text-sm text-muted mb-2">
+  New here? Start from an example -
+  <a href="javascript:void(0)" onclick="fillExample('Inbox triage','A concise assistant who never over-explains.','Each morning, summarise new email and flag anything that needs a reply.','daily')">Inbox triage</a> ·
+  <a href="javascript:void(0)" onclick="fillExample('Research scout','A meticulous researcher who cites sources and never speculates.','Track news about our competitors and keep a wiki page current with what changed.','daily')">Research scout</a> ·
+  <a href="javascript:void(0)" onclick="fillExample('Weekly digest','A crisp summariser.','Each Friday, compile what changed across the team wiki into a short digest.','weekly')">Weekly digest</a>
+</p>
+
+<!-- create form; shown as a modal - the reveal JS just flips display -->
+<div id="new-agent" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-card">
+  <div class="modal-h">
+    <h3 style="margin:0">Create an agent</h3>
+    <button type="button" class="modal-x" aria-label="Close" onclick="document.getElementById('new-agent').style.display='none'">&times;</button>
+  </div>
+  <form method="post" action="/agents/create">
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" required placeholder="e.g. Inbox Triage, Research Scout">
+      </div>
+      <div class="form-group">
+        <label>Runs</label>
+        <select name="schedule">
+          <option value="manual">On demand (Run now)</option>
+          <option value="hourly">Every hour</option>
+          <option value="daily">Daily</option>
+          <option value="weekdays">Weekdays (Mon-Fri)</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Persona <span class="text-sm text-muted">(who the agent is - shapes how it works)</span></label>
+      <textarea name="persona" rows="2"
+        placeholder="e.g. A meticulous research assistant who cites sources and never speculates."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Mandate <span class="text-sm text-muted">(the standing goal it works toward each run)</span></label>
+      <textarea name="mandate" rows="3" required
+        placeholder="e.g. Track news about our top competitors and keep a wiki page up to date with what changed."></textarea>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Scope</label>
+        <select name="plane" id="agent-plane" onchange="agentToggleTeam()">
+          <option value="solo">Solo - private to you</option>
+          {% if teams %}<option value="team">Team - shared with a team</option>{% endif %}
+          {% if is_org %}<option value="org">Organization - shared, governed</option>{% endif %}
+        </select>
+      </div>
+      <div class="form-group" id="agent-team-sel" style="display:none">
+        <label>Team</label>
+        <select name="team_id">
+          {% for t in teams %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Model <span class="text-sm text-muted">(open models only; the default routes automatically)</span></label>
+        {% if available_models %}
+        <select name="model">
+          <option value="" selected>Use the default{% if default_model %} ({{ default_model }}){% elif available_models %} ({{ available_models[0] }}){% endif %}</option>
+          {% for mdl in available_models %}<option value="{{ mdl }}">{{ mdl }}{% if loop.first %} (council lead){% endif %}</option>{% endfor %}
+        </select>
+        {% else %}
+        <input type="text" name="model" placeholder="e.g. qwen3:14b (leave blank for the default)">
+        {% endif %}
+      </div>
+      <div class="form-group">
+        <label>Governance</label>
+        <select name="governance">
+          <option value="standard" {% if default_governance != 'strict' %}selected{% endif %}>Standard - queue external actions (e.g. sending email) for approval</option>
+          <option value="strict" {% if default_governance == 'strict' %}selected{% endif %}>Strict - also queue any wiki/file write for approval</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Tools it may use
+        <span class="text-sm text-muted">(leave all unchecked for the safe default: web, wiki, files, docs)</span></label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        {% for s in scopes %}
+        <label class="flex gap-2" style="align-items:center;margin:0;cursor:pointer">
+          <input type="checkbox" name="connectors" value="{{ s }}"> <span>{{ s }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary">Create agent</button>
+      <button type="button" class="btn btn-outline"
+              onclick="document.getElementById('new-agent').style.display='none'">Cancel</button>
+    </div>
+  </form>
+  </div>
+</div>
+
+<!-- agent list -->
+{% if agents %}
+<div class="card">
+<div style="overflow-x:auto">
+<table>
+  <thead>
+    <tr>
+      <th>Agent</th>
+      <th>Scope</th>
+      <th>Runs on</th>
+      <th>Status</th>
+      <th>Last run</th>
+      <th>#</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for a in agents %}
+  <tr>
+    <td>
+      <b><a href="/agents/{{ a.id }}">{{ a.name }}</a></b><br>
+      <span class="text-sm text-muted">{{ a.mandate[:70] }}{% if a.mandate|length > 70 %}…{% endif %}</span>
+      {% if a.pending_approvals %}
+      <br><a class="text-sm" href="/agents/{{ a.id }}" style="color:var(--clay)">&#9888; {{ a.pending_approvals }} awaiting approval</a>
+      {% endif %}
+    </td>
+    <td class="text-sm"><span class="plane-dot plane-dot-{{ 'org' if a.plane == 'org' else 'solo' }}"></span>{{ a.plane|capitalize }}</td>
+    <td class="text-sm">{{ a.schedule }}</td>
+    <td>
+      {% if a.is_live %}
+      <span class="badge badge-running" title="Running now, or due within the next scheduler tick">&#9679; running</span>
+      {% else %}
+      <span class="badge {% if a.status == 'active' %}badge-active{% else %}badge-pending{% endif %}">{{ a.status }}</span>
+      {% endif %}
+      {% if a.verify_needs_review %}
+      <span class="badge badge-pending"
+            title="{{ a.verify_reason|e }}">&#9888; review</span>
+      {% endif %}
+    </td>
+    <td class="text-sm text-muted">{% if a.last_run_at %}<span data-utc="{{ a.last_run_at|utc_iso }}">{{ a.last_run_at.strftime('%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}</td>
+    <td class="text-sm">{{ a.run_count }}</td>
+    <td>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <a href="/agents/{{ a.id }}" class="btn btn-outline btn-sm">Open</a>
+        <form method="post" action="/agents/{{ a.id }}/run-now" style="margin:0">
+          <button class="btn btn-outline btn-sm">▶ Now</button>
+        </form>
+        <form method="post" action="/agents/{{ a.id }}/toggle" style="margin:0">
+          <button class="btn btn-outline btn-sm">{% if a.status == 'active' %}Pause{% else %}Resume{% endif %}</button>
+        </form>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px">
+  <div style="font-size:34px;margin-bottom:12px;color:var(--accent)"><i data-lucide="bot">🤖</i></div>
+  <p style="color:var(--clay)">No agents yet. Create one above - give it a name, a persona, and a standing
+    mandate, then let it run.</p>
+</div>
+{% endif %}
+
+<script>
+function agentToggleTeam() {
+  var pl = document.getElementById('agent-plane').value;
+  var sel = document.getElementById('agent-team-sel');
+  if (sel) sel.style.display = (pl === 'team') ? 'block' : 'none';
+}
+// Prefill the create form from an example (onboarding). Use form.elements[...] because form.name
+// resolves to the form's own name attribute, not the <input name="name">.
+function fillExample(name, persona, mandate, schedule) {
+  var box = document.getElementById('new-agent');
+  box.style.display = 'block';
+  var f = box.querySelector('form');
+  f.elements['name'].value = name;
+  f.elements['persona'].value = persona;
+  f.elements['mandate'].value = mandate;
+  if (f.elements['schedule']) f.elements['schedule'].value = schedule;
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Preselect this project when arriving from a project home ("+ New agent in this project", #419): open
+// the create form, set the plane to Team, and pick the project so the new agent is scoped to it. No-op
+// (degrades to the normal page) unless ?project= names a team the user can actually pick.
+(function () {
+  var pid = new URLSearchParams(location.search).get('project');
+  if (!pid) return;
+  var box = document.getElementById('new-agent');
+  var plane = document.getElementById('agent-plane');
+  if (!box || !plane) return;
+  var hasTeam = Array.prototype.some.call(plane.options, function (o) { return o.value === 'team'; });
+  var teamSel = box.querySelector('select[name="team_id"]');
+  var hasProject = teamSel && Array.prototype.some.call(teamSel.options, function (o) { return o.value === pid; });
+  if (!hasTeam || !hasProject) return;
+  box.style.display = 'block';
+  plane.value = 'team';
+  agentToggleTeam();
+  teamSel.value = pid;
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+})();
+</script>
+{% endblock %}

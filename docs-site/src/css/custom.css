@@ -1,0 +1,132 @@
+/* Anthill design system - matches the anthill.run landing site.
+   Forest green, Plus Jakarta Sans, a light translucent sticky header and a
+   light footer. Tokens mirror anthill.run's :root (light) and its
+   prefers-color-scheme dark values. */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* Forest green primary (anthill.run --green #2F6B4F) */
+  --ifm-color-primary: #2f6b4f;
+  --ifm-color-primary-dark: #2b6148;
+  --ifm-color-primary-darker: #285b43;
+  --ifm-color-primary-darkest: #214b37;
+  --ifm-color-primary-light: #337557;
+  --ifm-color-primary-lighter: #357a5b;
+  --ifm-color-primary-lightest: #3f8e69;
+
+  /* Grounds + type (--bg / --surface / --text / --muted / --panel) */
+  --ifm-background-color: #fbfcfc;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-font-color-base: #171a18;
+  --ifm-heading-color: #171a18;
+  --ifm-color-content-secondary: #565c58;
+  --ifm-code-background: #f1f5f2;
+  --ifm-code-font-size: 92%;
+
+  /* One family for everything, like anthill.run */
+  --ifm-font-family-base: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
+  --ifm-heading-font-weight: 800;
+
+  /* Light, translucent sticky navbar (anthill.run header.site) */
+  --ifm-navbar-background-color: rgba(251, 252, 252, 0.85);
+  --ifm-navbar-link-color: #171a18;
+  --ifm-navbar-link-hover-color: #2f6b4f;
+  --ifm-navbar-shadow: none;
+
+  /* Light footer (anthill.run .site-footer background: var(--bg)) */
+  --ifm-footer-background-color: #fbfcfc;
+  --ifm-footer-color: #565c58;
+  --ifm-footer-link-color: #171a18;
+  --ifm-footer-link-hover-color: #2f6b4f;
+  --ifm-footer-title-color: #171a18;
+
+  /* Hairlines (--line) */
+  --ifm-toc-border-color: rgba(23, 40, 30, 0.12);
+  --ifm-hr-border-color: rgba(23, 40, 30, 0.12);
+  --anthill-line: rgba(23, 40, 30, 0.12);
+  --anthill-green-soft: #e6efe9;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #4e9e78;
+  --ifm-color-primary-dark: #43906c;
+  --ifm-color-primary-darker: #3f8866;
+  --ifm-color-primary-darkest: #347054;
+  --ifm-color-primary-light: #5ba883;
+  --ifm-color-primary-lighter: #66ae8b;
+  --ifm-color-primary-lightest: #82bda1;
+
+  --ifm-background-color: #121513;
+  --ifm-background-surface-color: #1a1e1b;
+  --ifm-font-color-base: #edf0ee;
+  --ifm-heading-color: #edf0ee;
+  --ifm-color-content-secondary: #9ba39d;
+  --ifm-code-background: #171a18;
+
+  --ifm-navbar-background-color: rgba(18, 21, 19, 0.85);
+  --ifm-navbar-link-color: #edf0ee;
+  --ifm-navbar-link-hover-color: #4e9e78;
+
+  --ifm-footer-background-color: #121513;
+  --ifm-footer-color: #9ba39d;
+  --ifm-footer-link-color: #edf0ee;
+  --ifm-footer-link-hover-color: #4e9e78;
+  --ifm-footer-title-color: #edf0ee;
+
+  --ifm-toc-border-color: rgba(237, 240, 238, 0.13);
+  --ifm-hr-border-color: rgba(237, 240, 238, 0.13);
+  --anthill-line: rgba(237, 240, 238, 0.13);
+  --anthill-green-soft: rgba(78, 158, 120, 0.14);
+}
+
+/* Sticky translucent header with blur + a single hairline, like anthill.run */
+.navbar {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--anthill-line);
+}
+.navbar__title,
+.navbar__brand {
+  color: var(--ifm-navbar-link-color);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Tight display headings (anthill.run: -0.03em, weight 800) */
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.02em;
+}
+h1 {
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+/* Light footer gets a hairline top rule instead of a heavy dark slab */
+.footer {
+  border-top: 1px solid var(--anthill-line);
+}
+
+/* Primary buttons and the active sidebar item in forest green */
+.button--primary {
+  --ifm-button-background-color: var(--ifm-color-primary);
+  --ifm-button-border-color: var(--ifm-color-primary);
+  color: #fff;
+}
+.button--primary:hover {
+  --ifm-button-background-color: var(--ifm-color-primary-dark);
+  --ifm-button-border-color: var(--ifm-color-primary-dark);
+  color: #fff;
+}
+.menu__link--active:not(.menu__link--sublist) {
+  background: var(--anthill-green-soft);
+  color: var(--ifm-color-primary);
+}
+
+/* Inline code sits on the panel tone with a hairline, not stark white */
+:not(pre) > code {
+  border: 1px solid var(--anthill-line);
+}

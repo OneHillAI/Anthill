@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block page_title %}Audit log & security{% endblock %}
+{% block content %}
+
+{% for alert in alerts %}
+<div class="alert alert-warn">⚠️ <b>Security alert:</b> {{ alert }}</div>
+{% endfor %}
+
+{% if not alerts %}
+<div class="alert alert-ok">✅ No anomalies detected.</div>
+{% endif %}
+
+<div class="card mt-4">
+  <h3 style="margin-bottom:4px">Anomaly detection rules</h3>
+  <p class="text-sm text-muted" style="margin-bottom:12px">
+    Alerts fire automatically when these thresholds are exceeded.
+  </p>
+  <table>
+    <thead><tr><th>Rule</th><th>Window</th><th>Threshold</th></tr></thead>
+    <tbody>
+      <tr><td>Failed logins</td><td>10 min</td><td>&gt;5 attempts</td></tr>
+      <tr><td>Login volume</td><td>1 hour</td><td>&gt;50 logins</td></tr>
+      <tr><td>Wiki promotions</td><td>5 min</td><td>&gt;10 promotions</td></tr>
+      <tr><td>Query spike</td><td>1 min</td><td>&gt;30 queries</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% if cfg %}
+<div class="card mt-4">
+  <h3 style="margin-bottom:4px">Knowledge digest</h3>
+  <p class="text-sm text-muted" style="margin-bottom:12px">
+    A periodic summary of what changed - pages added or updated, skills learned or adopted, and
+    promotions between scopes - sent to org admins. Built from the events below; off by default.
+  </p>
+  <form method="post" action="/settings/digest">
+    <div class="form-group">
+      <label>Send a digest</label>
+      <select name="digest_schedule">
+        <option value="off"    {% if cfg.digest_schedule == 'off' %}selected{% endif %}>Off</option>
+        <option value="daily"  {% if cfg.digest_schedule == 'daily' %}selected{% endif %}>Daily</option>
+        <option value="weekly" {% if cfg.digest_schedule == 'weekly' %}selected{% endif %}>Weekly</option>
+      </select>
+      <p class="text-sm text-muted" style="margin-top:4px">
+        {% if cfg.digest_last_sent_at %}
+          Last sent {{ cfg.digest_last_sent_at.strftime('%Y-%m-%d %H:%M') }} UTC.
+        {% else %}
+          Not sent yet.
+        {% endif %}
+      </p>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:6px">Save</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card mt-4">
+  <h3 style="margin-bottom:12px">Recent events (last 200)</h3>
+  {% if events %}
+  <table>
+    <thead><tr><th>Time</th><th>Event</th><th>Detail</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+    <tr>
+      <td class="text-sm text-muted" style="white-space:nowrap">
+        {{ e.created_at.strftime('%m-%d %H:%M:%S') if e.created_at else '-' }}
+      </td>
+      <td>
+        <span class="badge {% if 'fail' in e.event or 'reject' in e.event %}badge-danger
+          {% elif 'login' in e.event %}badge-active{% else %}badge-member{% endif %}">
+          {{ e.event }}
+        </span>
+      </td>
+      <td class="text-sm">{{ e.detail[:80] }}</td>
+      <td class="text-sm text-muted">{{ e.ip or '-' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted text-sm">No events yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

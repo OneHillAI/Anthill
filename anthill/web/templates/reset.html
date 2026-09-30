@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Choose a new password - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-box">
+    <h1>Choose a new password</h1>
+    <p class="subtitle">Set a new password for <b>{{ email }}</b>.</p>
+    {% if exposed %}<div class="alert alert-err">For your security, your previous password must be changed:
+      it was found stored insecurely and may have been visible to others. Please choose a new one now.</div>{% endif %}
+    {% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
+    <form method="post">
+      <div class="form-group">
+        <label>New password</label>
+        <input type="password" name="password" required minlength="12" autocomplete="new-password" autofocus
+               placeholder="min 12 characters">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Set new password</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<svg viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anthill">
+  <rect x="6" y="63" width="108" height="5" rx="2.5" fill="#9CC3B0"/>
+  <path d="M16 66 C20 30 44 13 60 13 C76 13 100 30 104 66 Z" fill="#2F6B4F"/>
+  <path d="M40 27 C48 21 72 21 80 27" stroke="#255A41" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M28 46 C42 37 78 37 92 46" stroke="#255A41" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M47 66 C47 53 73 53 73 66 Z" fill="#16311F"/>
+</svg>

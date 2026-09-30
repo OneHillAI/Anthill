@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Discord bot{% endblock %}
+{% block page_title %}Discord bot{% endblock %}
+{% block content %}
+
+{% if saved and registered == "ok" %}<div class="alert alert-ok">✅ Discord settings saved and the <code>/anthill</code> command was registered.</div>
+{% elif saved %}<div class="alert alert-ok">✅ Discord settings saved.</div>{% endif %}
+{% if error == "need_fields" %}<div class="alert alert-danger">Add the Application ID, Public Key, and Server ID before enabling the bot.</div>{% endif %}
+{% if error and error.startswith("register_") %}<div class="alert alert-danger">Saved, but registering the <code>/anthill</code> command failed ({{ error[9:].replace('_',' ') }}). Check the bot token, or register the command yourself.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin-bottom:18px">
+  Let your team ask Anthill from Discord: in your organization's members server they run
+  <b>/anthill &lt;message&gt;</b> and get an answer from your org wiki, or - if the message is a feature
+  idea, bug, or request - it is filed into the contribution intake for review. Every reply says it is
+  automated. Only your configured members server is served. <a href="/settings">Back to settings</a>.
+</p>
+
+{% if app and app.enabled and configured %}
+<div class="alert alert-ok" style="max-width:760px">
+  Connected to server <code>{{ app.guild_id }}</code>. The bot is <b>on</b>.
+</div>
+{% endif %}
+
+<form method="post" action="/settings/discord">
+  <div class="card mb-2" style="max-width:760px">
+    <h3 style="margin-bottom:6px">Connect Discord</h3>
+    <p class="text-sm text-muted" style="margin:0 0 12px">
+      Create a Discord application (Developer Portal &rarr; Applications), paste the <b>Interactions
+      Endpoint URL</b> below into it, then copy its <b>Application ID</b> and <b>Public Key</b> here. Add
+      the app to your members server and paste that server's ID. Nothing here is a secret: the public key
+      verifies Discord's request signature.
+    </p>
+
+    <div class="form-group">
+      <label>Application ID</label>
+      <input type="text" name="application_id" autocomplete="off"
+             value="{{ app.application_id if app and app.application_id else '' }}" placeholder="from the app's General Information">
+    </div>
+    <div class="form-group">
+      <label>Public Key</label>
+      <input type="text" name="public_key" autocomplete="off"
+             value="{{ app.public_key if app and app.public_key else '' }}" placeholder="from the app's General Information (hex)">
+    </div>
+    <div class="form-group">
+      <label>Members Server (Guild) ID</label>
+      <input type="text" name="guild_id" autocomplete="off"
+             value="{{ app.guild_id if app and app.guild_id else '' }}" placeholder="right-click your server -> Copy Server ID">
+    </div>
+    <div class="form-group">
+      <label>Bot Token <span class="text-sm text-muted">(optional - used once to register the <code>/anthill</code> command, never stored)</span></label>
+      <input type="password" name="bot_token" autocomplete="off" placeholder="leave blank if you register the command yourself">
+    </div>
+
+    <label class="flex gap-2 items-center" style="margin:12px 0 4px">
+      <input type="checkbox" name="enabled" value="true" {% if app and app.enabled %}checked{% endif %}>
+      <span>Enable the bot (answer <code>/anthill</code> in your members server)</span>
+    </label>
+    <div style="margin-top:14px"><button class="btn btn-primary">Save</button></div>
+  </div>
+</form>
+
+<div class="card mb-2" style="max-width:760px">
+  <h3 style="margin-bottom:6px">Paste this into your Discord app</h3>
+  <div class="form-group">
+    <label>Interactions Endpoint URL</label>
+    <input type="text" readonly value="{{ interactions_url }}" onclick="this.select()">
+  </div>
+  <p class="text-sm text-muted" style="margin:8px 0 0">
+    Your Anthill backend must be reachable from Discord over HTTPS for this URL to verify. If you did not
+    provide a bot token above, register the command yourself with a one-off
+    <code>POST /applications/&lt;app id&gt;/guilds/&lt;server id&gt;/commands</code> (name <code>anthill</code>,
+    a required string option <code>message</code>), authorized with <code>Bot &lt;token&gt;</code>.
+  </p>
+</div>
+
+{% endblock %}

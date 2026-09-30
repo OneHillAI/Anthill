@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+
+<p class="text-sm" style="margin:0 0 12px">
+  <a href="{{ wiki_url }}">&larr; {% if scope=='org' %}Organization wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}</a>
+</p>
+
+<div class="card">
+  <pre class="wiki-content" style="white-space:pre-wrap">{{ content }}</pre>
+</div>
+{% endblock %}

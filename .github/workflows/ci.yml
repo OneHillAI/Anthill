@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cost: a newer push to the same ref cancels the in-flight run instead of paying for both.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install linters
+        # Pinned: an unpinned ruff means a new release silently reformats already-committed files
+        # and reds the lint on unrelated PRs. Bump these deliberately (and re-run `ruff format`).
+        run: pip install ruff==0.15.16 mypy==2.1.0
+      - name: Ruff
+        run: ruff check anthill tests
+      - name: Ruff format
+        run: ruff format --check anthill tests
+      - name: Mypy (blocking on clean modules; pre-existing debt grandfathered in pyproject)
+        run: mypy anthill
+      - name: Slop gates (de-slop rubric, CODE_AND_DOCS_STANDARDS.md 1.4)
+        run: |
+          fail=0
+          if grep -rnE 'TODO|FIXME|XXX' anthill --include='*.py'; then
+            echo "::error::leftover TODO/FIXME/XXX markers in anthill/"; fail=1
+          fi
+          if grep -rnP '[\x{2013}\x{2014}]' anthill --include='*.py'; then
+            echo "::error::em/en dash in anthill/ - use a plain hyphen"; fail=1
+          fi
+          # Markdown prose follows the same no-em-dash standard as code. This gate used to scan only
+          # *.py, so docs drifted (e.g. the README/CONTRIBUTING picked up em-dashes). Check every
+          # tracked .md repo-wide, by filename so nothing new slips through.
+          if git ls-files -z '*.md' | xargs -0 -r grep -nP '[\x{2013}\x{2014}]'; then
+            echo "::error::em/en dash in a tracked .md file - use a plain hyphen"; fail=1
+          fi
+          echo "info: broad 'except Exception' (intentional graceful-degradation): $(grep -rn 'except Exception' anthill --include='*.py' | wc -l | tr -d ' ')"
+          echo "info: library files with emoji/status glyphs (Brand->Lucide backlog): $(grep -rlP '[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}]' anthill --include='*.py' | grep -v 'anthill/cli.py' | wc -l | tr -d ' ')"
+          exit $fail
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Do not cancel the other Python versions when one fails: a hosted-runner OOM (below) can kill a
+      # single job non-deterministically, and fail-fast would then cancel the healthy versions too,
+      # turning one flaky red into an un-diagnosable all-red with no logs.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip  # reuse the wheel cache across runs; keyed on the dependency spec
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci]"
+
+      - name: Test
+        # Parallel across 2 workers; loadscope keeps each test module on one worker. Was -n 4, which
+        # OOM-killed a random job on the 7 GB hosted runner (a base dep, sentence-transformers, pulls
+        # torch + the nvidia/cuda stack, so 4 worker processes each holding the full app import peaked
+        # over the memory limit). The kill left no log (SIGKILL) and hit a different Python version each
+        # run, which is what made CI look randomly broken. 2 workers stays well under the limit.
+        run: pytest -n 2 --dist loadscope -q
+
+  # Visual/browser pass: a headless Chromium drives the real dashboard to check the JavaScript
+  # unit tests can't (the "Your cloud" show/hide toggles, etc.). Separate job so the model-free
+  # suite stays fast; the main job skips these tests when Playwright isn't installed.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci,browser]"
+      - name: Browser tests
+        run: pytest tests/browser -q

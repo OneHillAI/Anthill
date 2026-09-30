@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Confirm your email - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-box">
+    <h1>Confirm your email</h1>
+    <p class="subtitle">Your organization is set up. We've sent a confirmation link to
+      <strong>{{ email }}</strong>. Open it to activate your admin account and sign in.</p>
+    <p class="text-sm text-muted" style="margin-top:6px">
+      Didn't get it? Check spam, or resend it below.</p>
+    <form method="post" action="/verify/resend" style="margin-top:14px">
+      <input type="hidden" name="email" value="{{ email }}">
+      <button type="submit" class="btn btn-primary" style="width:100%">Resend confirmation email</button>
+    </form>
+    <p class="text-sm text-muted" style="margin-top:18px;text-align:center">
+      <a href="/login" style="color:var(--muted)">Back to sign in</a>
+    </p>
+  </div>
+</div>
+</body>
+</html>

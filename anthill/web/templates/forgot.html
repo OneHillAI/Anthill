@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Reset password - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-box">
+    <h1>Reset your password</h1>
+    {% if sent %}
+    {% if send_failed %}
+    <p class="subtitle">We couldn't send the reset email just now. Please try again in a moment.
+      If it keeps failing, check the email (SMTP) settings on your install.</p>
+    {% elif reset_link %}
+    <p class="subtitle">Email isn't set up on this install, so here's your one-time reset link.
+      It expires in an hour and can be used once.</p>
+    <a href="{{ reset_link }}" class="btn btn-primary"
+       style="width:100%;display:block;text-align:center;box-sizing:border-box;text-decoration:none">
+      Choose a new password
+    </a>
+    {% elif contact_admin %}
+    <p class="subtitle">Password reset by email isn't set up for this organization.
+      Ask your administrator to reset your password from the Users list in the dashboard.</p>
+    {% else %}
+    <p class="subtitle">If that email belongs to an active account, a reset link is on its way.
+      The link expires in an hour and can be used once.</p>
+    {% endif %}
+    <p class="text-sm text-muted" style="margin-top:18px;text-align:center">
+      <a href="/login" style="color:var(--muted)">Back to sign in</a>
+    </p>
+    {% else %}
+    <p class="subtitle">Enter your email and we'll send you a link to choose a new password.</p>
+    <form method="post" action="/forgot">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" name="email" required placeholder="you@company.com" autofocus>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Send reset link</button>
+    </form>
+    <p class="text-sm text-muted" style="margin-top:18px;text-align:center">
+      <a href="/login" style="color:var(--muted)">Back to sign in</a>
+    </p>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

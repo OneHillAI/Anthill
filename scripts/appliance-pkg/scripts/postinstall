@@ -1,0 +1,52 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────
+# postinstall for the Anthill Appliance package: configure THIS Mac as the
+# always-on org backend. Runs as root.
+#
+#   1. Apply the always-on power settings (never sleep, auto-restart). Root, no prompt.
+#   2. Install the per-user LaunchAgent + pull the sized model AS the logged-in console
+#      user - the agent must live in that user's GUI session so Ollama gets the Apple GPU
+#      (Metal is unavailable to a pre-login system daemon).
+#
+# Scripts-only package: it does not bundle the app. Install the Anthill app first; this
+# just makes it always-on. See engineering-plans/MAC_MINI_ON_PREM.md.
+# ─────────────────────────────────────────────────────────────────────────────
+set -u
+
+log() { echo "[anthill-appliance] $*"; }
+
+# 1. Always-on power settings (postinstall is root, so no sudo prompt).
+log "applying always-on power settings (pmset)..."
+pmset -a sleep 0 disablesleep 1 autorestart 1 disksleep 0 womp 1 || log "pmset failed (non-fatal)"
+
+# 2. The console (logged-in) user - the LaunchAgent must live in THEIR session for the GPU.
+CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
+  log "no logged-in user; skipping the LaunchAgent. Log in (enable auto-login) and run 'anthill appliance install'."
+  exit 0
+fi
+USER_UID=$(id -u "$CONSOLE_USER")
+USER_HOME=$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+
+# 3. Resolve the anthill CLI (the app's bundled venv, a dev clone, or PATH).
+ANTHILL=""
+for c in \
+  "/Applications/Anthill.app/Contents/Resources/.venv/bin/anthill" \
+  "/Applications/Anthill.app/Contents/MacOS/anthill" \
+  "$USER_HOME/Projects/anthill/.venv/bin/anthill" \
+  "$(command -v anthill 2>/dev/null || true)"; do
+  if [ -n "$c" ] && [ -x "$c" ]; then ANTHILL="$c"; break; fi
+done
+if [ -z "$ANTHILL" ]; then
+  log "anthill CLI not found. Install the Anthill app first, then run 'anthill appliance install'."
+  exit 0  # power settings are already applied; do not fail the whole install
+fi
+
+# 4. Install the LaunchAgent + pull the model AS the console user (in their GUI session).
+log "installing the appliance LaunchAgent as $CONSOLE_USER..."
+launchctl asuser "$USER_UID" sudo -u "$CONSOLE_USER" "$ANTHILL" appliance install \
+  || log "appliance install returned non-zero (check 'anthill appliance status')"
+
+log "done. Open Settings -> Appliance for the LAN URL + GPU status; share the URL with your team."
+log "Remember: enable auto-login for $CONSOLE_USER so the GPU stays available after a reboot."
+exit 0

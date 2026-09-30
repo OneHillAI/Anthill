@@ -1,0 +1,350 @@
+{# The base compute-tier chooser (docs/specs/expert-tier-compound-compute-and-escalation.md).
+   Two tiers: Your machine (local) / Your cloud (self-provisioned RunPod+Lambda). This partial covers
+   ONLY that decision - which tier the model runs on - plus the cloud tier's own required provider pick.
+   The model/council step (_council_builder.html) and the optional inference-provider escalation
+   attachment (_inference_provider.html) are separate partials, included AFTER this one, in that order:
+   founder correction (2026-09-28) that model selection was "after another section in between" made the
+   flow read as tier -> [interruption: connect a provider] -> model, when it should read as tier ->
+   model, with the optional provider attachment coming after, not sandwiched in the middle.
+
+   Visual language: rebuilt to match the founder-approved mockup (published Artifact "Where It Runs",
+   2026-09-26) - two always-visible tier cards (click to select, not a segmented switch hiding one), a
+   single "Model" chip in a dashed boundary (Your data/Training were dropped: they don't actually move
+   with the compute tier - workspace_for()'s wiki/knowledge storage has no cloud-tier awareness at all,
+   so claiming otherwise would be inaccurate, not just simplified).
+
+   Hydration: `compute`/`cloud_provider`, when passed in (an existing account reopening this in
+   Settings), seed the widget's initial state via ccHydrate() (now called from _inference_provider.html,
+   the last of the three partials, so the whole DOM - tier cards, council rows, provider cards - exists
+   before hydration runs). The setup flow (a fresh account, nothing saved yet) simply omits these vars,
+   which default to empty/local and hydrate to a harmless no-op. #}
+{% set cf = chooser_form|default('') %}
+{% set cur_compute = compute|default('local') %}
+{% set cur_cloud_provider = cloud_provider|default('') %}
+<style>
+  /* Type/spacing scale (docs/specs/design-tokens-wave1.md --fs-/--sp-). Only compact status chips/
+     badges stay under --fs-1 (13px) - everything meant to be read runs at --fs-2 (14px) or the mockup's
+     own larger scale (16-18px for names/headings), after founder feedback that this whole panel read
+     too small and too cramped (2026-09-26). */
+  .cc-sub{color:var(--muted);font-size:var(--fs-2);line-height:1.5;margin:0 0 var(--sp-4);max-width:44ch}
+
+  /* Big section titles (setup wizard only - Settings already has its own heading above this whole
+     panel, see the in_setup comment below): one consistent size for this file's, the council
+     builder's, and the inference-provider card's own titles - founder ask, 2026-09-29, replacing the
+     old tiny uppercase numbered-eyebrow labels that implied a sequence without ever showing the other
+     entries at that same visual weight. */
+  .cc-step-title{font-size:26px;font-weight:800;line-height:1.25;margin:0 0 14px;display:flex;
+    align-items:center;gap:8px}
+
+  /* ── Tier cards: both always visible, click to select (mockup, not a segmented switch hiding one).
+     Substantially enlarged - not an incremental token bump - with a much thicker selected border, a
+     strong green highlight, and a real lift on select/hover (founder ask, 2026-09-29, repeated for
+     emphasis: "make it bigger... make it bigger... just make it bigger"). ── */
+  .cc-tiers{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:var(--sp-4)}
+  {# 900px, not 640px: this breakpoint is checked against the whole window, but the persistent left
+     sidebar eats a fixed chunk of that regardless of window size, so a 640px cutoff still left the
+     2-column layout active down to windows where each card's text column had ~80px to work with -
+     "Your machine"/"Your cloud" wrapped mid-word no matter the font size at that point. Confirmed via
+     getBoundingClientRect at a real, plausible desktop width (700px), not a contrived edge case. #}
+  @media(max-width:900px){.cc-tiers{grid-template-columns:1fr}}
+  .cc-tier{background:var(--surface,#fff);border:2px solid var(--border);border-radius:16px;
+    padding:32px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s;
+    text-align:left;font:inherit;color:inherit}
+  .cc-tier:hover{border-color:var(--border-strong,var(--muted));transform:translateY(-3px)}
+  .cc-tier.sel{border-color:var(--accent,#2f6b4f);border-width:4px;padding:30px;
+    box-shadow:0 0 0 6px var(--accent-soft,var(--bg-subtle)),0 8px 20px -8px var(--accent,#2f6b4f);
+    transform:translateY(-3px)}
+  .cc-tier-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
+  .cc-tier-icon{width:48px;height:48px;border-radius:12px;background:var(--bg-subtle);color:var(--muted);
+    display:flex;align-items:center;justify-content:center;flex:none}
+  .cc-tier-icon svg{width:25px;height:25px}
+  .cc-tier.sel .cc-tier-icon{background:var(--accent,#2f6b4f);color:#fff}
+  {# The chip sits on its own line below the name (not beside it) so the name always gets the card's
+     full width - at 24px bold, "Your machine"/"Your cloud" can still wrap mid-word if forced to share
+     that line with a chip in a narrower window (founder-caught: reproduced at 700px, a plausible
+     desktop width, not just the extreme-mobile breakpoint below). #}
+  .cc-tier-nameline{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+  .cc-name{font-family:var(--font-sans);font-weight:800;font-size:24px;line-height:1.2}
+  .cc-tier.sel .cc-name{color:var(--accent,#2f6b4f)}
+  .cc-tier-sub{font-size:15px;color:var(--muted);margin-top:4px}
+  {# Single-column alone (the 900px breakpoint above) isn't enough below ~550px: the sidebar still
+     leaves so little room that even one full-width card wraps "Your machine"/"Your cloud" at 24px.
+     Step the name down one size for genuinely narrow windows. Placed AFTER the base .cc-tier/.cc-name
+     rules it overrides - equal-specificity CSS resolves ties by source order, so a media query earlier
+     in the file loses to a later plain rule regardless of whether it matches. #}
+  @media(max-width:550px){.cc-name{font-size:20px}.cc-tier{padding:24px}.cc-tier.sel{padding:22px}}
+  .cc-chip{font-size:12px;font-weight:700;color:var(--accent,#2f6b4f);background:var(--bg-subtle);
+    border:1px solid var(--border);border-radius:999px;padding:3px 11px;white-space:nowrap;flex:none}
+  .cc-chip.expert{color:var(--warn,#b0721c)}
+  .cc-boundary{border:2px dashed var(--border-strong,var(--muted));border-radius:12px;padding:16px 18px;
+    background:var(--bg-subtle);display:flex;flex-direction:column;gap:10px}
+  {# Model and Knowledge base sit side by side in one row (what actually moves with this choice, read
+     at a glance) with their cap(s) in a single row below - one shared caption when both say the same
+     thing (every card except cloud's Model line), or two compact caps side by side when they don't.
+     Never a second full stacked block per item - that read as the same "stays on this device" fact
+     said twice (founder ask, 2026-09-29). #}
+  .cc-boundary-items{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .cc-boundary-chip{display:flex;align-items:center;justify-content:center;gap:8px;font-size:16px;font-weight:600}
+  .cc-boundary-chip i{width:18px;height:18px;color:var(--muted)}
+  .cc-tier.sel .cc-boundary{border-color:var(--accent,#2f6b4f)}
+  .cc-tier.sel .cc-boundary-chip i{color:var(--accent,#2f6b4f)}
+  .cc-boundary-caps{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:10px;border-top:1px solid var(--border)}
+  .cc-boundary-cap-shared{display:flex;align-items:center;justify-content:center;gap:6px;font-size:14px;
+    font-weight:700;color:var(--muted);padding-top:10px;border-top:1px solid var(--border)}
+  .cc-tier.sel .cc-boundary-caps,.cc-tier.sel .cc-boundary-cap-shared{border-top-color:var(--accent-soft,var(--border))}
+  .cc-boundary-cap{display:flex;align-items:center;justify-content:center;gap:6px;font-size:14px;font-weight:700;
+    color:var(--muted)}
+  .cc-boundary-cap i{width:13px;height:13px}
+  .cc-tier.sel .cc-boundary-cap,.cc-tier.sel .cc-boundary-cap-shared{color:var(--accent,#2f6b4f)}
+  .cc-fit{font-size:15px;color:var(--muted);margin-top:18px;line-height:1.55}
+  .cc-fit b{color:var(--text);font-weight:600}
+  /* Knowledge is NOT tier-dependent (see file-header note) - a thin, low-profile strip under the tier
+     cards (not competing prose, not a chip inside either boundary), so the UI never implies it moves
+     with compute, but also never reads as a main-content sentence (founder ask, 2026-09-29). */
+  .cc-knowledge-note{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+    margin:0 0 var(--sp-4);padding:6px 10px;background:var(--bg-subtle);border-radius:8px;line-height:1.4}
+  .cc-knowledge-note i{width:13px;height:13px;flex:none}
+
+  .cc-prefer{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:14px}
+  .cc-prefer-l{font-size:var(--fs-1);font-weight:600;color:var(--muted)}
+  .cc-seg{display:inline-flex;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:2px}
+  .cc-seg button{border:0;background:none;border-radius:6px;padding:6px 12px;font-size:var(--fs-1);font-weight:600;color:var(--muted);cursor:pointer}
+  .cc-seg button.on{background:var(--bg,#fff);color:var(--accent,#2f6b4f);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+
+  /* Provider-card grid: shared by this file's cloud-provider picker AND _inference_provider.html's
+     escalation-provider picker (a plain CSS class, not scoped to one template - both need the identical
+     look, so one definition here is reused rather than duplicated). */
+  .cc-provs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--sp-2)}
+  @media(max-width:560px){.cc-provs{grid-template-columns:1fr}}
+  .cc-prov{text-align:left;border:1.5px solid var(--border);border-radius:10px;padding:11px 13px;background:var(--bg,#fff);cursor:pointer;transition:.12s}
+  .cc-prov:hover{border-color:var(--border-strong,var(--muted))}
+  .cc-prov.sel{border-color:var(--warn,#b0721c);box-shadow:0 0 0 2px rgba(176,114,28,.14)}
+  .cc-prov-n{font-weight:700;font-size:var(--fs-2);display:flex;align-items:center;gap:6px}
+  .cc-prov-r{font-size:10px;font-weight:700;color:var(--muted);background:var(--bg-subtle);border-radius:4px;padding:1px 5px}
+  .cc-prov-d{font-size:var(--fs-1);color:var(--muted);margin-top:4px;line-height:1.4}
+  .cc-prov-links{margin-top:7px;display:flex;gap:10px}
+  .cc-prov-links a{font-size:var(--fs-1);font-weight:600;color:var(--accent,#2f6b4f);text-decoration:none}
+
+  .cc-connect{margin-top:var(--sp-4)}
+  .cc-connect-sec{background:var(--surface,#fff);border:1px solid var(--border);border-radius:12px;padding:var(--sp-4)}
+  .cc-connect-sec + .cc-connect-sec{margin-top:var(--sp-3)}
+  .cc-connect-h{font-weight:600;font-size:var(--fs-2);margin-bottom:2px;display:flex;align-items:center}
+  .cc-connect-d{font-size:var(--fs-2);color:var(--muted);margin-bottom:var(--sp-3);line-height:1.5}
+  .cc-key{margin-top:14px}
+  .cc-key label{display:block;font-size:var(--fs-2);font-weight:600;margin-bottom:var(--sp-1)}
+  .cc-key .row{display:flex;gap:var(--sp-2)}
+  .cc-key input{flex:1;font:inherit;font-size:var(--fs-1);padding:8px 10px;border:1px solid var(--border-strong,var(--muted));border-radius:8px;background:var(--surface,#fff);color:var(--text)}
+  .cc-key .hint{margin-top:6px;font-size:var(--fs-1);color:var(--muted);line-height:1.4}
+</style>
+
+{# `in_setup`: true only in the first-run wizard (model_picker.html), where this and the council
+   builder below are two numbered sub-steps of the wizard's own "Choose your AI" step. In Settings
+   (personalize.html), this same partial is a standalone "Change where it runs" section directly below
+   a "Where your AI runs" summary card that already names this exact question - founder report,
+   2026-09-28: repeating the heading (and its own near-identical wording) right underneath read as
+   redundant "LLM-typical" filler. The heading and its explanatory tooltip only render in setup, where
+   there's no summary above yet; personalize.html carries the same tooltip on its own heading instead. #}
+{% if in_setup %}
+<div class="cc-step-title">Where does your model run?
+  <button type="button" class="help" aria-label="What these mean">?<span class="help-pop">Both run open models you fully own - nothing sent to us. Your machine keeps everything on this device; Your cloud runs it on a private GPU in your own cloud account.</span></button>
+</div>
+{% endif %}
+
+{# One click selects a tier - both cards are always visible (not a segmented switch hiding one), matching
+   the approved mockup. Each shows the ONE thing that actually moves with this choice (the model itself -
+   your knowledge base does not, see the note below the cards) plus a plain-English fit sentence. #}
+<div class="cc-tiers" id="cc-tierseg">
+  <button type="button" class="cc-tier sel" data-tier="local" onclick="ccPickTier(this,'local')">
+    <div class="cc-tier-head">
+      <span class="cc-tier-icon"><i data-lucide="laptop"></i></span>
+      <div class="cc-tier-nameline"><span class="cc-name">Your machine</span><span class="cc-chip" id="cc-chip-local">Graduate</span></div>
+    </div>
+    <div class="cc-tier-sub" style="margin:-8px 0 10px 46px" id="cc-where-local">{{ hw_label or "This device" }}</div>
+    <div class="cc-boundary">
+      <div class="cc-boundary-items">
+        <div class="cc-boundary-chip"><i data-lucide="cpu"></i>Model</div>
+        <div class="cc-boundary-chip"><i data-lucide="library"></i>Knowledge base</div>
+      </div>
+      <div class="cc-boundary-cap-shared"><i data-lucide="lock"></i>Stays on this device</div>
+    </div>
+    <p class="cc-fit"><b>Good fit for:</b> small-to-mid open models, full offline privacy, no monthly bill.</p>
+  </button>
+
+  <button type="button" class="cc-tier" data-tier="cloud" onclick="ccPickTier(this,'cloud')">
+    <div class="cc-tier-head">
+      <span class="cc-tier-icon"><i data-lucide="cloud"></i></span>
+      <div class="cc-tier-nameline"><span class="cc-name">Your cloud</span><span class="cc-chip" id="cc-chip-cloud">Professional</span></div>
+    </div>
+    <div class="cc-tier-sub" style="margin:-8px 0 10px 46px">Your own GPU, via <span id="cc-cloud-name">RunPod</span></div>
+    <div class="cc-boundary">
+      <div class="cc-boundary-items">
+        <div class="cc-boundary-chip"><i data-lucide="cpu"></i>Model</div>
+        <div class="cc-boundary-chip"><i data-lucide="library"></i>Knowledge base</div>
+      </div>
+      {# Knowledge base STORAGE is not tier-dependent (workspace_for() has no cloud-tier awareness at
+         all) - the wiki/memory/files themselves never relocate. But whatever gets retrieved for an
+         answer still has to reach wherever the model runs, so with "Your cloud" that's the rented GPU,
+         not this device - saying "stays on this device" here was the same claim the founder already
+         called out as misleading on the thin strip below, just repeated on the card itself (founder
+         correction, 2026-09-30: "the knowledge base in your cloud also moves to the cloud"). #}
+      <div class="cc-boundary-caps">
+        <div class="cc-boundary-cap"><i data-lucide="lock"></i>Stays in your cloud account</div>
+        <div class="cc-boundary-cap"><i data-lucide="cloud"></i>Sent to your cloud when used</div>
+      </div>
+    </div>
+    <p class="cc-fit"><b>Good fit for:</b> bigger models than your machine can hold - a GPU pod you rent, still fully yours.</p>
+  </button>
+</div>
+
+<div class="cc-knowledge-note"><i data-lucide="library"></i>Your wiki, memory and files are stored on this device either way - "Your cloud" only moves where the model itself runs.
+  <button type="button" class="help" aria-label="What this means">?<span class="help-pop">Nothing is uploaded to a provider just by storing it. But whichever model answers you - local or "Your cloud" - has to receive whatever it's given to work with, including any wiki content retrieved for that answer. With "Your cloud", that means the relevant excerpts travel to your rented GPU for that one answer, the same way they'd reach a local model - they aren't stored there afterward.</span></button>
+</div>
+
+{# the tier the user picks; posted with the setup form. Initial value= is the real saved state (see
+   the hydration note above) - ccHydrate() in _inference_provider.html reconciles the rest of the widget
+   (chip labels, revealed sections, picked provider cards) to match. #}
+<input type="hidden" name="compute" id="cc-compute" value="{{ cur_compute }}"{% if cf %} form="{{ cf }}"{% endif %}>
+<input type="hidden" name="cloud_provider" id="cc-provider" value="{{ cur_cloud_provider }}"{% if cf %} form="{{ cf }}"{% endif %}>
+
+{# the cloud tier's own REQUIRED provider (RunPod/Lambda) - unrelated to the optional escalation
+   attachment in _inference_provider.html. Only relevant once "Your cloud" is selected. #}
+<div class="cc-connect" id="cc-connect-cloud" hidden>
+  <div class="cc-connect-sec">
+    <div class="cc-connect-h">Choose a cloud provider<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Anthill provisions your chosen model on a private GPU in your own account - you connect once with an API key.</span></button></div>
+    <div class="cc-provs" id="cc-provs" style="grid-template-columns:1fr 1fr"></div>
+    <div class="cc-key" id="cc-keywrap" hidden>
+      <label id="cc-keylabel">API key</label>
+      <div class="row"><input type="password" name="provider_api_key" id="cc-key" placeholder="Paste your API key" autocomplete="off"{% if cf %} form="{{ cf }}"{% endif %}></div>
+      <div class="hint" id="cc-keyhint"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Provider catalog for the cloud tier's own REQUIRED provider (RunPod/Lambda) - self-provisioned,
+// unrelated to the optional escalation attachment in _inference_provider.html (CC_INFER there).
+// keyurl + how: verified against each provider's real docs (2026-08-05), not guessed - a signup page
+// is not the same page as "where you create a key", and a wrong/generic link fails the founder's ask
+// ("show them how to create an API key afterward"). keyurl is where the key itself lives; `how` is the
+// 1-line instruction shown once that provider is selected.
+var CC_CLOUD=[
+  {key:'runpod',name:'RunPod',region:'us',d:'Fastest to set up. Serverless GPU in your own account.',
+   signup:'https://www.runpod.io/console/signup',
+   keyurl:'https://www.console.runpod.io/user/settings',
+   how:'Settings -> API Keys -> Create API Key (pick "All" permissions).'},
+  {key:'lambda',name:'Lambda',region:'us',d:'GPU cloud provisioned in your own account.',
+   signup:'https://cloud.lambdalabs.com/sign-up',
+   keyurl:'https://cloud.lambda.ai/api-keys',
+   how:'API Keys -> Generate API key, then copy it (shown once).'}
+];
+var ccPref='best', ccTier='local', ccAttach=false;
+// The provider key hydration actually connected (set once, in ccHydrateBase) - re-applied after
+// ccRenderProvs() rebuilds the list (founder report, 2026-09-28: reopening Settings, or just clicking
+// a "Prefer" region button, made an already-connected provider look unselected and un-connected again,
+// even though the saved value itself was untouched - ccRenderProvs() replaces the whole list with fresh
+// unselected DOM and never re-marked which card was actually connected).
+var ccCloudConnected = '';
+
+function ccSort(list,region){ // region matches first, stable
+  if(region==='best'||region==='other') return list.slice();
+  return list.slice().sort(function(a,b){return (a.region===region?0:1)-(b.region===region?0:1);});
+}
+function ccPrefer(btn,region){
+  // Two Filter controls share this one function and state (the tier section above, and the
+  // inference-provider card's own copy) - keep every instance's buttons in sync regardless of which
+  // one was clicked.
+  document.querySelectorAll('.cc-pref-group button').forEach(function(b){b.classList.toggle('on',b.dataset.region===region);});
+  ccPref=region;
+  document.getElementById('cc-cloud-name').textContent=ccSort(CC_CLOUD,region)[0].name;
+  if(ccTier==='cloud') ccRenderProvs();
+  if(typeof ccRenderEscalationProvs==='function') ccRenderEscalationProvs();
+}
+// Tier pick: both cards stay visible; this just toggles which is selected and reveals the cloud tier's
+// own required provider picker. Switching tier resets the cloud provider pick, mirroring the old
+// "clear on tier change" behaviour, so stale state from one tier never carries into the other. The
+// inference-provider attachment is independent of tier and is NOT reset by this.
+function ccPickTier(btn,tier){
+  ccSetTier(tier);
+}
+function ccSetTier(tier){
+  document.querySelectorAll('#cc-tierseg .cc-tier').forEach(function(b){b.classList.toggle('sel',b.dataset.tier===tier);});
+  var changed = (ccTier!==tier);
+  ccTier=tier; document.getElementById('cc-compute').value=tier;
+  if(changed){
+    document.getElementById('cc-provider').value='';
+  }
+  document.getElementById('cc-connect-cloud').hidden = (tier!=='cloud');
+  if(tier==='cloud') ccRenderProvs();
+  else document.getElementById('cc-keywrap').hidden=true;
+  if(typeof ccCouncilTier==='function') ccCouncilTier(tier);  // swap the model list to match the tier
+  ccRenderChips();
+}
+// One place that decides each card's corner-badge chip (Graduate/Professional, upgrading to Expert
+// once a provider is attached) - called after every state change instead of duplicating this logic.
+function ccRenderChips(){
+  var chipLocal = document.getElementById('cc-chip-local');
+  var chipCloud = document.getElementById('cc-chip-cloud');
+  var expertLocal = (ccTier==='local' && ccAttach);
+  var expertCloud = (ccTier==='cloud' && ccAttach);
+  chipLocal.textContent = expertLocal ? 'Expert' : 'Graduate';
+  chipLocal.classList.toggle('expert', expertLocal);
+  chipCloud.textContent = expertCloud ? 'Expert' : 'Professional';
+  chipCloud.classList.toggle('expert', expertCloud);
+}
+function ccFindProv(key){
+  return CC_CLOUD.concat(typeof CC_INFER!=='undefined'?CC_INFER:[]).filter(function(p){return p.key===key;})[0] || null;
+}
+// The cloud tier's own required provider (RunPod/Lambda) - unrelated to escalation.
+function ccRenderProvs(){
+  var list=ccSort(CC_CLOUD, ccPref);
+  var html=list.map(function(p){
+    var links='<a href="'+p.signup+'" target="_blank" rel="noopener">Sign up &rarr;</a>';
+    return '<div class="cc-prov" data-key="'+p.key+'" data-name="'+p.name+'" onclick="ccPickProv(this)">'
+      +'<div class="cc-prov-n">'+p.name+' <span class="cc-prov-r">'+p.region.toUpperCase()+'</span></div>'
+      +'<div class="cc-prov-d">'+p.d+'</div><div class="cc-prov-links">'+links+'</div></div>';
+  }).join('');
+  document.getElementById('cc-provs').innerHTML=html;
+  // Re-mark the connected card - see ccCloudConnected's comment above.
+  var keptKey = document.getElementById('cc-provider').value;
+  var keptEl = keptKey && document.querySelector('#cc-provs .cc-prov[data-key="'+keptKey+'"]');
+  if (keptEl) {
+    ccPickProv(keptEl);
+    if (keptKey === ccCloudConnected) {
+      document.getElementById('cc-keyhint').innerHTML += ' Already connected - leave the key blank to keep it.';
+    }
+  }
+}
+// After a provider is picked: exactly WHERE to get a key, one line (founder correction, 2026-09-28:
+// the earlier "lead sentence + link + separate how-to line" read as side-notes piling up around a
+// simple ask - keep only the direct link, which is the actionable part).
+function ccPickProv(el){
+  el.parentElement.querySelectorAll('.cc-prov').forEach(function(p){p.classList.toggle('sel',p===el);});
+  var name=el.dataset.name;
+  var p=ccFindProv(el.dataset.key);
+  document.getElementById('cc-provider').value=el.dataset.key;
+  var kw=document.getElementById('cc-keywrap'); kw.hidden=false;
+  document.getElementById('cc-keylabel').textContent='Your '+name+' API key';
+  document.getElementById('cc-key').placeholder='Paste your '+name+' API key';
+  document.getElementById('cc-keyhint').innerHTML = p
+    ? '<a href="'+p.keyurl+'" target="_blank" rel="noopener">Open your '+name+' API keys page &rarr;</a>'
+    : '';
+}
+// Reconcile the widget's visible state to whatever was actually saved (see the file-header hydration
+// note). Sets JS state directly rather than going through ccSetTier's "clear on change" logic, which
+// exists for a user actively CHANGING something, not for painting the starting state - running it here
+// would immediately wipe the very values being hydrated. Called from _inference_provider.html (the
+// last-included partial), once the whole DOM exists. A blank/omitted call (the fresh setup flow) is a
+// harmless no-op: tier stays 'local', nothing is attached, nothing renders.
+function ccHydrateBase(compute, cloudProvider){
+  ccTier = (compute === 'cloud') ? 'cloud' : 'local';
+  document.querySelectorAll('#cc-tierseg .cc-tier').forEach(function(b){b.classList.toggle('sel', b.dataset.tier===ccTier);});
+  document.getElementById('cc-compute').value = ccTier;
+  document.getElementById('cc-connect-cloud').hidden = (ccTier!=='cloud');
+  if (typeof ccCouncilTier === 'function') ccCouncilTier(ccTier);
+  ccRenderChips();
+  if (ccTier === 'cloud' && cloudProvider) {
+    ccCloudConnected = cloudProvider;  // ccRenderProvs() re-applies selection + this hint on every rebuild
+    ccRenderProvs();
+  }
+}
+</script>

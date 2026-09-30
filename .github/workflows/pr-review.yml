@@ -1,0 +1,91 @@
+# ASDD - advisory PR review (ANALYSIS half).
+#
+# SECURITY-CRITICAL. This workflow ingests UNTRUSTED pull-request content. Its only job is to analyse and
+# emit a review artifact. It runs with a READ-ONLY token, holds NO write scope, and posts NOTHING. The
+# advisory comment is posted by the separate pr-review-publish.yml, which never reads untrusted input.
+#
+#   - Untrusted input is written to files and handed to the runtime as DATA paths, never interpolated
+#     into a prompt string or a shell command.
+#   - permissions: contents: read only.
+#   - the runtime returns DATA (review.json); nothing here shell-execs model output.
+#   - write scope + the posting action live in the OTHER workflow, in a separate context.
+
+name: ASDD review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asdd-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base repo (trusted config + scripts only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          # Keep the read-only token (the job is permissions: contents: read, so no write scope): it is
+          # needed to fetch the PR head ref on a private repo. Untrusted content is still only data.
+          persist-credentials: true
+
+      - name: Collect PR content as data files (untrusted, never executed)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          mkdir -p .asdd-work
+          printf '%s' "$PR_TITLE"  > .asdd-work/title.txt
+          printf '%s' "$PR_BODY"   > .asdd-work/body.md
+          printf '%s' "$PR_AUTHOR" > .asdd-work/author.txt
+          # Fetch the PR head into a NAMED ref so HEAD_SHA is deterministic. `rev-parse FETCH_HEAD`
+          # can resolve to the base sha when two refs are fetched, which made the range base..head
+          # empty. --depth covers the PR's commit range for the diff and the DCO check.
+          git fetch --no-tags --depth=200 origin "+refs/pull/${PR_NUMBER}/head:refs/anthill-pr-head" "$BASE_SHA"
+          HEAD_SHA="$(git rev-parse refs/anthill-pr-head)"
+          git diff "$BASE_SHA".."$HEAD_SHA" > .asdd-work/changes.diff
+          {
+            echo "pr_number=$PR_NUMBER"
+            echo "base_sha=$BASE_SHA"
+            echo "head_sha=$HEAD_SHA"
+          } > .asdd-work/meta.env
+
+      - name: Install SAST tooling (bandit) - best-effort, layer 2 of the security lens
+        # The deterministic security layer needs no dependencies; this adds the OSS SAST layer. If the
+        # install fails the scan degrades to deterministic checks only - it never blocks the job.
+        run: pipx install bandit || python3 -m pip install --quiet --break-system-packages bandit || echo "bandit unavailable; deterministic checks only"
+
+      - name: Run review (runtime adapter - read-only, output is data)
+        env:
+          # The only secret this read-only job holds: the model API key. No GitHub write scope.
+          ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
+          # Endpoint config (repo variables, not secrets). With these + the token set, the lenses go
+          # live against an OpenAI-compatible model; otherwise the pipeline dry-runs.
+          ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
+          ASDD_MODEL: ${{ vars.ASDD_MODEL }}
+        run: bash .github/asdd/run-review.sh .asdd-work review.json
+
+      - name: Upload review artifact (consumed by the publish workflow)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: asdd-review
+          path: review.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## ASDD review (advisory)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Analysis ran read-only. The advisory comment is posted by the publish workflow. Nothing merges automatically." >> "$GITHUB_STEP_SUMMARY"

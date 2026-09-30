@@ -1,0 +1,1706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Chat - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- PWA: the chat page is the primary screen, so it must be installable too (it does not extend
+       base.html). Manifest + theme + icons + the service worker make it an installable app on
+       Chrome/ChromeOS that opens in its own window and works offline. -->
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1A110A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="icon" href="/static/favicon-32.png" sizes="32x32">
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+    }
+  </script>
+  <style>
+    /* The global app rail sits to the left of the chat's own conversation pane (never removed). */
+    body { margin:0; height:100vh; display:flex; flex-direction:row; background:var(--bg); }
+    .chat-layout { display:flex; flex:1; overflow:hidden; min-width:0; }
+
+    /* conversation pane - sits right of the global rail; a hairline separates the two dark columns */
+    .chat-sidebar { width:240px; background:#1A110A; display:flex; flex-direction:column;
+      flex-shrink:0; overflow:hidden; border-left:1px solid rgba(245,240,232,.09); }
+    .chat-sidebar .brand { display:flex; align-items:center; gap:8px;
+      padding:16px 16px 10px; font-size:17px; font-weight:600;
+      color:var(--surface); border-bottom:1px solid #2E1C10; }
+    .chat-sidebar .brand span { color:var(--accent); }
+    .chat-sidebar .brand .brand-mark { height:18px; width:auto; display:block; }
+    .chat-sidebar .sidebar-actions { padding:10px 12px; }
+    .chat-sidebar .conv-list { flex:1; overflow-y:auto; padding:6px 0; }
+    .chat-sidebar .conv-item { display:flex; align-items:center; padding:8px 14px;
+      cursor:pointer; border-radius:6px; margin:2px 8px; font-size:13px; color:var(--bg-subtle); }
+    .chat-sidebar .conv-item:hover { background:#2E1C10; }
+    .chat-sidebar .conv-item.active { background:#2E1C10; color:#fff; }
+    .chat-sidebar .conv-item .conv-title { flex:1; overflow:hidden;
+      white-space:nowrap; text-overflow:ellipsis; }
+    .chat-sidebar .sidebar-bottom { padding:12px 16px; border-top:1px solid #2E1C10;
+      font-size:12px; color:var(--muted); }
+    .chat-sidebar a.back { color:var(--muted); font-size:12px; text-decoration:none; }
+    .chat-sidebar a.back:hover { color:var(--bg-subtle); }
+
+    /* main chat area */
+    .chat-main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    .chat-header { padding:14px 24px; background:#fff; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:12px; }
+    .chat-header h1 { font-size:16px; font-weight:600; flex:1; margin:0; }
+    .chat-messages { flex:1; overflow-y:auto; padding:24px; display:flex;
+      flex-direction:column; gap:20px; }
+    .chat-messages:empty::after { content:"Start a conversation below.";
+      color:var(--muted); font-size:15px; text-align:center; margin-top:60px; }
+
+    /* messages - long messages use most of the width (the input row is full-width too) instead of a
+       narrow ~60% column; short messages still size to their content. */
+    .msg { display:flex; gap:14px; max-width:90%; }
+    .msg.user { flex-direction:row-reverse; align-self:flex-end; }
+    .msg .avatar { width:34px; height:34px; border-radius:50%; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      font-size:14px; font-weight:600; }
+    .msg.user .avatar  { background:var(--accent); color:#fff; }
+    /* Soft, theme-adaptive assistant avatar (was a near-black #1A110A disc that read as a dark blob on
+       the light UI - founder: "a dark small anthill icon ... although everything is light"). --bg-subtle
+       inverts with the theme, so it stays right in dark mode too. */
+    .msg.assistant .avatar { background:var(--bg-subtle); color:var(--accent); border:1px solid var(--border); }
+    /* Expert-tier escalation (docs/specs/expert-tier-compound-compute-and-escalation.md): a message
+       answered by the attached inference provider (not the local/cloud lead) gets a distinct, warm
+       accent instead of the default so it reads as "this one went further" at a glance. `--warn-soft`
+       is not a real token (same non-existent reference as .badge-escalated above) - given its own
+       literal here, matching that badge's already-fixed treatment. */
+    .msg.assistant.escalated .avatar { background:#F6E7CC; color:var(--warn,#b0721c); border-color:var(--warn,#b0721c); }
+    .msg .bubble { background:#fff; border:1px solid var(--border); border-radius:12px;
+      padding:12px 16px; font-size:14px; line-height:1.7; max-width:100%; }
+    .msg.user .bubble { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .msg .bubble code { background:var(--bg-subtle); padding:1px 5px; border-radius:3px;
+      font-size:13px; }
+    .msg.user .bubble code { background:rgba(26,17,10,.14); }
+    /* --code-bg/--code-text (not a hardcoded #1A110A + var(--bg-subtle)) are already theme-aware, so
+       this needs no separate dark-mode override - color:var(--bg-subtle) flipped dark in dark mode,
+       making a multi-line code answer nearly unreadable (dark-grey text on a near-black background). */
+    .msg .bubble pre { background:var(--code-bg); color:var(--code-text); padding:12px;
+      border-radius:8px; overflow-x:auto; font-size:12px; }
+    .msg .bubble pre code { background:none; padding:0; color:inherit; font-size:inherit; }
+    .msg .bubble > :first-child { margin-top:0; }
+    .msg .bubble > :last-child { margin-bottom:0; }
+    .msg .bubble p { margin:0 0 8px; }
+    .msg .bubble ul, .msg .bubble ol { margin:0 0 8px; padding-left:22px; }
+    .msg .bubble li { margin:2px 0; }
+    .msg .bubble h1, .msg .bubble h2, .msg .bubble h3, .msg .bubble h4 { margin:12px 0 6px; line-height:1.3; }
+    .msg .bubble h1 { font-size:18px; } .msg .bubble h2 { font-size:16px; }
+    .msg .bubble h3 { font-size:15px; } .msg .bubble h4 { font-size:14px; }
+    .msg .bubble blockquote { margin:0 0 8px; padding:2px 12px; border-left:3px solid var(--accent);
+      color:#6B5B47; background:rgba(47,107,79,.06); border-radius:0 6px 6px 0; }
+    .msg .bubble table { border-collapse:collapse; margin:0 0 8px; font-size:13px; display:block; overflow-x:auto; }
+    .msg .bubble th, .msg .bubble td { border:1px solid var(--border); padding:5px 9px; text-align:left; }
+    .msg .bubble th { background:var(--bg-subtle); font-weight:600; }
+    .msg .bubble a { color:var(--accent-dk); text-decoration:underline; }
+    .msg.user .bubble a { color:#fff; }
+    .msg .meta { font-size:12px; color:var(--muted); margin-top:4px; display:flex;
+      align-items:center; gap:8px; }
+    .msg .thumbs { cursor:pointer; padding:2px 5px; border-radius:4px; border:none;
+      background:none; font-size:13px; color:var(--muted); }
+    .msg .thumbs:hover { background:var(--bg-subtle); color:#5A3520; }
+    /* A rated thumb used to only tint the icon's stroke color - on a small icon that read as
+       "nothing happened" (founder QA: thumbs up/down "doesn't seem to work"). A filled chip
+       matches the weight of .badge-cache/.badge-escalated below, so a rating is as visible as
+       any other status the row already shows. */
+    .msg .thumbs.selected-up   { color:#2D6A4F; background:rgba(45,106,79,.16); }
+    .msg .thumbs.selected-down { color:#A32D2D; background:rgba(163,45,45,.16); }
+
+    /* intent proposal turn (P1) */
+    .proposal { border-left:3px solid var(--accent); padding:8px 12px; background:var(--bg-subtle, #FBF4E8);
+      border-radius:6px; color:var(--text, inherit); }
+    .msg .btn-doit { cursor:pointer; padding:4px 12px; border-radius:6px; border:none;
+      background:var(--accent); color:#fff; font-size:13px; font-weight:600; margin-right:4px; }
+    .msg .btn-doit:hover { background:var(--accent-dk); }
+
+    /* streaming cursor */
+    .streaming-cursor { display:inline-block; width:8px; height:14px;
+      background:var(--accent); animation:blink .7s step-end infinite;
+      vertical-align:text-bottom; border-radius:1px; }
+    @keyframes blink { 50% { opacity:0; } }
+
+    /* build indicator: an ant-street - small ants march to the anthill, which grows as it works */
+    #build-indicator.antstreet { position:relative; height:44px; width:100%; margin:6px 0 2px;
+      border-bottom:1px solid var(--border); padding:0; }
+    .antstreet .ant { position:absolute; top:26px; width:15px; height:9px; color:#3A2A1C;
+      will-change:left; animation:antmarch 8s linear infinite; }
+    .antstreet .ant svg { width:100%; height:100%; display:block; }
+    .antstreet-hill { position:absolute; right:2px; bottom:-3px; width:56px; height:35px;
+      transform-origin:50% 100%; animation:anthill-grow 2.6s ease-in-out infinite; }
+    @keyframes antmarch { from { left:-5%; } to { left:calc(100% - 62px); } }
+    @keyframes anthill-grow { 0%,100% { transform:scale(.9); } 50% { transform:scale(1.06); } }
+    @media (prefers-reduced-motion:reduce){ .antstreet .ant{animation:none;} .antstreet-hill{animation:none;transform:scale(1);} }
+    @media (prefers-color-scheme:dark){ .antstreet .ant{ color:#C9BBA8; } }
+    /* Escalating: this turn is being answered by the attached inference provider, not the lead. The
+       marching ants swap to the caped symbol (#ah-ant-cape, _sidebar.html) and pick up a warm glow -
+       the SAME motif carries the meaning rather than a competing new indicator. Colour-only change, so
+       it stays visible under prefers-reduced-motion (which only disables the marching/pulse animation
+       above, not this). */
+    .antstreet.escalating .ant { color:var(--warn,#b0721c); filter:drop-shadow(0 0 3px rgba(176,114,28,.55)); }
+    .antstreet.escalating .antstreet-hill { filter:drop-shadow(0 0 4px rgba(176,114,28,.4)); }
+    /* One honest line under the ants naming the real stage (thinking/escalating/escalated) - the
+       labor-illusion research this pairs with only works when the narration reflects a real signal,
+       never a decorative timed sequence, so this is driven entirely by real SSE meta events
+       (setBuildStatus), not a client-side script. Kept separate from the ants rather than replacing
+       them - the mascot is doing real work reading it as "still alive"; the text carries the "why". */
+    #build-status { font-size:12px; color:var(--muted); margin:-4px 0 6px; min-height:15px; }
+    #build-status.escalating { color:var(--warn,#b0721c); font-weight:500; }
+    /* in-bubble "thinking" indicator (BUILD_ROW): a short trail of dots marching to a SMALL anthill
+       mark. The mark PNG is 512x512 - without these rules the <img> renders at full size and fills the
+       whole reply bubble (a giant logo). Keep it to a compact inline row, ~22px tall. */
+    .build-row { display:inline-flex; align-items:center; gap:8px; padding:2px 0; }
+    .ant-trail { display:inline-flex; align-items:center; gap:5px; }
+    .ant-trail span { width:5px; height:5px; border-radius:50%; background:var(--muted,#B7A78F);
+      display:inline-block; animation:ant-trail-pulse 1.4s ease-in-out infinite; }
+    @keyframes ant-trail-pulse { 0%,100%{opacity:.25;transform:translateY(0);} 50%{opacity:1;transform:translateY(-2px);} }
+    .build-anthill { width:22px; height:22px; object-fit:contain; flex:none;
+      animation:build-anthill-bob 2.6s ease-in-out infinite; transform-origin:50% 100%; }
+    @keyframes build-anthill-bob { 0%,100%{transform:scale(.94);} 50%{transform:scale(1.06);} }
+    @media (prefers-reduced-motion:reduce){ .ant-trail span,.build-anthill{animation:none;} }
+    /* trust line in the chat header (plane-accurate: shown for local/solo chats) */
+    .chat-trust { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--muted); font-weight:500; white-space:nowrap; }
+    .chat-trust-dot { width:7px; height:7px; border-radius:50%; background:var(--success); flex-shrink:0; }
+
+    /* ant icon (replaces the robot face for the assistant) */
+    .ant-icon { width:1.05em; height:1.05em; vertical-align:-.15em; }
+    .avatar .ant-icon { width:21px; height:21px; }
+
+    /* input area */
+    .chat-input-area { padding:16px 24px; background:#fff;
+      border-top:1px solid var(--border); }
+    .chat-input-row { display:flex; gap:10px; align-items:flex-end;
+      background:var(--bg); border:1.5px solid var(--border); border-radius:12px;
+      padding:10px 14px; transition:.15s; }
+    .chat-input-row:focus-within { border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(47,107,79,.12); }
+    #msg-input { flex:1; border:none; background:none; resize:none;
+      font-size:14px; line-height:1.5; outline:none; max-height:180px;
+      font-family:inherit; }
+    .send-btn { background:var(--accent); color:#fff; border:none; border-radius:8px;
+      width:36px; height:36px; cursor:pointer; display:flex; align-items:center;
+      justify-content:center; flex-shrink:0; transition:.15s; }
+    .send-btn:hover { background:var(--accent-dk); }
+    .send-btn:disabled { background:var(--muted); cursor:not-allowed; }
+    .send-btn.stopping { background:#A32D2D; }
+    .send-btn.stopping:hover { background:#8A2424; }
+    #send-icon { font-size:15px; line-height:1; }
+    .redo-tag { font-size:13px; color:var(--clay); margin-bottom:6px;
+      border-left:3px solid var(--accent); padding-left:8px; }
+    .input-options { display:flex; gap:10px; margin-top:8px; font-size:13px;
+      color:var(--clay); flex-wrap:wrap; align-items:center; }
+    .toggle-opt { display:flex; align-items:center; gap:5px; cursor:pointer; }
+    .toggle-opt input { cursor:pointer; }
+    .input-options-bar { display:flex; gap:10px; align-items:center; margin-top:8px;
+      font-size:13px; color:var(--clay); }
+    .opt-toggle { display:inline-flex; align-items:center; gap:4px; cursor:pointer;
+      background:none; border:1px solid var(--border); border-radius:6px; padding:2px 8px;
+      font:inherit; font-size:13px; color:var(--clay); }
+    .opt-toggle:hover { background:var(--bg-subtle); }
+    .opt-toggle.active { background:var(--bg-subtle); color:#5A3520; }
+
+    /* canvas pane */
+    .canvas-pane { position:fixed; top:0; right:0; height:100vh; width:min(560px,46vw);
+      background:var(--surface); border-left:1px solid var(--border);
+      box-shadow:-8px 0 24px rgba(26,17,10,.12); transform:translateX(100%);
+      transition:transform .2s ease; z-index:70; display:flex; flex-direction:column; }
+    .canvas-pane.open { transform:translateX(0); }
+    .canvas-head { display:flex; align-items:center; gap:10px; padding:13px 18px;
+      border-bottom:1px solid var(--border); }
+    .canvas-body { flex:1; overflow:auto; padding:18px; }
+    .canvas-foot { border-top:1px solid var(--border); padding:12px 18px;
+      display:flex; gap:10px; align-items:flex-end; }
+    .canvas-foot textarea { flex:1; }
+
+    /* cache hit badge */
+    .badge-cache { background:#D0EAD8; color:#1A4A2A; border-radius:10px;
+      padding:2px 8px; font-size:12px; }
+    .badge-agent { background:var(--accent-soft); color:#6B3C08; border-radius:10px;
+      padding:2px 8px; font-size:12px; }
+    /* third meta-badge state, alongside local/remote: this answer came from the attached inference
+       provider, not the lead (expert-tier-compound-compute-and-escalation.md). Mutually exclusive with
+       local/remote, not additional to it - an escalated answer IS remote, but "which remote" matters
+       more here than the local/remote fact alone. `--warn-soft` is not a real token (nowhere defined in
+       style.css) so this always fell through to its light-only #F6E7CC literal - given its own literal
+       here instead, since the fallback was doing all the work anyway. */
+    .badge-escalated { background:rgba(176,114,28,.14); color:var(--warn,#8a5a10); border-radius:10px;
+      padding:2px 8px; font-size:12px; font-weight:600; }
+
+    /* "Ask {Provider} instead", offered from the moment local generation starts (#1 UX follow-up to
+       #820/#824) - not gated behind waiting for a slow local answer to finish first. Starts as a
+       quiet, low-emphasis link (most turns don't need it); after 15s of still generating it picks up
+       the same warm escalation color used everywhere else (.badge-escalated, .antstreet.escalating)
+       to actually catch the eye once waiting has gone on a while. */
+    .ask-provider-now { margin-top:4px; font-size:12px; }
+    .ask-provider-now-link { color:var(--muted); text-decoration:none; cursor:pointer; }
+    .ask-provider-now-link:hover { color:var(--warn,#b0721c); text-decoration:underline; }
+    .ask-provider-now.highlighted .ask-provider-now-link { color:var(--warn,#8a5a10); font-weight:600; }
+    .ask-provider-now.highlighted { background:rgba(176,114,28,.12); border-radius:8px; padding:4px 8px;
+      margin-left:-8px; }
+
+    /* dark mode: the standalone chat template hardcodes light surfaces; flip them to the
+       theme variables (which already invert) so chat matches the rest of the app. The
+       sidebar is already dark and the amber user bubble stays as-is. Applied both ways,
+       mirroring style.css's own dual guard: this media query covers the OS preference,
+       and the explicit :root[data-theme="dark"] block below covers Appearance > Dark
+       picked while the OS is still light - without it, forcing Dark here left the header
+       and message bubbles stuck light (they only ever read these rules, never the vars
+       directly) while the sidebar, which reads the vars directly, went dark. */
+    @media (prefers-color-scheme: dark) {
+      body { background: var(--bg); }
+      .chat-header { background: var(--surface); border-bottom-color: var(--border); }
+      .chat-messages:empty::after { color: var(--muted); }
+      .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
+      .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
+      .msg .bubble th, .msg .bubble td { border-color: var(--border); }
+      .msg .bubble th { background: var(--bg-subtle); }
+      .msg .bubble blockquote { color: var(--muted); background: rgba(47,107,79,.10); }
+      .msg .bubble a { color: #E0982E; }
+      .msg .thumbs:hover { background: var(--bg-subtle); color: var(--text); }
+      .chat-input-area { background: var(--surface); border-top-color: var(--border); }
+      .chat-input-row { background: var(--bg-subtle); border-color: var(--border); }
+      #msg-input { color: var(--text); }
+      /* Same pale-on-pale bug as style.css's global .badge-* (found + fixed there, 2026-09-27) -
+         these three are chat-local badges with the same light-only hardcoded colors. */
+      .badge-cache { background: rgba(78,158,120,.18); color: #8FD9B4; }
+      .badge-agent { color: #E0C4A0; }
+      .badge-escalated { color: #E8B87A; }
+      .msg .thumbs.selected-up   { color: #8FD9B4; background: rgba(78,158,120,.20); }
+      .msg .thumbs.selected-down { color: #E8A0A0; background: rgba(200,90,90,.20); }
+      .msg.assistant.escalated .avatar { background: rgba(176,114,28,.18); color: #E8B87A; border-color: #E8B87A; }
+      .ask-provider-now.highlighted .ask-provider-now-link { color: #E8B87A; }
+    }
+    :root[data-theme="dark"] body { background: var(--bg); }
+    :root[data-theme="dark"] .chat-header { background: var(--surface); border-bottom-color: var(--border); }
+    :root[data-theme="dark"] .chat-messages:empty::after { color: var(--muted); }
+    :root[data-theme="dark"] .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
+    :root[data-theme="dark"] .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
+    :root[data-theme="dark"] .msg .bubble th, :root[data-theme="dark"] .msg .bubble td { border-color: var(--border); }
+    :root[data-theme="dark"] .msg .bubble th { background: var(--bg-subtle); }
+    :root[data-theme="dark"] .msg .bubble blockquote { color: var(--muted); background: rgba(47,107,79,.10); }
+    :root[data-theme="dark"] .msg .bubble a { color: #E0982E; }
+    :root[data-theme="dark"] .msg .thumbs:hover { background: var(--bg-subtle); color: var(--text); }
+    :root[data-theme="dark"] .chat-input-area { background: var(--surface); border-top-color: var(--border); }
+    :root[data-theme="dark"] .chat-input-row { background: var(--bg-subtle); border-color: var(--border); }
+    :root[data-theme="dark"] #msg-input { color: var(--text); }
+    :root[data-theme="dark"] .badge-cache { background: rgba(78,158,120,.18); color: #8FD9B4; }
+    :root[data-theme="dark"] .badge-agent { color: #E0C4A0; }
+    :root[data-theme="dark"] .badge-escalated { color: #E8B87A; }
+    :root[data-theme="dark"] .msg .thumbs.selected-up   { color: #8FD9B4; background: rgba(78,158,120,.20); }
+    :root[data-theme="dark"] .msg .thumbs.selected-down { color: #E8A0A0; background: rgba(200,90,90,.20); }
+    :root[data-theme="dark"] .msg.assistant.escalated .avatar { background: rgba(176,114,28,.18); color: #E8B87A; border-color: #E8B87A; }
+    :root[data-theme="dark"] .ask-provider-now.highlighted .ask-provider-now-link { color: #E8B87A; }
+    :root[data-theme="dark"] .antstreet .ant { color: #C9BBA8; }
+  </style>
+</head>
+<body>
+{# Full-merge chat nav: the conversation list lives inside the global rail under Workspace and the
+   other nav groups fold, so there is no separate conversations column here. #}
+{% set chat_mode = true %}
+{% include "_sidebar.html" %}
+<div class="chat-layout">
+
+  <!-- main -->
+  <div class="chat-main">
+    <div class="chat-header">
+      <h1>{{ active_conv.title if active_conv else 'Anthill Chat' }}</h1>
+      {% if not active_conv or active_conv.plane == 'solo' %}
+      {# The dot/text is kept in sync with the live Web-search toggle by JS below (issue: this claim was
+         unconditionally true while Web search defaulted ON, which really does send the query text to a
+         search provider - see chat-web-privacy-sync). #}
+      <span class="chat-trust"><span class="chat-trust-dot"></span><span id="chat-trust-msg">Running on this machine. Nothing leaves it.</span></span>
+      {% else %}
+      <span class="text-sm text-muted">{{ org.name }} · org model</span>
+      {% endif %}
+      {% if active_conv %}
+      {% if messages %}
+      {# "Turn this conversation into a skill" (#683): the same one-gesture capture pattern as
+         "Save to wiki" (the snippet scissors button), applied to skills instead of a single
+         message. Drafts the fields with the model, then hands off to the guided wizard on
+         /skills to review and save - nothing is written until the user does that. #}
+      <button type="button" class="btn btn-outline btn-sm" id="skill-from-chat-btn"
+              onclick="turnIntoSkill()" title="Draft a reusable skill from this conversation">
+        <i data-lucide="wand-2">🪄</i> Turn into a skill
+      </button>
+      {% endif %}
+      {# Move this chat into one of the user's folders (or unfile it). Create folders from the sidebar. #}
+      <form method="post" action="/chat/{{ active_conv.id }}/folder" style="margin:0">
+        <select name="folder_id" class="btn btn-outline btn-sm" onchange="this.form.submit()" title="Folder" aria-label="Move to folder">
+          <option value="" {% if not active_conv.folder_id %}selected{% endif %}>No folder</option>
+          {% for f in folders | default([]) %}
+          <option value="{{ f.id }}" {% if active_conv.folder_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <form method="post" action="/chat/{{ active_conv.id }}/rename" style="margin:0"
+            onsubmit="var t=prompt('Rename conversation:', this.title.value); if(t===null) return false; this.title.value=t;">
+        <input type="hidden" name="title" value="{{ active_conv.title }}">
+        <button type="submit" class="btn btn-outline btn-sm"><i data-lucide="pencil">✏️</i> Rename</button>
+      </form>
+      <form method="post" action="/chat/{{ active_conv.id }}/delete"
+            style="margin:0" onsubmit="return confirm('Delete this conversation?')">
+        <button class="btn btn-outline btn-sm"><i data-lucide="trash-2">🗑</i> Delete</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if planner_fallback %}
+    <div class="chat-fallback-note" style="margin:0;padding:6px 14px;font-size:12px;
+         background:var(--bg-subtle);color:var(--muted);border-bottom:1px solid var(--border)">
+      <i data-lucide="info">ℹ</i> You're using a local model that is too small, so web search uses
+      your question as is, instead of planning it. <a href="/personalize#model">Pick a larger model</a> for
+      action-style search.
+    </div>
+    {% endif %}
+
+    <div class="chat-messages" id="messages">
+      {% if not active_conv %}
+        <div style="text-align:center;margin-top:80px;color:var(--muted)">
+          <div style="font-size:46px;margin-bottom:16px;color:var(--accent)"><svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg></div>
+          <div style="font-size:18px;font-weight:600;color:#5A3520">Anthill Chat</div>
+          <div style="font-size:14px;margin-top:8px">
+            Answers from your wiki · Semantic cache · Web search · Agent tasks
+          </div>
+          <form method="post" action="/chat/new" style="margin-top:24px">
+            <button class="btn btn-primary">Start a conversation →</button>
+          </form>
+        </div>
+      {% else %}
+        {% for msg in messages %}
+        <div class="msg {{ msg.role }}{% if msg.escalated %} escalated{% endif %}" data-id="{{ msg.id }}">
+          <div class="avatar">{% if msg.role == 'user' %}<i data-lucide="user">👤</i>{% else %}<svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg>{% endif %}</div>
+          <div>
+            <div class="bubble" id="bubble-{{ msg.id }}">{{ msg.content }}</div>
+            {% if msg.role == 'assistant' %}
+            <div class="meta">
+              {% if msg.cache_hit %}<span class="badge-cache">cache hit</span>{% endif %}
+              {% if not msg.generation_failed %}
+                {% if msg.escalated %}
+                  <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>
+                {% elif msg.answered_locally %}
+                  <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>
+                {% else %}
+                  <span style="font-size:12px;color:var(--muted)" title="Answered by {{ msg.model }} over the network">☁️ remote</span>
+                {% endif %}
+              {% endif %}
+              {% if msg.wiki_slugs %}
+                <span>📖 {{ msg.wiki_slugs }}</span>
+              {% endif %}
+              <button class="thumbs {% if msg.thumbs_up == True %}selected-up{% endif %}"
+                      onclick="rate({{ msg.id }}, 1)" title="Good answer"><i data-lucide="thumbs-up">👍</i></button>
+              <button class="thumbs {% if msg.thumbs_up == False %}selected-down{% endif %}"
+                      onclick="rate({{ msg.id }}, -1)" title="Bad answer"><i data-lucide="thumbs-down">👎</i></button>
+              <button class="thumbs" title="Save whole message as a snippet"
+                      onclick="saveSnippet(document.getElementById('bubble-{{ msg.id }}').innerText, '{{ msg.id }}')"><i data-lucide="scissors">✂️</i></button>
+              <button class="thumbs" title="Save this as a recurring task"
+                      onclick="saveRecurringFromDom(this, {{ msg.id }})"><i data-lucide="calendar-clock">📅</i></button>
+              {# Redo-with-provider and export used to be language-only (#421) - live QA found that
+                 unreliable, so both are real buttons now (see addAssistantControls' comment for why);
+                 mirrored here for a reloaded conversation, not just one still live in this tab. #}
+              <button class="thumbs" title="Export as a document"
+                      onclick="exportAnswerClicked(this, document.getElementById('bubble-{{ msg.id }}').parentElement, '')"><i data-lucide="download">⬇️</i></button>
+              {% if escalation_provider_label and not msg.escalated %}
+              <button class="thumbs" title="Redo with {{ escalation_provider_label }}"
+                      onclick="redoWithProviderClicked(this, document.getElementById('bubble-{{ msg.id }}').parentElement, {{ msg.id }})"><i data-lucide="zap">⚡</i></button>
+              {% endif %}
+            </div>
+            {% else %}
+            <div class="meta">
+              {% if loop.last %}
+              {# The last message in the thread is a user turn with no reply after it - almost
+                 always an interrupted generation (the app closed or crashed mid-answer; nothing
+                 ever gets written to chat_messages until a full answer comes back, so a killed
+                 request leaves exactly this: a lone question, no error, no assistant row). Founder
+                 report: reopening this thread offered only "edit" (retype + resend), no dedicated
+                 way to just try the same question again, no indication the app even noticed the
+                 interruption. This calls the same runStream() a fresh send uses, with
+                 showUser:false so it doesn't duplicate the bubble already on screen. #}
+              <button class="thumbs" title="Try this question again"
+                      onclick="retryPrompt(this)"><i data-lucide="rotate-cw">🔁</i> retry</button>
+              {% endif %}
+              <button class="thumbs" title="Edit this prompt and send again"
+                      onclick="editPrompt(this)"><i data-lucide="pencil">✏️</i> edit</button>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    {% if active_conv %}
+    <div class="chat-input-area">
+      <div id="plane-banner" class="plane-banner" style="display:none"></div>
+      <div id="build-indicator" class="antstreet" style="display:none" aria-label="Working" role="status">
+        <span class="ant" style="left:6%;animation-delay:-.2s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <span class="ant" style="left:20%;top:28px;animation-delay:-1.6s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <span class="ant" style="left:34%;animation-delay:-3s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <span class="ant" style="left:48%;top:27px;animation-delay:-4.3s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <span class="ant" style="left:62%;animation-delay:-5.6s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <span class="ant" style="left:76%;top:28px;animation-delay:-6.9s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
+        <svg class="antstreet-hill" viewBox="0 0 200 126"><use href="#ah-logo"/></svg>
+      </div>
+      <div id="build-status" style="display:none" aria-live="polite"></div>
+      <div id="prompt-queue" style="display:none;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 6px"></div>
+      {# Attached-image chip (shown once an image is picked; cleared when the turn is sent). #}
+      <div id="image-attach" style="display:none;align-items:center;gap:8px;margin:0 0 6px">
+        <img id="image-attach-thumb" alt="" style="height:38px;width:38px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">
+        <span id="image-attach-name" style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px"></span>
+        <button type="button" onclick="clearAttachedImage()" title="Remove image"
+                style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>
+      </div>
+      <input type="file" id="image-file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="attachImage(this)">
+      <div class="chat-input-row">
+        <textarea id="msg-input" rows="1" placeholder="Ask your own intelligence…"
+                  onkeydown="handleKey(event)"></textarea>
+        <button type="button" class="mic-btn" id="attach-btn" onclick="document.getElementById('image-file').click()"
+                title="Attach an image (analyze a screenshot or photo)">
+          <i data-lucide="paperclip">📎</i>
+        </button>
+        <button type="button" class="mic-btn" onclick="anthillDictate('msg-input', this)"
+                title="Voice type (browser dictation; or use Wispr Flow for system-wide voice typing)">
+          <i data-lucide="mic">🎤</i>
+        </button>
+        <button type="button" class="send-btn stopping" id="stop-btn" onclick="stopStream()"
+                title="Stop generating" style="display:none">■</button>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()" title="Send (Enter)">
+          <span id="send-icon">➤</span>
+        </button>
+      </div>
+      <!-- Single box by default. Web search defaults OFF on Solo (a search sends your question to a
+           search provider - contradicts "nothing leaves it" if on by default) and ON for Org (which
+           already runs on a shared, non-local model). A capable model still decides when to search once
+           it's on; a small model auto-enables it just-in-time for a question that clearly needs live
+           info, always flagged with a visible "🌐 web" badge on that answer either way. Options let you
+           flip the default or set a scope. Agent mode is no longer a toggle (#421): the router picks
+           depth, and "go deeper" in words forces it on a follow-up. -->
+      <div class="input-options-bar">
+        <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
+                title="Switch to local + wiki only, or set a knowledge scope">
+          <i data-lucide="sliders-horizontal">⚙</i> Options
+        </button>
+        <span class="text-muted">Shift+Enter for a new line</span>
+      </div>
+      <div class="input-options" id="opt-panel" style="display:none">
+        <label class="toggle-opt" id="opt-web-label"
+               title="Search the web to help answer - sends your question to a search provider.">
+          <input type="checkbox" id="opt-web" {% if active_conv.plane != 'solo' or web_access_on %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
+        </label>
+        {# Agent-mode toggle retired (#421): the router auto-escalates to the multi-step agent when a
+           question needs depth, and saying "go deeper" on a follow-up forces it. No manual button. #}
+        <label class="toggle-opt" title="Which wikis to draw on for the answer">
+          <i data-lucide="layers">🗂️</i>
+          <select id="opt-scope" style="font:inherit;border:1px solid var(--border);border-radius:6px;padding:2px 6px;background:var(--surface);color:var(--text)">
+            <option value="all">All knowledge</option>
+            <option value="personal">Personal only</option>
+            {% if my_teams %}
+            <option value="team">{{ my_teams[0].name if my_teams|length == 1 else 'My teams' }}</option>
+            {% endif %}
+            {% if is_org_mode %}
+            <option value="org">Org wiki</option>
+            {% endif %}
+          </select>
+        </label>
+      </div>
+    </div>
+    <script>
+      // Show/hide the Options panel (the web/agent/scope overrides) - chat is a single box by default.
+      function toggleOptions() {
+        var p = document.getElementById('opt-panel');
+        if (!p) return;
+        var open = (p.style.display === 'none' || !p.style.display);
+        p.style.display = open ? 'flex' : 'none';
+        var t = document.getElementById('opt-toggle');
+        if (t) t.classList.toggle('active', open);
+      }
+      // The user's web-search choice persists across reloads (default: off on Solo, on for Org - see
+      // the opt-web markup above). The Solo trust banner is kept honest: it only claims "nothing leaves
+      // it" while web search is actually off for this chat.
+      (function () {
+        var w = document.getElementById('opt-web');
+        if (!w) return;
+        try {
+          var saved = localStorage.getItem('anthill_web_on');
+          if (saved !== null) w.checked = (saved === '1');
+        } catch (e) {}
+        function syncTrustBanner() {
+          var msg = document.getElementById('chat-trust-msg');
+          if (!msg) return;  // not rendered on an Org conversation
+          msg.textContent = w.checked
+            ? 'Web search is on for this chat.'
+            : 'Running on this machine. Nothing leaves it.';
+        }
+        syncTrustBanner();
+        w.addEventListener('change', function () {
+          try { localStorage.setItem('anthill_web_on', w.checked ? '1' : '0'); } catch (e) {}
+          syncTrustBanner();
+        });
+      })();
+    </script>
+    {% endif %}
+  </div>
+</div>
+
+<!-- floating "save selection" button -->
+<button id="snip-float" style="display:none;position:absolute;z-index:50;
+  background:#1A110A;color:#fff;border:none;border-radius:6px;padding:6px 10px;
+  font-size:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)"><i data-lucide="scissors">✂️</i> Save snippet</button>
+
+<!-- tag modal -->
+<div id="snip-modal" style="display:none;position:fixed;inset:0;z-index:60;
+  background:rgba(0,0,0,.4);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:480px;max-width:92vw;
+    box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <h3 style="margin-bottom:10px">Save snippet</h3>
+    <pre id="snip-preview" class="wiki-content" style="max-height:160px;margin-bottom:12px"></pre>
+    <div class="form-group">
+      <label>Tags <span class="text-muted">(comma-separated)</span></label>
+      <input type="text" id="snip-tags" placeholder="e.g. pricing, onboarding, sql">
+    </div>
+    <p id="snip-status" class="text-sm text-muted" style="min-height:18px"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-outline" onclick="closeSnip()">Cancel</button>
+      <button class="btn btn-primary" id="snip-save-btn" onclick="commitSnip()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Canvas pane: enlarged preview of a created file + iterate on it -->
+<div id="canvas-pane" class="canvas-pane">
+  <div class="canvas-head">
+    <i data-lucide="panel-right" style="color:var(--accent)">▦</i>
+    <b id="canvas-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Canvas</b>
+    <button class="btn btn-outline btn-sm" onclick="closeCanvas()">Close</button>
+  </div>
+  <div id="canvas-preview" class="canvas-body"></div>
+  <div class="canvas-foot">
+    <textarea id="canvas-req" rows="2"
+      placeholder="Request a change (e.g. add a summary section, make the chart taller)…"></textarea>
+    <button class="btn btn-primary" onclick="canvasRevise()">Request change</button>
+  </div>
+</div>
+
+<script src="/static/lucide.min.js"></script>
+<script src="/static/dictation.js"></script>
+<!-- Self-hosted (offline-first, SW-precached): GFM markdown + HTML sanitizer for chat answers. -->
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
+<script>
+// Render Lucide outline icons (emoji stays as fallback). Guarded so icon failures
+// can never break chat. Call after any dynamic insert.
+function renderIcons() { try { lucide.createIcons({ attrs: { "stroke-width": 1.5 } }); } catch (_) {} }
+
+// The assistant's avatar is an ant (Anthill), not a robot face. Inlined so streamed
+// messages get it too (Lucide has no ant icon).
+const ANT_SVG = '<svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg>';
+
+const convId  = {{ active_conv.id if active_conv else 'null' }};
+const convPlane = "{{ active_conv.plane if active_conv else 'solo' }}";
+const SOLO_CLOUD = {{ 'true' if solo_cloud else 'false' }};  // this Solo account runs on a VPC model
+const IS_ORG_MODE = {{ 'true' if shares_org_model else 'false' }};  // a Solo-plane chat here borrows the org model (#278: genuine multi-user org accounts only)
+const IS_ADMIN = {{ 'true' if user.role == 'admin' else 'false' }};  // only an admin can reach Settings -> Organization
+// #1 UX follow-up to #820/#824: an attached inference provider (empty string = none configured) lets
+// every turn offer "Ask {Provider} instead" from the moment local generation starts, not just after a
+// slow local model finally finishes. ESCALATION_CONSENTED is `let`, not `const` - clicking "Always"
+// updates it in place so a later turn in the SAME page view goes straight to the one-tap form too.
+const ESCALATION_PROVIDER_LABEL = {{ escalation_provider_label|tojson }};
+let ESCALATION_CONSENTED = {{ 'true' if escalation_consented else 'false' }};
+let _useLocalNow = false;  // Solo-cloud offline: the user chose "use my local model now" over the VPC
+const msgBox  = document.getElementById('messages');
+
+function scrollBottom() {
+  if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+}
+scrollBottom();
+// Markdown links open in a new tab, safely (hook set once, before any render).
+try {
+  if (window.DOMPurify) DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+    if (node.tagName === 'A' && node.getAttribute('href')) {
+      node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+} catch (_) {}
+renderHistory();                       // format server-rendered history (raw markdown -> HTML)
+if (msgBox) enhancePreviews(msgBox);   // then linkify/preview files in the rendered history
+window.addEventListener("load", renderIcons);
+
+// Two-plane offline awareness: an Org conversation needs a live org backend; poll its real
+// reachability (not navigator.onLine) and, when it is down, show a banner + block sending in this
+// Org chat. Solo chats are local and never gated. A cold neocloud reads as "waking up", not offline.
+let _planeDown = false;
+function setOrgChatEnabled(ok, msg) {
+  _planeDown = !ok;
+  const banner = document.getElementById('plane-banner');
+  const send = document.getElementById('send-btn');
+  if (banner) {
+    banner.style.display = ok ? 'none' : 'block';
+    // innerHTML (not textContent): the "not connected" message below includes a real link for an
+    // admin - a non-admin still gets plain text, never a link into a page that would 403 them.
+    if (!ok) banner.innerHTML = msg || 'Org backend unreachable. Reconnect to use this chat.';
+  }
+  if (send && convPlane === 'org') { send.disabled = !ok; send.style.opacity = ok ? '' : '.5'; }
+}
+// A Solo-cloud (VPC) chat runs on the remote model but keeps the LOCAL wiki. When the VPC is
+// unreachable we PROMPT ("use your local model now, or wait?") rather than silently downgrading -
+// the local model gives the same wiki at lower quality. A plain local-only Solo chat is never gated.
+function setSoloCloudStatus(d) {
+  const banner = document.getElementById('plane-banner');
+  const send = document.getElementById('send-btn');
+  const ready = (d.state === 'ready');
+  if (ready) {  // back online: return to the VPC model, drop any temporary local choice
+    _useLocalNow = false;
+    if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+    if (send) { send.disabled = false; send.style.opacity = ''; }
+    return;
+  }
+  if (_useLocalNow) {  // the user chose local: keep sending, show a quiet note
+    if (banner) {
+      banner.style.display = 'block';
+      banner.innerHTML = 'Using your <b>local model</b> (cloud model unreachable) - same wiki, lower quality. It switches back automatically when the cloud reconnects.';
+    }
+    if (send) { send.disabled = false; send.style.opacity = ''; }
+    return;
+  }
+  if (banner) {  // offline and undecided: ask
+    banner.style.display = 'block';
+    banner.innerHTML = 'Your cloud model is unreachable. <button type="button" id="use-local-btn" style="background:none;border:none;color:inherit;text-decoration:underline;cursor:pointer;padding:0;font:inherit">Use your local model now</button> (same wiki, lower quality), or wait for it to reconnect.';
+    const b = document.getElementById('use-local-btn');
+    if (b) b.onclick = function () { _useLocalNow = true; setSoloCloudStatus(d); };
+  }
+  if (send) { send.disabled = true; send.style.opacity = '.5'; }  // wait, unless they pick local
+}
+// A private Solo-plane chat in an org account borrows the shared org model (kept private: your own
+// wiki, ephemeral) - plane_routing.py ALREADY falls back to the local model automatically when the org
+// backend is down (unlike the VPC case above, there is nothing to choose - it already happened). This
+// only makes that already-automatic fallback visible; it never disables sending (PR #661 Tier 3).
+function setSoloOrgFallbackStatus(d) {
+  const banner = document.getElementById('plane-banner');
+  if (!banner) return;
+  if (d.state === 'ready') { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+  banner.style.display = 'block';
+  banner.innerHTML = 'Using your <b>local model</b> for this private chat (org model unreachable) - your own wiki stays private, lower quality. It switches back automatically.';
+}
+function applyPlaneStatus(d) {
+  // Gate the "+ Org" new-chat button whenever the backend is not ready (org-wide signal).
+  document.querySelectorAll('.rail-newchat-org').forEach(function (b) {
+    b.disabled = (d.state !== 'ready');
+    b.title = (d.state === 'ready') ? '' : 'Org backend unavailable';
+  });
+  if (convPlane === 'solo' && SOLO_CLOUD) { setSoloCloudStatus(d); return; }  // prompt, don't downgrade
+  // Your own VPC (above) takes precedence if you have one; otherwise a Solo-plane chat borrowing the
+  // org model gets a visible note for the already-automatic local fallback, not a gate.
+  if (convPlane === 'solo' && IS_ORG_MODE) { setSoloOrgFallbackStatus(d); return; }
+  if (convPlane !== 'org') { setOrgChatEnabled(true); return; }  // a local-only Solo chat is never gated
+  if (d.state === 'ready') { setOrgChatEnabled(true); return; }
+  const msg = (d.state === 'unreachable')
+    ? 'Org backend is not responding. It may be waking up (neocloud cold start) or offline. Reconnect to use this chat.'
+    : (IS_ADMIN
+        ? 'Org backend is not connected. <a href="/settings/organization">Connect it under Settings &rarr; Organization</a>, or use a Solo chat.'
+        : 'Org backend is not connected. Ask an admin to connect it, or use a Solo chat.');
+  setOrgChatEnabled(false, msg);
+}
+function pollPlaneStatus() {
+  fetch('/chat/plane/status').then(function (r) { return r.json(); })
+    .then(applyPlaneStatus).catch(function () { /* a failed poll is not itself "down" */ });
+}
+pollPlaneStatus();
+setInterval(pollPlaneStatus, 15000);
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+const inp = document.getElementById('msg-input');
+if (inp) inp.addEventListener('input', () => autoResize(inp));
+
+function appendMsg(role, content) {
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+  wrap.innerHTML = `
+    <div class="avatar">${role === 'user' ? '<i data-lucide="user"></i>' : ANT_SVG}</div>
+    <div><div class="bubble" id="streaming-bubble">${content}</div></div>`;
+  msgBox.appendChild(wrap);
+  renderIcons();
+  scrollBottom();
+  return wrap.querySelector('.bubble');
+}
+
+// A live-rendered answer's badges (cache hit, escalated, local/remote, ...) used to be concatenated
+// straight onto the end of the bubble's own rendered markdown - so a badge could land mid-sentence or
+// glued to whatever the answer happened to end with (a list item, a heading), instead of its own line.
+// The server-rendered page-reload view already puts these in a separate sibling `.meta` div (see the
+// Jinja template above); this gives the live path that same sibling node instead of writing into the
+// bubble's own innerHTML, so a fresh answer looks the same as one loaded from history.
+function metaRowFor(bubble) {
+  let el = bubble.parentElement.querySelector(':scope > .meta');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'meta';
+    bubble.parentElement.appendChild(el);
+  }
+  return el;
+}
+
+// Bare /files/... paths in TEXT become preview links (marked already handles [text](url)).
+// The [\s(>] guard keeps it out of href="..." attributes, so it can't corrupt real links.
+function linkifyFiles(html) {
+  return html.replace(/(^|[\s(>])(\/files\/[A-Za-z0-9._\-]+)/g,
+    '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+}
+
+// Markdown -> sanitized HTML. Real GFM (lists, headings, tables, code, links) via the
+// self-hosted marked + DOMPurify above. Chat answers mix model text with web/document
+// content, so sanitizing is mandatory (strips <script>/<iframe>/on*/javascript:). Falls
+// back to a safe escape if the libs failed to load, so chat never breaks.
+function renderMd(text) {
+  text = text == null ? '' : String(text);
+  try {
+    if (window.marked && window.DOMPurify) {
+      return linkifyFiles(DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true })));
+    }
+  } catch (_) {}
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+// Format the server-rendered history bubbles, whose textContent is the raw markdown.
+function renderHistory() {
+  if (!msgBox) return;
+  msgBox.querySelectorAll('.bubble[id^="bubble-"]').forEach(function (b) {
+    if (b.dataset.mdDone) return;
+    b.dataset.md = b.textContent;   // keep the raw markdown for "Download as doc"
+    b.innerHTML = renderMd(b.textContent);
+    b.dataset.mdDone = '1';
+  });
+}
+
+var PREVIEWABLE = ['png','jpg','jpeg','gif','webp','pdf','html','docx','pptx','xlsx'];
+
+// Fill `el` with a preview of the file at `href`. Shared by the inline preview
+// and the Canvas pane. `big` uses a taller viewport for the pane.
+function fillFilePreview(el, href, big) {
+  var ext = (href.split('.').pop() || '').toLowerCase();
+  var h = big ? '80vh' : '440px';
+  if (['png','jpg','jpeg','gif','webp'].indexOf(ext) >= 0) {
+    el.innerHTML = '<img src="' + href + '" alt="preview" style="max-width:100%;border-radius:6px;display:block">';
+  } else if (ext === 'pdf') {
+    el.innerHTML = '<iframe src="' + href + '" style="width:100%;height:' + h + ';border:0"></iframe>';
+  } else if (ext === 'html') {
+    el.innerHTML = '<iframe src="' + href + '" sandbox style="width:100%;height:' + h + ';border:0"></iframe>';
+  } else if (['docx','pptx','xlsx'].indexOf(ext) >= 0) {
+    el.innerHTML = '<div class="text-muted text-sm">Loading preview…</div>';
+    fetch(href + '/preview')
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+      .then(function (html) { el.innerHTML = html; })
+      .catch(function () { el.innerHTML = '<div class="text-muted text-sm">Preview unavailable - use the download link.</div>'; });
+  } else {
+    el.innerHTML = '<div class="text-muted text-sm">No preview for this file type.</div>';
+  }
+}
+
+// Inline preview + an "Open in Canvas" button under any /files/… link.
+function enhancePreviews(scope) {
+  if (!scope) return;
+  scope.querySelectorAll('a[href^="/files/"]').forEach(function (a) {
+    if (a.dataset.previewed) return;
+    a.dataset.previewed = '1';
+    var href = a.getAttribute('href');
+    var ext  = (href.split('.').pop() || '').toLowerCase();
+    if (PREVIEWABLE.indexOf(ext) < 0) return;   // md / txt: no preview
+    var box = document.createElement('div');
+    box.style.cssText = 'margin-top:8px;border:1px solid var(--border);border-radius:8px;' +
+                        'padding:10px;max-height:460px;overflow:auto;background:var(--surface)';
+    var prev = document.createElement('div');
+    fillFilePreview(prev, href, false);
+    var bar = document.createElement('div');
+    bar.style.cssText = 'margin-top:8px';
+    bar.innerHTML = '<button type="button" class="btn btn-outline btn-sm" onclick="openCanvas(\'' +
+                    href + '\')"><i data-lucide="panel-right">▦</i> Open in Canvas</button>';
+    box.appendChild(prev); box.appendChild(bar);
+    a.parentNode.insertBefore(box, a.nextSibling);
+    renderIcons();
+  });
+}
+
+// ── Canvas pane: enlarged preview + iterate on a file ─────────────────────────
+let canvasFile = '';
+function openCanvas(href) {
+  canvasFile = href;
+  document.getElementById('canvas-name').textContent = href.split('/').pop();
+  fillFilePreview(document.getElementById('canvas-preview'), href, true);
+  document.getElementById('canvas-pane').classList.add('open');
+}
+function closeCanvas() { document.getElementById('canvas-pane').classList.remove('open'); }
+function canvasRevise() {
+  var t = document.getElementById('canvas-req').value.trim();
+  if (!t || !canvasFile || streaming) return;
+  var name = canvasFile.split('/').pop();
+  document.getElementById('canvas-req').value = '';
+  closeCanvas();
+  // Reuse the agent flow: ask to revise the file and produce an updated one.
+  runStream({
+    message: 'Revise the file ' + name + ' (' + canvasFile + '): ' + t +
+             '. Produce the updated file.',
+    agent: true, showUser: true,
+  });
+}
+
+let currentSrc = null;     // the in-flight EventSource (for Stop)
+let streaming  = false;
+let lastPrompt = '';       // last prompt sent (for Edit/restart)
+let promptQueue = [];      // follow-up prompts queued while a response streams
+
+// toggleNavGroup + the profile-chip menu live in _sidebar.html so they work on every page the rail
+// appears on (this standalone chat page included).
+
+function setStreaming(on) {
+  streaming = on;
+  // Stop is its own button (shown only while streaming) so the send button always sends -
+  // i.e. you can type a follow-up and Enter/Send queues it instead of being forced to Stop.
+  const stop = document.getElementById('stop-btn');
+  if (stop) stop.style.display = on ? 'flex' : 'none';
+  const send = document.getElementById('send-btn');
+  if (send) send.title = on ? 'Queue follow-up (Enter)' : 'Send (Enter)';
+  const ind = document.getElementById('build-indicator');   // run-in bar + pulsing anthill
+  if (ind) ind.style.display = on ? 'flex' : 'none';
+  if (on) setBuildStatus('Thinking, locally.'); else setBuildStatus('');
+  if (!on) setEscalating(false);   // never leave the caped state stuck across turns
+  // When a response finishes, start the next queued prompt. Stop clears the queue
+  // first, so a user-initiated stop never auto-continues.
+  if (!on) drainQueue();
+}
+
+// One honest line under the ants naming the real stage - driven only by real SSE signals
+// (chat_stream's meta events), never a decorative timed sequence: the labor-illusion research this
+// implements only holds up when the narration reflects genuine work (see DESIGN-slow-local-model-ux.md).
+function setBuildStatus(text) {
+  const el = document.getElementById('build-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.display = text ? 'block' : 'none';
+}
+
+// This turn is being answered by the attached inference provider, not the lead - swap the marching
+// ants to the caped symbol (#ah-ant-cape, _sidebar.html) for the duration of the call, and name it.
+// providerLabel is included on the SSE meta event that turns this on; omitted (e.g. turning it back
+// off) just clears the text.
+function setEscalating(on, providerLabel) {
+  const ind = document.getElementById('build-indicator');
+  if (ind) ind.classList.toggle('escalating', on);
+  document.querySelectorAll('#build-indicator .ant use').forEach(function (u) {
+    u.setAttribute('href', on ? '#ah-ant-cape' : '#ah-ant');
+  });
+  const status = document.getElementById('build-status');
+  if (status) status.classList.toggle('escalating', on);
+  if (on) setBuildStatus(providerLabel ? `Checking with ${providerLabel}…` : 'Checking with your inference provider…');
+  else setBuildStatus('');   // never leave "Checking..."/"Answered via..." stuck once the call ends
+}
+
+// Build indicator markup shown inside the streaming bubble while it grows.
+const BUILD_ROW = '<div class="build-row"><span class="ant-trail">' +
+  '<span style="animation-delay:0s"></span><span style="animation-delay:.34s"></span>' +
+  '<span style="animation-delay:.68s"></span><span style="animation-delay:1.03s"></span>' +
+  '<span style="animation-delay:1.37s"></span><span style="animation-delay:1.71s"></span>' +
+  '<span style="animation-delay:2.06s"></span></span>' +
+  '<img src="/static/anthill-mark-light.png" alt="" class="build-anthill"></div>';
+
+function stopStream() {
+  promptQueue = []; renderQueue();   // Stop also abandons anything queued behind it
+  if (currentSrc) { currentSrc.close(); currentSrc = null; }
+  if (_finalize) _finalize(true);   // keep the partial answer, attach controls
+  setStreaming(false);
+}
+
+let _finalize = null;   // set per-run; finalizes the current assistant bubble
+
+// ── image attach (analyze a screenshot/photo in a chat turn) ──────────────────
+let pendingImageToken = '';
+
+async function attachImage(inputEl) {
+  const f = inputEl.files && inputEl.files[0];
+  inputEl.value = '';               // allow re-picking the same file later
+  if (!f) return;
+  if (!f.type.startsWith('image/')) { showToast('Please choose an image file.', 'error'); return; }
+  // Show the chip right away in an "uploading" state so picking a file always reads as
+  // "something is happening" - previously the chip only appeared once the fetch resolved,
+  // so a slow upload looked like the click did nothing.
+  const chip = document.getElementById('image-attach');
+  const nameEl = document.getElementById('image-attach-name');
+  const attachBtn = document.getElementById('attach-btn');
+  document.getElementById('image-attach-thumb').src = URL.createObjectURL(f);
+  nameEl.textContent = f.name + ' - uploading...';
+  chip.style.display = 'flex';
+  chip.style.opacity = '0.6';
+  attachBtn.disabled = true;
+  try {
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch(`/chat/${convId}/attach`, {method: 'POST', body: fd});
+    const d = await r.json();
+    if (!r.ok || !d.token) { showToast(d.error || 'Could not attach the image.', 'error'); clearAttachedImage(); return; }
+    pendingImageToken = d.token;
+    nameEl.textContent = f.name;
+    chip.style.opacity = '1';
+    showToast('Image attached.');
+    inp.focus();
+  } catch (e) {
+    showToast('Could not attach the image.', 'error');
+    clearAttachedImage();
+  } finally {
+    attachBtn.disabled = false;
+  }
+}
+
+function clearAttachedImage() {
+  pendingImageToken = '';
+  document.getElementById('image-attach').style.display = 'none';
+  document.getElementById('image-attach-name').textContent = '';
+}
+
+function sendMessage() {
+  const text = inp.value.trim();
+  if (!text && !pendingImageToken) return;   // nothing to send
+  const item = {
+    message: text,
+    web:   document.getElementById('opt-web').checked,
+    // No agent toggle (#421): the router picks depth; "go deeper" on a follow-up forces the agent.
+    scope: (document.getElementById('opt-scope') || {}).value || 'all',
+    image_token: pendingImageToken,
+  };
+  clearAttachedImage();               // the token is captured in `item`; free the composer chip
+  inp.value = ''; autoResize(inp);
+  // Busy? Queue it; it sends automatically when the current response finishes.
+  if (streaming) { promptQueue.push(item); renderQueue(); return; }
+  lastPrompt = text;
+  runStream({...item, showUser: true});
+}
+
+function drainQueue() {
+  if (streaming || !promptQueue.length) return;
+  const item = promptQueue.shift();
+  renderQueue();
+  lastPrompt = item.message;
+  runStream({...item, showUser: true});
+}
+
+function renderQueue() {
+  const el = document.getElementById('prompt-queue');
+  if (!el) return;
+  if (!promptQueue.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML =
+    `<span style="font-size:12px;font-weight:600;color:var(--clay)">queued (${promptQueue.length})</span>` +
+    promptQueue.map((q, i) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px;max-width:300px">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i + 1}. ${escHtml(q.message)}</span>
+        <button onclick="queueMove(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Move up"
+                style="border:none;background:none;cursor:pointer;color:var(--muted)">↑</button>
+        <button onclick="queueCancel(${i})" title="Remove"
+                style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>
+      </span>`).join('');
+}
+function queueCancel(i) { promptQueue.splice(i, 1); renderQueue(); }
+function queueMove(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= promptQueue.length) return;
+  [promptQueue[i], promptQueue[j]] = [promptQueue[j], promptQueue[i]];
+  renderQueue();
+}
+function escHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+
+// Edit a prompt and resend it (from the ✏️ edit button on a user message).
+function editPrompt(btn) {
+  const bub = btn.closest('.msg').querySelector('.bubble');
+  inp.value = bub.innerText; autoResize(inp); inp.focus();
+}
+
+// Try the same question again in place (from the 🔁 retry button on a trailing, unanswered user
+// message - see the template comment above where this button is rendered). Reuses the exact same
+// runStream() a fresh send calls; showUser:false because the question is already on screen.
+function retryPrompt(btn) {
+  if (streaming) return; // a generation is already in flight; nothing to do
+  const bub = btn.closest('.msg').querySelector('.bubble');
+  const text = bub.innerText;
+  if (!text.trim()) return;
+  lastPrompt = text;
+  runStream({message: text, showUser: false});
+}
+
+function addAssistantControls(container, promptText, answerText, msgId) {
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  // Redo-with-provider and export used to be language-only (#421: "go deeper", "give me that as a
+  // PDF" routed through the agent) - live QA found that unreliable (a literal "via groq" was read as
+  // the unrelated GROQ query language; "as pdf" got a generic copy-paste non-answer instead of
+  // triggering create_file). Both are real buttons now, wired straight to the backends that already
+  // do the work (/chat/{id}/escalate-confirm, /chat/download) - icon-only, like the rest of this row,
+  // so six controls still fit without wrapping.
+  if (msgId) {
+    // The server already handed back a real, persisted message id (the SSE stream's
+    // meta.message_id, or /chat/{id}/ask-provider-now's JSON) before this ever runs - so this live
+    // answer can get the SAME rate/snippet/save-as-task controls a reloaded history message gets,
+    // instead of a "reload the page" placeholder standing in for controls that were one id away
+    // from already working.
+    meta.innerHTML =
+      `<button class="thumbs" title="Good answer"><i data-lucide="thumbs-up">👍</i></button>` +
+      `<button class="thumbs" title="Bad answer"><i data-lucide="thumbs-down">👎</i></button>` +
+      `<button class="thumbs" title="Save whole message as a snippet"><i data-lucide="scissors">✂️</i></button>` +
+      `<button class="thumbs" title="Save this as a recurring task"><i data-lucide="calendar-clock">📅</i></button>` +
+      `<button class="thumbs" title="Export as a document"><i data-lucide="download">⬇️</i></button>` +
+      (ESCALATION_PROVIDER_LABEL
+        ? `<button class="thumbs" title="Redo with ${escapeHtml(ESCALATION_PROVIDER_LABEL)}"><i data-lucide="zap">⚡</i></button>`
+        : '');
+    const [upBtn, downBtn, snipBtn, taskBtn, exportBtn, redoBtn] = meta.querySelectorAll('button');
+    upBtn.onclick = () => rate(msgId, 1);
+    downBtn.onclick = () => rate(msgId, -1);
+    snipBtn.onclick = () => {
+      const bubbleEl = container.querySelector('.bubble');
+      saveSnippet(((bubbleEl && bubbleEl.innerText) || answerText || '').trim(), msgId);
+    };
+    taskBtn.onclick = () => scheduleCardAfter(meta, {goal: promptText, title: (promptText || '').slice(0, 60), sourceMessageId: msgId});
+    exportBtn.onclick = () => exportAnswerClicked(exportBtn, container, promptText);
+    if (redoBtn) redoBtn.onclick = () => redoWithProviderClicked(redoBtn, container, msgId);
+  } else {
+    // No real id for this turn (e.g. the "remember this: ..." quick-ack, or a plane-unavailable
+    // error) - rating, snippets, export, and redo all need one to attach to or send; the
+    // request-to-repeat can still be scheduled without it, same as a history answer whose source
+    // message got deleted.
+    meta.innerHTML = `<button class="thumbs" title="Save this as a recurring task"><i data-lucide="calendar-clock">📅</i></button>`;
+    meta.querySelector('button').onclick = () => scheduleCardAfter(meta, {goal: promptText, title: (promptText || '').slice(0, 60), sourceMessageId: null});
+  }
+  container.appendChild(meta);
+  renderIcons();
+}
+
+// Explicit per-answer export (see addAssistantControls' comment on why this stopped being
+// language-only). Reveals a small inline row of format choices in place of the button, matching the
+// consent-dance pattern used elsewhere in this file (e.g. askProviderNowClicked) rather than a
+// dropdown menu. Calls the existing /chat/download route unchanged - it was kept working for
+// "programmatic use" when the per-answer buttons were originally removed (#421/P2).
+function exportAnswerClicked(btn, container, promptText) {
+  const wrap = document.createElement('span');
+  wrap.style.cssText = 'display:inline-flex;gap:4px';
+  ['pdf', 'docx', 'xlsx', 'md'].forEach(fmt => {
+    const b = document.createElement('button');
+    b.className = 'thumbs'; b.style.fontSize = '11px'; b.textContent = fmtLabel(fmt);
+    b.onclick = () => fireExportAnswer(wrap, container, promptText, fmt);
+    wrap.appendChild(b);
+  });
+  btn.replaceWith(wrap);
+}
+function fireExportAnswer(wrap, container, promptText, fmt) {
+  wrap.innerHTML = '<span class="text-muted" style="font-size:12px">Exporting…</span>';
+  const bubbleEl = container.querySelector('.bubble');
+  const content = (bubbleEl && (bubbleEl.dataset.md || bubbleEl.innerText)) || '';
+  fetch('/chat/download', {
+    method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({content, format: fmt, title: (promptText || '').slice(0, 60)}),
+  }).then(r => r.json()).then(d => {
+    if (d && d.url) { window.open(d.url, '_blank'); wrap.remove(); }
+    else wrap.innerHTML = `<span class="text-muted" style="font-size:12px">⚠️ ${escapeHtml((d && d.error) || 'could not export')}</span>`;
+  }).catch(() => {
+    wrap.innerHTML = '<span class="text-muted" style="font-size:12px">⚠️ could not export</span>';
+  });
+}
+
+// Explicit per-answer "redo with {provider}" (same rationale as export, above). Mirrors
+// askProviderNowClicked/fireAskProviderNow's consent dance, but targets THIS message's own paired
+// question via /chat/{id}/escalate-confirm rather than "whatever the latest question is" - so it
+// works correctly on any past answer in the conversation, not just the one just streamed.
+function redoWithProviderClicked(el, container, msgId) {
+  if (!ESCALATION_CONSENTED) {
+    el.outerHTML =
+      `<span class="redo-consent"><span class="text-muted" style="font-size:12px">Send this to <b>${escapeHtml(ESCALATION_PROVIDER_LABEL)}</b>?</span> ` +
+      `<button class="thumbs" style="font-size:11px">Always</button>` +
+      `<button class="thumbs" style="font-size:11px">Just once</button>` +
+      `<button class="thumbs" style="font-size:11px">Not now</button></span>`;
+    const wrap = container.querySelector('.redo-consent');
+    const [alwaysBtn, onceBtn, cancelBtn] = wrap.querySelectorAll('button');
+    alwaysBtn.onclick = () => fireRedoWithProvider(wrap, container, msgId, true);
+    onceBtn.onclick = () => fireRedoWithProvider(wrap, container, msgId, false);
+    cancelBtn.onclick = () => wrap.remove();
+    return;
+  }
+  fireRedoWithProvider(el, container, msgId, true);
+}
+function fireRedoWithProvider(el, container, msgId, remember) {
+  el.outerHTML = `<span class="redo-consent text-muted" style="font-size:12px">Checking with ${escapeHtml(ESCALATION_PROVIDER_LABEL)}…</span>`;
+  const status = container.querySelector('.redo-consent');
+  fetch(`/chat/${convId}/escalate-confirm`, {
+    method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({message_id: msgId, remember: remember ? 'true' : 'false'}),
+  }).then(r => r.json()).then(d => {
+    if (d && d.ok) {
+      if (remember) ESCALATION_CONSENTED = true;
+      const bubble = container.querySelector('.bubble');
+      const merged = (bubble.dataset.md || bubble.innerText || '') + '\n\n' + d.text;
+      bubble.innerHTML = renderMd(merged);
+      bubble.dataset.md = merged;
+      metaRowFor(bubble).innerHTML += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
+      container.closest('.msg')?.classList.add('escalated');
+      enhancePreviews(bubble);
+      status.remove();
+    } else {
+      status.textContent = '⚠️ ' + ((d && d.error) || 'could not reach the inference provider');
+    }
+  }).catch(() => { status.textContent = '⚠️ could not reach the inference provider'; });
+}
+
+// ── intent proposal turn (P1) ────────────────────────────────────────────────────
+// A make/do/schedule request comes back as a proposal the user confirms in chat,
+// instead of silently running. "Do it" executes; "Edit" drops it back in the composer.
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtLabel(f) {
+  return ({pdf:'PDF', docx:'Word', xlsx:'Excel', pptx:'PowerPoint', md:'Markdown',
+           txt:'text', html:'HTML'})[f] || (f ? f.toUpperCase() : 'file');
+}
+function browserTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+  catch (_) { return 'UTC'; }
+}
+function scheduleLabel(s) {
+  s = (s || 'once').trim();
+  if (s === 'once') return 'once';
+  if (['hourly','daily','weekly'].indexOf(s) >= 0) return s;
+  if (/^\d{1,2}:\d{2}$/.test(s)) return 'daily at ' + s;
+  return s;
+}
+function scheduleUsesTimezone(s) {
+  return ['once', 'hourly'].indexOf((s || 'once').trim().toLowerCase()) < 0;
+}
+function renderProposal(bubble, p) {
+  let body, goLabel = 'Do it';
+  if (p.kind === 'schedule') {
+    body = `<b>📅 I'll set up a recurring task</b>` +
+      `<div style="margin-top:6px"><b>${escapeHtml(p.title || 'Task')}</b> &middot; runs ` +
+      `<b>${escapeHtml(scheduleLabel(p.schedule))}</b>${scheduleUsesTimezone(p.schedule) ? ` (${escapeHtml(browserTimezone())})` : ''}</div>` +
+      (p.goal ? `<div class="text-muted" style="font-size:13px;margin-top:4px">${escapeHtml(p.goal)}</div>` : '');
+  } else if (p.kind === 'research') {
+    goLabel = 'Research it';
+    body = `<b>🔎 I'll research this across the web and write a cited report</b>` +
+      (p.summary ? `<div class="text-muted" style="font-size:13px;margin-top:4px">${escapeHtml(p.summary)}</div>` : '') +
+      `<div class="text-muted" style="font-size:13px;margin-top:4px">This can take a little longer than a normal answer.</div>`;
+  } else if (p.kind === 'agent') {
+    goLabel = 'Create agent';
+    body = `<b>🤖 I'll set up a persistent agent</b>` +
+      `<div style="margin-top:6px"><b>${escapeHtml(p.name || 'Agent')}</b></div>` +
+      (p.mandate ? `<div class="text-muted" style="font-size:13px;margin-top:4px">${escapeHtml(p.mandate)}</div>` : '') +
+      `<div class="text-muted" style="font-size:13px;margin-top:4px">It runs toward this mandate on its own; you can adjust it on the Agents page.</div>`;
+  } else if (p.kind === 'suggestion') {
+    goLabel = 'Send suggestion';
+    body = `<b>💡 I'll turn this into a suggestion for the Anthill team</b>` +
+      (p.idea ? `<div class="text-muted" style="font-size:13px;margin-top:4px">${escapeHtml(p.idea)}</div>` : '') +
+      `<div class="text-muted" style="font-size:13px;margin-top:4px">The intake agent drafts a spec you can see on the Contribute page. Nothing is added to your wiki or model.</div>`;
+  } else {
+    const what = p.format ? `a <b>${escapeHtml(fmtLabel(p.format))}</b> file` : 'this for you';
+    body = `<b>🛠️ I'll create ${what}</b>` +
+      (p.summary ? `<div class="text-muted" style="font-size:13px;margin-top:4px">${escapeHtml(p.summary)}</div>` : '');
+  }
+  bubble.innerHTML =
+    `<div class="proposal">${body}</div>` +
+    `<div class="meta" style="margin-top:8px">` +
+    `<button class="btn-doit">${goLabel}</button>` +
+    `<button class="thumbs btn-edit"><i data-lucide="pencil">✏️</i> Edit</button>` +
+    `<button class="thumbs btn-cancel">Cancel</button></div>`;
+  bubble.querySelector('.btn-doit').onclick = () => {
+    if (p.kind === 'research') {
+      bubble.closest('.msg').remove();       // replace the proposal turn with the research run
+      runStream({message: p.topic || p.message || '', research: true, confirm: true, showUser: false});
+    } else if (p.kind === 'schedule') {
+      const card = bubble;
+      fetch('/chat/schedule', {
+        method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({conv_id: convId, title: p.title || '',
+                                   goal: p.goal || '', schedule: p.schedule || 'once',
+                                   timezone: browserTimezone(),
+                                   source_message_id: p.source_message_id || ''}),
+      }).then(r => r.json()).then(d => {
+        card.innerHTML = (d && d.ok)
+          ? `✅ Scheduled <b>${escapeHtml(d.title)}</b> (runs ${escapeHtml(scheduleLabel(d.schedule))}${scheduleUsesTimezone(d.schedule) ? ` in ${escapeHtml(d.timezone)}` : ''}). ` +
+            `<a href="/tasks">View in Tasks &rarr;</a>`
+          : `⚠️ ${escapeHtml((d && d.error) || 'could not schedule that')}`;
+      }).catch(() => { card.innerHTML = '⚠️ could not reach the server'; });
+    } else if (p.kind === 'agent') {
+      const card = bubble;
+      fetch('/chat/agent', {
+        method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({conv_id: convId, name: p.name || '',
+                                   mandate: p.mandate || '',
+                                   source_message_id: p.source_message_id || ''}),
+      }).then(r => r.json()).then(d => {
+        card.innerHTML = (d && d.ok)
+          ? `✅ Created agent <b>${escapeHtml(d.name)}</b>. <a href="/agents/${d.id}">Open it &rarr;</a>`
+          : `⚠️ ${escapeHtml((d && d.error) || 'could not create that agent')}`;
+      }).catch(() => { card.innerHTML = '⚠️ could not reach the server'; });
+    } else if (p.kind === 'suggestion') {
+      const card = bubble;
+      fetch('/chat/suggest', {
+        method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({conv_id: convId, idea: p.idea || '',
+                                   source_message_id: p.source_message_id || ''}),
+      }).then(r => r.json()).then(d => {
+        card.innerHTML = (d && d.ok)
+          ? `✅ Drafted a spec for <b>${escapeHtml(d.title)}</b>. <a href="/contribute">See it in Contribute &rarr;</a>`
+          : `⚠️ ${escapeHtml((d && d.error) || 'could not send that suggestion')}`;
+      }).catch(() => { card.innerHTML = '⚠️ could not reach the server'; });
+    } else {
+      const hint = p.format ? `\n\n(Produce the result as a ${p.format} file using create_file.)` : '';
+      bubble.closest('.msg').remove();        // replace the proposal turn with the agent run
+      runStream({message: (p.message || '') + hint, agent: true, confirm: true, showUser: false});
+    }
+  };
+  bubble.querySelector('.btn-edit').onclick = () => {
+    inp.value = p.message || p.goal || p.mandate || p.idea || ''; autoResize(inp); inp.focus();
+  };
+  bubble.querySelector('.btn-cancel').onclick = () => { bubble.closest('.msg').remove(); };
+  renderIcons();
+}
+
+// "Save as a recurring task" (P3): promote any answer's request into a ScheduledTask.
+// Shows an inline cadence picker below the answer; confirming POSTs /chat/schedule.
+function scheduleCardAfter(metaEl, opts) {
+  const open = metaEl.parentElement.querySelector('.sched-card');
+  if (open) { open.remove(); return; }                  // toggle off if already showing
+  const goal = (opts.goal || '').trim();
+  const card = document.createElement('div');
+  card.className = 'sched-card proposal';
+  card.style.marginTop = '8px';
+  card.innerHTML =
+    `<b>📅 Run this on a schedule</b>` +
+    (goal ? `<div class="text-muted" style="font-size:13px;margin:4px 0 8px">${escapeHtml(goal)}</div>` : '') +
+    `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">` +
+      `<select class="sched-when" style="font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">` +
+        `<option value="daily">Every day</option><option value="weekly">Every week</option>` +
+        `<option value="hourly">Every hour</option><option value="once">Once</option>` +
+      `</select>` +
+      `<span class="sched-timezone text-muted" style="font-size:12px">${escapeHtml(browserTimezone())}</span>` +
+      `<button class="btn-doit sched-go">Schedule it</button>` +
+      `<button class="thumbs sched-cancel">Cancel</button>` +
+    `</div>`;
+  metaEl.insertAdjacentElement('afterend', card);
+  const whenSelect = card.querySelector('.sched-when');
+  const timezoneLabel = card.querySelector('.sched-timezone');
+  whenSelect.onchange = () => { timezoneLabel.hidden = !scheduleUsesTimezone(whenSelect.value); };
+  whenSelect.onchange();
+  card.querySelector('.sched-go').onclick = () => {
+    if (!goal) { card.innerHTML = '⚠️ nothing to schedule'; return; }
+    const when = card.querySelector('.sched-when').value;
+    fetch('/chat/schedule', {
+      method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({conv_id: convId, title: (opts.title || goal).slice(0, 60),
+                                 goal: goal, schedule: when, timezone: browserTimezone(),
+                                 source_message_id: opts.sourceMessageId || ''}),
+    }).then(r => r.json()).then(d => {
+      card.innerHTML = (d && d.ok)
+        ? `✅ Scheduled <b>${escapeHtml(d.title)}</b> (runs ${escapeHtml(scheduleLabel(d.schedule))}${scheduleUsesTimezone(d.schedule) ? ` in ${escapeHtml(d.timezone)}` : ''}). ` +
+          `<a href="/tasks">View in Tasks &rarr;</a>`
+        : `⚠️ ${escapeHtml((d && d.error) || 'could not schedule that')}`;
+    }).catch(() => { card.innerHTML = '⚠️ could not reach the server'; });
+  };
+  card.querySelector('.sched-cancel').onclick = () => card.remove();
+}
+
+// Reloaded (history) answers: the request to repeat is the preceding user message.
+function saveRecurringFromDom(btn, msgId) {
+  const assistant = btn.closest('.msg');
+  const prev = assistant && assistant.previousElementSibling;
+  const prompt = (prev && prev.classList.contains('user'))
+    ? ((prev.querySelector('.bubble') || {}).innerText || '').trim() : '';
+  scheduleCardAfter(btn.closest('.meta'), {goal: prompt, title: prompt.slice(0, 60), sourceMessageId: msgId});
+}
+
+function runStream({message, web=false, agent=false, prior='', showUser=true, header='', scope=null, confirm=false, image_token='', research=false}) {
+  if (!convId || streaming) return;
+
+  if (showUser) {
+    const imgTag = image_token ? '<span class="text-muted" style="font-size:12px">📎 image</span> ' : '';
+    const u = appendMsg('user', imgTag + renderMd(message));
+    // attach an edit button to the freshly added user message
+    const meta = document.createElement('div'); meta.className = 'meta';
+    meta.innerHTML = `<button class="thumbs" title="Edit and resend"><i data-lucide="pencil">✏️</i> edit</button>`;
+    meta.querySelector('button').onclick = () => { inp.value = message; autoResize(inp); inp.focus(); };
+    u.parentElement.appendChild(meta);
+    renderIcons();
+  }
+
+  const bubble = appendMsg('assistant', (header || '') + BUILD_ROW);
+  let buffer = '', metaHtml = '', lastRender = 0;
+  let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null;
+
+  // #1 UX follow-up to #820/#824: offer "Ask {Provider} instead" from the moment generation starts,
+  // not gated behind waiting for local to finish first - that was the whole complaint (a slow local
+  // model makes you sit through it just to be offered the fast option afterward). Skipped for
+  // agent/research turns (tools run, or a multi-step research pass - "just ask the provider" doesn't
+  // map cleanly onto either) and for `confirm` (an already-shown proposal, a different flow).
+  let askNowEl = (ESCALATION_PROVIDER_LABEL && !agent && !research && !confirm)
+    ? renderAskProviderNow(bubble, message) : null;
+
+  _finalize = (stopped) => {
+    bubble.innerHTML = (header || '') + renderMd(buffer || (stopped ? '_(stopped)_' : ''));
+    if (metaHtml) metaRowFor(bubble).innerHTML = metaHtml;
+    bubble.dataset.md = buffer;   // keep the raw markdown for "Download as doc"
+    enhancePreviews(bubble);
+    if (buffer.trim()) addAssistantControls(bubble.parentElement, message, buffer, assistantMessageId);
+    if (askNowEl) { askNowEl.remove(); askNowEl = null; }  // local answered on its own - offer is moot
+    // Canvas auto-refresh: if open, swap it to the newest file this answer produced.
+    if (document.getElementById('canvas-pane').classList.contains('open')) {
+      const links = bubble.querySelectorAll('a[href^="/files/"]');
+      if (links.length) openCanvas(links[links.length - 1].getAttribute('href'));
+    }
+    _finalize = null; scrollBottom();
+  };
+
+  const wikiScope = scope || (document.getElementById('opt-scope') || {}).value || 'all';
+  const params = new URLSearchParams({message, web, agent_mode: agent, prior, wiki_scope: wikiScope, confirm, research, use_local: _useLocalNow});
+  if (image_token) params.set('image_token', image_token);
+  const src = new EventSource(`/chat/${convId}/stream?${params}`);
+  currentSrc = src; setStreaming(true);
+
+  src.onmessage = (e) => {
+    if (e.data === '[DONE]') {
+      src.close(); currentSrc = null; _finalize && _finalize(false); setStreaming(false);
+      if (pendingEscalationOffer) renderEscalationOffer(bubble, pendingEscalationOffer, buffer);
+      return;
+    }
+    try {
+      const d = JSON.parse(e.data);
+      if (d.proposal) {
+        // The system isn't just answering - it's offering to make/do/schedule something.
+        // Replace the "building" bubble with a proposal the user confirms in chat.
+        src.close(); currentSrc = null; setStreaming(false); _finalize = null;
+        if (askNowEl) { askNowEl.remove(); askNowEl = null; }
+        renderProposal(bubble, d.proposal);
+        return;
+      }
+      if (d.token) {
+        buffer += d.token;
+        // Throttle the markdown re-render to ~16 fps (marked parses the whole buffer each
+        // time); the final, complete render happens in _finalize on [DONE].
+        const now = Date.now();
+        if (now - lastRender > 60) {
+          lastRender = now;
+          bubble.innerHTML = (header || '') + renderMd(buffer) + BUILD_ROW;
+        }
+        scrollBottom();
+      }
+      if (d.meta?.message_id) {
+        assistantMessageId = d.meta.message_id;
+        bubble.closest('.msg')?.setAttribute('data-id', d.meta.message_id);
+      }
+      if (d.meta?.escalating === true) {   // interim signal: en route to the provider
+        escalatingLabel = d.meta.provider_label || '';
+        setEscalating(true, escalatingLabel);
+      }
+      if (d.meta?.escalation_failed === true) {   // the provider call itself failed (#820) - don't
+        setEscalating(false);                     // just let "Checking with..." vanish unexplained
+        setBuildStatus(escalatingLabel ? `Couldn't reach ${escalatingLabel}` : 'Expert check unavailable');
+      }
+      if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
+      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)">📖 ${d.meta.wiki_slugs.join(', ')}</span>`;
+      if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
+      if (d.meta?.escalated === true) {
+        metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
+        bubble.closest('.msg')?.classList.add('escalated');
+        setBuildStatus(escalatingLabel ? `Answered via ${escalatingLabel}` : 'Answered via your inference provider');
+      } else if (d.meta?.answered_locally === true)  metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>';
+      else if (d.meta?.answered_locally === false) metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered over the network">☁️ remote</span>';
+      if (d.escalation_offer) pendingEscalationOffer = d.escalation_offer;   // rendered once [DONE] arrives
+      if (d.error) {
+        buffer += `${buffer ? '\n\n' : ''}⚠️ ${d.error}`;
+        bubble.innerHTML = (header || '') + renderMd(buffer) + BUILD_ROW;
+        scrollBottom();
+      }
+    } catch(_) {}
+  };
+  src.onerror = () => {
+    src.close(); currentSrc = null;
+    // No tokens arrived: show an actionable message (retry, then reopen) instead of a bare technical one.
+    if (_finalize) {
+      if (!buffer) buffer = "You stepped on one of us. Please retry, and if it doesn't work, quit and reopen Anthill.";
+      _finalize(false);
+    }
+    setStreaming(false);
+  };
+}
+
+// Appends a small card AFTER the already-finished local answer - never replacing it, since that
+// answer already rendered successfully. Two shapes (#820 follow-up: under-escalation can't be fixed
+// by a better self-assessment signal - see the SSE-handling comment above - so the human is always
+// given a way to check, on every turn, not just the ones Automated mode's grader happened to flag):
+//   - not yet consented (first use, or "just this once" last time): the existing 3-button consent
+//     card, asking to approve sending this question onward at all.
+//   - already consented ("Always"): a single one-tap "Check with {provider}" button - no need to
+//     ask again, the human already decided that once; this is purely "do I want an expert opinion
+//     on THIS answer", independent of whether Automated mode's grader would have fired on its own.
+function renderEscalationOffer(answerBubble, offer, localAnswer) {
+  const label = offer.provider_label || 'your inference provider';
+  const consented = offer.consented === true;
+  const card = appendMsg('assistant', consented
+    ? `<div class="meta"><button class="btn-doit">⚡ Check with ${escapeHtml(label)}</button></div>`
+    : `<div class="proposal"><b>⚡ This needs more than your local model</b>` +
+      `<div class="text-muted" style="font-size:13px;margin-top:4px">Send this question to <b>${escapeHtml(label)}</b>? ` +
+      `Nothing has left this device yet.</div></div>` +
+      `<div class="meta" style="margin-top:8px">` +
+      `<button class="btn-doit">Always</button>` +
+      `<button class="thumbs btn-once">Just this once</button>` +
+      `<button class="thumbs btn-cancel">Not now</button></div>`);
+
+  const go = (remember) => {
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    const ind = document.getElementById('build-indicator');
+    if (ind) ind.style.display = 'flex';
+    setEscalating(true, label);
+    fetch(`/chat/${convId}/escalate-confirm`, {
+      method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({message_id: offer.message_id, remember: remember ? 'true' : 'false'}),
+    }).then(r => r.json()).then(d => {
+      setEscalating(false);
+      if (ind) ind.style.display = 'none';
+      if (d && d.ok) {
+        const merged = localAnswer + '\n\n' + d.text;
+        answerBubble.innerHTML = renderMd(merged);
+        metaRowFor(answerBubble).innerHTML =
+          '<span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
+        answerBubble.dataset.md = merged;
+        answerBubble.closest('.msg')?.classList.add('escalated');
+        enhancePreviews(answerBubble);
+        card.closest('.msg')?.remove();
+      } else {
+        card.innerHTML = `⚠️ ${escapeHtml((d && d.error) || 'could not reach the inference provider')}`;
+      }
+    }).catch(() => {
+      setEscalating(false);
+      if (ind) ind.style.display = 'none';
+      card.innerHTML = '⚠️ could not reach the server';
+    });
+  };
+  card.querySelector('.btn-doit').onclick = () => go(true);
+  if (!consented) {
+    card.querySelector('.btn-once').onclick = () => go(false);
+    card.querySelector('.btn-cancel').onclick = () => card.closest('.msg')?.remove();
+  }
+}
+
+// #1 UX follow-up to #820/#824: offered from the moment generation starts (see runStream), so a slow
+// local model no longer has to fully finish before the fast alternative is even mentioned. Appended as
+// a SIBLING of the streaming bubble (not inside its innerHTML, which gets replaced wholesale on every
+// throttled token render) so it survives the local stream's own redraws untouched.
+function renderAskProviderNow(bubble, message) {
+  const el = document.createElement('div');
+  el.className = 'ask-provider-now';
+  el.innerHTML = `<a href="#" class="ask-provider-now-link">⚡ Ask ${escapeHtml(ESCALATION_PROVIDER_LABEL)} instead</a>`;
+  bubble.parentElement.appendChild(el);
+  const timer = setTimeout(() => el.classList.add('highlighted'), 15000);
+  el.querySelector('a').onclick = (e) => {
+    e.preventDefault();
+    clearTimeout(timer);
+    askProviderNowClicked(el, bubble, message);
+  };
+  return el;
+}
+
+// Not yet consented: the same first-use decision renderEscalationOffer's 3-choice card asks for,
+// just reached a different way (before local finishes, not after) - still needs an explicit human
+// approval before anything leaves the device, exactly like the post-hoc case.
+function askProviderNowClicked(el, bubble, message) {
+  if (!ESCALATION_CONSENTED) {
+    el.innerHTML =
+      `<span class="text-muted">Send this to <b>${escapeHtml(ESCALATION_PROVIDER_LABEL)}</b>? Nothing has left this device yet.</span> ` +
+      `<button class="thumbs" style="font-size:12px">Always</button>` +
+      `<button class="thumbs" style="font-size:12px">Just this once</button>` +
+      `<button class="thumbs" style="font-size:12px">Not now</button>`;
+    const [alwaysBtn, onceBtn, cancelBtn] = el.querySelectorAll('button');
+    alwaysBtn.onclick = () => fireAskProviderNow(el, bubble, message, true);
+    onceBtn.onclick = () => fireAskProviderNow(el, bubble, message, false);
+    cancelBtn.onclick = () => el.remove();
+    return;
+  }
+  fireAskProviderNow(el, bubble, message, true);  // already consented - remember is a no-op server-side
+}
+
+// Abandons the in-flight LOCAL generation - this replaces its answer, not appends to it, so waiting
+// for local to also finish would defeat the entire point. Known, accepted limitation (see
+// /chat/{id}/ask-provider-now's docstring): local keeps running server-side regardless (an Ollama
+// call can't be cleanly cancelled mid-request) and will save its own answer when it eventually
+// finishes - the user has already moved on to the provider's answer by then in the common case,
+// since it is the whole reason this exists.
+function fireAskProviderNow(el, bubble, message, remember) {
+  el.remove();
+  if (currentSrc) { currentSrc.close(); currentSrc = null; }
+  _finalize = null;
+  setStreaming(false);
+  const ind = document.getElementById('build-indicator');
+  if (ind) ind.style.display = 'flex';
+  setEscalating(true, ESCALATION_PROVIDER_LABEL);
+  fetch(`/chat/${convId}/ask-provider-now`, {
+    method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({remember: remember ? 'true' : 'false'}),
+  }).then(r => r.json()).then(d => {
+    setEscalating(false);
+    if (ind) ind.style.display = 'none';
+    if (d && d.ok) {
+      if (remember) ESCALATION_CONSENTED = true;
+      bubble.innerHTML = renderMd(d.text);
+      metaRowFor(bubble).innerHTML =
+        '<span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
+      bubble.dataset.md = d.text;
+      bubble.closest('.msg')?.classList.add('escalated');
+      if (d.message_id) bubble.closest('.msg')?.setAttribute('data-id', d.message_id);
+      enhancePreviews(bubble);
+      addAssistantControls(bubble.parentElement, message, d.text, d.message_id);
+      scrollBottom();
+    } else {
+      bubble.innerHTML = `⚠️ ${escapeHtml((d && d.error) || 'could not reach the inference provider')}`;
+    }
+  }).catch(() => {
+    setEscalating(false);
+    if (ind) ind.style.display = 'none';
+    bubble.innerHTML = '⚠️ could not reach the server';
+  });
+}
+
+async function rate(msgId, value) {
+  const fd = new FormData();
+  fd.append('message_id', msgId);
+  fd.append('value', value);
+  await fetch(`/chat/${convId}/thumbs`, {method:'POST', body:fd});
+  // Update button state visually
+  const btns = document.querySelectorAll(`.msg[data-id="${msgId}"] .thumbs`);
+  btns.forEach(b => b.classList.remove('selected-up','selected-down'));
+  btns[value === 1 ? 0 : 1]?.classList.add(value === 1 ? 'selected-up' : 'selected-down');
+}
+
+// ── snippets ────────────────────────────────────────────────────────────────
+let pendingSnip = {content:'', ref:'', question:''};
+
+function questionFor(msgEl) {
+  // the originating user prompt = the previous .msg.user before this assistant msg
+  let el = msgEl;
+  while (el && el.previousElementSibling) {
+    el = el.previousElementSibling;
+    if (el.classList && el.classList.contains('user')) {
+      const b = el.querySelector('.bubble');
+      return b ? b.innerText.trim() : '';
+    }
+  }
+  return '';
+}
+
+function saveSnippet(text, ref) {
+  const msgEl = document.querySelector(`.msg[data-id="${ref}"]`);
+  pendingSnip = {content: text.trim(), ref: String(ref),
+                 question: msgEl ? questionFor(msgEl) : ''};
+  document.getElementById('snip-preview').innerText = pendingSnip.content;
+  document.getElementById('snip-tags').value = '';
+  document.getElementById('snip-status').innerText = '';
+  document.getElementById('snip-save-btn').disabled = false;
+  document.getElementById('snip-modal').style.display = 'flex';
+  document.getElementById('snip-float').style.display = 'none';
+}
+
+function closeSnip() { document.getElementById('snip-modal').style.display = 'none'; }
+
+async function commitSnip() {
+  const btn = document.getElementById('snip-save-btn');
+  btn.disabled = true;
+  document.getElementById('snip-status').innerText = 'Saving + deriving the red line…';
+  const fd = new FormData();
+  fd.append('content',  pendingSnip.content);
+  fd.append('tags',     document.getElementById('snip-tags').value);
+  fd.append('question', pendingSnip.question);
+  fd.append('source',   'chat');
+  fd.append('source_ref', `conv:${convId}/msg:${pendingSnip.ref}`);
+  try {
+    const r = await fetch('/snippets/save', {method:'POST', body:fd});
+    const d = await r.json();
+    // #683: a saved snippet is now grounded into the personal wiki immediately (not a separate
+    // silo), so future answers can retrieve it - state that payoff here, not only on /snippets.
+    let scope;
+    if (d.scope === 'org') {
+      scope = ' (now shared org-wide - corroborated)';
+    } else if (d.wiki_applied) {
+      scope = ' - now in your personal wiki, so it can ground future answers';
+    } else {
+      scope = ' - saved; queued for a quick check before it joins your wiki';
+    }
+    const rl = d.rationale ? `Red line: ${d.rationale}` : 'Saved.';
+    document.getElementById('snip-status').innerText = '✓ ' + rl + scope;
+    setTimeout(closeSnip, 2400);
+  } catch (e) {
+    document.getElementById('snip-status').innerText = '⚠️ save failed';
+    btn.disabled = false;
+  }
+}
+
+async function turnIntoSkill() {
+  // "Turn this conversation into a skill" (#683): draft with the model, stash the result, and
+  // hand off to the guided wizard on /skills to review and save - the same shape /skills/draft's
+  // draftSkill() already fills in, so the wizard's prefill logic doesn't need to know the draft
+  // came from a whole conversation instead of a one-line description.
+  if (!convId) return;
+  const btn = document.getElementById('skill-from-chat-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Drafting…'; }
+  try {
+    const fd = new FormData();
+    fd.append('conv_id', convId);
+    const r = await fetch('/skills/draft-from-chat', {method: 'POST', body: fd});
+    if (!r.ok) throw new Error('draft failed');
+    const draft = await r.json();
+    sessionStorage.setItem('anthill_skill_draft', JSON.stringify(draft));
+    window.location.href = '/skills?draft=1';
+  } catch (e) {
+    showToast('Could not draft a skill from this conversation. Try again.', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+// Show the floating button when text inside an assistant bubble is selected.
+document.addEventListener('mouseup', (e) => {
+  const float = document.getElementById('snip-float');
+  if (!float) return;
+  const sel = window.getSelection();
+  const text = sel ? sel.toString().trim() : '';
+  if (!text) { float.style.display = 'none'; return; }
+  let node = sel.anchorNode;
+  while (node && node.nodeType === 3) node = node.parentElement;
+  const bubble = node ? node.closest('.msg.assistant .bubble') : null;
+  if (!bubble) { float.style.display = 'none'; return; }
+  const msgEl = bubble.closest('.msg');
+  const ref = msgEl ? msgEl.getAttribute('data-id') : '';
+  const rect = sel.getRangeAt(0).getBoundingClientRect();
+  float.style.top  = (window.scrollY + rect.top - 38) + 'px';
+  float.style.left = (window.scrollX + rect.left) + 'px';
+  float.style.display = 'block';
+  float.onclick = () => saveSnippet(text, ref);
+});
+</script>
+<div id="toast" class="toast" style="display:none" onclick="this.style.display='none'"></div>
+<script>
+// Chat is a standalone page (does not extend base.html), so it needs its own copy of the
+// toast helper base.html normally provides - without this, every showToast(...) call above
+// (attach errors included) threw ReferenceError silently and nothing ever appeared.
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  if (!t) { console.warn(msg); return; }
+  t.textContent = msg;
+  t.className = 'toast toast-' + (type === 'error' ? 'error' : 'success');
+  t.style.display = 'block';
+  if (window._toastTimer) clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(function () { t.style.display = 'none'; }, type === 'error' ? 9000 : 5000);
+}
+</script>
+</body>
+</html>

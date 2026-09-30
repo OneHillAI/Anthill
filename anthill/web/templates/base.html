@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Anthill{% endblock %} - Anthill</title>
+  <script>
+    // Appearance: apply the saved Light/Dark choice BEFORE the stylesheet paints (no flash). Unset or
+    // 'system' = follow the OS preference (the @media rule in style.css). anthillSetTheme is the control.
+    (function () {
+      try {
+        var t = localStorage.getItem('anthill-theme');
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+    window.anthillSetTheme = function (mode) {
+      try {
+        if (mode === 'system') { localStorage.removeItem('anthill-theme'); document.documentElement.removeAttribute('data-theme'); }
+        else { localStorage.setItem('anthill-theme', mode); document.documentElement.setAttribute('data-theme', mode); }
+      } catch (e) {}
+    };
+    window.anthillCurrentTheme = function () { try { return localStorage.getItem('anthill-theme') || 'system'; } catch (e) { return 'system'; } };
+  </script>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1A110A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/png" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+</head>
+<body>
+<div class="layout">
+  {% include "_sidebar.html" %}
+  <div class="main">
+    <div class="topbar">
+      {% if back_href %}<a href="{{ back_href }}" class="topbar-back" title="Back to {{ back_label }}" style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;margin-right:12px">&larr; {{ back_label }}</a>{% endif %}
+      <span class="page-title">{% block page_title %}{% endblock %}</span>
+      <button id="install-top" onclick="anthillInstall()" title="Install Anthill as an app"
+        class="btn-install">Install app</button>
+      {% if nav_account %}<a href="/profile" class="topbar-identity"
+        title="{{ nav_account.email }}{% if nav_profile %} - in the &quot;{{ nav_profile.name }}&quot; profile{% endif %} - profile &amp; account">{% if nav_profile %}<span class="profile-dot" style="background:{{ nav_profile.colour }}"></span>{% endif %}<span class="topbar-identity-name">{{ nav_account.name }}</span></a>{% endif %}
+    </div>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<!-- In-app help bot: ? button (bottom-right, clear of the left sidebar) opens a small help chat -->
+<button id="help-fab" onclick="toggleHelp()" title="Ask Anthill for help" aria-label="Help"
+  style="position:fixed;right:18px;bottom:18px;z-index:85;width:46px;height:46px;border-radius:50%;
+  background:#1A110A;color:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;box-shadow:0 4px 14px rgba(26,17,10,.3)"><i data-lucide="help-circle">?</i></button>
+
+<div id="help-panel" style="display:none;position:fixed;right:18px;bottom:74px;z-index:86;
+  width:340px;max-width:92vw;height:440px;max-height:70vh;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(26,17,10,.25);
+  flex-direction:column;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+    <i data-lucide="sparkles" style="color:var(--accent)"></i>
+    <b style="flex:1;font-size:14px">Anthill help</b>
+    <button onclick="toggleHelp()" class="btn btn-outline btn-sm">Close</button>
+  </div>
+  <div id="help-msgs" style="flex:1;overflow:auto;padding:14px;font-size:14px;line-height:1.6">
+    <div class="text-muted text-sm">Ask how to do something ("what is agent mode?"), request a feature
+      ("I wish Anthill could…"), report a bug, or just ask a question. I can file feature requests and
+      bugs for the team.</div>
+  </div>
+  <div style="border-top:1px solid var(--border);padding:10px;display:flex;gap:8px">
+    <input id="help-input" type="text" placeholder="Ask, suggest, or report…" style="flex:1"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();helpAsk();}">
+    <button class="btn btn-primary" onclick="helpAsk()">Send</button>
+  </div>
+</div>
+
+<!-- Install help (shown when the browser has no native install prompt) -->
+<div id="install-help" style="display:none;position:fixed;inset:0;z-index:90;
+  background:rgba(0,0,0,.45);align-items:center;justify-content:center"
+  onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);color:var(--text);max-width:440px;border-radius:12px;padding:24px 26px;
+    box-shadow:0 12px 40px rgba(0,0,0,.3)">
+    <h3 style="margin:0 0 12px">Install Anthill</h3>
+    <p style="margin:0 0 10px"><b>Recommended - the Mac app.</b> Build the installer with
+      <code>make dmg</code>, open <code>Anthill.dmg</code>, and drag <b>Anthill</b> into
+      <b>Applications</b>. It installs to <code>/Applications</code> and launches with no Terminal window.</p>
+    <p style="margin:0 0 14px"><b>Browser install</b> is quicker but Chrome-managed: it lands in
+      <code>~/Applications/Chrome&nbsp;Apps/</code> (your user folder, not <code>/Applications</code>)
+      and only works while the local server is running.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="document.getElementById('install-help').style.display='none'"
+        style="background:var(--accent);color:#fff;font-weight:600;border:none;border-radius:8px;padding:8px 16px;cursor:pointer">Got it</button>
+      <button id="browser-install-btn" onclick="browserInstall()"
+        style="background:transparent;color:var(--text);border:1px solid var(--border-strong);border-radius:8px;padding:8px 16px;cursor:pointer;display:none">Install in browser anyway</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/lucide.min.js"></script>
+<script src="/static/dictation.js"></script>
+<script src="/static/tour.js"></script>
+<script src="/static/walkthrough.js"></script>
+<script>
+// Render Lucide outline icons (brand: outline, 1.5px stroke); emoji stays as the fallback
+// if the script is unavailable (e.g. fully offline before it's cached).
+window.addEventListener("load", () => { try { lucide.createIcons({ attrs: { "stroke-width": 1.5 } }); } catch (_) {} });
+// Register the service worker (offline shell + push). Auto-reload once when a new
+// worker takes control, so CSS/icon updates apply without manual cache-clearing.
+if ("serviceWorker" in navigator) {
+  let _swReloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swReloaded) return; _swReloaded = true; location.reload();
+  });
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+}
+let _deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); _deferredPrompt = e; });
+// Inside the native desktop app the "Install app" button is meaningless - you're already in the app -
+// so hide it there (issue #389). __TAURI__ is injected by the Tauri shell; a plain browser leaves it shown.
+if (window.__TAURI__) {
+  const _ib = document.getElementById("install-top");
+  if (_ib) _ib.style.display = "none";
+}
+function anthillInstall() {
+  // On ChromeOS (and any non-Mac platform) there is no native desktop app yet - the PWA IS the app,
+  // so install it directly. On macOS, steer to the notarized /Applications app instead, which is a
+  // better experience than a Chrome-Apps PWA (the chooser explains the difference).
+  const isCrOS = /\bCrOS\b/.test(navigator.userAgent);
+  const isMac = !isCrOS && /Mac/.test(navigator.platform || navigator.userAgent || "");
+  if (!isMac) {
+    if (_deferredPrompt) { browserInstall(); return; }
+    // No install prompt available (already installed, or an unsupported browser like Safari/Firefox):
+    // point at the browser's own install affordance rather than the macOS chooser.
+    showToast("To install Anthill as an app, use your browser's Install option - the install icon in the address bar, or the menu (⋮) -> \"Install Anthill\".");
+    return;
+  }
+  const bbtn = document.getElementById("browser-install-btn");
+  if (bbtn) bbtn.style.display = _deferredPrompt ? "inline-flex" : "none";
+  document.getElementById("install-help").style.display = "flex";
+}
+async function browserInstall() {
+  if (!_deferredPrompt) return;
+  _deferredPrompt.prompt();
+  try { await _deferredPrompt.userChoice; } finally { _deferredPrompt = null; }
+  document.getElementById("install-help").style.display = "none";
+}
+
+// ── in-app help bot ───────────────────────────────────────────────────────────
+function toggleHelp() {
+  const p = document.getElementById("help-panel");
+  const showing = p.style.display === "flex";
+  p.style.display = showing ? "none" : "flex";
+  if (!showing) { const i = document.getElementById("help-input"); if (i) i.focus(); }
+}
+function _esc(s) {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+let helpHistory = [];   // [{role, content}] - the running help conversation (multi-turn)
+async function helpAsk() {
+  const inp = document.getElementById("help-input");
+  const q = inp.value.trim();
+  if (!q) return;
+  const box = document.getElementById("help-msgs");
+  inp.value = "";
+  box.insertAdjacentHTML("beforeend", '<div style="margin:10px 0"><b>You:</b> ' + _esc(q) + "</div>");
+  const a = document.createElement("div");
+  a.style.margin = "10px 0";
+  a.innerHTML = '<b>Anthill:</b> <span class="text-muted">thinking…</span>';
+  box.appendChild(a); box.scrollTop = box.scrollHeight;
+  try {
+    const fd = new FormData();
+    fd.append("question", q);
+    fd.append("history", JSON.stringify(helpHistory.slice(-8)));
+    const r = await fetch("/help/ask", {method: "POST", body: fd});
+    const d = await r.json();
+    const answer = d.answer || "(no answer)";
+    a.innerHTML = "<b>Anthill:</b> " + _esc(answer).replace(/\n/g, "<br>");
+    helpHistory.push({role: "user", content: q}, {role: "assistant", content: answer});
+    if (d.offer && d.offer.idea) helpAppendFileOffer(a, d.offer);
+  } catch (e) {
+    a.innerHTML = '<b>Anthill:</b> <span class="text-muted">Help is unavailable right now.</span>';
+  }
+  box.scrollTop = box.scrollHeight;
+}
+// When the assistant spots a feature request or bug, offer to file it. Nothing is filed until clicked.
+function helpAppendFileOffer(afterEl, offer) {
+  const label = offer.kind === "bug" ? "🐞 Report this bug" : "💡 File this feature request";
+  const wrap = document.createElement("div");
+  wrap.style.margin = "4px 0 12px";
+  const btn = document.createElement("button");
+  btn.className = "btn btn-outline btn-sm";
+  btn.textContent = label;
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Filing…";
+    try {
+      const fd = new FormData();
+      fd.append("kind", offer.kind); fd.append("idea", offer.idea);
+      const r = await fetch("/help/file", {method: "POST", body: fd});
+      const d = await r.json();
+      wrap.innerHTML = (d && d.ok)
+        ? '✅ Filed <b>' + _esc(d.title) + '</b>. <a href="/contribute">See it in Contribute &rarr;</a>'
+        : '⚠️ ' + _esc((d && d.error) || "could not file that");
+    } catch (e) { wrap.innerHTML = "⚠️ could not reach the server"; }
+  };
+  wrap.appendChild(btn);
+  afterEl.appendChild(wrap);
+}
+
+// ── web push opt-in ─────────────────────────────────────────────────────────
+function _b64ToU8(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+async function enableNotifications() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      showToast("This browser doesn't support notifications.", 'error'); return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return;
+    const reg = await navigator.serviceWorker.ready;
+    const key = (await (await fetch("/push/key")).json()).key;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: _b64ToU8(key),
+    });
+    await fetch("/push/subscribe", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(sub),
+    });
+    await fetch("/push/test", {method: "POST"});  // confirmation ping
+  } catch (e) { console.warn("push enable failed", e); }
+}
+// Render stored UTC timestamps in the viewer's local timezone (issue #394): any element with a
+// data-utc="<ISO-8601 UTC>" attribute. Falls back to the server-rendered "... UTC" text if JS is off.
+document.querySelectorAll('[data-utc]').forEach(function (el) {
+  var iso = el.getAttribute('data-utc'); if (!iso) return;
+  var d = new Date(iso); if (isNaN(d.getTime())) return;
+  el.textContent = d.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  el.title = d.toString();
+});
+// Global action-feedback toast (#284): one in-page toast used app-wide instead of raw alert() (which the
+// desktop webview does not reliably show). showToast(msg, 'error') for failures, else a neutral toast.
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  if (!t) { console.warn(msg); return; }
+  t.textContent = msg;
+  t.className = 'toast toast-' + (type === 'error' ? 'error' : 'success');
+  t.style.display = 'block';
+  if (window._toastTimer) clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(function () { t.style.display = 'none'; }, type === 'error' ? 9000 : 5000);
+}
+// Queue a toast to show AFTER a navigation/reload (for actions that reload the page).
+function toastAfter(msg, type) {
+  try { sessionStorage.setItem('anthillToast', JSON.stringify({msg: msg, type: type})); } catch (e) {}
+}
+document.addEventListener('DOMContentLoaded', function () {
+  try {
+    var raw = sessionStorage.getItem('anthillToast');
+    if (raw) { sessionStorage.removeItem('anthillToast'); var o = JSON.parse(raw); showToast(o.msg, o.type); }
+  } catch (e) {}
+});
+// Help popovers (Wave 2): expose the text to assistive tech and flip it down when it would clip the top.
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.help > .help-pop').forEach(function (pop, i) {
+    var id = 'help-pop-' + i;
+    pop.id = id; pop.setAttribute('role', 'tooltip');
+    pop.parentElement.setAttribute('aria-describedby', id);
+  });
+  function place(btn) {
+    var pop = btn.querySelector('.help-pop'); if (!pop) return;
+    pop.classList.remove('help-pop--down');
+    if (btn.getBoundingClientRect().top < 120) pop.classList.add('help-pop--down');
+  }
+  document.querySelectorAll('.help').forEach(function (btn) {
+    btn.addEventListener('mouseenter', function () { place(btn); });
+    btn.addEventListener('focus', function () { place(btn); });
+  });
+});
+</script>
+<div id="toast" class="toast" style="display:none" onclick="this.style.display='none'"></div>
+</body>
+</html>

@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Local model{% endblock %}
+{% block page_title %}Local model <span style="font-size:13px;color:var(--muted);font-weight:normal">- this device (Solo plane)</span>{% endblock %}
+{% block content %}
+<style>
+  /* .adv/.advrow/.adv-contact: same "coming soon, contact us" pattern as personalize.html's Advanced
+     setups block, for the frontier-models section below. */
+  .adv summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;list-style:none}
+  .adv summary::-webkit-details-marker{display:none}
+  .advrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;margin-top:8px;opacity:.7}
+  .advrow-main{display:flex;flex-direction:column;gap:2px}
+  .advrow-name{font-weight:600;font-size:13px}
+  .advrow-d{font-size:12px;color:var(--muted)}
+  .adv-contact{margin-top:10px;font-size:12px;color:var(--muted)}
+  .adv-contact a{color:var(--accent,#2f6b4f);font-weight:600;text-decoration:none}
+</style>
+<p class="text-sm text-muted" style="margin:0 0 14px">
+  The model that runs on <b>this machine</b> for your Solo chats. Pick one below - it downloads if
+  needed and becomes your local model in one step. Every option runs fully on your hardware; nothing
+  leaves the machine. The org's shared model is separate, under
+  <a href="/settings/organization/wiki">Organization -&gt; Cloud &amp; model</a>.
+</p>
+
+{% if request.query_params.get('selected') %}
+<div class="alert alert-ok">✅ Local model set to <b>{{ current_model }}</b>.</div>
+{% elif request.query_params.get('deleted') %}
+<div class="alert alert-ok">🗑️ Removed <b>{{ request.query_params.get('deleted') }}</b> and freed its disk space.</div>
+{% elif request.query_params.get('error') == 'no_tag' %}
+<div class="alert alert-err">Pick a model first.</div>
+{% elif request.query_params.get('error') == 'too_large' %}
+<div class="alert alert-err">That model is too large for {{ hw_label }} - pick one marked "fits" below.</div>
+{% elif request.query_params.get('error') == 'in_use' %}
+<div class="alert alert-err">That's your current local model - switch to another one before removing it.</div>
+{% elif request.query_params.get('error') == 'delete_failed' %}
+<div class="alert alert-err">Couldn't remove that model. Is the local engine running?</div>
+{% elif request.query_params.get('error') == 'no_gold' %}
+<div class="alert alert-err">Add a few approved (gold) answers first - a benchmark scores a model against them.</div>
+{% elif request.query_params.get('error') == 'benchmark' %}
+<div class="alert alert-err">Pick an installed model other than your current one to benchmark.</div>
+{% endif %}
+
+{% if benchmark %}
+<div id="benchmark-panel" class="alert {% if benchmark.running %}alert-info{% elif benchmark.error %}alert-err{% else %}alert-ok{% endif %}">
+  {% if benchmark.running %}⏳ Benchmarking <b>{{ benchmark.candidate }}</b> against your current model on {{ gold_count }} approved answers - it runs both models, so give it a minute (you can leave this page).
+  {% elif benchmark.error %}Benchmark failed: {{ benchmark.error }}
+  {% else %}Benchmark: <b>{{ benchmark.summary }}</b>{% if benchmark.winner and benchmark.winner != 'tie' %} &middot; <b>{{ benchmark.winner }}</b> is closer to your approved answers.{% endif %} <span class="text-sm text-muted">(mean cosine to your gold answers; advisory)</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Live download banner: driven by the server-side pull state (/models/pull-status), so it keeps
+   updating and confirms when done even if you switch tabs - no manual refresh needed. #}
+<div id="pull-banner" class="alert alert-info" style="display:{% if pulling %}block{% else %}none{% endif %}">
+  ⏳ Downloading <b id="pull-tag">{{ pulling }}</b> in the background - it becomes your local model when
+  ready, and your current model keeps working until then. You can leave this page; it will finish.
+</div>
+<div id="ready-banner" class="alert alert-ok" style="display:none">
+  ✅ <b id="ready-tag"></b> finished downloading and is now your local model.
+</div>
+
+{# The curated, hardware-ranked model picker used to live here too, duplicating Settings -> Model ->
+   "Change where it runs" (the council builder does the same job, plus council/cloud/inference-provider
+   choices this page never had) - founder report, 2026-09-29: "clicking Manage opens up its own model
+   selection settings sub-setting screen, makes no sense." Removed; this page keeps what Settings can't
+   do: pull an arbitrary tag outside the curated catalog, and manage/benchmark what's already on disk. #}
+<div class="card">
+  <details>
+    <summary class="text-sm" style="cursor:pointer;color:var(--muted)">Pull a model by tag (any Ollama or Hugging Face GGUF, outside the curated catalog)</summary>
+    <form method="post" action="/models/pull" style="margin-top:10px">
+      <div class="form-group">
+        <input type="text" name="model_tag" placeholder="qwen2.5vl:7b  or  hf.co/bartowski/Qwen2.5-7B-Instruct-GGUF"
+               value="{{ current_model if current_is_custom else '' }}">
+        <p class="text-sm text-muted" style="margin-top:4px">
+          ~45,000 community GGUF models work; optionally add <code>:Q4_K_M</code> to pick a quantization.
+          For the curated, hardware-ranked catalog, use <a href="/personalize#model">Change where it runs</a>.</p>
+      </div>
+      <button type="submit" class="btn btn-outline">Use this tag</button>
+    </form>
+  </details>
+
+  {% if frontier_models %}
+  <details class="adv" style="margin-top:16px">
+    <summary class="text-sm text-muted" style="cursor:pointer">Frontier models (bring your own infrastructure)</summary>
+    <div style="margin-top:10px">
+      <p class="text-sm text-muted" style="margin:0 0 8px">
+        These are too large for this machine or for Anthill's own cloud provisioning - self-provision
+        them on your own AWS, GCP, Azure or Lambda account, or connect an endpoint you already run.
+      </p>
+      {% for m in frontier_models %}
+      <div class="advrow"><div class="advrow-main"><span class="advrow-name">{{ m.name }}</span><span class="advrow-d">{{ m.origin }} &middot; {{ m.params_b|round|int }}B params</span></div></div>
+      {% endfor %}
+      <div class="adv-contact">Want help running one of these? Email <a href="mailto:dev@anthill.run">dev@anthill.run</a>.</div>
+    </div>
+  </details>
+  {% endif %}
+</div>
+
+<div class="card mt-4" id="installed">
+  <h3 style="margin-bottom:16px">Installed on this device</h3>
+  {% if available %}
+  <table>
+    <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+    <tbody>
+    {% for m in available %}
+    <tr>
+      <td>
+        <code>{{ m.name }}</code>
+        {% if m.name == current_model %}<span class="badge badge-active">current</span>{% endif %}
+        {% if m.name in resident %}<span class="badge" title="Loaded in memory now">resident</span>{% endif %}
+      </td>
+      <td>{{ "%.1f GB"|format(m.size / 1073741824) }}</td>
+      <td class="text-sm text-muted">{{ m.modified_at[:10] if m.modified_at else '-' }}</td>
+      <td style="text-align:right">
+        {% if m.name == current_model or m.name == pulling %}
+        <span class="text-sm text-muted" title="Switch to another model before removing this one">in use</span>
+        {% else %}
+        {% if current_model and gold_count >= 3 %}
+        <form method="post" action="/models/benchmark" style="display:inline">
+          <input type="hidden" name="model_tag" value="{{ m.name }}">
+          <button type="submit" class="btn btn-sm"
+                  title="Score this model against your current one on your approved answers">Benchmark</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/models/delete" style="display:inline"
+              onsubmit="return confirm('Remove {{ m.name }}? This deletes it from disk ({{ '%.1f GB'|format(m.size / 1073741824) }}). You can pull it again later.');">
+          <input type="hidden" name="model_tag" value="{{ m.name }}">
+          <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted text-sm">Cannot reach Ollama. Check the server URL in <a href="/settings">Settings</a>.</p>
+  {% endif %}
+</div>
+
+<script>
+async function fetchModelJSON(url, options) {
+  var r = await fetch(url, options);
+  if (r.redirected) {
+    window.location.assign(r.url);
+    return null;
+  }
+  return r.json();
+}
+// Poll the server-side pull state so the download shows live progress and confirms when done,
+// even across tab changes (the pull runs in the server, not this page). When it finishes, reload
+// so the Installed list + current model reflect it.
+(function () {
+  var wasPulling = {{ pulling|tojson }};
+  function poll() {
+    fetchModelJSON('/models/pull-status', { headers: { 'Accept': 'application/json' } })
+      .then(function (s) {
+        if (!s) return;
+        var pb = document.getElementById('pull-banner');
+        var rb = document.getElementById('ready-banner');
+        if (s.pulling) {
+          document.getElementById('pull-tag').textContent = s.pulling;
+          pb.style.display = 'block'; rb.style.display = 'none';
+          setTimeout(poll, 3000);
+        } else if (wasPulling) {
+          document.getElementById('ready-tag').textContent = s.current;
+          pb.style.display = 'none'; rb.style.display = 'block';
+          setTimeout(function () { window.location.href = '/models?selected=1'; }, 1600);
+        }
+      })
+      .catch(function () { setTimeout(poll, 5000); });
+  }
+  if (wasPulling) { setTimeout(poll, 3000); }
+})();
+// Poll a running benchmark and reload with the result when it finishes (issue #276).
+(function () {
+  var running = {% if benchmark and benchmark.running %}true{% else %}false{% endif %};
+  if (!running) return;
+  function bpoll() {
+    fetchModelJSON('/models/benchmark-status', { headers: { 'Accept': 'application/json' } })
+      .then(function (s) {
+        if (!s) return;
+        if (s.running) { setTimeout(bpoll, 4000); return; }
+        window.location.href = '/models';  // reload to show the result banner
+      })
+      .catch(function () { setTimeout(bpoll, 6000); });
+  }
+  setTimeout(bpoll, 4000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Suggestions{% endblock %}
+{% block page_title %}Knowledge{% endblock %}
+{% block content %}
+
+{% include "_knowledge_tabs.html" %}
+
+<style>
+  .sugg-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--border);border-radius:12px;margin-bottom:10px}
+  .sugg-ic{width:30px;height:30px;border-radius:8px;background:var(--bg-subtle);display:flex;align-items:center;justify-content:center;flex:none;color:var(--accent,#2f6b4f)}
+  .sugg-main{flex:1;min-width:0}
+  .sugg-what{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .sugg-title{font-size:14px;font-weight:600;margin-top:1px}
+  .sugg-desc{font-size:12px;color:var(--muted);margin-top:2px}
+  .sugg-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex:none}
+  .sugg-actions form{margin:0}
+</style>
+
+<p class="text-muted" style="margin:0 0 14px">What your AI suggested for your knowledge - adjust and approve, or dismiss. Nothing is added until you approve it.</p>
+
+{% if items %}
+{% for it in items %}
+<div class="sugg-row">
+  <span class="sugg-ic"><i data-lucide="{{ it.icon }}"></i></span>
+  <div class="sugg-main">
+    <div class="sugg-what">{{ it.what }}</div>
+    <div class="sugg-title">{{ it.title }}</div>
+    {% if it.desc %}<div class="sugg-desc">{{ it.desc }}</div>{% endif %}
+  </div>
+  <div class="sugg-actions">
+    <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open to edit before approving">Adjust</a>
+    <form method="post" action="{{ it.approve }}"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-primary btn-sm">Approve</button></form>
+    <form method="post" action="{{ it.reject }}" onsubmit="return confirm('Dismiss this suggestion?')"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card" style="text-align:center;padding:40px">
+  <div style="font-size:30px;margin-bottom:10px;color:var(--accent,#2f6b4f)"><i data-lucide="check-circle-2"></i></div>
+  <p class="text-muted" style="margin:0">No suggestions right now. As you work, your AI proposes wiki pages and skills here for you to review.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,54 @@
+# ASDD - runtime connectivity check (the honest LIVE gate).
+#
+# Runs cli/connect-check.py against .asdd.yml: one tiny request per roster role and per council member,
+# resolving each model, endpoint and key exactly as the gates do. Reports LIVE or NOT CONNECTED per agent
+# and exits non-zero if any configured agent is not connected. Nothing counts as "set up" until every
+# agent shows LIVE, and a dry or unwired agent must never look like it did work.
+#
+# It runs here, in CI, because this is where the keys live: the operate roster on Infercom (the shared
+# ASDD_* vars, already set for the live review gate) and the developer council on runware (the per-member
+# __COUNCIL_i vars/secrets). It probes reachability only; it never runs an agent or touches PR content.
+
+name: ASDD runtime check
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".asdd.yml"
+      - "cli/connect-check.py"
+      - "cli/resolve-model.sh"
+      - ".github/workflows/asdd-runtime-check.yml"
+
+concurrency:
+  group: runtime-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  connect-check:
+    runs-on: ubuntu-latest
+    env:
+      # Operate roster: Infercom (EU), shared vars, already set for the live review gate.
+      ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
+      ASDD_MODEL: ${{ vars.ASDD_MODEL }}
+      ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
+      # Developer council: runware (frontier), per-member so it never collides with the Infercom vars.
+      ASDD_MODEL_URL__COUNCIL_1: ${{ vars.ASDD_MODEL_URL__COUNCIL_1 }}
+      ASDD_MODEL_URL__COUNCIL_2: ${{ vars.ASDD_MODEL_URL__COUNCIL_2 }}
+      ASDD_MODEL_URL__COUNCIL_3: ${{ vars.ASDD_MODEL_URL__COUNCIL_3 }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_1: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_1 }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_2: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_2 }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_3: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_3 }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: connect-check (every agent must be LIVE)
+        run: |
+          set -o pipefail
+          python3 cli/connect-check.py | tee -a "$GITHUB_STEP_SUMMARY"

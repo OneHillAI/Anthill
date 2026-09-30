@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<style>
+  /* Dashboard vitals: a greeting + model status, a finish-setup checklist, an activity feed, four stat
+     tiles, and the two "cores" (the model council + the living wiki). All numbers are real (route
+     context), never mocked. Visual pass 2026-09-28 (founder: "it's all gray and gray... not dynamic,
+     not engaging"): color now encodes meaning (accent = council/action, clay = knowledge, warn =
+     waiting on you) via icon chips and accent stripes, instead of every surface using the same muted
+     gray regardless of what it represents - same routes, same data, same information architecture. */
+  .dash-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .dash-head h2{font-size:var(--fs-4,20px);font-weight:600;margin:0}
+  .model-pill{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-2);font-weight:700;color:var(--accent-dk);background:var(--accent-soft);border:1px solid var(--accent-soft);border-radius:999px;padding:7px 15px 7px 12px;white-space:nowrap}
+  .model-pill .dot{width:8px;height:8px;border-radius:50%;background:var(--success,#15803d);position:relative}
+  .model-pill .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;background:var(--success,#15803d);opacity:.4;animation:dashpulse 2s ease-in-out infinite}
+  .model-pill.preparing{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-soft)}
+  .model-pill.preparing .dot,.model-pill.preparing .dot::after{background:var(--warn,#b45309)}
+  @keyframes dashpulse{0%,100%{transform:scale(1);opacity:.4}50%{transform:scale(2.1);opacity:0}}
+  @media (prefers-reduced-motion:reduce){.model-pill .dot::after{animation:none;display:none}}
+  .dash-cardh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .dash-cardh h3{margin:0}
+  .pill-on{font-size:12px;font-weight:700;color:var(--accent-dk);background:var(--accent-soft);border:1px solid var(--accent-soft);border-radius:999px;padding:3px 11px}
+  .pill-on.clay{color:var(--soil);background:var(--clay-soft);border-color:var(--clay-soft)}
+
+  /* Finish setting up: a real progress bar + filled CTAs instead of a bare checklist. */
+  .setup-track{height:6px;border-radius:999px;background:var(--bg-subtle);overflow:hidden;margin:10px 0 2px}
+  .setup-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-dk));border-radius:999px;transition:width .3s}
+  .ck{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--border)}
+  .ck-box{width:20px;height:20px;border-radius:50%;border:2px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#fff;flex:none}
+  .ck.done .ck-box{background:var(--accent);border-color:var(--accent)}
+  .ck-main{flex:1;display:flex;flex-direction:column;gap:1px}
+  .ck-name{font-size:var(--fs-2);font-weight:600}
+  .ck-d{font-size:var(--fs-1);color:var(--muted)}
+  .ck.done .ck-name{color:var(--muted);text-decoration:line-through}
+  /* .ic-chip/.ic-accent/.ic-clay/.ic-warn/.ic-muted now live in style.css (shared with Metrics). */
+
+  /* Needs your attention + the activity feed below it: a colored icon chip anchors each row; a live
+     badge for what's running right now, so state is visible in FORM as well as in the label text. */
+  .row-link{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;background:var(--bg-subtle);text-decoration:none;color:inherit;margin-bottom:7px;transition:background .12s}
+  .row-link:last-child{margin-bottom:0}
+  .row-link:hover{background:var(--border)}
+  .row-title{flex:1;min-width:0;font-size:var(--fs-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row-meta{flex:none;font-size:var(--fs-1);color:var(--muted)}
+  .attn-count{font-weight:700}
+  .row-chevron{flex:none;color:var(--muted);opacity:.6}
+
+  .active-sub{font-size:var(--fs-1);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;display:flex;align-items:center;gap:6px}
+  .active-sub:first-child{margin-top:0}
+  .active-sub i{width:13px;height:13px}
+  .active-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:720px){.active-grid{grid-template-columns:1fr}}
+
+  /* Stat tiles: a colored icon chip per metric instead of a plain number on a bare bordered box. */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr}}
+  .tile{border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:9px}
+  .tile-n{display:block;font-size:var(--fs-5,23px);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+  .tile-l{font-size:var(--fs-1);color:var(--muted);font-weight:600}
+
+  /* Cores: a colored accent stripe (matches the icon chip hue) so the two cards read as distinct
+     systems at a glance, not two identical gray boxes. */
+  .cores{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+  @media(max-width:720px){.cores{grid-template-columns:1fr}}
+  .core{position:relative;overflow:hidden;padding-left:22px}
+  .core::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+  .core.accent::before{background:var(--accent)}
+  .core.clay::before{background:var(--clay)}
+  .core-line{font-size:var(--fs-3,16px);font-weight:600;margin-top:2px}
+  .core-meta{font-size:var(--fs-2);color:var(--muted);margin-top:3px}
+  .core-note{font-size:var(--fs-2);color:var(--muted);line-height:1.55}
+  .core-list{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+  .core-item{font-size:var(--fs-2);padding:8px 11px;background:var(--bg-subtle);border-radius:8px}
+  .core-item.lead{background:var(--accent-soft);color:var(--accent-dk);font-weight:600}
+  .provider-line{display:flex;align-items:center;gap:7px;font-size:var(--fs-2);color:var(--muted);margin-top:6px}
+  .provider-line.on{color:var(--accent-dk);font-weight:600}
+  .provider-line i{width:14px;height:14px;flex:none}
+
+  /* Quick actions: one filled "do this" action, the rest as quieter icon-chip rows - not six identical
+     outlined buttons with equal visual weight. */
+  .qa-row{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:11px;text-decoration:none;color:var(--text);margin-bottom:8px;border:1px solid var(--border)}
+  .qa-row:last-child{margin-bottom:0}
+  .qa-row:hover{background:var(--bg-subtle)}
+  .qa-row.feature{background:var(--accent);border-color:var(--accent);color:#fff}
+  .qa-row.feature:hover{background:var(--accent-dk)}
+  .qa-row.feature .ic-chip{background:rgba(255,255,255,.2);color:#fff}
+  .qa-label{flex:1;font-size:var(--fs-2);font-weight:600}
+  .qa-row.feature .qa-label{font-weight:700}
+  .qa-arrow{flex:none;opacity:.55}
+  .qa-row.feature .qa-arrow{opacity:.9}
+</style>
+
+{% for alert in alerts %}
+<div class="alert alert-warn">⚠️ {{ alert }}</div>
+{% endfor %}
+
+{# First-run: the bundled engine is starting and the local model is downloading (~2 GB). This banner
+   shows until the model is ready, then hides itself; while up it doubles as a guided step (#683 p5). #}
+<div class="alert alert-info" id="local-model-banner" style="display:none">
+  <p id="local-model-msg" style="margin:0">Preparing your local AI...</p>
+  <p id="local-model-queued" style="margin:8px 0 0;display:none"></p>
+  <p style="margin:10px 0 0">
+    Meanwhile, you can get set up: <a href="/wiki">build your wiki</a> or
+    <a href="/skills">browse skill templates</a> - both are ready to use once the model finishes.
+  </p>
+</div>
+
+<div class="dash-head">
+  <div>
+    <h2>{{ greeting }}{% if me_name %}, {{ me_name }}{% endif %}.</h2>
+    <p class="text-muted" style="margin:2px 0 0">Your AI is running on {{ where_label }}. Here's where it stands.</p>
+  </div>
+  <span class="model-pill{% if model_pulling %} preparing{% endif %}" id="model-pill"{% if council_members|length > 1 %} title="{{ council_members|join(', ') }}"{% endif %}>
+    <span class="dot"></span><span id="model-pill-label">{% if council_members|length > 1 %}Council of {{ council_members|length }}{% elif council_members %}{{ council_members[0] }}{% else %}Your model{% endif %}</span> &middot; on {{ where_label }}</span>
+</div>
+
+{% if activation and not activation_done %}
+<div class="card mb-2">
+  <div class="dash-cardh">
+    <h3>Finish setting up</h3>
+    <span class="pill-on">{{ activation | selectattr('done') | list | length }} of {{ activation | length }} done</span>
+  </div>
+  <div class="setup-track"><div class="setup-fill" style="width:{{ activation_pct }}%"></div></div>
+  {% for s in activation %}
+  <div class="ck {% if s.done %}done{% endif %}">
+    <span class="ck-box">{% if s.done %}&#10003;{% endif %}</span>
+    <div class="ck-main"><span class="ck-name">{{ s.label }}</span></div>
+    {% if not s.done %}{% if s.href %}<a href="{{ s.href }}" class="btn btn-primary btn-sm">{{ s.cta }}</a>{% else %}<span class="text-sm text-muted">{{ s.cta }}</span>{% endif %}{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Your uploads waiting on you (any role) + admin queues; surfaced above the vitals so nothing waits. #}
+{% if attention %}
+<div class="card mb-2">
+  <h3>Needs your attention</h3>
+  <div style="margin-top:12px">
+    {% for a in attention %}
+    <a href="{{ a.href }}" class="row-link">
+      <span class="ic-chip ic-warn"><i data-lucide="{{ a.icon }}"></i></span>
+      <span class="row-title"><span class="attn-count">{{ a.count }}</span> {{ a.label }}</span>
+      <i data-lucide="chevron-right" class="row-chevron"></i>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# What's actually happening right now, not just static vitals (founder feedback 2026-09-28). #}
+{% if active_now %}
+<div class="card mb-2">
+  <h3>Active now</h3>
+  <div class="active-grid" style="margin-top:14px">
+    {% if running_tasks or running_agents or upcoming_tasks %}
+    <div>
+      <div class="active-sub"><i data-lucide="list-checks"></i> Tasks &amp; agents</div>
+      {% for t in running_tasks %}
+      <a href="/tasks/{{ t.id }}/result" class="row-link">
+        <span class="ic-chip ic-clay"><i data-lucide="list-checks"></i></span>
+        <span class="row-title">{{ t.title }}</span>
+        <span class="badge badge-running">&#9679; running</span>
+      </a>
+      {% endfor %}
+      {% for a in running_agents %}
+      <a href="/agents/{{ a.id }}" class="row-link">
+        <span class="ic-chip ic-accent"><i data-lucide="bot"></i></span>
+        <span class="row-title">{{ a.name }}</span>
+        <span class="badge badge-running">&#9679; running</span>
+      </a>
+      {% endfor %}
+      {% for t in upcoming_tasks %}
+      <a href="/tasks/{{ t.id }}/result" class="row-link">
+        <span class="ic-chip ic-clay"><i data-lucide="clock"></i></span>
+        <span class="row-title">{{ t.title }}</span>
+        <span class="row-meta" data-utc="{{ t.next_run_at|utc_iso }}">{{ t.next_run_at.strftime('%m-%d %H:%M') }} UTC</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if recent_chats %}
+    <div>
+      <div class="active-sub"><i data-lucide="message-square"></i> Recent chats</div>
+      {% for c in recent_chats %}
+      <a href="/chat/{{ c.id }}" class="row-link">
+        <span class="ic-chip ic-warn"><i data-lucide="message-square"></i></span>
+        <span class="row-title">{{ c.title }}</span>
+        <span class="row-meta" data-utc="{{ c.updated_at|utc_iso }}">{{ c.updated_at.strftime('%m-%d %H:%M') }} UTC</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile">
+    <span class="ic-chip ic-accent"><i data-lucide="message-square"></i></span>
+    <span class="tile-n">{{ stats.answers }}</span><span class="tile-l">Answers given</span>
+  </div>
+  <div class="tile">
+    <span class="ic-chip ic-clay"><i data-lucide="sparkles"></i></span>
+    <span class="tile-n">{{ stats.training }}</span><span class="tile-l">Training examples</span>
+  </div>
+  <div class="tile">
+    <span class="ic-chip ic-warn"><i data-lucide="book-open"></i></span>
+    <span class="tile-n">{{ stats.wiki }}</span><span class="tile-l">Wiki entries</span>
+  </div>
+  <div class="tile">
+    <span class="ic-chip ic-muted"><i data-lucide="clock"></i></span>
+    <span class="tile-n">{{ stats.memory }}</span><span class="tile-l">Memory items</span>
+  </div>
+</div>
+
+<div class="cores">
+  <div class="card core accent">
+    <div class="dash-cardh">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="ic-chip ic-accent"><i data-lucide="bot"></i></span>
+        {# "Council" implies more than one model answering together - calling a single model a
+           "council" (or inviting the user to "update" one that was never there) reads as flatly wrong,
+           especially on a machine below the 24 GB local-council floor where a council was never an
+           option (founder report, 2026-09-30: "There is no council with 16 GB of memory"). #}
+        <h3>{% if council_members|length > 1 %}Model council{% else %}Model{% endif %}</h3>
+      </div>
+      <span class="pill-on" id="council-status">{% if model_pulling %}Preparing{% else %}Running{% endif %}</span>
+    </div>
+    <div class="core-line">{% if council_members|length > 1 %}{{ council_members[0] }} <span class="text-muted" style="font-weight:400">+ {{ council_members|length - 1 }} more</span>{% elif council_members %}{{ council_members[0] }}{% else %}Your model{% endif %}</div>
+    <div class="core-meta">On {{ where_label }}{% if where_label == 'your machine' %} &middot; fully offline{% endif %}</div>
+    <div class="provider-line{% if escalation_provider_name %} on{% endif %}">
+      {% if escalation_provider_name %}<i data-lucide="zap"></i> {{ escalation_provider_name }} attached for hard questions
+      {% else %}<i data-lucide="zap"></i> No inference provider attached{% endif %}
+    </div>
+    {% if council_members|length > 1 %}
+    <div class="core-list">
+      {% for cm in council_members %}<div class="core-item{% if loop.first %} lead{% endif %}">{{ cm }}{% if loop.first %} <span style="opacity:.75">&middot; lead</span>{% endif %}</div>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="core-note" style="margin-top:10px">
+      {% if stats.training %}{{ stats.training }} approved example{{ '' if stats.training == 1 else 's' }} - your model retrains itself as these grow.{% else %}Approve answers as you work and your model starts learning from them.{% endif %}
+    </div>
+    {% if not escalation_provider_name %}<a href="/personalize" class="btn btn-outline btn-sm" style="margin-top:12px"><i data-lucide="zap"></i> Attach an inference provider</a>{% endif %}
+  </div>
+  <div class="card core clay">
+    <div class="dash-cardh">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="ic-chip ic-clay"><i data-lucide="book-open"></i></span>
+        <h3>Living wiki</h3>
+      </div>
+      <span class="pill-on clay">{% if stats.wiki %}Growing{% else %}Empty{% endif %}</span>
+    </div>
+    <div class="core-line">{{ stats.wiki }} entr{{ 'y' if stats.wiki == 1 else 'ies' }} &middot; {{ stats.memory }} memor{{ 'y' if stats.memory == 1 else 'ies' }}</div>
+    <div class="core-meta">Grows from your chats</div>
+    {% if wiki_recent %}
+    <div class="core-list">
+      {% for t in wiki_recent %}<div class="core-item">{{ t }}</div>{% endfor %}
+    </div>
+    {% endif %}
+    <a href="/wiki" class="btn btn-clay btn-sm" style="margin-top:12px"><i data-lucide="book-open"></i> Add knowledge</a>
+  </div>
+</div>
+
+{% if user.role == 'admin' %}
+<div class="grid-2">
+  {# Quick actions = deeper links that are NOT already in the left rail (so it does not duplicate the
+     menu). Settings/Chat/Knowledge live in the rail, so they are not repeated here. #}
+  <div class="card">
+    <h3>Quick actions</h3>
+    <div style="margin-top:12px">
+      <a href="/personalize#model" class="qa-row feature">
+        <span class="ic-chip"><i data-lucide="boxes"></i></span>
+        <span class="qa-label">{% if council_members|length > 1 %}Update your council{% else %}Update your model{% endif %}</span>
+        <i data-lucide="arrow-right" class="qa-arrow"></i>
+      </a>
+      {% if not solo %}
+      <a href="/users" class="qa-row">
+        <span class="ic-chip ic-muted"><i data-lucide="users"></i></span>
+        <span class="qa-label">Manage users</span>
+        <i data-lucide="arrow-right" class="qa-arrow"></i>
+      </a>
+      {% endif %}
+      <a href="/metrics" class="qa-row">
+        <span class="ic-chip ic-muted"><i data-lucide="bar-chart-3"></i></span>
+        <span class="qa-label">View metrics</span>
+        <i data-lucide="arrow-right" class="qa-arrow"></i>
+      </a>
+      {% if pending_reviews %}
+      <a href="/wiki/review" class="qa-row">
+        <span class="ic-chip ic-warn"><i data-lucide="book-open-check"></i></span>
+        <span class="qa-label">Review wiki updates</span>
+        <i data-lucide="arrow-right" class="qa-arrow"></i>
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  {# A solo account has no organisation - showing "Organization / Name / role" there is nonsense, so
+     solo gets a plain workspace summary instead; only a real org shows org identity + audit log. #}
+  {% if solo %}
+  <div class="card">
+    <h3>Your workspace</h3>
+    <div style="margin-top:12px;font-size:14px;line-height:1.9">
+      <b>Running on:</b> {{ where_label }}<br>
+      {% if council_members|length > 1 %}<b>Council:</b> {{ council_members|length }} models{% else %}<b>Model:</b> {{ council_members[0] if council_members else 'Not chosen yet' }}{% endif %}
+    </div>
+    <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
+      <a href="/docs/how-it-works" class="text-sm"><i data-lucide="book-open"></i> How Anthill works →</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="card">
+    <h3>Organization</h3>
+    <div style="margin-top:12px;font-size:14px;line-height:1.9">
+      <b>Name:</b> {{ org.name }}<br>
+      <b>Your role:</b> <span class="badge badge-{{ user.role }}">{{ user.role }}</span>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
+      <a href="/audit" class="text-sm"><i data-lucide="scroll-text"></i> Audit log →</a>
+      <a href="/docs/how-it-works" class="text-sm"><i data-lucide="book-open"></i> How Anthill works →</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<script>
+// First-run: poll local-model readiness and show a "preparing your local AI" banner until the
+// bundled engine is up and the model has finished downloading (~2 GB on first launch).
+(function () {
+  var banner = document.getElementById('local-model-banner');
+  var msg = document.getElementById('local-model-msg');
+  var queuedMsg = document.getElementById('local-model-queued');
+  if (!banner) return;
+  // Keep the council status + header pill in step with the banner: while the local model is still
+  // downloading, the council is "Preparing", not "Running" (founder saw "Running" over a downloading
+  // banner). Only meaningful for the local tier - cloud/org have no local model to wait on.
+  var isLocal = {{ 'true' if where_label == 'your machine' else 'false' }};
+  function setCouncilReady(ready) {
+    if (!isLocal) return;
+    var status = document.getElementById('council-status');
+    if (status) status.textContent = ready ? 'Running' : 'Preparing';
+    var pill = document.getElementById('model-pill');
+    if (pill) pill.classList.toggle('preparing', !ready);
+  }
+  function poll() {
+    fetch('/local-model/status').then(function (r) { return r.json(); }).then(function (d) {
+      setCouncilReady(!!d.ready);
+      if (d.ready) { banner.style.display = 'none'; return; }
+      banner.style.display = 'block';
+      if (!d.ollama_up) {
+        msg.textContent = 'Starting your local AI engine...';
+      } else {
+        msg.innerHTML = 'Preparing your local AI - downloading the model (' +
+          (d.model || 'local model') + ', a one-time ~2 GB download). You can keep exploring; ' +
+          'chat will be ready when this finishes.';
+      }
+      // An upload made while the model is still downloading is saved and queued (not lost) -
+      // it processes automatically as soon as the model above reports ready (#683 phase 5).
+      if (d.queued_uploads > 0) {
+        queuedMsg.style.display = 'block';
+        queuedMsg.textContent = d.queued_uploads === 1
+          ? 'Your queued upload will be added automatically once this is ready.'
+          : d.queued_uploads + ' queued uploads will be added automatically once this is ready.';
+      } else {
+        queuedMsg.style.display = 'none';
+      }
+      setTimeout(poll, 4000);
+    }).catch(function () { setTimeout(poll, 8000); });
+  }
+  poll();
+})();
+</script>
+{% endblock %}

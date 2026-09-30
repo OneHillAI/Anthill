@@ -1,0 +1,55 @@
+# ASDD - conventions contract (report-only).
+#
+# Reports whether a change follows this repository's declared `conventions:` block in .asdd.yml (the
+# changelog-fragment rule, the house-style character ban, and so on). Adopted from OneHillAI/ASDD
+# v0.3.0 via cli/conventions-check.py.
+#
+# OBSERVE STAGE, non-blocking by design: the check step is continue-on-error, so a violation is visible
+# in the job log and the run summary but never fails the run or blocks a merge. This is the first rung
+# of the observe -> advise -> gate ladder. Promote it to advise (post the report as a PR comment) and
+# later to gate (add it to branch protection) once the report has earned trust on real changes. It runs
+# on every PR, including docs-only ones, because a missing changelog fragment is most likely there.
+
+name: ASDD conventions (report-only)
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: conventions-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Validate the conventions block
+        run: python cli/conventions-check.py --validate
+      - name: Report the change against the conventions (report-only)
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=1 --quiet || true
+          mapfile -t changed < <(git diff --name-only "origin/${BASE_REF}...HEAD")
+          lane="$(python -c "import json,os;d=json.load(open(os.environ['GITHUB_EVENT_PATH']));\
+          print(next((l['name'] for l in d['pull_request']['labels'] \
+          if l['name'].startswith('pillar:') or l['name']=='chore'),''))")"
+          {
+            echo "## ASDD conventions report"
+            echo "Lane: \`${lane:-<none>}\`  |  files changed: ${#changed[@]}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          python cli/conventions-check.py --changed "${changed[@]}" --lane "$lane" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

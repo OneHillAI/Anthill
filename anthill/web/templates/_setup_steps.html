@@ -1,0 +1,35 @@
+{# First-run wizard progress. Guided setup is three steps: create your account, choose Solo or
+   organization (both get identical model/council access - only team invitation differs), then choose
+   the local AI. Backend/team-invite setup is NOT a setup step - it lives in Settings after sign-up
+   (docs/specs/setup-wizard.md). `setup_step` (1, 2, or 3) is the current step; earlier steps render as
+   done. Self-contained styles so it drops into the standalone auth pages (which load only style.css). #}
+<style>
+  .wiz-steps { display:flex; align-items:center; justify-content:center; gap:10px; margin:2px 0 22px; }
+  .wiz-step { display:flex; align-items:center; gap:8px; }
+  .wiz-badge { width:26px; height:26px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; font-size:13px; font-weight:600; flex:none;
+    border:1.5px solid var(--border); color:var(--muted); background:transparent; }
+  .wiz-label { font-size:13px; color:var(--muted); }
+  .wiz-step.is-current .wiz-badge { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .wiz-step.is-current .wiz-label { color:var(--text); font-weight:600; }
+  .wiz-step.is-done .wiz-badge { border-color:var(--accent); color:var(--accent); }
+  .wiz-step.is-done .wiz-label { color:var(--text); }
+  .wiz-sep { width:26px; height:1.5px; background:var(--border); flex:none; }
+  @media (max-width:420px) { .wiz-label { display:none; } .wiz-sep { width:16px; } }
+</style>
+<div class="wiz-steps" role="list" aria-label="Setup progress">
+  <div class="wiz-step {% if setup_step == 1 %}is-current{% elif setup_step and setup_step > 1 %}is-done{% endif %}" role="listitem">
+    <span class="wiz-badge">{% if setup_step and setup_step > 1 %}&check;{% else %}1{% endif %}</span>
+    <span class="wiz-label">Create account</span>
+  </div>
+  <span class="wiz-sep"></span>
+  <div class="wiz-step {% if setup_step == 2 %}is-current{% elif setup_step and setup_step > 2 %}is-done{% endif %}" role="listitem">
+    <span class="wiz-badge">{% if setup_step and setup_step > 2 %}&check;{% else %}2{% endif %}</span>
+    <span class="wiz-label">Solo or organization</span>
+  </div>
+  <span class="wiz-sep"></span>
+  <div class="wiz-step {% if setup_step == 3 %}is-current{% endif %}" role="listitem">
+    <span class="wiz-badge">3</span>
+    <span class="wiz-label">Choose your AI</span>
+  </div>
+</div>

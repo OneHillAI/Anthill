@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }} settings{% endblock %}
+{% block page_title %}Project settings{% endblock %}
+{% block content %}
+
+<p style="margin:0 0 14px"><a href="/teams/{{ team.id }}" class="text-sm text-muted">&larr; Back to {{ team.name }}</a></p>
+
+{% if saved %}<div class="alert alert-ok">Saved.</div>{% endif %}
+{% if error == 'name_required' %}<div class="alert alert-warn">Please give the project a name.</div>{% endif %}
+{% if error == 'slug_taken' %}<div class="alert alert-warn">A project with that name already exists.</div>{% endif %}
+
+<div class="card mb-2">
+  <h3 style="font-size:15px;margin:0 0 10px">Name</h3>
+  <form method="post" action="/teams/{{ team.id }}/rename" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input type="text" name="name" value="{{ team.name }}" required style="flex:2;min-width:220px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <button type="submit" class="btn btn-primary">Rename</button>
+  </form>
+  <p class="text-sm text-muted" style="margin:8px 0 0">The URL slug follows the name: <code>/{{ team.slug }}</code>.</p>
+</div>
+
+<div class="card mb-2">
+  <h3 style="font-size:15px;margin:0 0 10px">About this project</h3>
+  {% if is_org %}
+  <p class="text-sm" style="margin:0 0 6px"><b>Org project.</b> It borrows your <b>organization's</b> shared model and skills, and can have <b>members</b> (invite them from the <a href="/teams/{{ team.id }}">project home</a>).</p>
+  {% else %}
+  <p class="text-sm" style="margin:0 0 6px"><b>Solo project.</b> It borrows your <b>Solo</b> (on-device) model and skills, and is single-user. <span class="text-muted">Members become available once you <a href="/settings/organization">set up an organization</a>.</span></p>
+  {% endif %}
+  <p class="text-sm text-muted" style="margin:0">This project has its <b>own wiki</b>, used only for it - a project never has its own model, it always runs on its parent's.</p>
+</div>
+
+<div class="card mb-2">
+  <h3 style="font-size:15px;margin:0 0 6px">Connected wiki</h3>
+  <form method="post" action="/teams/{{ team.id }}/wiki-connect" style="margin:0">
+    <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+      <input type="checkbox" name="connect_parent_wiki" {% if team.connect_parent_wiki %}checked{% endif %}
+             onchange="this.form.submit()" style="margin-top:3px">
+      <span class="text-sm">Also read the <b>{{ 'org' if is_org else 'personal' }}</b> wiki (read-only)
+        alongside this project's own. Turn off for a <b>fully isolated</b> project that uses only its own
+        knowledge. This never changes where the project <b>writes</b> - always its own wiki.</span>
+    </label>
+    <noscript><button type="submit" class="btn btn-outline btn-sm" style="margin-top:8px">Save</button></noscript>
+  </form>
+</div>
+
+<div class="card mb-2" style="border:1px solid var(--danger,#b91c1c)">
+  <h3 style="font-size:15px;margin:0 0 8px;color:var(--danger,#b91c1c)">Delete this project</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    Removes the project boundary. Its chats, tasks, and agents are <b>kept</b> as your Solo items (nothing
+    you made is destroyed); the project's pending wiki reviews and its memberships are removed.
+  </p>
+  <form method="post" action="/teams/{{ team.id }}/delete" id="del-form">
+    <button type="button" class="btn btn-danger" id="del-btn" onclick="armDelete()">Delete project</button>
+    <span id="del-hint" class="text-sm text-muted" style="display:none;margin-left:8px">Click again to confirm</span>
+  </form>
+</div>
+
+<script>
+  // Two-click confirm: the desktop app's webview does not reliably run window.confirm().
+  let _armed = false;
+  function armDelete() {
+    const b = document.getElementById('del-btn');
+    if (!_armed) {
+      _armed = true;
+      b.textContent = 'Confirm delete';
+      document.getElementById('del-hint').style.display = 'inline';
+      return;
+    }
+    document.getElementById('del-form').submit();
+  }
+</script>
+{% endblock %}

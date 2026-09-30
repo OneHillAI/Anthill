@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block page_title %}Users{% endblock %}
+{% block content %}
+
+{% set invited = request.query_params.get('invited','') %}
+{% set reset_for = request.query_params.get('reset','') %}
+{% set uerr = request.query_params.get('error','') %}
+{% if invited %}
+<div class="alert alert-ok">
+  ✅ Invitation created for <b>{{ invited }}</b>. If email isn't set up, use
+  <b>Copy invite link</b> on their row below and send it to them.
+</div>
+{% endif %}
+{% if reset_for %}
+<div class="alert alert-ok">
+  🔑 Password reset link generated for <b>{{ reset_for }}</b>. It's emailed when SMTP is configured;
+  otherwise use <b>Copy reset link</b> on their row and send it to them (valid for one hour).
+</div>
+{% endif %}
+{% if uerr == 'already_exists' %}<div class="alert alert-warn">That email is already a member or has a pending invite.</div>{% endif %}
+{% if uerr == 'not_active' %}<div class="alert alert-warn">That member hasn't activated their account yet - use their <b>Copy invite link</b> instead.</div>{% endif %}
+{% if uerr == 'not_activated' %}<div class="alert alert-warn">Connect your organization backend first - you cannot invite a team until it is set up.</div>{% endif %}
+
+{% if not org_activated %}
+<div class="alert" style="background:var(--bg-subtle);color:var(--text)">
+  <b>Activate your organization to invite a team.</b> A shared organization runs its wiki and model on a
+  backend your org owns. Connect and validate it under
+  <a href="/settings/organization">Settings -&gt; Organization</a>, then you can invite teammates here.
+</div>
+{% endif %}
+
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h2 style="font-size:16px">Team members</h2>
+  {% if org_activated %}
+  <button onclick="document.getElementById('invite-form').style.display='block'"
+          class="btn btn-primary btn-sm">+ Invite user</button>
+  {% else %}
+  <a href="/settings/organization" class="btn btn-outline btn-sm">Set up organization</a>
+  {% endif %}
+</div>
+
+<div id="invite-form" style="display:none" class="card mb-2">
+  <h3 style="margin-bottom:14px">Invite a new member</h3>
+  <form method="post" action="/users/invite" style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="form-group" style="flex:2;min-width:200px;margin:0">
+      <input type="email" name="email" required placeholder="email@company.com">
+    </div>
+    <div class="form-group" style="flex:1;min-width:120px;margin:0">
+      <select name="role">
+        <option value="member">Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Send invite</button>
+    <button type="button" class="btn btn-outline"
+            onclick="document.getElementById('invite-form').style.display='none'">Cancel</button>
+  </form>
+  <p class="text-sm text-muted" style="margin-top:10px">
+    After inviting, a <b>Copy invite link</b> button appears on their row - send them the link (it is also
+    emailed when SMTP is configured). They click it to set their password (double opt-in); Google login
+    also works once invited.
+  </p>
+</div>
+
+<div class="card">
+<table>
+  <thead>
+    <tr>
+      <th>Name / Email</th>
+      <th>Role</th>
+      <th>Status</th>
+      <th>Last seen</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for m in members %}
+  <tr>
+    <td>
+      <b>{{ m.display_name or m.email }}</b><br>
+      <span class="text-sm text-muted">{{ m.email }}</span>
+      {% if m.oauth_provider %}<span class="badge badge-oauth">{{ m.oauth_provider }}</span>{% endif %}
+    </td>
+    <td>
+      <form method="post" action="/users/{{ m.id }}/role" style="display:inline">
+        <select name="role" onchange="this.form.submit()" {% if m.id == user.sub|int %}disabled{% endif %}>
+          <option value="member" {% if m.role=='member' %}selected{% endif %}>member</option>
+          <option value="admin"  {% if m.role=='admin'  %}selected{% endif %}>admin</option>
+        </select>
+      </form>
+    </td>
+    <td>
+      <span class="badge badge-{{ 'active' if m.active else 'pending' }}">
+        {{ 'active' if m.active else 'pending invite' }}
+      </span>
+    </td>
+    <td class="text-sm text-muted">
+      {{ m.last_seen.strftime('%Y-%m-%d %H:%M') if m.last_seen else '-' }}
+    </td>
+    <td>
+      {% if not m.active and m.invite_token %}
+      <button class="btn btn-outline btn-sm" title="{{ base_url }}invite/{{ m.invite_token }}"
+              onclick="copyInvite(this, '{{ base_url }}invite/{{ m.invite_token }}')">Copy invite link</button>
+      {% endif %}
+      {% if m.active %}
+      {% if reset_links.get(m.id) %}
+      <button class="btn btn-outline btn-sm" title="{{ reset_links[m.id] }}"
+              onclick="copyReset(this, '{{ reset_links[m.id] }}')">Copy reset link</button>
+      {% endif %}
+      <form method="post" action="/users/{{ m.id }}/reset" style="display:inline">
+        <button class="btn btn-outline btn-sm" title="Generate a password-reset link for {{ m.email }}">Send password reset</button>
+      </form>
+      {% endif %}
+      {% if m.id != user.sub|int and m.active %}
+      <form method="post" action="/users/{{ m.id }}/deactivate" style="display:inline">
+        <button class="btn btn-danger btn-sm"
+                onclick="return confirm('Deactivate {{ m.email }}?')">Deactivate</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<script>
+function _copyLink(btn, link, label) {
+  const restore = () => { btn.textContent = label; };
+  const ok = () => { btn.textContent = 'Copied!'; setTimeout(restore, 1500); };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(link).then(ok, () => window.prompt('Copy this link:', link));
+  } else {
+    window.prompt('Copy this link:', link);
+  }
+}
+function copyInvite(btn, link) { _copyLink(btn, link, 'Copy invite link'); }
+function copyReset(btn, link) { _copyLink(btn, link, 'Copy reset link'); }
+</script>
+{% endblock %}

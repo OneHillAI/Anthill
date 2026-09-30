@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Metrics{% endblock %}
+{% block page_title %}Usage metrics{% endblock %}
+{% block content %}
+
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:20px">
+  <span class="text-muted text-sm">Period:</span>
+  {% for d in [7,30,90] %}
+  <a href="/metrics?days={{ d }}"
+     class="btn btn-sm {% if days==d %}btn-primary{% else %}btn-outline{% endif %}">
+    {{ d }}d
+  </a>
+  {% endfor %}
+</div>
+
+<p class="text-muted text-sm" style="margin-bottom:12px">
+  How your org is using Anthill over the last {{ m.days }} days. Hover the
+  <b>ⓘ</b> for what each number measures.
+</p>
+
+<div class="grid-4 mb-2">
+  <div class="card" style="position:relative">
+    <span class="metric-i" title="Total questions answered in this period (cache hits and local generations).">ⓘ</span>
+    <span class="ic-chip ic-accent" style="margin-bottom:10px"><i data-lucide="message-square"></i></span>
+    <h3>Queries</h3>
+    <div class="big">{{ m.total }}</div>
+    <div class="sub">last {{ m.days }} days</div>
+  </div>
+  <div class="card" style="position:relative">
+    <span class="metric-i" title="Distinct people who chatted in this period - your real adoption signal.">ⓘ</span>
+    <span class="ic-chip ic-clay" style="margin-bottom:10px"><i data-lucide="users"></i></span>
+    <h3>Active users</h3>
+    <div class="big">{{ m.active_users }}</div>
+    <div class="sub">people who chatted</div>
+  </div>
+  <div class="card" style="position:relative">
+    <span class="metric-i" title="Share of questions served instantly from the semantic cache - no inference call. Higher means more repeat work is being reused.">ⓘ</span>
+    <span class="ic-chip ic-accent" style="margin-bottom:10px"><i data-lucide="zap"></i></span>
+    <h3>Cache hit rate</h3>
+    {% if semantic_cache_available %}
+    <div class="big">{{ m.hit_rate_pct }}%</div>
+    <div class="sub">{{ m.cache_hits }} of {{ m.total }} from cache</div>
+    {% else %}
+    <div class="big text-muted">-</div>
+    <div class="sub">Semantic cache is off in this build (it needs an embedding model), so repeat questions are not reused yet.</div>
+    {% endif %}
+  </div>
+  <div class="card" style="position:relative">
+    <span class="metric-i" title="Median (p50) response time. p95 is the slow tail a few users feel; watch it for capacity problems.">ⓘ</span>
+    <span class="ic-chip ic-muted" style="margin-bottom:10px"><i data-lucide="clock"></i></span>
+    <h3>Median latency</h3>
+    <div class="big">{{ m.p50_ms }}ms</div>
+    <div class="sub">p95 {{ m.p95_ms }}ms</div>
+  </div>
+  <div class="card" style="position:relative">
+    <span class="metric-i" title="Thumbs-up share of the answers users rated. Unrated answers are not counted. A falling number is your earliest quality warning.">ⓘ</span>
+    <span class="ic-chip ic-warn" style="margin-bottom:10px"><i data-lucide="thumbs-up"></i></span>
+    <h3>Answer satisfaction</h3>
+    {% if m.feedback_rated %}
+    <div class="big">{{ m.satisfaction_pct }}%</div>
+    <div class="sub">{{ m.feedback_up }} up · {{ m.feedback_down }} down of {{ m.feedback_rated }} rated</div>
+    {% else %}
+    <div class="big">-</div>
+    <div class="sub">no ratings yet</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid-2 mt-4">
+  <div class="card">
+    <h3 style="margin-bottom:14px">Daily query volume</h3>
+    {% if m.daily %}
+    <table>
+      <thead><tr><th>Date</th><th>Queries</th></tr></thead>
+      <tbody>
+      {% for day, count in m.daily.items()|sort(reverse=True) %}
+      <tr><td>{{ day }}</td>
+          <td>
+            <span style="display:inline-block;background:var(--accent);height:12px;
+              width:{{ [count*6,200]|min }}px;border-radius:2px;vertical-align:middle"></span>
+            {{ count }}
+          </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted text-sm">No queries yet.</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:14px">Models in use</h3>
+    {% if m.by_model %}
+    <table>
+      <thead><tr><th>Model</th><th>Queries</th></tr></thead>
+      <tbody>
+      {% for row in m.by_model %}
+      <tr><td>{{ row.model }}</td>
+          <td>
+            <span style="display:inline-block;background:var(--clay);height:12px;
+              width:{{ [row.count*6,200]|min }}px;border-radius:2px;vertical-align:middle"></span>
+            {{ row.count }}
+          </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted text-sm">No queries yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-4" style="position:relative">
+  <span class="metric-i" title="An estimate, not billing. Cache hits run zero inference, so each one is credited your admin-set cloud-equivalent rate.">ⓘ</span>
+  <h3 style="margin-bottom:8px">Estimated savings from caching</h3>
+  {% if semantic_cache_available %}
+  <p class="text-muted text-sm" style="margin:0 0 14px">
+    The {{ m.cache_hits }} cache hits this period avoided roughly
+    <b>${{ m.saved_cost_usd }}</b> and <b>{{ m.saved_energy_gco2 }}g CO₂</b> of cloud
+    inference, and {{ m.in_perimeter_pct }}% of all queries stayed inside your perimeter.
+    Estimate only, from the per-query cloud-equivalent rates below.
+  </p>
+  {% else %}
+  <p class="text-muted text-sm" style="margin:0 0 14px">
+    The semantic cache needs an embedding model, which is not active in this build, so there are no
+    cache savings to show yet. {{ m.in_perimeter_pct }}% of all queries still stayed inside your
+    perimeter. Once an embedding model is enabled, repeat questions are served instantly and credited
+    here from the per-query cloud-equivalent rates below.
+  </p>
+  {% endif %}
+  {% if user and user.role == 'admin' %}
+  {% if request.query_params.get('saved') %}<div class="alert alert-ok" style="margin-bottom:12px">Saved.</div>{% endif %}
+  <form method="post" action="/metrics/estimates"
+        style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+    <div class="form-group" style="margin:0">
+      <label>Cloud API cost per query (USD)</label>
+      <input type="text" name="cost_per_query_usd" value="{{ cost_per_query_usd }}"
+             placeholder="0.004" style="width:160px">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Cloud energy per query (gCO₂)</label>
+      <input type="text" name="energy_per_query_gco2" value="{{ energy_per_query_gco2 }}"
+             placeholder="4.0" style="width:160px">
+    </div>
+    <button type="submit" class="btn btn-primary">Save rates</button>
+  </form>
+  <p class="text-sm text-muted" style="margin:8px 0 0">
+    Cost is a small/mid cloud completion (order of cents); energy is the IEA estimate for a
+    GPT-4-class query on the US grid. Adjust to your provider and region.
+  </p>
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0">An admin sets the per-query rates above.</p>
+  {% endif %}
+</div>
+{% endblock %}

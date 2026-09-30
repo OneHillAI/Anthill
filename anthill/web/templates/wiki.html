@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "_compute_banner.html" import compute_banner %}
+{% block title %}Wiki{% endblock %}
+{% block page_title %}{% if scope=='org' %}Organization wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}{% endblock %}
+{% block content %}
+{{ compute_banner(compute_ready, setup_href) }}
+{% include "_knowledge_tabs.html" %}
+{% include "_wiki_tabs.html" %}
+
+{% if active_wiki_tab == 'principles' %}
+{# ── Principles sub-tab ─────────────────────────────────────────────────────── #}
+{% if scope=='personal' and active_principles %}
+<div class="card mb-2">
+  <h2 style="font-size:15px;margin:0 0 4px">Active for you</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">The principles currently governing your answers, and where each is controlled.</p>
+  {% for p in active_principles %}
+  <div class="text-sm" style="margin:3px 0">
+    <span class="badge badge-clay">{{ p.label }}</span> principles
+    {% if p.label != 'Personal' %}<span title="Managed by your {{ 'admin' if p.label=='Organization' else 'team owner' }}">🔒</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="font-size:15px;margin:0 0 4px">Guiding principles</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">Always applied - every answer in this scope follows these. Keep them short. <b>Skills</b> (followed only when a task matches) live under <a href="/skills">Skills</a>.</p>
+  {% if can_edit %}
+  <form method="post" action="/wiki/principles">
+    <input type="hidden" name="scope" value="{{ scope }}">{% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <textarea name="content" rows="8" spellcheck="false"
+      style="width:100%;font-family:var(--font-mono);font-size:13px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm)">{{ principles_text }}</textarea>
+    <button class="btn btn-primary btn-sm" style="margin-top:8px">Save principles</button>
+  </form>
+  {% else %}
+  <pre class="text-sm" style="white-space:pre-wrap;margin:0">{{ principles_text or '(none set)' }}</pre>
+  {% endif %}
+</div>
+
+{% else %}
+{# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}
+<div class="card mb-2" id="wiki-pages-card">
+  <div class="flex items-center justify-between">
+    <h2 style="font-size:15px;margin:0">Pages</h2>
+    <span class="text-sm text-muted">the wiki documents in this scope <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.wiki.start();return false" class="text-sm">Take a tour</a></span>
+  </div>
+  {% if pages %}
+  <ul class="text-sm" style="margin:10px 0 0 18px;line-height:1.9">
+    {% for p in pages %}<li><a href="/wiki/page/{{ p.slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ p.title }}</a></li>{% endfor %}
+  </ul>
+  {% elif can_edit %}<p class="text-muted text-sm" style="margin-top:8px">No pages yet. Seed a foundation with <b>Research topics</b> below, upload documents, or let the model write pages as it files good answers.</p>
+  {% else %}<p class="text-muted text-sm" style="margin-top:8px">No pages yet. Pages are written by the model as it ingests sources and files good answers.</p>{% endif %}
+</div>
+
+{% if can_edit %}
+<div class="card mb-2" id="wiki-add-doc">
+  <h2 style="font-size:15px;margin:0 0 8px">Add a document</h2>
+  {% set saved = request.query_params.get('saved') %}
+  {% set uerr = request.query_params.get('error') %}
+  {% if saved=='added' %}<div class="alert alert-ok">Document added to this wiki.</div>{% endif %}
+  {% if saved=='queued' %}<div class="alert alert-warn">Document was flagged on review - it's waiting in the review queue.</div>{% endif %}
+  {% if saved=='queued_for_model' %}<div class="alert alert-warn">Your local AI is still downloading. This document is saved and will be added automatically as soon as it's ready.</div>{% endif %}
+  {% if uerr=='unsupported' %}<div class="alert alert-warn">Unsupported file type. Use .md, .txt, .pdf, or an image (.png/.jpg/.gif/.webp).</div>{% endif %}
+  {% if uerr=='ingest' %}<div class="alert alert-warn">Couldn't read that document - is the model running? Try again.</div>{% endif %}
+  {% if uerr=='pdfconfirm' %}<div class="alert alert-warn">This PDF needs more work than Anthill runs automatically. Re-select it, confirm larger PDF processing below, and upload again.</div>{% endif %}
+  {% if uerr=='pdflimit' %}<div class="alert alert-warn">This PDF exceeds Anthill's hard processing safety limits and cannot be uploaded automatically.</div>{% endif %}
+  {% if uerr=='pdfretry' %}<div class="alert alert-warn">Couldn't process that PDF right now - this isn't a problem with the file. Check that Ollama and this host are set up, then try again.</div>{% endif %}
+  {% if uerr=='pdfconfirm_missing' %}<div class="alert alert-warn">That pending PDF is no longer available. Refresh and try another.</div>{% endif %}
+  {% if uerr=='empty' %}<div class="alert alert-warn">That file was empty.</div>{% endif %}
+  {% if uerr=='toobig' %}<div class="alert alert-warn">File too large (max 25 MB).</div>{% endif %}
+  {% if uerr=='forbidden' %}<div class="alert alert-warn">You can't add documents to this scope.</div>{% endif %}
+  <p class="text-sm text-muted" style="margin:0 0 10px">Supported: .md, .txt, .pdf, .docx, .pptx, .xlsx, .html, images.{% if scope!='personal' %} Flagged changes wait in the review queue.{% endif %}</p>
+  {% if pdf_confirmations %}
+  <div class="alert alert-warn" style="margin-bottom:10px">
+    <b>PDFs awaiting confirmation</b>
+    {% for pdf_name in pdf_confirmations %}
+    <form method="post" action="/wiki/upload/confirm" style="display:inline-flex;gap:6px;align-items:center;margin:6px 0 0 8px">
+      <input type="hidden" name="name" value="{{ pdf_name }}">
+      <input type="hidden" name="target_scope" value="{{ scope }}">
+      {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+      <span>{{ pdf_name }}</span><button type="submit" class="btn btn-primary btn-sm">Confirm and process</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="/wiki/upload" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="target_scope" value="{{ scope }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <input type="file" name="file" required accept=".md,.txt,.pdf,.png,.jpg,.jpeg,.gif,.webp">
+    <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+    <label class="text-sm text-muted" style="display:flex;align-items:center;gap:5px;width:100%"><input type="checkbox" name="confirm_large_pdf" value="true"> Confirm larger PDF processing within Anthill's hard safety limits</label>
+  </form>
+</div>
+
+{# Baseline is "Add a document" above (and chat, which writes pages automatically) - that is enough
+   for most people with zero extra setup. Connector import and web research are real, working
+   features, just more deliberate setup than a drag-and-drop upload, so they live behind one
+   disclosure instead of competing with the headline action at equal visual weight. #}
+<details class="adv-disclosure" id="wiki-advanced">
+  <summary>Advanced: more ways to add knowledge</summary>
+  <div class="adv-disclosure-body">
+  <p class="text-sm text-muted" style="margin:0 0 12px">Uploading a document above - or just chatting - is usually all you need; your AI writes pages automatically from good answers. These are for more deliberate setup.</p>
+
+  {% if doc_sources %}
+  <div class="card mb-2" id="import-connector">
+  <h2 style="font-size:15px;margin:0 0 8px">Import from a connected service <span class="text-sm text-muted">(Drive, SharePoint, Notion...)</span><button type="button" class="help" aria-label="How import works">?<span class="help-pop">Pick the service, search for a file and choose it; Anthill files it as a page through the review queue. The connector gives read access; the page lives in your wiki.</span></button></h2>
+  {% if request.query_params.get('error')=='connector' %}<div class="alert alert-warn">That connector is not available.</div>{% endif %}
+  {% if request.query_params.get('error')=='empty_doc' %}<div class="alert alert-warn">Couldn't read that document from the connector. Pick another, or check it on the Connectors page.</div>{% endif %}
+  <form method="post" action="/wiki/import-connector" style="display:flex;flex-direction:column;gap:8px">
+    <input type="hidden" name="target_scope" value="{{ scope }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select name="server_id" id="wikiServer" required style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        {% for ds in doc_sources %}<option value="{{ ds.id }}">{{ ds.name }}</option>{% endfor %}
+      </select>
+      <input type="text" id="wikiQ" placeholder="Search by name (optional)" style="flex:1;min-width:200px;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <button type="button" class="btn btn-outline btn-sm" onclick="wikiFindFiles()">Find files</button>
+    </div>
+    <select name="ref" id="wikiFiles" required style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <option value="">Click "Find files" to list documents</option>
+    </select>
+    <input type="text" name="title" placeholder="Page title (optional - defaults to the file name)" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+    <div><button type="submit" class="btn btn-primary btn-sm">Import to this wiki</button></div>
+  </form>
+  <script>
+  async function wikiFindFiles(){
+    const sid=document.getElementById('wikiServer').value;
+    const q=document.getElementById('wikiQ').value.trim();
+    const sel=document.getElementById('wikiFiles');
+    sel.innerHTML='<option value="">Searching...</option>';
+    try{
+      const r=await fetch('/wiki/connector-files?server_id='+encodeURIComponent(sid)+'&q='+encodeURIComponent(q));
+      const data=await r.json();
+      sel.innerHTML='';
+      if(!data.files||!data.files.length){sel.innerHTML='<option value="">No documents found - try a search term</option>';return;}
+      for(const f of data.files){const o=document.createElement('option');o.value=f.ref;o.textContent=f.label;sel.appendChild(o);}
+    }catch(e){sel.innerHTML='<option value="">Could not list files</option>';}
+  }
+  </script>
+</div>
+{% endif %}
+
+<div class="card mb-2" id="research-topics">
+  <h2 style="font-size:15px;margin:0 0 8px">Research topics into wiki pages <span class="text-sm text-muted">(from the web)</span><button type="button" class="help" aria-label="How research works">?<span class="help-pop">List one or more topics, one per line. Anthill searches the web, reads the top sources, and drafts a verified, cited page for each, filed to the review queue. A verification pass cross-checks each claim and flags anything it cannot corroborate. Only the search queries leave your perimeter; the pages are written by your own model. This is how you seed a foundation in one sitting.</span></button></h2>
+  {% if request.query_params.get('research')=='started' %}<div class="alert alert-ok">Researching - the verified, cited draft will appear in the review queue shortly.</div>{% endif %}
+  {% if request.query_params.get('research')=='batch' %}<div class="alert alert-ok">Researching {{ request.query_params.get('n') }} topic(s) - verified, cited drafts will appear in the review queue as each finishes.</div>{% endif %}
+  {% if request.query_params.get('error')=='no_topic' %}<div class="alert alert-warn">Enter at least one topic to research.</div>{% endif %}
+  <form method="post" action="/research/batch" style="display:flex;flex-direction:column;gap:8px">
+    <input type="hidden" name="target_scope" value="{{ scope }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <textarea name="topics" rows="5" required placeholder="PCI-DSS basics for our payments page&#10;Our refund and returns policy&#10;Key facts about our main product line" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px"></textarea>
+    <div><button type="submit" class="btn btn-primary btn-sm">Research and draft</button></div>
+  </form>
+</div>
+  </div>
+</details>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  anthillWalkthrough('wiki', [
+    {sel: '#wiki-pages-card', title: 'Your wiki', body: 'This is your knowledge base. The model writes pages here as it files good answers and ingests sources - you approve, you do not hand-edit.'},
+    {sel: '#wiki-add-doc', title: 'Add a document', body: 'Upload a file and Anthill converts it into a page for you.'},
+    {sel: '#import-connector', title: 'Import from a service', body: 'Pull a document straight from a connected service like Drive or Notion - same review path as an upload.'},
+    {sel: '#research-topics', title: 'Research topics', body: 'List a few topics and Anthill searches the web, drafts a cited page for each, and files it for review. The fastest way to seed a foundation.'},
+  ], {autostart: false});
+});
+</script>
+{% endif %}
+{% endblock %}

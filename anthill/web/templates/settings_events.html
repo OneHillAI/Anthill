@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Inbound events{% endblock %}
+{% block page_title %}Inbound events (push){% endblock %}
+{% block content %}
+
+{% if saved %}<div class="alert alert-ok">✅ Inbound event settings saved.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:720px;margin-bottom:18px">
+  Push sources let Anthill react the instant something arrives instead of polling. A received event is
+  written to the workspace inbox and ingested through the normal review gate - inbound content is treated
+  as data, never executed. <a href="/settings">Back to settings</a>.
+</p>
+
+<form method="post" action="/settings/events">
+
+  <div class="card mb-2" style="max-width:720px">
+    <h3 style="margin-bottom:6px">Webhooks <span class="text-sm text-muted">(Slack + generic)</span></h3>
+    <label class="flex gap-2 items-center" style="margin:10px 0">
+      <input type="checkbox" name="webhook_enabled" {% if cfg.webhook_enabled %}checked{% endif %}>
+      <span>Accept inbound webhooks</span>
+    </label>
+
+    <div class="form-group">
+      <label>Slack request URL</label>
+      <input type="text" readonly value="{{ base_url }}webhooks/slack">
+      <p class="text-sm text-muted">Paste this into your Slack app's <b>Event Subscriptions</b> request URL.
+        Then paste the app's <b>Signing Secret</b> below so requests can be verified.</p>
+    </div>
+    <div class="form-group">
+      <label>Slack signing secret {% if has_slack_secret %}<span class="badge badge-active">set</span>{% endif %}</label>
+      <input type="password" name="slack_signing_secret" autocomplete="off"
+             placeholder="{{ 'leave blank to keep the saved secret' if has_slack_secret else 'paste from your Slack app' }}">
+    </div>
+
+    <div class="form-group">
+      <label>Generic webhook URL</label>
+      <input type="text" readonly value="{{ base_url }}webhooks/generic">
+      <p class="text-sm text-muted">POST any payload here with header
+        <code>X-Anthill-Webhook-Token: &lt;token&gt;</code>. The token is the secret - send it in the
+        header, never in the URL.</p>
+    </div>
+    {% if cfg.webhook_enabled and webhook_token %}
+    <div class="form-group">
+      <label>Webhook token</label>
+      <div class="flex gap-2 items-center">
+        <input id="whtok" type="text" readonly value="{{ webhook_token }}" style="font-family:monospace">
+        <button type="button" class="btn btn-outline btn-sm" onclick="copyTok()">Copy</button>
+      </div>
+      <label class="flex gap-2 items-center" style="margin-top:8px">
+        <input type="checkbox" name="regenerate_webhook_token"> <span class="text-sm">Regenerate on save (invalidates the old one)</span>
+      </label>
+    </div>
+    {% else %}
+    <p class="text-sm text-muted">A token is generated when you enable webhooks and save.</p>
+    {% endif %}
+  </div>
+
+  <div class="card mb-2" style="max-width:720px">
+    <h3 style="margin-bottom:6px">Email (IMAP)
+      <span class="badge badge-{{ 'active' if cfg.imap_status == 'connected' else ('pending' if cfg.imap_status == 'unconfigured' else 'danger') }}">{{ cfg.imap_status }}</span>
+    </h3>
+    {% if cfg.imap_status_detail %}<p class="text-sm text-muted" style="margin-bottom:8px">{{ cfg.imap_status_detail }}</p>{% endif %}
+    <label class="flex gap-2 items-center" style="margin:10px 0">
+      <input type="checkbox" name="imap_enabled" {% if cfg.imap_enabled %}checked{% endif %}>
+      <span>Watch a mailbox for new mail (IMAP IDLE, with a poll fallback)</span>
+    </label>
+    <div class="flex gap-2" style="flex-wrap:wrap">
+      <div class="form-group" style="flex:2;min-width:240px">
+        <label>IMAP host</label>
+        <input type="text" name="imap_host" value="{{ cfg.imap_host }}" placeholder="imap.gmail.com">
+      </div>
+      <div class="form-group" style="flex:1;min-width:100px">
+        <label>Port</label>
+        <input type="number" name="imap_port" value="{{ cfg.imap_port or 993 }}">
+      </div>
+    </div>
+    <div class="flex gap-2" style="flex-wrap:wrap">
+      <div class="form-group" style="flex:2;min-width:240px">
+        <label>Username</label>
+        <input type="text" name="imap_user" value="{{ cfg.imap_user }}" autocomplete="off" placeholder="you@company.com">
+      </div>
+      <div class="form-group" style="flex:1;min-width:140px">
+        <label>Folder</label>
+        <input type="text" name="imap_folder" value="{{ cfg.imap_folder or 'INBOX' }}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Password {% if has_imap_password %}<span class="badge badge-active">set</span>{% endif %}</label>
+      <input type="password" name="imap_password" autocomplete="off"
+             placeholder="{{ 'leave blank to keep the saved password' if has_imap_password else 'mailbox or app password' }}">
+      <p class="text-sm text-muted">Use an app-specific password where the provider requires one
+        (e.g. Gmail). Stored encrypted at rest.</p>
+    </div>
+    <button type="button" class="btn btn-outline" onclick="imapTest()">Test connection</button>
+  </div>
+
+  <div class="card" style="max-width:720px">
+    <button type="submit" class="btn btn-primary">Save inbound events</button>
+  </div>
+</form>
+
+<script>
+function copyTok() {
+  var el = document.getElementById('whtok');
+  var v = el.value;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(v).then(function(){}, function(){ window.prompt('Copy the token:', v); });
+  } else { window.prompt('Copy the token:', v); }
+}
+function imapTest() {
+  fetch('/settings/events/imap/test', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { toastAfter(d.detail || (d.ok ? 'Connected.' : 'Could not connect.'), d.ok ? 'success' : 'error'); location.reload(); })
+    .catch(function () { showToast('Could not reach the server.', 'error'); });
+}
+</script>
+{% endblock %}

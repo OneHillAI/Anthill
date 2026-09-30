@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Always-on appliance{% endblock %}
+{% block page_title %}Always-on appliance (Mac){% endblock %}
+{% block content %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin-bottom:18px">
+  Run this Mac (a Mac Mini or Studio) as a headless, 24/7 org backend - it serves the model and hosts
+  the wiki for your whole team. It stays plain macOS: you do not switch to a "server OS", you make it
+  always-on and let it run a background service. <a href="/settings">Back to settings</a>.
+</p>
+
+<div class="card mb-2" style="max-width:760px">
+  <h3 style="margin-bottom:10px">Status</h3>
+  <table class="text-sm" style="width:100%;border-collapse:collapse">
+    <tr>
+      <td style="padding:6px 10px 6px 0;color:var(--muted)">GPU</td>
+      <td>
+        {% if st.gpu.accelerated %}
+          <span class="badge badge-active">Metal (GPU)</span>
+        {% else %}
+          <span class="badge badge-danger">CPU only</span>
+        {% endif %}
+        <span class="text-muted">{{ st.gpu.detail }}</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 10px 6px 0;color:var(--muted)">Service</td>
+      <td>
+        {% if st.service_loaded %}
+          <span class="badge badge-active">running as a service</span>
+        {% else %}
+          <span class="badge">not a service yet</span>
+          <span class="text-muted">launches manually; set up the LaunchAgent below for 24/7.</span>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 10px 6px 0;color:var(--muted)">Model</td>
+      <td>{% if st.model %}<code>{{ st.model }}</code>{% else %}<span class="text-muted">none set</span>{% endif %}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 10px 6px 0;color:var(--muted)">LAN URL</td>
+      <td>
+        {% if st.lan_url %}
+          <code id="lan_url">{{ st.lan_url }}</code>
+          <button type="button" class="btn btn-outline btn-sm" onclick="apCopy('lan_url')">Copy</button>
+          <span class="text-muted">- what teammates on your network open (point each node's <code>--org-url</code> here).</span>
+        {% else %}
+          <span class="text-muted">no LAN address detected</span>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 10px 6px 0;color:var(--muted)">Off-LAN URL</td>
+      <td>
+        {% if st.tunnel_url %}
+          <code>{{ st.tunnel_url }}</code>
+        {% else %}
+          <span class="text-muted">off</span> - <a href="/settings/remote">enable Remote access</a> for outside the office.
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+  {% if not st.is_apple_silicon %}
+  <p class="text-sm" style="margin-top:10px">
+    <span class="badge badge-danger">not Apple Silicon</span>
+    This host has no Apple GPU. The appliance path targets an Apple-Silicon Mac (Mini / Studio); the
+    serving model will run on CPU here.
+  </p>
+  {% elif not st.gpu.accelerated %}
+  <p class="text-sm" style="margin-top:10px">
+    The server is running <b>without the GPU</b>. On macOS, Metal needs a logged-in session - enable
+    <b>auto-login</b> (step 3) and run Anthill as the <b>LaunchAgent</b> (step 1) so Ollama gets the GPU.
+  </p>
+  {% endif %}
+</div>
+
+<div class="card mb-2" style="max-width:760px">
+  <h3 style="margin-bottom:4px">Make it always-on</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">A guided installer is on the way; until then,
+    these three steps turn this Mac into an appliance. Run them once.</p>
+
+  <h4 style="margin:6px 0">1. Run as a background service (LaunchAgent)</h4>
+  <p class="text-sm text-muted">Starts Anthill at login and restarts it if it ever stops. It must be a
+    LaunchAgent (in your login session), not a system daemon, so the GPU stays available.</p>
+  <div class="flex gap-2 items-center" style="margin:8px 0">
+    <a class="btn btn-primary btn-sm" href="/settings/appliance/launchagent.plist">Download {{ label }}.plist</a>
+    <button type="button" class="btn btn-outline btn-sm" onclick="apToggle('plist_box')">Show contents</button>
+  </div>
+  <pre id="plist_box" style="display:none;white-space:pre-wrap;background:var(--bg-subtle);padding:10px;border-radius:6px;font-size:12px;overflow:auto">{{ plist }}</pre>
+  <p class="text-sm text-muted">Then load it:</p>
+  <pre style="background:var(--bg-subtle);padding:10px;border-radius:6px;font-size:12px">mkdir -p ~/Library/LaunchAgents
+mv ~/Downloads/{{ label }}.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/{{ label }}.plist</pre>
+
+  <h4 style="margin:14px 0 6px">2. Never sleep, auto-recover from power loss</h4>
+  <p class="text-sm text-muted">Paste these (they need your admin password):</p>
+  <pre style="background:var(--bg-subtle);padding:10px;border-radius:6px;font-size:12px">{% for cmd, why in pmset %}{{ cmd }}{{ "  # " ~ why }}
+{% endfor %}</pre>
+  <p class="text-sm text-muted">Or set the same under <b>System Settings -&gt; Energy</b> (prevent sleeping,
+    start up after a power failure, wake for network).</p>
+
+  <h4 style="margin:14px 0 6px">3. Auto-login (required for the GPU)</h4>
+  <p class="text-sm text-muted"><b>System Settings -&gt; Users &amp; Groups -&gt; Login Options -&gt; Automatic
+    login</b> = the user this server runs as. A logged-in session is what gives Ollama the Apple GPU after
+    every reboot.</p>
+  <p class="text-sm" style="margin-top:8px">
+    <span class="badge">FileVault note</span>
+    Disk encryption (FileVault) blocks unattended auto-login - the disk asks for a password at the first
+    boot. For an unattended appliance, either leave FileVault off and rely on physical security, or set up
+    <code>fdesetup</code> automatic unlock. Your call.
+  </p>
+</div>
+
+<script>
+function apToggle(id) {
+  var el = document.getElementById(id);
+  el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+function apCopy(id) {
+  var v = document.getElementById(id).textContent;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(v).then(function () {}, function () { window.prompt('Copy:', v); });
+  } else { window.prompt('Copy:', v); }
+}
+</script>
+{% endblock %}

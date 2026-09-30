@@ -1,0 +1,33 @@
+# Anthill CODEOWNERS - protected paths require a founding contributor's review (ASDD 2.2).
+#
+# Policy: a protected-path merge needs TWO founding-contributor approvals. Single-member exception
+# while the Association has one member - @welsbach approves with an explicit second pass; the
+# two-approver rule activates automatically once there are 2+ founding contributors (add them here).
+#
+# NOTE: this file is advisory until branch protection on `main` enables
+# "Require review from Code Owners". Enabling that is a manual repo setting.
+#
+# Charter mapping: internal/engineering-plans/PILLAR_CHARTERS_AND_GOVERNANCE.md
+
+# --- Privacy (consent/escalation, audit, crypto/transport, node identity) ---
+/anthill/hybrid/                 @welsbach
+/anthill/web/audit.py            @welsbach
+/anthill/web/crypto.py           @welsbach
+/anthill/web/mcp_oauth.py        @welsbach
+/certs/                          @welsbach
+/anthill/node_agent/             @welsbach
+
+# --- Knowledge (OKGF store + promotion/review gate; covers ask.py + okf.py) ---
+/anthill/wiki/                   @welsbach
+
+# --- Model (training is the protected core) ---
+/anthill/training/               @welsbach
+/anthill/lifecycle/evaluate.py   @welsbach
+/anthill/cloud/aws.py            @welsbach
+
+# --- Platform (CI/release, build, dependency manifests, governance) ---
+/.github/                        @welsbach
+/Anthill.spec                    @welsbach
+/scripts/                        @welsbach
+/pyproject.toml                  @welsbach
+/docs/OKGF.md                    @welsbach

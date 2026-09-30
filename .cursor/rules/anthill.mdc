@@ -1,0 +1,9 @@
+---
+description: Canonical Anthill contributor and agent instructions
+alwaysApply: true
+---
+
+Cursor reads this rule automatically. The canonical, tool-agnostic instructions for this repo -
+what Anthill is, how to build and test it, the working protocol, and the contribution contract - live in
+`AGENTS.md` at the repo root, which applies to every tool. Read that first. Authoritative design is in
+`ARCHITECTURE.md`.

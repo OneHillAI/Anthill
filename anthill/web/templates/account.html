@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Account{% endblock %}
+{% block page_title %}Account{% endblock %}
+{% block content %}
+
+{% if changed %}<div class="alert alert-ok">✅ Your password has been updated.</div>{% endif %}
+{% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
+
+<div class="card" style="max-width:520px">
+  <h2 style="font-size:16px;margin-bottom:4px">{{ account.display_name or account.email }}</h2>
+  <p class="text-sm text-muted" style="margin-bottom:2px">{{ account.email }}</p>
+  <p class="text-sm text-muted">
+    Role: <b>{{ account.role }}</b>
+    {% if account.oauth_provider %} · signed in with {{ account.oauth_provider }}{% endif %}
+  </p>
+</div>
+
+<div class="card" style="max-width:520px;margin-top:16px">
+  <h3 style="margin-bottom:14px">{{ 'Change password' if account.hashed_password else 'Set a password' }}</h3>
+  {% if not account.hashed_password %}
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    You sign in with {{ account.oauth_provider or 'single sign-on' }}. Set a password to also be
+    able to sign in with email and password.
+  </p>
+  {% endif %}
+  <form method="post" action="/account/password">
+    {% if account.hashed_password %}
+    <div class="form-group">
+      <label>Current password</label>
+      <input type="password" name="current_password" required placeholder="••••••••" autocomplete="current-password">
+    </div>
+    {% endif %}
+    <div class="form-group">
+      <label>New password</label>
+      <input type="password" name="new_password" required minlength="12" autocomplete="new-password"
+             placeholder="min 12 characters">
+    </div>
+    <button type="submit" class="btn btn-primary">Update password</button>
+  </form>
+</div>
+{% endblock %}

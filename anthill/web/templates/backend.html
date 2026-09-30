@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Organization backend{% endblock %}
+{% block page_title %}Organization <span style="font-size:13px;color:var(--muted);font-weight:normal">- backend</span>{% endblock %}
+{% block content %}
+{% include "_org_tabs.html" %}
+
+
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Where your backend runs</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    Your <b>backend</b> is the always-on hub that serves this dashboard and hosts your shared wiki, the
+    org index, and routing. In the current single-machine setup, <b>this app is the backend</b> - it runs
+    right here, on the machine and account below. (Which cloud provider serves your org model is set under
+    <a href="/settings/organization">Organization -&gt; Cloud &amp; model</a>; the training GPU is separate
+    and spins up only during a fine-tune, then tears down.)
+  </p>
+  <table class="table">
+    <tbody>
+      <tr><td style="width:220px"><b>Wiki hosting</b></td>
+        <td>{% if wiki_hosting == 'vpc' %}<b>Private VPC instance</b>{% if wiki_vpc_url %} at <code>{{ wiki_vpc_url }}</code>{% endif %} <span class="text-muted">(your own cloud)</span>{% else %}<b>This device</b> (local) <span class="text-muted">- change it under Settings, Wiki &amp; agent</span>{% endif %}</td></tr>
+      <tr><td><b>This host</b></td><td><code>{{ hostname }}</code> ({{ platform }}, Python {{ python }})</td></tr>
+      <tr><td><b>Dashboard URL</b></td><td><code>{{ dashboard_url }}</code> <span class="text-muted">(what your team connects to)</span></td></tr>
+      <tr><td><b>Org data lives in</b></td><td><code>{{ data_home }}</code></td></tr>
+      <tr><td><b>Database</b></td><td><code>{{ db_path }}</code></td></tr>
+      <tr><td><b>Org wiki</b></td><td><code>{{ org_wiki }}</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Making it reachable by everyone</h3>
+  <p class="text-sm text-muted">
+    Because the wiki is served live from this host, your team always sees the latest - but only while this
+    machine is on and reachable. For teammates on other machines or off the office network, expose this
+    host securely (a reverse proxy with TLS and/or a VPN). To keep it reachable "anytime," run it on a
+    machine that stays up - an on-prem server or a persistent VM in your own cloud / VPC. See the
+    <a href="/docs/setup">Setup guide</a> ("Where to run Anthill") for the deployment details.
+  </p>
+  <p class="text-sm text-muted" style="margin-top:10px">
+    <b>Connected nodes:</b> per-device node registration and a live fleet view are on the roadmap. Today
+    your team reaches the backend through the dashboard URL above.
+  </p>
+</div>
+
+{% endblock %}

@@ -1,0 +1,105 @@
+# Anthill desktop shell (Tauri v2)
+
+> **STATUS: builds both in CI and locally (with the toolchain).** `.github/workflows/desktop-release.yml`
+> is the live release pipeline - auto-update signing is configured and was validated end-to-end on
+> hardware on 2026-09-28; the only remaining gate is the repo's releases going public. It builds the
+> sidecar via `scripts/build-sidecar.sh`, then Tauri, then **self-checks the signed sidecar actually
+> boots and binds a port** before anything is published - a broken or missing sidecar fails the
+> release outright, it cannot reach a real download.
+>
+> **Building locally reproduces the exact same steps** (see "How to build" below) - always via
+> `scripts/build-sidecar.sh`, never a hand-rolled `pyinstaller` invocation. Skipping that script, or
+> improvising the sidecar step, produces an app whose window stays hidden forever with no error
+> message: the Tauri shell has nothing to spawn or point the window at, so it just sits there
+> invisibly. That failure mode has actually happened (a hand-assembled local test build for
+> auto-update validation), which is why this warning is here - see the fixed step 3 below.
+
+This is Phase 2 (the native window) of the cross-platform plan in
+`Anthill Internal/engineering-plans/CROSS_PLATFORM_BUILD_RUNBOOK.md` (sections 2.1 / 2.2). Phase 1
+(per-OS data dir) and the Phase 2 backend prep (`desktop.py` headless/sidecar mode) are already
+merged to `main`. **Auto-update** (cut a release -> every install self-installs it) is wired via the
+Tauri updater; the architecture and the one-time signing setup are in `docs/AUTOUPDATE.md`.
+
+## What it does
+
+The web UI is **not** re-bundled. The shell reuses the existing PyInstaller backend as a sidecar:
+
+1. `src/lib.rs` spawns `binaries/anthill-server-<target-triple>` with `ANTHILL_NO_BROWSER=1`.
+2. In that mode `anthill/desktop.py` serves headless on a free port and prints `PORT=<n>` to stdout.
+3. The shell reads that line, TCP-polls `127.0.0.1:<port>` until it answers, then navigates the
+   hidden `main` window to `http://127.0.0.1:<port>/` and shows it.
+4. Tauri's shell plugin owns the sidecar lifecycle, so quitting the app stops the backend.
+
+This replaces `webbrowser.open` with a native WKWebView (macOS) / WebView2 (Windows) / WebKitGTK
+(Linux) window. Same backend, same UI, one extra process boundary.
+
+## Files
+
+| Path | Purpose |
+| --- | --- |
+| `Cargo.toml` | Rust crate + Tauri/plugin deps (versions unpinned - verify on first build). |
+| `tauri.conf.json` | Window, `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
+| `src/lib.rs` | Sidecar boot: spawn -> read `PORT=` -> health-poll -> navigate + show. Has unit tests for the port parser. |
+| `src/main.rs` | Thin binary entry that calls `run()`. |
+| `splash/index.html` | "Starting Anthill" loading page shown before the backend is up (`frontendDist`). |
+| `capabilities/default.json` | Permissions: shell execute, window show, webview navigate, updater. |
+| `binaries/` | Per-target-triple PyInstaller backend (gitignored; built in CI). See its README. |
+| `icons/` | Generated app icons (gitignored). See its README. |
+
+## How to build (on a machine with the toolchain)
+
+```sh
+# 1. Toolchain: Rust (https://rustup.rs) + Tauri CLI
+cargo install tauri-cli --version "^2"
+
+# 2. Generate icons from the brand mark (from src-tauri/)
+cargo tauri icon ../../assets/anthill-mark.png
+
+# 3. Build the backend sidecar for THIS host - the SAME script CI uses (Anthill-sidecar.spec, not
+#    Anthill.spec, which builds the retired standalone dmg instead). It drops the binary into
+#    binaries/ under the correct target-triple name AND runs its own selfcheck (docx/pptx/xlsx/pdf
+#    export). Do not hand-roll this with a bare `pyinstaller` call - a wrong spec file or a manual
+#    copy either produces a mis-named binary Tauri won't find, or skips the selfcheck that would
+#    have caught it broken. Either way the result is an app with an invisible window and no error,
+#    because the shell has no sidecar to spawn or point the window at.
+bash scripts/build-sidecar.sh   # from repo root
+
+# 4. Run the shell in dev (spawns the sidecar, opens the window)
+cargo tauri dev
+
+# 5. Bundle installers (.app/.dmg, .nsis, .deb/.AppImage)
+cargo tauri build
+```
+
+## Open items to verify (the punch list)
+
+**Historical - written when this crate was a fresh scaffold.** Most of these are resolved now (CI
+exists and is live, signing is configured, the app runs); left as-is for the record rather than
+pruned item-by-item. Don't take "no CI workflow" etc. below at face value - check
+`.github/workflows/desktop-release.yml` for current reality.
+
+1. **Dependency versions** in `Cargo.toml` are floating `"2"` - pin to the actual current
+   `tauri` / `tauri-plugin-shell` / `tauri-plugin-updater` releases and `cargo build`.
+2. **`tauri::Url`** - confirm the re-export path used by `WebviewWindow::navigate` in the pinned
+   Tauri version (could be `tauri::Url` vs `tauri::webview::Url`).
+3. **Sidecar permission** - `shell:allow-execute` may need to be `shell:allow-spawn` or a scoped
+   sidecar permission for `externalBin`; confirm against the shell plugin's permission list.
+4. **Webview navigation to localhost** - Tauri v2 gates runtime `navigate`. Verify
+   `core:webview:allow-navigate` is the right permission and that navigating from the bundled
+   `splash` origin to `http://127.0.0.1` is allowed (may need a navigation-scope entry).
+5. **`frontendDist: "./splash"`** - confirm Tauri accepts a static splash dir with no
+   `beforeBuildCommand` (Node-free build). If it insists on a dev server, an alternative is to skip
+   `frontendDist` and create the window programmatically at the localhost URL.
+6. **Updater** - replace `pubkey` with the real Tauri **minisign** public key, generate the keypair
+   (`cargo tauri signer generate`), and keep the private key as the `TAURI_SIGNING_PRIVATE_KEY`
+   release secret. This is a **separate** signature from Apple notarization (see runbook Phase 4):
+   the macOS `.app.tar.gz` update artifact must be **both** minisign-signed (updater) **and**
+   Apple-notarized + stapled (Gatekeeper).
+7. **Icons** - run step 2 above; the build fails without them.
+8. **Bundle identifier / version** - `org.onehill.anthill` and `0.7.5` are placeholders to confirm;
+   the version should track the app version in lockstep with `CHANGELOG.md` / the release tag.
+9. **Ollama** - out of scope for this scaffold. Per the runbook, the desktop shell detects/installs
+   Ollama at runtime rather than bundling it into the (auto-updating) app bundle, so updates stay
+   small. Not wired here yet.
+10. **CI** - no Tauri build workflow is added in this scaffold (that is runbook Phase 3, and it
+    spins up billed macOS/Windows runners). Add it deliberately when ready to ship.

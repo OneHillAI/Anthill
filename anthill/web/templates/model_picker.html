@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Choose your AI{% endblock %}
+{% block page_title %}Choose your AI{% endblock %}
+{% block content %}
+<style>
+  /* .adv/.advrow/.adv-contact: same "coming soon, contact us" pattern as personalize.html's Advanced
+     setups block, for the frontier-models section below. */
+  .adv summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;list-style:none}
+  .adv summary::-webkit-details-marker{display:none}
+  .advrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;margin-top:8px;opacity:.7}
+  .advrow-main{display:flex;flex-direction:column;gap:2px}
+  .advrow-name{font-weight:600;font-size:13px}
+  .advrow-d{font-size:12px;color:var(--muted)}
+  .adv-contact{margin-top:10px;font-size:12px;color:var(--muted)}
+  .adv-contact a{color:var(--accent,#2f6b4f);font-weight:600;text-decoration:none}
+  /* rich model list (parity with Settings -> This device): fit + capability + origin */
+  .mp-filter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
+  .mp-chip{border:1px solid var(--border);background:var(--bg,#fff);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:var(--fs-1);font-weight:600;cursor:pointer}
+  .mp-chip.on{background:var(--accent,#2f6b4f);border-color:var(--accent,#2f6b4f);color:#fff}
+  .mp-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;padding-right:2px}
+  .mp-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  .mp-row:hover{border-color:var(--muted)}
+  .mp-row:has(input:checked){border-color:var(--accent,#2f6b4f);box-shadow:0 0 0 3px var(--bg-subtle)}
+  .mp-row.nofit{opacity:.55;cursor:not-allowed}
+  .mp-row input{flex:none;margin:0}
+  .mp-main{flex:1;min-width:0}
+  .mp-name{font-weight:600;font-size:var(--fs-2);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .mp-badge{font-size:11px;font-weight:700;border-radius:4px;padding:2px 7px}
+  .mp-badge.rec{color:#fff;background:var(--accent,#2f6b4f)}
+  .mp-badge.inst{color:var(--muted);background:var(--bg-subtle);border:1px solid var(--border)}
+  .mp-meta{font-size:var(--fs-1);color:var(--muted);margin-top:3px}
+  .mp-cap{position:relative;height:5px;background:var(--bg-subtle);border-radius:3px;overflow:hidden;margin-top:7px;max-width:200px}
+  .mp-cap i{display:block;height:100%;background:var(--accent,#2f6b4f)}
+  .mp-cap-l{position:absolute;right:-52px;top:-6px;font-size:11px;color:var(--muted);font-weight:600}
+  .mp-fit{flex:none;text-align:right}
+  .fit{font-size:var(--fs-1);font-weight:700;white-space:nowrap}
+  .fit.ok{color:var(--accent,#2f6b4f)}
+  .fit.warn{color:var(--warn,#b45309)}
+  .fit.no{color:var(--muted)}
+</style>
+<div class="card">
+    <h1>Pick your artificial intelligence.</h1>
+    {% include "_setup_steps.html" %}
+    {% if request.query_params.get('error') == 'too_large' %}
+    <div class="alert alert-err">That model is too large for {{ hw_label }} - pick one marked "fits" below.</div>
+    {% endif %}
+    {% if request.query_params.get('error') == 'local_council_floor' %}
+    <div class="alert alert-err">A multi-model council needs more memory than {{ hw_label or "this machine" }} has. Pick one model here, or choose "Your cloud" or an inference provider above for a multi-model council.</div>
+    {% endif %}
+    {% if request.query_params.get('error') == 'local_council_too_big' %}
+    <div class="alert alert-err">Those models don't fit together in {{ hw_label or "this machine" }}'s memory. Pick fewer or smaller models, or choose "Your cloud" or an inference provider above for a multi-model council.</div>
+    {% endif %}
+    {% if request.query_params.get('error') == 'provider' %}
+    <div class="alert alert-err">Pick a cloud provider and paste its API key before continuing with "Your cloud".</div>
+    {% endif %}
+
+    {% if not is_solo %}
+    {# Org setup: the simple provider tiles route to the shared-backend admin page. #}
+    <div class="form-group" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:18px">
+      {% for opt in compute_options %}{% if opt.enabled and opt.href %}
+        <form method="post" action="/setup/model" style="margin:0"><input type="hidden" name="compute" value="{{ opt.key }}">
+          <button type="submit" class="toggle-opt" style="display:block;width:100%;text-align:center;padding:14px 10px;border:1px solid var(--border);border-radius:8px;background:none;cursor:pointer;font:inherit;color:inherit"><b>{{ opt.label }}</b><div class="text-sm text-muted" style="margin-top:4px">set up in Settings</div></button>
+        </form>
+      {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if is_solo %}
+
+    <form method="post" action="/setup/model">
+      {# Step 1: the 2-tier ownership chooser (provides name="compute" + cloud_provider + provider_api_key).
+         Below it, step-2 model selection (council / specific model). One form, one submit. #}
+      {% set in_setup = true %}
+      {% include "_compute_chooser.html" %}
+
+      {% include "_council_builder.html" %}
+
+      {% include "_inference_provider.html" %}
+
+      <div class="mp-vision" style="margin-top:var(--sp-4);border:1.5px solid var(--border);border-radius:10px;padding:4px 14px">
+          <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
+            <input type="checkbox" name="enable_vision" value="on" checked>
+            <span>Enable image understanding</span>
+            <button type="button" class="help" aria-label="What this downloads">?<span class="help-pop">Also downloads a small, licence-clean vision model (granite3.2-vision:2b, ~2.4 GB) in the background so you can analyze screenshots and images. Change this later on the Models page.</span></button>
+          </label>
+          <div style="border-top:1px solid var(--border)"></div>
+          <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
+            <input type="checkbox" name="vision_max_accuracy" value="on">
+            <span>Maximum accuracy vision (advanced)</span>
+            <button type="button" class="help" aria-label="What this changes">?<span class="help-pop">Uses Qwen3-VL instead (qwen3-vl:8b, ~6.1 GB) - higher accuracy, but a larger, non-EU/US model. Leave off to keep the fully-local, licence-clean default.</span></button>
+          </label>
+      </div>
+
+      <button type="submit" id="mp-continue" class="btn btn-primary" disabled style="width:100%;margin-top:var(--sp-4);padding:12px;font-size:var(--fs-2);font-weight:600">Continue with this council</button>
+    </form>
+
+    {% if frontier_models %}
+    <details class="adv" style="margin-top:14px">
+      <summary class="text-sm text-muted" style="cursor:pointer">Frontier models (bring your own infrastructure)</summary>
+      <div style="margin-top:10px">
+        {% for m in frontier_models %}
+        <div class="advrow"><div class="advrow-main"><span class="advrow-name">{{ m.name }}</span><span class="advrow-d">{{ m.origin }} &middot; {{ m.params_b|round|int }}B params</span></div></div>
+        {% endfor %}
+        <div class="adv-contact">Want help running one of these? Email <a href="mailto:dev@anthill.run">dev@anthill.run</a>.</div>
+      </div>
+    </details>
+    {% endif %}
+
+    <form method="post" action="/setup/model" style="margin-top:10px;text-align:center">
+      <input type="hidden" name="compute" value="local">
+      <input type="hidden" name="choice" value="__skip__">
+      <button type="submit" class="btn btn-link" style="background:none;border:none;color:var(--muted);cursor:pointer">Skip for now</button>
+    </form>
+    {% endif %}
+</div>
+{# mpFilter (origin filter) is defined in _council_builder.html, which this page includes. #}
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block page_title %}Notifications{% endblock %}
+{% block content %}
+
+<p class="text-sm text-muted" style="max-width:640px;margin:0 0 16px">
+  Everything Anthill wanted to tell you - an agent waiting on your approval, a run that needs a look, a
+  review in your queue. Opening this page marks them seen.
+</p>
+
+{% if items %}
+<div class="card" style="padding:0">
+  {% for n in items %}
+  {% set is_new = n.id in new_ids %}
+  <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--border){% if is_new %};background:var(--bg-subtle){% endif %}">
+    <span style="flex:none;width:8px;height:8px;border-radius:50%;margin-top:6px;background:{% if is_new %}var(--accent){% else %}var(--border-strong){% endif %}"></span>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;gap:8px;align-items:baseline;justify-content:space-between">
+        <b style="font-size:14px">{{ n.title }}</b>
+        <span class="text-sm text-muted" style="flex:none">{{ n.created_at.strftime('%b %d, %H:%M') if n.created_at else '' }}</span>
+      </div>
+      {% if n.body %}<div class="text-sm text-muted" style="margin-top:2px">{{ n.body }}</div>{% endif %}
+      {% if n.link %}<a href="{{ n.link }}" class="btn btn-outline btn-sm" style="margin-top:8px">Open</a>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px">
+  <div style="font-size:30px;margin-bottom:10px;color:var(--accent)"><i data-lucide="bell">🔔</i></div>
+  <p class="text-muted" style="margin:0">You're all caught up. Notifications from your agents, tasks, and
+    reviews will show up here.</p>
+</div>
+{% endif %}
+{% endblock %}

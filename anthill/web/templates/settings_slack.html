@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Slack bot{% endblock %}
+{% block page_title %}Slack bot{% endblock %}
+{% block content %}
+
+{% if saved %}<div class="alert alert-ok">✅ Slack settings saved.</div>{% endif %}
+{% if error == "bad_token" %}<div class="alert alert-danger">That bot token didn't work (Slack rejected it). Check you copied the <b>Bot User OAuth Token</b> (starts with <code>xoxb-</code>).</div>{% endif %}
+{% if error == "need_secrets" %}<div class="alert alert-danger">Add the signing secret before enabling the bot.</div>{% endif %}
+{% if error == "need_client" %}<div class="alert alert-danger">Add the app's Client ID and Client Secret first, then use "Add to Slack".</div>{% endif %}
+{% if error == "denied" %}<div class="alert alert-danger">The install was cancelled on Slack's screen.</div>{% endif %}
+{% if error == "state" %}<div class="alert alert-danger">That install link expired or didn't match. Please click "Add to Slack" again.</div>{% endif %}
+{% if error == "oauth_failed" %}<div class="alert alert-danger">Slack rejected the install. Double-check the Client ID/Secret and that this redirect URL is in the app's allowed list.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin-bottom:18px">
+  Let your team ask Anthill from Slack: they <b>@mention</b> the bot in a channel, send it a
+  <b>direct message</b>, or run <b>/anthill &lt;question&gt;</b>, and it answers from your organization's
+  wiki - in-thread, on your org model, with personal context never used. Only people who are members of
+  <b>{{ org.name }}</b> on Anthill (matched by their Slack email) get answers.
+  <a href="/settings">Back to settings</a>.
+</p>
+
+{% if bot and bot.enabled and bot.bot_user_id %}
+<div class="alert alert-ok" style="max-width:760px">
+  Connected to workspace <code>{{ bot.team_id }}</code> as <code>{{ bot.bot_user_id }}</code>. The bot is
+  <b>on</b>.
+</div>
+{% endif %}
+
+<!-- Primary path: one-click OAuth install -->
+<form method="post" action="/settings/slack">
+  <div class="card mb-2" style="max-width:760px">
+    <h3 style="margin-bottom:6px">Install with one click</h3>
+    <p class="text-sm text-muted" style="margin:0 0 12px">
+      Create a Slack app (see the <a href="https://github.com/OneHillAI/Anthill/blob/main/docs/SLACK_BOT.md">setup guide</a>),
+      paste its three <b>Basic Information</b> credentials once, Save, then click <b>Add to Slack</b> -
+      the bot token is fetched for you, no copy-paste.
+    </p>
+
+    <div class="form-group">
+      <label>Client ID</label>
+      <input type="text" name="client_id" autocomplete="off"
+             value="{{ bot.client_id if bot and bot.client_id else '' }}" placeholder="e.g. 12345.67890">
+    </div>
+    <div class="form-group">
+      <label>Client Secret</label>
+      <input type="password" name="client_secret" autocomplete="off"
+             placeholder="{% if has_client_secret %}saved - leave blank to keep{% else %}from Basic Information -> App Credentials{% endif %}">
+    </div>
+    <div class="form-group">
+      <label>Signing Secret</label>
+      <input type="password" name="signing_secret" autocomplete="off"
+             placeholder="{% if has_secret %}saved - leave blank to keep{% else %}from Basic Information -> App Credentials{% endif %}">
+    </div>
+
+    <div class="form-group">
+      <label>OAuth Redirect URL <span class="text-sm text-muted">(add this to your Slack app's Redirect URLs)</span></label>
+      <input type="text" readonly value="{{ redirect_url }}" onclick="this.select()">
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary">Save</button>
+      {% if oauth_ready %}
+      <a href="/slack/oauth/start" class="btn btn-success">Add to Slack</a>
+      {% else %}
+      <span class="text-sm text-muted">Save the Client ID, Client Secret, and Signing Secret to enable "Add to Slack".</span>
+      {% endif %}
+    </div>
+  </div>
+</form>
+
+<!-- Fallback: paste a bot token manually -->
+<details style="max-width:760px;margin-bottom:8px">
+  <summary class="text-sm text-muted" style="cursor:pointer">Or connect by pasting a bot token manually</summary>
+  <form method="post" action="/settings/slack">
+    <div class="card mt-2">
+      <p class="text-sm text-muted" style="margin:0 0 12px">
+        Install the app to your workspace yourself, then paste its <b>Bot User OAuth Token</b> and the
+        <b>Signing Secret</b>. Tick Enable to turn the bot on.
+      </p>
+      <div class="form-group">
+        <label>Bot User OAuth Token</label>
+        <input type="password" name="bot_token" autocomplete="off"
+               placeholder="{% if has_token %}saved - leave blank to keep{% else %}xoxb-...{% endif %}">
+      </div>
+      <div class="form-group">
+        <label>Signing Secret</label>
+        <input type="password" name="signing_secret" autocomplete="off"
+               placeholder="{% if has_secret %}saved - leave blank to keep{% else %}from Basic Information{% endif %}">
+      </div>
+      <label class="flex gap-2 items-center" style="margin:12px 0 4px">
+        <input type="checkbox" name="enabled" value="true" {% if bot and bot.enabled %}checked{% endif %}>
+        <span>Enable the bot (answer messages from Slack)</span>
+      </label>
+      <div style="margin-top:14px"><button class="btn btn-primary">Save</button></div>
+    </div>
+  </form>
+</details>
+
+<div class="card mb-2" style="max-width:760px">
+  <h3 style="margin-bottom:6px">Paste these into your Slack app</h3>
+  <div class="form-group">
+    <label>Event Subscriptions - Request URL</label>
+    <input type="text" readonly value="{{ events_url }}" onclick="this.select()">
+  </div>
+  <div class="form-group">
+    <label>Slash Command (/anthill) - Request URL</label>
+    <input type="text" readonly value="{{ command_url }}" onclick="this.select()">
+  </div>
+  <p class="text-sm text-muted" style="margin:8px 0 0">
+    Your Anthill backend must be reachable from Slack over HTTPS for these URLs to work. Required bot
+    scopes: <code>app_mentions:read</code>, <code>chat:write</code>, <code>commands</code>,
+    <code>users:read</code>, <code>users:read.email</code>, <code>im:history</code>. Subscribe to the
+    <code>app_mention</code> and <code>message.im</code> bot events. Full steps in the
+    <a href="https://github.com/OneHillAI/Anthill/blob/main/docs/SLACK_BOT.md">setup guide</a>.
+  </p>
+</div>
+
+{% endblock %}

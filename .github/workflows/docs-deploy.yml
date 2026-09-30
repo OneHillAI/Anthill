@@ -1,0 +1,122 @@
+# Build the Docusaurus docs site (docs-site/, curated from an explicit whitelist of docs/*.md
+# files via docs-site/scripts/collect-docs.js) and publish it to docs.anthill.run.
+#
+# Why a separate repo, same as refresh-model-catalog.yml -> anthill.run: Cloudflare's GitHub App
+# cannot see this private monorepo, so it cannot deploy from it. OneHillAI/docs.anthill.run is a
+# small, dedicated publish target the owner connects to Cloudflare instead (see docs-site/README.md
+# for the one-time setup). This job never writes to this repo (contents: read); it only pushes the
+# built site to the deploy repo, so main stays fully protected.
+#
+# Auth: mints a short-lived installation token for the onehill-dev-agent App (same ANTHILL_BOT_APP_ID
+# / ANTHILL_BOT_APP_KEY secrets asdd-automerge.yml already uses), scoped to ONLY the deploy repo via
+# `repositories:` below - not a separate long-lived PAT to create and rotate by hand. The App is
+# installed org-wide, so it already covers a newly created deploy repo with no extra owner step; if
+# it were installed on select repos instead, the deploy repo would need adding there.
+
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "docs-site/**"
+      - ".github/workflows/docs-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read  # publishing goes to the docs.anthill.run repo via a minted App token; this repo is never written
+
+env:
+  DEPLOY_REPO: docs.anthill.run  # the Cloudflare-connected publish target (dedicated, so CF can see it)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Build the docs site
+        working-directory: docs-site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check the bot App is installed
+        env:
+          APP_ID: ${{ secrets.ANTHILL_BOT_APP_ID }}
+        run: |
+          if [ -z "${APP_ID:-}" ]; then
+            echo "::error::ANTHILL_BOT_APP_ID is not set. Add it and ANTHILL_BOT_APP_KEY as repository"
+            echo "::error::secrets (see docs-site/README.md) before this workflow can publish anything."
+            exit 1
+          fi
+
+      - name: Mint a deploy-repo-scoped bot token
+        id: apptoken
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
+          private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}
+          repositories: ${{ env.DEPLOY_REPO }}
+
+      - name: Clone the deploy repo (docs.anthill.run)
+        env:
+          DEPLOY_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Every run of this workflow has 128'd at this step with no detail beyond the bare exit code
+          # (repeatedly - see docs/SYSTEM_IMPACT_LOG.md), and an out-of-band test of the exact same
+          # mint-token + credential-helper + clone sequence outside the runner succeeded cleanly. That
+          # leaves two live hypotheses: (a) the mint step silently produced an empty token this run, or
+          # (b) something runner-local (a leftover credential from the earlier checkout, a proxy, a
+          # transient network issue) is the real cause. This check settles (a) immediately instead of
+          # both failing identically; if it passes and the clone still 128s, GIT_CURL_VERBOSE below
+          # prints the actual HTTP exchange so (b) is diagnosable from THIS run's log, not a guess.
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
+            echo "::error::The minted deploy token is empty - actions/create-github-app-token produced"
+            echo "::error::no output. Check that step's own log, not this one; this is not a clone/auth"
+            echo "::error::failure, the clone never had a real credential to try."
+            exit 1
+          fi
+          # Feed the token through a credential helper that reads it from the env at call time, so the
+          # literal token never lands in a URL / argv (visible in process listings) or in a config file.
+          git config --global --replace-all credential.helper \
+            '!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$DEPLOY_TOKEN"; }; f'
+          # A normal (not --depth 1) clone so an empty deploy repo bootstraps cleanly on the first run.
+          GIT_CURL_VERBOSE=1 git clone "https://github.com/OneHillAI/${DEPLOY_REPO}.git" deploy
+
+      - name: Publish the built site (Cloudflare deploys it)
+        env:
+          # The clone step's global credential helper reads $DEPLOY_TOKEN from its OWN environment at
+          # call time - each step is a separate process, so the `env:` on that earlier step (which is
+          # why the clone above succeeds) doesn't carry over here. Without it, the helper hands GitHub
+          # an empty password and the push 128s with "Invalid username or token."
+          DEPLOY_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude '.git' docs-site/build/ deploy/
+          cd deploy
+          git config user.name "onehill-dev-agent[bot]"
+          git config user.email "310104697+onehill-dev-agent[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Deploy repo already up to date."
+            exit 0
+          fi
+          git commit -m "Publish docs site"
+          # The clone step set a global credential helper that supplies the token from the env, so the
+          # plain https remote (origin) authenticates without the token appearing in argv.
+          git push origin HEAD:main

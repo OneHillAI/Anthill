@@ -1,0 +1,25 @@
+# Anthill trainer image. A GPU host runs this via `docker run --gpus all <image> anthill train-adapter ...`
+# to fine-tune a LoRA adapter from PII-scrubbed gold (see anthill/training/remote.py). One image,
+# reused by every VM/box backend (on-prem, AWS, GCP, Azure, IBM), so the remote toolchain is solved once.
+#
+# Build (from the repo root):  docker build -f docker/Dockerfile.trainer -t ghcr.io/onehillai/anthill-trainer:latest .
+# NOTE: pin the CUDA tag to the GPUs you provision; this image is large and is built/validated on a real
+# GPU host by the owner (it cannot be exercised in model-free CI).
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . /app
+
+# The training toolchain (kept here, not in the app's runtime deps, so only the trainer image is heavy).
+RUN pip3 install --upgrade pip \
+    && pip3 install . \
+    && pip3 install torch transformers peft trl datasets accelerate
+
+# `anthill train-adapter --dataset /in/gold.jsonl --base <model> --out /out/adapter` is the run command.
+ENTRYPOINT ["anthill"]
+CMD ["--help"]

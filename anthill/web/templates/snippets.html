@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Snippets{% endblock %}
+{% block page_title %}Saved snippets{% endblock %}
+{% block content %}
+{% include "_knowledge_tabs.html" %}
+
+<p class="text-muted text-sm mb-2" id="snippets-intro">
+  This is how you <b>manually</b> add to your wiki - your AI writes most pages on its own from good
+  answers, but capturing one directly guarantees it's kept. Content you mark becomes a page in your
+  personal wiki right away, plus gets the model's <b>red line</b> (why it's relevant) and a
+  <b>personal</b> gold example that improves things for <b>you</b>. It trains the <b>shared org
+  model</b> only once <b>≥2 distinct users</b> save matching content (corroboration) or an admin
+  approves it into the wiki. Same bar protects the general knowledge base.
+  <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.snippets.start();return false">Take a tour</a>
+</p>
+
+{% if tags %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+  <span class="text-sm text-muted">Filter:</span>
+  <a href="/snippets" class="btn btn-sm {% if not active_tag %}btn-primary{% else %}btn-outline{% endif %}">all</a>
+  {% for t in tags %}
+  <a href="/snippets?tag={{ t }}"
+     class="btn btn-sm {% if active_tag == t %}btn-primary{% else %}btn-outline{% endif %}">{{ t }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not snippets %}
+<div class="card" style="text-align:center;padding:40px">
+  <div style="font-size:36px;margin-bottom:12px">✂️</div>
+  <p style="color:var(--clay)">No snippets yet. In Chat, select any text in an answer
+  (or use the ✂ on a message) to save it.</p>
+  <a href="/chat" class="btn btn-primary" style="margin-top:14px">Open Chat →</a>
+</div>
+{% else %}
+{% for s in snippets %}
+<div class="card mt-4">
+  <div class="flex justify-between items-center mb-2">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      {% for t in s.tags.split(',') if t %}
+      <span class="badge badge-admin">{{ t }}</span>
+      {% endfor %}
+      <span class="text-sm text-muted">{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      {% if s.wiki_slug %}<span class="badge badge-active">in wiki review</span>{% endif %}
+      {% if s.scope == 'org' %}
+      <span class="badge badge-active" title="Corroborated by ≥2 users - trains the shared model">shared · org</span>
+      {% else %}
+      <span class="badge badge-member" title="Your signal only - trains the org model once others save it too">personal</span>
+      {% endif %}
+    </div>
+    <div class="flex gap-2">
+      <button type="button" class="btn btn-outline btn-sm"
+              onclick="var e=document.getElementById('snip-edit-{{ s.id }}');var v=document.getElementById('snip-view-{{ s.id }}');var on=(e.style.display==='none');e.style.display=on?'block':'none';v.style.display=on?'none':'block'">Edit</button>
+      {% if not s.wiki_slug %}
+      <form method="post" action="/snippets/{{ s.id }}/wiki" style="margin:0">
+        <button class="btn btn-outline btn-sm">→ Wiki</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/snippets/{{ s.id }}/delete" style="margin:0"
+            onsubmit="return confirm('Delete this snippet?')">
+        <button class="btn btn-danger btn-sm">✕</button>
+      </form>
+    </div>
+  </div>
+  {% if s.rationale %}
+  <div class="alert alert-ok" style="margin-bottom:10px">
+    <b>Red line:</b> {{ s.rationale }}
+  </div>
+  {% endif %}
+  <div id="snip-view-{{ s.id }}">
+    <pre class="wiki-content">{{ s.content }}</pre>
+    {% if s.question %}
+    <p class="text-sm text-muted" style="margin-top:8px">From: “{{ s.question[:120] }}”</p>
+    {% endif %}
+  </div>
+  <form id="snip-edit-{{ s.id }}" method="post" action="/snippets/{{ s.id }}/edit" style="display:none;margin-top:6px">
+    <textarea name="content" rows="6" style="width:100%">{{ s.content }}</textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+      <input type="text" name="tags" value="{{ s.tags }}" placeholder="tags (comma-separated)" style="flex:1">
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </div>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  anthillWalkthrough('snippets', [
+    {sel: '#snippets-intro', title: 'What snippets are', body: 'Select any text in a chat answer, or use the scissors on a message, to save it. It becomes your own personal gold example right away.'},
+    {sel: 'form[action$="/wiki"] button', title: 'Share it more broadly', body: 'Ready for others to see it? This proposes the snippet as an org wiki page through the review queue, instead of staying just yours.'},
+  ], {autostart: false});
+});
+</script>
+{% endblock %}

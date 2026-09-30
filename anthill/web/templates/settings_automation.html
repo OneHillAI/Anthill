@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Automation{% endblock %}
+{% block page_title %}Automation{% endblock %}
+{% block content %}
+
+{% if saved %}<div class="alert alert-ok">Saved. Node agents read these on next startup.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin:0 0 16px">
+  How the agent reacts to inputs and whether low-risk wiki promotions auto-approve - org-wide behaviour.
+  <a href="/settings/org">Back to Org settings</a>.
+</p>
+
+<form method="post" action="/settings/automation">
+<div class="card">
+  <div class="form-group">
+    <label>Proactivity mode (actions)</label>
+    <select name="proactivity_mode">
+      <option value="event"     {% if cfg.proactivity_mode == 'event' %}selected{% endif %}>Event-driven (real-time)</option>
+      <option value="scheduled" {% if cfg.proactivity_mode == 'scheduled' %}selected{% endif %}>Scheduled (every interval)</option>
+    </select>
+    <p class="text-sm text-muted" style="margin-top:4px">
+      <b>Event-driven</b> reacts to new inputs (e.g. inbox files) within seconds - the "always-on" feel.
+      <b>Scheduled</b> batches them on the interval below. Either way, <b>model training stays batched</b>
+      (every {{ cfg.training_schedule_hrs }}h, only on new gold) - per-event fine-tuning would waste GPU/energy.
+    </p>
+    <p class="text-sm" style="margin-top:6px">
+      📨 <a href="/settings/events">Inbound events (push)</a> - connect Slack / a generic webhook or watch
+      a mailbox (IMAP) so events arrive instantly instead of waiting for the next poll.
+    </p>
+    <p class="text-sm" style="margin-top:6px">
+      💬 <a href="/settings/slack">Slack bot</a> - let your team ask Anthill from Slack (@mention, DM, or
+      /anthill), answered from the org wiki in-thread.
+    </p>
+    <p class="text-sm" style="margin-top:6px">
+      💬 <a href="/settings/discord">Discord bot</a> - let your team run <b>/anthill</b> in your members
+      server, answered from the org wiki, with ideas routed into the contribution intake.
+    </p>
+  </div>
+  <div class="form-group">
+    <label>Scheduled interval (seconds) <span class="text-muted">- used in Scheduled mode</span></label>
+    <input type="number" name="agent_interval_secs" value="{{ cfg.agent_interval_secs }}" min="60">
+    <p class="text-sm text-muted" style="margin-top:4px">
+      How often the agent drains the inbox, runs lint, and proposes promotions when proactivity is set to Scheduled.
+    </p>
+  </div>
+  <button type="submit" class="btn btn-primary" style="margin-top:6px">Save</button>
+</div>
+</form>
+{% endblock %}

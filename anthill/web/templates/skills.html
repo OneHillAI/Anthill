@@ -1,0 +1,529 @@
+{% extends "base.html" %}
+{% block title %}Skills{% endblock %}
+{% block page_title %}Skills{% endblock %}
+{% block content %}
+{% include "_knowledge_tabs.html" %}
+
+<p class="text-muted" style="margin:0 0 16px" id="skills-intro">Reusable instructions the model follows on its own when a task matches.<button type="button" class="help" aria-label="How skills work">?<span class="help-pop">Skills load automatically in chat, agent mode and scheduled tasks, without bloating every prompt. Scoped: Organization applies to everyone, a Team's to its members, Personal to just you. Org and team skills go through review; each is a SKILL.md file.</span></button> <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.skills.start();return false" class="text-sm">Take a tour</a></p>
+
+{# Persistent, low-key discoverability note for the chat capture gesture (#683 requirement 2: each
+   capture action must be discoverable from the surface it lands on, not just from chat). #}
+<p class="text-sm text-muted" style="margin:0 0 12px">Tip: you can also turn any chat conversation
+  into a skill directly - look for <b>Turn into a skill</b> near the conversation header in Chat.</p>
+
+{# This banner used to be admin-gated in its entirety, so a normal user never learned that
+   auto-distillation exists at all (docs/specs/knowledge-onboarding-and-guidance.md: "the
+   auto-distillation that could help only fires from scheduled agent runs... so most users never see
+   the feature work at all"). The informational text now renders for everyone; only the Pause/Resume
+   control stays admin-gated, since /skills/autolearn-toggle itself requires an admin. #}
+<div class="flex justify-between items-center mb-2" id="skills-autolearn-panel"
+     style="gap:12px;flex-wrap:wrap;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+  <span class="text-sm">
+    <b>Learn skills from agent runs:</b>
+    {% if skill_autolearn %}<span class="badge badge-active">on</span>
+    <span class="text-muted">After a successful agent run, Anthill proposes a reusable skill to accept or reject (never added on its own).</span>
+    {% else %}<span class="badge badge-member">paused</span>
+    <span class="text-muted">Anthill is not proposing new skills from agent runs.</span>{% endif %}
+  </span>
+  {% if is_admin %}
+  <form method="post" action="/skills/autolearn-toggle" style="margin:0">
+    <button class="btn btn-outline btn-sm">{{ 'Pause' if skill_autolearn else 'Resume' }}</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if proposed %}
+<div class="card mb-2" style="border-color:var(--warn)">
+  <h3 style="margin-bottom:6px;color:var(--warn)">&#10024; Proposed skills ({{ proposed|length }})</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    Anthill distilled these from your successful agent runs. Nothing is active until you accept it -
+    review, then <b>accept</b> (it becomes a real skill, going through review for shared scopes) or <b>reject</b>.
+  </p>
+  {% for p in proposed %}
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+    <div><b>{{ p.name }}</b> <span class="badge badge-member">{{ p.scope }}</span></div>
+    {% if p.description %}<div class="text-sm text-muted" style="margin:4px 0">{{ p.description }}</div>{% endif %}
+    {% if p.when_to_use %}<div class="text-sm" style="margin:4px 0"><b>When:</b> {{ p.when_to_use }}</div>{% endif %}
+    <pre class="text-sm" style="white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin:6px 0;overflow-x:auto">{{ p.instructions[:1200] }}</pre>
+    <div style="display:flex;gap:8px">
+      <form method="post" action="/skills/proposed/{{ p.id }}/accept" style="margin:0">
+        <button class="btn btn-primary btn-sm">Accept</button>
+      </form>
+      <form method="post" action="/skills/proposed/{{ p.id }}/reject" style="margin:0">
+        <button class="btn btn-outline btn-sm">Reject</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="flex justify-between items-center mb-2">
+  <h2 style="font-size:16px">Skills</h2>
+  <button onclick="openSkillWizard()"
+          id="new-skill-btn" class="btn btn-primary btn-sm">+ New skill</button>
+</div>
+
+<style>
+  /* A step-by-step wizard, not a form with everything visible and output rendered below it (founder
+     feedback). Visual language matches _setup_steps.html's onboarding stepper (numbered badges,
+     done-checkmarks, separators) - reimplemented as its own small, JS-driven, class-toggled set of
+     steps here rather than sharing code, since that component is a fixed 3-step, server-rendered,
+     per-page indicator and this is a dynamic N-step, single-page, client-side one. */
+  .skwiz-steps { display:flex; align-items:center; justify-content:center; gap:6px; margin:2px 0 20px; flex-wrap:wrap; }
+  .skwiz-step-i { display:flex; align-items:center; gap:6px; cursor:pointer; background:none; border:none; padding:0; font:inherit; }
+  .skwiz-badge { width:24px; height:24px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; font-size:12px; font-weight:600; flex:none;
+    border:1.5px solid var(--border); color:var(--muted); background:transparent; }
+  .skwiz-label { font-size:12px; color:var(--muted); }
+  .skwiz-step-i.is-current .skwiz-badge { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .skwiz-step-i.is-current .skwiz-label { color:var(--text); font-weight:600; }
+  .skwiz-step-i.is-done .skwiz-badge { border-color:var(--accent); color:var(--accent); }
+  .skwiz-step-i.is-done .skwiz-label { color:var(--text); }
+  .skwiz-sep { width:16px; height:1.5px; background:var(--border); flex:none; }
+  @media (max-width:560px) { .skwiz-label { display:none; } .skwiz-sep { width:8px; } }
+  .skwiz-nav { display:flex; justify-content:space-between; gap:10px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+</style>
+
+<!-- conversational + manual skill builder, as a step-by-step wizard -->
+<div id="new-skill" style="display:none" class="card mb-2">
+  <div class="skwiz-steps" id="skwiz-steps">
+    <button type="button" class="skwiz-step-i" data-step="1" onclick="skwizGo(1)"><span class="skwiz-badge">1</span><span class="skwiz-label">What it does</span></button>
+    <span class="skwiz-sep"></span>
+    <button type="button" class="skwiz-step-i" data-step="2" onclick="skwizGo(2)"><span class="skwiz-badge">2</span><span class="skwiz-label">The basics</span></button>
+    <span class="skwiz-sep"></span>
+    <button type="button" class="skwiz-step-i" data-step="3" onclick="skwizGo(3)"><span class="skwiz-badge">3</span><span class="skwiz-label">Instructions</span></button>
+    <span class="skwiz-sep"></span>
+    <button type="button" class="skwiz-step-i" data-step="4" onclick="skwizGo(4)"><span class="skwiz-badge">4</span><span class="skwiz-label">Who can use it</span></button>
+    <span class="skwiz-sep"></span>
+    <button type="button" class="skwiz-step-i" data-step="5" onclick="skwizGo(5)"><span class="skwiz-badge">5</span><span class="skwiz-label">Test it</span></button>
+    <span class="skwiz-sep"></span>
+    <button type="button" class="skwiz-step-i" data-step="6" onclick="skwizGo(6)"><span class="skwiz-badge">6</span><span class="skwiz-label">Save</span></button>
+  </div>
+
+  <form method="post" action="/skills/create" id="skill-form">
+    <div class="skwiz-step" data-step="1">
+      <p class="text-sm text-muted" style="margin:0 0 10px">Describe what you want in plain words - Anthill drafts the rest and you review it on the next steps.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:12px">
+        <div class="form-group" style="margin:0;flex:1">
+          <label>Describe the skill</label>
+          <textarea id="skill-desc" rows="2"
+            placeholder="e.g. How to write our weekly investor update: tone, sections, and where to pull metrics"></textarea>
+        </div>
+        <button type="button" class="mic-btn" onclick="anthillDictate('skill-desc', this)"
+                title="Voice type (browser dictation; or use Wispr Flow for system-wide voice typing)"><i data-lucide="mic">🎤</i></button>
+        <button id="skill-draft-btn" type="button" class="btn btn-primary" onclick="draftSkill()">Draft it</button>
+      </div>
+      <div>
+        <button type="button" class="btn btn-outline btn-sm"
+                onclick="document.getElementById('skill-chat').style.display='block';refineSkill()">Build by chatting ↔</button>
+        <span class="text-sm text-muted">Anthill asks a question or two, then fills the fields for you.</span>
+        <div id="skill-chat" style="display:none;margin-top:8px">
+          <div id="skill-chat-log" class="card" style="max-height:160px;overflow:auto;background:var(--bg-subtle);margin-bottom:6px"></div>
+          <div style="display:flex;gap:8px">
+            <input id="skill-chat-input" type="text" style="flex:1" placeholder="Answer Anthill's question…"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();refineSkill();}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="refineSkill()">Send</button>
+          </div>
+        </div>
+      </div>
+      <p class="text-sm text-muted" style="margin-top:10px">Rather write it yourself? Click <b>Next</b> and fill it in by hand.</p>
+    </div>
+
+    <div class="skwiz-step" data-step="2" hidden>
+      <p class="text-sm text-muted" style="margin:0 0 10px">Review what Anthill drafted, or fill these in yourself.</p>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" required placeholder="e.g. Weekly investor update">
+      </div>
+      <div class="form-group">
+        <label>When to use</label>
+        <input type="text" name="when_to_use" placeholder="e.g. when asked to draft the investor update">
+      </div>
+      <div class="form-group">
+        <label>Description <span class="text-muted">(one line)</span></label>
+        <input type="text" name="description" placeholder="What this skill does">
+      </div>
+    </div>
+
+    <div class="skwiz-step" data-step="3" hidden>
+      <div class="form-group">
+        <label>Instructions <span class="text-muted">(what the agent should do)</span></label>
+        <textarea name="instructions" rows="8" required
+          placeholder="Step-by-step guidance the agent follows when this skill applies."></textarea>
+      </div>
+    </div>
+
+    <div class="skwiz-step" data-step="4" hidden>
+      <div class="form-group">
+        <label>Scope <span class="text-muted">- who it applies to</span></label>
+        <select name="scope" id="skill-scope" onchange="syncTeam()">
+          <option value="personal" selected>Personal (just me)</option>
+          {% for t in editable_teams %}<option value="team" data-team="{{ t.id }}">Team: {{ t.name }}</option>{% endfor %}
+          {% if can_edit_org %}<option value="org">Organization (everyone)</option>{% endif %}
+        </select>
+        <input type="hidden" name="team_id" id="skill-team-id" value="">
+      </div>
+      <div class="form-group">
+        <label>Scopes <span class="text-muted">- gates WHEN this skill is used</span>
+          <button type="button" class="help" aria-label="How scopes gate a skill">?<span class="help-pop">The agent only activates this skill for an identity that already holds EVERY scope checked here (see Agent access) - it does not grant anything. Leave all unchecked for a skill that applies regardless of the acting identity's scopes, which is what most hand-written skills want.</span></button>
+        </label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          {% for s in all_scopes %}
+          <label class="toggle-opt" style="font-size:13px">
+            <input type="checkbox" class="skill-scope-cb" value="{{ s }}" onchange="syncSkillScopes()"> {{ s }}
+          </label>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="scopes" id="skill-scopes-value" value="">
+      </div>
+    </div>
+
+    <div class="skwiz-step" data-step="5" hidden>
+      <div class="form-group">
+        <label>Does it trigger? <span class="text-muted">- test the description/when-to-use against a sample prompt</span></label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="skill-sample-prompt" style="flex:1" placeholder="e.g. write this week's investor update">
+          <button type="button" class="btn btn-outline btn-sm" onclick="checkSkillTrigger()">Test</button>
+        </div>
+        <div id="skill-trigger-result" class="text-sm text-muted" style="margin-top:4px"></div>
+      </div>
+    </div>
+
+    <div class="skwiz-step" data-step="6" hidden>
+      {# The only place a full summary appears is here, at the end, as a review before committing -
+         not rendered below a form of already-visible fields (the founder's exact complaint). #}
+      <div id="skill-summary" class="text-sm" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px"></div>
+      <div id="skill-validation" class="text-sm" style="margin:4px 0 8px"></div>
+    </div>
+
+    <div class="skwiz-nav">
+      <div>
+        <button type="button" id="skwiz-back" class="btn btn-outline" onclick="skwizBack()">Back</button>
+        <button type="button" class="btn btn-outline"
+                onclick="document.getElementById('new-skill').style.display='none'">Cancel</button>
+      </div>
+      <button type="button" id="skwiz-next" class="btn btn-primary" onclick="skwizNext()">Next</button>
+    </div>
+  </form>
+</div>
+
+{% if gallery %}
+<div class="card mb-2" id="skills-gallery">
+  <h3 style="margin-bottom:6px;font-size:15px">Template gallery</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">Ready-made skills vendored from openly
+    licensed sources (see <code>anthill/skills_gallery/SOURCES.md</code> for each one's real origin).
+    Preview one, adopt it into a scope you can edit, then tweak it to fit.</p>
+  {% for g in gallery %}
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+    <div class="flex justify-between items-center">
+      <b style="font-size:14px">{{ g.name }}</b>
+      <span class="badge badge-member">{{ g.license }}</span>
+    </div>
+    {% if g.description %}<p class="text-sm text-muted" style="margin:4px 0">{{ g.description }}</p>{% endif %}
+    <details style="margin:6px 0">
+      <summary class="text-sm" style="cursor:pointer">Preview instructions</summary>
+      <pre class="wiki-content" style="max-height:200px;margin-top:6px">{{ g.instructions }}</pre>
+    </details>
+    <form method="post" action="/skills/gallery/{{ g.slug }}/adopt" style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <select name="scope" onchange="syncGalleryTeam(this)">
+        <option value="personal" selected>Personal (just me)</option>
+        {% for t in editable_teams %}<option value="team" data-team="{{ t.id }}">Team: {{ t.name }}</option>{% endfor %}
+        {% if can_edit_org %}<option value="org">Organization (everyone)</option>{% endif %}
+      </select>
+      <input type="hidden" name="team_id" value="">
+      <button class="btn btn-primary btn-sm">Adopt</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% set tier_badge = {'org':'amber','team':'clay','personal':'clay','builtin':'amber'} %}
+{% if skills %}
+{% for s in skills %}
+<div class="card mt-4">
+  <div class="flex justify-between items-center mb-2">
+    <div>
+      <span class="badge badge-{{ tier_badge.get(s.tier, 'clay') }}">{{ s.tier }}</span>
+      {% if s.scopes %}<span class="badge badge-member" title="Only activates for an agent identity holding these scopes">🔒 {{ s.scopes|join(', ') }}</span>{% endif %}
+      <b style="font-size:15px">{{ s.name }}</b>
+      {% if s.when_to_use %}<span class="text-sm text-muted"> - {{ s.when_to_use }}</span>{% endif %}
+    </div>
+    {% if s.can_edit %}
+    <div style="display:flex;gap:6px;align-items:center">
+      {% if s.assets %}<span class="text-sm text-muted" title="bundled files">📎 {{ s.assets|length }}</span>{% endif %}
+      <button class="btn btn-outline btn-sm" onclick="editSkill('{{ s.slug }}')">Edit</button>
+      <form method="post" action="/skills/{{ s.slug }}/delete" style="margin:0"
+            onsubmit="return confirm('Delete this skill?')">
+        <input type="hidden" name="scope" value="{{ s.tier }}">
+        {% if s.team_id %}<input type="hidden" name="team_id" value="{{ s.team_id }}">{% endif %}
+        <button class="btn btn-danger btn-sm">Delete</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% if s.description %}<p class="text-sm text-muted" style="margin:0 0 8px">{{ s.description }}</p>{% endif %}
+  <pre class="wiki-content" style="max-height:220px">{{ s.instructions }}</pre>
+</div>
+{% endfor %}
+{% else %}
+<div class="card" style="text-align:center;padding:30px">
+  <p class="text-muted">No skills yet. Click <b>+ New skill</b> to describe one and let Anthill draft it.</p>
+</div>
+{% endif %}
+
+<script>
+function syncTeam() {
+  var sel = document.getElementById('skill-scope');
+  var opt = sel.options[sel.selectedIndex];
+  document.getElementById('skill-team-id').value = opt ? (opt.getAttribute('data-team') || '') : '';
+}
+syncTeam();
+
+// Step-by-step wizard driver (founder: a wizard walkthrough, not a form with the output rendered
+// below it). All fields stay in the ONE real <form> (unchanged name= attributes, unchanged
+// /skills/create contract) - this only shows/hides which step's fields are visible and drives a
+// progress indicator; nothing here talks to the server except the same draft/refine/validate/
+// check-trigger calls that already existed.
+var SKWIZ_TOTAL = 6;
+var skwizStep = 1;
+function skwizRender() {
+  document.querySelectorAll('.skwiz-step').forEach(function (el) {
+    el.hidden = (Number(el.dataset.step) !== skwizStep);
+  });
+  document.querySelectorAll('.skwiz-step-i').forEach(function (el) {
+    var n = Number(el.dataset.step);
+    el.classList.toggle('is-current', n === skwizStep);
+    el.classList.toggle('is-done', n < skwizStep);
+    el.querySelector('.skwiz-badge').innerHTML = (n < skwizStep) ? '&check;' : String(n);
+  });
+  var back = document.getElementById('skwiz-back');
+  if (back) back.style.visibility = (skwizStep === 1) ? 'hidden' : 'visible';
+  var next = document.getElementById('skwiz-next');
+  if (next) next.textContent = (skwizStep === SKWIZ_TOTAL) ? 'Save skill' : 'Next';
+  if (skwizStep === SKWIZ_TOTAL) skwizRenderSummary();
+}
+function skwizGo(n) { skwizStep = Math.max(1, Math.min(SKWIZ_TOTAL, n)); skwizRender(); }
+function skwizNext() { if (skwizStep >= SKWIZ_TOTAL) { skwizSave(); return; } skwizGo(skwizStep + 1); }
+function skwizBack() { skwizGo(skwizStep - 1); }
+function openSkillWizard() {
+  document.getElementById('new-skill').style.display = 'block';
+  skwizGo(1);
+}
+// The only place a full summary of the skill appears - here, at the final step, as a review before
+// committing (not below a form of already-visible fields).
+function skwizRenderSummary() {
+  var el = document.getElementById('skill-summary');
+  if (!el) return;
+  var name = document.querySelector('[name=name]').value || '(untitled)';
+  var when = document.querySelector('[name=when_to_use]').value;
+  var desc = document.querySelector('[name=description]').value;
+  var instr = document.querySelector('[name=instructions]').value || '';
+  var scopeSel = document.getElementById('skill-scope');
+  var scopeLabel = scopeSel.options[scopeSel.selectedIndex] ? scopeSel.options[scopeSel.selectedIndex].text : 'Personal';
+  var govScopes = Array.prototype.slice.call(document.querySelectorAll('.skill-scope-cb:checked')).map(function (cb) { return cb.value; });
+  var rows = [
+    ['Name', escapeHtml(name)],
+    ['Applies to', escapeHtml(scopeLabel)],
+    ['When to use', when ? escapeHtml(when) : '<span class="text-muted">(not set)</span>'],
+    ['Description', desc ? escapeHtml(desc) : '<span class="text-muted">(not set)</span>'],
+    ['Restricted to', govScopes.length ? escapeHtml(govScopes.join(', ')) : '<span class="text-muted">no restriction - applies whenever it matches</span>'],
+  ];
+  var html = rows.map(function (r) { return '<div style="margin:3px 0"><b>' + r[0] + ':</b> ' + r[1] + '</div>'; }).join('');
+  html += '<div style="margin:8px 0 0"><b>Instructions:</b><pre class="text-sm" style="white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin:4px 0 0;max-height:160px;overflow:auto">' + escapeHtml(instr.slice(0, 1200)) + (instr.length > 1200 ? '…' : '') + '</pre></div>';
+  el.innerHTML = html;
+}
+// Validate then submit - the same gate the old native form-submit handler used, now triggered by the
+// wizard's own Save action on the last step instead of a submit event (hidden steps' inputs still
+// submit fine - the `hidden` attribute only affects visibility, not FormData/form submission).
+async function skwizSave() {
+  var form = document.getElementById('skill-form');
+  var v = await validateSkillForm(form);
+  if (v.errors && v.errors.length) { skwizRenderSummary(); return; }
+  form.submit();
+}
+
+// Fill the builder's fields from a {name, description, when_to_use, instructions, scopes} draft -
+// the one shape /skills/draft, /skills/draft-from-chat, and /skills/{slug}/raw all return. Shared by
+// draftSkill(), editSkill(), and the "arrived from a chat capture" prefill below (#683) so there is
+// exactly one place that knows the field names.
+function fillSkillForm(s) {
+  document.querySelector('[name=name]').value = s.name || '';
+  document.querySelector('[name=description]').value = s.description || '';
+  document.querySelector('[name=when_to_use]').value = s.when_to_use || '';
+  document.querySelector('[name=instructions]').value = s.instructions || '';
+  setSkillScopes(s.scopes || []);
+}
+
+// Governance scopes (#683): a skill only activates for an agent identity holding every scope
+// checked here (enforced in anthill/agent/executor.py - real already, just never exposed here).
+// The checkboxes are the UI; the hidden `scopes` input is what actually gets submitted.
+function syncSkillScopes() {
+  var checked = Array.prototype.slice.call(document.querySelectorAll('.skill-scope-cb:checked'))
+    .map(function (cb) { return cb.value; });
+  document.getElementById('skill-scopes-value').value = checked.join(',');
+}
+function setSkillScopes(list) {
+  var set = new Set(list || []);
+  document.querySelectorAll('.skill-scope-cb').forEach(function (cb) { cb.checked = set.has(cb.value); });
+  syncSkillScopes();
+}
+
+// "Does it trigger?" (#683): runs the SAME match_skills() the executor calls at real run time
+// (anthill/agent/executor.py) against the draft's current fields - never a separate, model-judged
+// heuristic that could drift from actual matching behaviour.
+async function checkSkillTrigger() {
+  const prompt = document.getElementById('skill-sample-prompt').value.trim();
+  const result = document.getElementById('skill-trigger-result');
+  if (!prompt) { result.textContent = 'Type a sample prompt first.'; return; }
+  const fd = new FormData();
+  fd.append('description', document.querySelector('[name=description]').value);
+  fd.append('when_to_use', document.querySelector('[name=when_to_use]').value);
+  fd.append('instructions', document.querySelector('[name=instructions]').value);
+  fd.append('sample_prompt', prompt);
+  try {
+    const r = await fetch('/skills/check-trigger', {method: 'POST', body: fd});
+    const d = await r.json();
+    result.innerHTML = d.would_trigger
+      ? '✓ Would trigger on this prompt.'
+      : '✗ Would not trigger on this prompt - try a more specific description/when-to-use, or a different sample.';
+  } catch (e) {
+    result.textContent = 'Could not check right now.';
+  }
+}
+
+// Local validation (#683): naming, description, a rough instructions length heuristic, and
+// dangling [[asset]] references. Called here on every save attempt, and again server-side inside
+// skills_create() - the client check is a convenience, never the only gate.
+function renderSkillValidation(v) {
+  const el = document.getElementById('skill-validation');
+  if (!el) return;
+  const parts = [];
+  (v.errors || []).forEach(function (e) {
+    parts.push('<div style="color:var(--danger,#b91c1c)">✗ ' + escapeHtml(e) + '</div>');
+  });
+  (v.warnings || []).forEach(function (w) {
+    parts.push('<div class="text-muted">⚠ ' + escapeHtml(w) + '</div>');
+  });
+  el.innerHTML = parts.join('');
+}
+async function validateSkillForm(form) {
+  const fd = new FormData(form);
+  try {
+    const r = await fetch('/skills/validate', {method: 'POST', body: fd});
+    const v = await r.json();
+    renderSkillValidation(v);
+    return v;
+  } catch (e) {
+    return {errors: [], warnings: []}; // best-effort: never block saving on a validation-check hiccup
+  }
+}
+
+function syncGalleryTeam(sel) {
+  var opt = sel.options[sel.selectedIndex];
+  var hidden = sel.closest('form').querySelector('input[name=team_id]');
+  if (hidden) hidden.value = opt ? (opt.getAttribute('data-team') || '') : '';
+}
+
+async function draftSkill() {
+  const d = document.getElementById('skill-desc').value.trim();
+  if (!d) return;
+  const btn = document.getElementById('skill-draft-btn');
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Drafting...';
+  try {
+    const fd = new FormData(); fd.append('description', d);
+    const r = await fetch('/skills/draft', {method: 'POST', body: fd});
+    if (!r.ok) throw new Error();
+    fillSkillForm(await r.json());
+    skwizGo(2);  // drafted - move on to reviewing what Anthill filled in
+  } catch (e) {
+    showToast('Could not draft the skill. Fill the fields manually, or try again.', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+function escapeHtml(t){return (t||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+let skillChat = [];
+async function refineSkill() {
+  const input = document.getElementById('skill-chat-input');
+  const log = document.getElementById('skill-chat-log');
+  let msg = (input.value || '').trim();
+  if (!msg && skillChat.length === 0) msg = (document.getElementById('skill-desc').value || '').trim();
+  if (!msg) return;
+  skillChat.push({role:'user', content: msg});
+  log.innerHTML += '<div class="text-sm"><b>You:</b> ' + escapeHtml(msg) + '</div>';
+  input.value = '';
+  try {
+    const r = await fetch('/skills/refine', {method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify({messages: skillChat})});
+    const s = await r.json();
+    if (s.name) document.querySelector('[name=name]').value = s.name;
+    if (s.description) document.querySelector('[name=description]').value = s.description;
+    if (s.when_to_use) document.querySelector('[name=when_to_use]').value = s.when_to_use;
+    if (s.instructions) document.querySelector('[name=instructions]').value = s.instructions;
+    const note = s.ready ? 'Looks ready - review the next few steps and Save.' : (s.question || 'Tell me a bit more.');
+    skillChat.push({role:'assistant', content: note});
+    log.innerHTML += '<div class="text-sm text-muted"><b>Anthill:</b> ' + escapeHtml(note) + '</div>';
+    log.scrollTop = log.scrollHeight;
+    if (s.ready) skwizGo(2);
+  } catch (e) {
+    log.innerHTML += '<div class="text-sm text-muted">Could not reach the model - fill the fields manually.</div>';
+  }
+}
+
+async function editSkill(slug) {
+  document.getElementById('new-skill').style.display = 'block';
+  try {
+    const r = await fetch('/skills/' + encodeURIComponent(slug) + '/raw');
+    if (!r.ok) return;
+    fillSkillForm(await r.json());
+    skillChat = [];
+    // Editing an existing skill has real content already - start reviewing it, not the blank
+    // "describe it" drafting step (step indicators still let you jump anywhere, including back to 1).
+    skwizGo(2);
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  } catch (e) { /* leave the form as-is */ }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  anthillWalkthrough('skills', [
+    {sel: '#skills-intro', title: 'What skills are', body: 'Reusable instructions the model follows on its own when a task matches - no need to repeat yourself every time.'},
+    {sel: '#new-skill-btn', title: 'Describe it, done', body: 'Describe what you want in plain words and Anthill drafts the whole skill for you to review and save.'},
+    {sel: '#skills-autolearn-panel', title: 'Or let it learn one', body: 'After a successful agent run, Anthill can propose a reusable skill on its own - you only ever accept or reject it.'},
+  ], {autostart: false});
+  // "Turn this conversation into a skill" (#683): chat.html's turnIntoSkill() stashes the drafted
+  // fields in sessionStorage and redirects here with ?draft=1. Open the builder and prefill it with
+  // the SAME fillSkillForm() draftSkill()/editSkill() use, then clear the stashed draft so a reload
+  // or a later visit doesn't resurface a stale one.
+  try {
+    if (new URLSearchParams(window.location.search).get('draft') === '1') {
+      const raw = sessionStorage.getItem('anthill_skill_draft');
+      if (raw) {
+        document.getElementById('new-skill').style.display = 'block';
+        fillSkillForm(JSON.parse(raw));
+        skwizGo(2);  // already drafted (from chat) - go straight to reviewing it
+        window.scrollTo({top: 0, behavior: 'smooth'});
+      }
+      sessionStorage.removeItem('anthill_skill_draft');
+    }
+  } catch (e) { /* leave the form as-is */ }
+
+  // Safety net only: skwizSave() (the wizard's own "Save skill" button) already validates and calls
+  // form.submit() directly, which does NOT fire this 'submit' event - this only catches an implicit
+  // native submission (e.g. Enter in a field) reaching the server without going through skwizSave()'s
+  // validation gate first (mirrors the server-side check inside skills_create() either way).
+  const createForm = document.getElementById('skill-form');
+  if (createForm) {
+    createForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const v = await validateSkillForm(createForm);
+      if (v.errors && v.errors.length) { skwizGo(SKWIZ_TOTAL); return; }
+      createForm.submit();
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,34 @@
+name: backend-image
+
+# Builds + publishes the always-on org BACKEND image (the Anthill web app) to GHCR. Manual / tag-triggered
+# ONLY (never on normal PRs): it is a large image (torch + BGE-M3), validated by the owner. Tag
+# `backend-vX.Y.Z` or run the workflow by hand to publish.
+#
+# The GHCR package is created PRIVATE by default (only this org can pull it - for pre-launch testing).
+# AT LAUNCH it must be flipped PUBLIC so every org's cloud can pull the official image. See the
+# "Launch gate: make anthill-backend image public" item in the internal backlog.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "backend-v*"
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          push: true
+          tags: ghcr.io/onehillai/anthill-backend:latest

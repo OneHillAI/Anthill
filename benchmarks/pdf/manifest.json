@@ -1,0 +1,78 @@
+{
+  "text-heavy.pdf": {
+    "terms": [
+      "Operations handbook",
+      "retain invoices",
+      "review quarterly"
+    ],
+    "question": "How long are invoices retained, and how often are they reviewed?",
+    "answer_terms": [
+      "seven years",
+      "quarterly"
+    ]
+  },
+  "scanned.pdf": {
+    "terms": [
+      "SCANNED PURCHASE ORDER",
+      "PO-8841",
+      "4,250 EUR"
+    ],
+    "question": "What is the purchase order number and approved total?",
+    "answer_terms": [
+      "PO-8841",
+      "4,250"
+    ],
+    "vision_required": true
+  },
+  "table-form.pdf": {
+    "terms": [
+      "Region",
+      "Europe",
+      "Asia Pacific"
+    ],
+    "table": true,
+    "question": "Which region has the highest revenue, and what is its growth?",
+    "answer_terms": [
+      "Asia Pacific",
+      "143000",
+      "11 percent"
+    ]
+  },
+  "multi-column.pdf": {
+    "terms": [
+      "Primary systems",
+      "Latency",
+      "Next drill"
+    ],
+    "question": "What cache hit rate was reached, and when is the next drill?",
+    "answer_terms": [
+      "72 percent",
+      "September"
+    ]
+  },
+  "mixed-diagram.pdf": {
+    "terms": [
+      "Deployment topology",
+      "relationships",
+      "raster diagram"
+    ],
+    "question": "Describe the traffic flow between the three components.",
+    "answer_terms": [
+      "Queue",
+      "Worker",
+      "Archive"
+    ],
+    "vision_required": true
+  },
+  "long.pdf": {
+    "terms": [
+      "Annual archive page 1",
+      "Record 10-20",
+      "Record 20-35"
+    ],
+    "question": "What is the final record on archive page 20?",
+    "answer_terms": [
+      "Record 20-35"
+    ]
+  }
+}

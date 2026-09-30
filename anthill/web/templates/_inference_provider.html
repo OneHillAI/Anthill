@@ -1,0 +1,363 @@
+{# The optional inference-provider escalation attachment (docs/specs/expert-tier-compound-compute-and-
+   escalation.md) - a hosted, frontier-scale open model (Berget/Groq/Infercom) attached ON TOP of
+   whichever base tier _compute_chooser.html picked, for hard questions only, never the sole/primary
+   backend. Always included LAST of the three setup/Settings partials (after _compute_chooser.html and
+   _council_builder.html) - founder correction (2026-09-28): this used to sit BETWEEN the tier pick and
+   the model pick, reading as an interruption in the middle of one decision. It is now a separate, later,
+   skippable step - continuing without a key is expected and fine; an account that selects a provider but
+   never pastes a key just has nothing attached, surfaced later as a Dashboard setup-checklist item
+   instead of blocking the rest of this form.
+
+   Declutter pass (2026-09-28, founder: "hundreds of side notes... focus on the important stuff"):
+   dropped the paragraph explaining WHY to attach a provider (the header + badge already say enough),
+   trimmed each provider's key-hint to a single link (no separate restated how-to line), and moved the
+   ask/automated escalation-mode choice out of the setup wizard entirely (`in_setup` hides it - it isn't
+   a first-run decision) while shrinking it to one line in Settings, instead of a toggle plus its own
+   explanatory paragraph. #}
+{% set cf = chooser_form|default('') %}
+{% set cur_compute = compute|default('local') %}
+{% set cur_cloud_provider = cloud_provider|default('') %}
+{% set cur_escalation_provider = escalation_provider|default('') %}
+{% set cur_escalation_mode = escalation_mode|default('ask') %}
+{% set cur_escalation_consented = escalation_consented|default(false) %}
+<style>
+  /* The inference-provider card: always visible and prominent (mockup), not a checkbox someone can
+     miss - founder ask, 2026-09-26. Warm accent, matching the "Expert" chip's colour elsewhere. */
+  .cc-infer-card{background:var(--surface,#fff);border:2px solid var(--warn,#b0721c);border-radius:var(--radius);
+    padding:var(--sp-4);margin:var(--sp-4) 0}
+  .cc-infer-top{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-2);
+    flex-wrap:wrap;margin-bottom:var(--sp-2)}
+  .cc-infer-head{display:flex;align-items:center;gap:var(--sp-2)}
+  .cc-infer-icon{width:38px;height:38px;border-radius:10px;background:rgba(176,114,28,.14);
+    color:var(--warn,#b0721c);display:flex;align-items:center;justify-content:center;flex:none}
+  .cc-infer-icon svg{width:20px;height:20px}
+  .cc-infer-name{font-family:var(--font-sans);font-weight:700;font-size:var(--fs-4)}
+  .cc-infer-sub{font-size:var(--fs-1);color:var(--muted);margin-top:2px}
+  .cc-infer-badge{background:var(--warn,#b0721c);color:#fff;font-size:11px;font-weight:700;
+    padding:4px 10px;border-radius:999px;white-space:nowrap}
+  /* "Don't use one" is a real 4th card in the provider grid (cc-prov), same size/weight as the
+     providers - not a grayed-out text link (founder ask, 2026-09-29). */
+  .cc-prov.none{color:var(--muted);display:flex;align-items:center;justify-content:center;text-align:center}
+  .cc-mode{margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .cc-mode-l{font-weight:600;font-size:var(--fs-2)}
+  .cc-consent-status{margin-top:10px;display:flex;align-items:center;justify-content:space-between;
+    gap:10px;flex-wrap:wrap;background:var(--bg-subtle);border-radius:8px;padding:8px 12px}
+  .cc-consent-l{font-size:var(--fs-1);color:var(--muted)}
+  .cc-adv{margin-top:var(--sp-4)}
+  .cc-adv summary{list-style:none;cursor:pointer;color:var(--muted);font-size:var(--fs-2);font-weight:600}
+  .cc-adv summary::-webkit-details-marker{display:none}
+  .cc-adv summary::before{content:"\203A";margin-right:6px;display:inline-block;transition:.15s;color:var(--muted)}
+  .cc-adv[open] summary::before{transform:rotate(90deg)}
+  .cc-advrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;margin-top:var(--sp-2);opacity:.7}
+  .cc-advrow-n{font-weight:600;font-size:var(--fs-2)}
+  .cc-advrow-d{font-size:var(--fs-1);color:var(--muted);margin-top:2px}
+  .cc-soon{font-size:var(--fs-1);font-weight:600;color:var(--muted);white-space:nowrap}
+  /* Model picker (#854 follow-up): the <select> had no styling of its own (bare OS chrome next to the
+     styled API-key input above it) - matched to .cc-key input's exact treatment, plus a custom chevron
+     since appearance:none drops the native one. Recommended/caution models are grouped under real
+     <optgroup> labels instead of a "(recommended)"/"(may be slow or verbose)" text suffix on every row -
+     option text can't carry a badge, but a native group heading needs none and reads cleaner. */
+  .cc-model-row{display:flex;gap:var(--sp-2);align-items:center}
+  .cc-key select{flex:1;font:inherit;font-size:var(--fs-1);padding:8px 30px 8px 10px;
+    border:1px solid var(--border-strong,var(--muted));border-radius:8px;background:var(--surface,#fff);
+    color:var(--text);appearance:none;-webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23808080' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 7.5L10 12l4.5-4.5'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 8px center}
+</style>
+
+{# the OPTIONAL inference-provider attachment - independent of which base tier is picked in
+   _compute_chooser.html. #}
+<input type="hidden" name="escalation_provider" id="cc-escalation-provider" value="{{ cur_escalation_provider }}"{% if cf %} form="{{ cf }}"{% endif %}>
+<input type="hidden" name="escalation_mode" id="cc-escalation-mode" value="{{ cur_escalation_mode }}"{% if cf %} form="{{ cf }}"{% endif %}>
+
+{% if in_setup %}
+<div class="cc-step-title" style="margin-top:28px">Which inference provider to connect?</div>
+{% endif %}
+
+{# Clicking a provider card both selects AND attaches it (no separate checkbox); the "Don't use one"
+   card clears it again - a real, always-visible fourth choice, not grayed-out text tucked inside the
+   card (founder ask, 2026-09-29). Continuing without a key is fine - see the file header. #}
+<div class="cc-infer-card">
+  <div class="cc-infer-top">
+    <div class="cc-infer-head">
+      <span class="cc-infer-icon"><i data-lucide="zap"></i></span>
+      <div><div class="cc-infer-name">Your inference provider</div>
+        <div class="cc-infer-sub">Choose an inference provider to have access to frontier-scale open models for your hardest work.</div></div>
+    </div>
+    <span class="cc-infer-badge">Recommended for most people</span>
+  </div>
+  <div class="cc-prefer" style="margin-top:14px">
+    <span class="cc-prefer-l">Filter</span>
+    <div class="cc-seg cc-pref-group" id="cc-esc-pref">
+      <button type="button" class="on" data-region="best" onclick="ccPrefer(this,'best')">Best capability</button>
+      <button type="button" data-region="us" onclick="ccPrefer(this,'us')">US</button>
+      <button type="button" data-region="eu" onclick="ccPrefer(this,'eu')">EU</button>
+      <button type="button" data-region="other" onclick="ccPrefer(this,'other')">Other</button>
+    </div>
+  </div>
+  <div class="cc-provs" id="cc-escalation-provs" style="grid-template-columns:1fr 1fr 1fr auto"></div>
+  <div class="cc-key" id="cc-escalation-keywrap" hidden>
+    <label id="cc-escalation-keylabel">API key</label>
+    <div class="row"><input type="password" name="escalation_api_key" id="cc-escalation-key" placeholder="Paste your API key" autocomplete="off"{% if cf %} form="{{ cf }}"{% endif %}></div>
+    <div class="hint" id="cc-escalation-keyhint"></div>
+  </div>
+  {# Model picker (#854 follow-up): choose which model runs on the attached provider, from its live
+     catalogue (/settings/escalation/discover-models). "" = the provider's curated default. Minimal UI -
+     Council to fold into the design system. #}
+  <div class="cc-key" id="cc-escalation-modelwrap" hidden>
+    <label>Model <span class="hint" style="font-weight:400">(optional - defaults to the recommended one)</span></label>
+    <div class="cc-model-row">
+      <select name="escalation_model" id="cc-escalation-model"{% if cf %} form="{{ cf }}"{% endif %}>
+        <option value="">Recommended default</option>
+      </select>
+      <button type="button" class="btn btn-outline btn-sm" id="cc-escalation-loadmodels" onclick="ccLoadEscalationModels()"><i data-lucide="download">⬇️</i> Load models</button>
+    </div>
+    <div class="hint" id="cc-escalation-modelhint">Pick a fast, non-reasoning instruct model. The catalogue loads automatically once a key is set.</div>
+  </div>
+  {% if not in_setup %}
+  {# A one-line choice, not a card with its own explanation - the button labels already say what each
+     option does (founder ask, 2026-09-28). Not shown in the setup wizard at all: this isn't a first-run
+     decision, and defaults to "ask" until changed here later. #}
+  <div class="cc-mode" id="cc-esc-mode-wrap" hidden>
+    <span class="cc-mode-l">When it's unsure</span>
+    <div class="cc-seg" id="cc-esc-mode">
+      <button type="button" class="on" data-mode="ask" onclick="ccPickMode(this,'ask')">Ask me each time</button>
+      <button type="button" data-mode="automated" onclick="ccPickMode(this,'automated')">Escalate automatically</button>
+    </div>
+  </div>
+  {# Revoke-only: clicking "Always" in a chat is the sole way to grant this (a real, named disclosure
+     right before it fires), so Settings only ever offers to turn it back off, never to turn it on. #}
+  <div class="cc-consent-status" id="cc-consent-status"{% if not cur_escalation_consented %} hidden{% endif %}>
+    <span class="cc-consent-l">Skips asking before every escalation - you chose "Always" from a chat.</span>
+    <button type="button" class="btn btn-outline btn-sm" onclick="ccRevokeConsent(this)">Turn off</button>
+  </div>
+  {% endif %}
+</div>
+
+<details class="cc-adv">
+  <summary>Advanced setups</summary>
+  <div class="cc-advrow"><div><div class="cc-advrow-n">Self-hosted server or device</div><div class="cc-advrow-d">Already run a GPU box or a model server? Point Anthill at its endpoint (a URL + key).</div></div><span class="cc-soon">Coming soon</span></div>
+  <div class="cc-advrow"><div><div class="cc-advrow-n">Your own cloud account</div><div class="cc-advrow-d">Provision into your AWS, GCP, Azure or IBM VPC - full control of the infrastructure.</div></div><span class="cc-soon">Coming soon</span></div>
+</details>
+
+<script>
+// Verified by the Anthill Dev Council against each provider's own site/docs (2026-09-26): Groq's
+// flagship is Kimi K2, not GPT-OSS-120B. Berget's Kimi K3 reached GA on 2026-09-02
+// (berget.ai/en/blog/kimi-k3-glm-5-3-flash-ga) - confirmed via the Anthill Dev Council.
+// Order is the default ("Best capability") display order (ccSort() below returns list order
+// unchanged for that filter) - Groq listed first and marked recommended:true, per the founder's
+// live bake-off recorded next to _INFERENCE_PROVIDERS in anthill/web/app.py (fastest clean
+// escalation answer of the three, 2026-09-29). Berget/Infercom unchanged, still fully selectable.
+//
+// Founder direction (2026-09-30) for whoever adds OpenRouter/Runware once the in-flight
+// model-picker branch lands (both intentionally held out of this list for now - see the app.py
+// comment): list them too, each with a short remark that they proxy closed/frontier models
+// (GPT/Claude/Gemini/etc.), not just open-weight ones - that's the actual reason to reach for them,
+// distinct from Groq's "fastest open model" recommendation.
+var CC_INFER=[
+  {key:'groq',name:'Groq',region:'us',recommended:true,
+   d:'Hosts Kimi K2, plus the fastest clean escalation answer of any provider today.',
+   signup:'https://console.groq.com/keys',
+   keyurl:'https://console.groq.com/keys',
+   aoi:'https://ownershipindex.ai/library/inference-providers/groq/'},
+  {key:'berget',name:'Berget AI',region:'eu',d:'Hosts Kimi K3 (2.8T params) - the largest open model anywhere.',
+   signup:'https://console.berget.ai/auth',
+   keyurl:'https://console.berget.ai',
+   aoi:'https://ownershipindex.ai/library/inference-providers/berget/'},
+  {key:'infercom',name:'Infercom',region:'other',d:'Hosts MiniMax M2.7 (~230B params) in the EU.',
+   signup:'https://cloud.infercom.ai',
+   keyurl:'https://cloud.infercom.ai/apis',
+   aoi:'https://ownershipindex.ai/library/inference-providers/infercom/'}
+];
+// The escalation provider key hydration actually connected - re-applied after ccRenderEscalationProvs()
+// rebuilds the list (see that function's own comment, and _compute_chooser.html's matching
+// ccCloudConnected for the cloud-provider picker's identical issue).
+var ccEscConnected = '';
+// Whether "Always" is currently in effect for ccEscConnected specifically - mirrors
+// cfg.escalation_consented. Only ccRevokeConsent() (a real server round-trip) may clear it; picking a
+// DIFFERENT provider hides the status optimistically (the save will reset it server-side too, see
+// _apply_escalation_attachment), but re-selecting the SAME already-connected provider must not.
+var ccEscConsented = {{ 'true' if cur_escalation_consented else 'false' }};
+
+// Always rendered (the card itself is always visible now, not gated behind a checkbox). Includes a
+// "Don't use one" card as an equal-weight 4th option, selected whenever nothing is attached - not a
+// grayed-out text link tucked inside the card (founder ask, 2026-09-29).
+function ccRenderEscalationProvs(){
+  var list=ccSort(CC_INFER, ccPref);
+  var html=list.map(function(p){
+    var links='<a href="'+p.signup+'" target="_blank" rel="noopener">Sign up &rarr;</a>'
+      + (p.aoi?' <a href="'+p.aoi+'" target="_blank" rel="noopener">Ownership grade</a>':'');
+    return '<div class="cc-prov" data-key="'+p.key+'" data-name="'+p.name+'" onclick="ccPickEscalationProv(this)">'
+      +'<div class="cc-prov-n">'+p.name
+      +(p.recommended?' <span class="mp-badge rec">recommended</span>':'')
+      +' <span class="cc-prov-r">'+p.region.toUpperCase()+'</span></div>'
+      +'<div class="cc-prov-d">'+p.d+'</div><div class="cc-prov-links">'+links+'</div></div>';
+  }).join('');
+  html += '<div class="cc-prov none" data-key="" onclick="ccClearEscalation()" title="Skip the inference provider - you can attach one later from Settings.">'
+    +'<div class="cc-prov-n">Don\'t use one</div></div>';
+  document.getElementById('cc-escalation-provs').innerHTML=html;
+  // Re-mark the connected card after a rebuild (a "Prefer" region change, or a plain page reload that
+  // re-runs hydration) - see _compute_chooser.html's matching ccCloudConnected comment for why this is
+  // needed: rebuilding the list replaces it with fresh, unselected DOM and previously left the
+  // already-connected provider looking disconnected again.
+  var keptKey = document.getElementById('cc-escalation-provider').value;
+  var keptEl = keptKey && document.querySelector('#cc-escalation-provs .cc-prov[data-key="'+keptKey+'"]');
+  if (keptEl) {
+    ccPickEscalationProv(keptEl);
+    if (keptKey === ccEscConnected) {
+      document.getElementById('cc-escalation-keyhint').innerHTML += ' Already connected - leave the key blank to keep it.';
+    }
+  } else {
+    var noneEl = document.querySelector('#cc-escalation-provs .cc-prov.none');
+    if (noneEl) noneEl.classList.add('sel');
+  }
+}
+// One line, one link - not a restated "how" paragraph (founder correction, 2026-09-28).
+function ccPickEscalationProv(el){
+  el.parentElement.querySelectorAll('.cc-prov').forEach(function(p){p.classList.toggle('sel',p===el);});
+  var name=el.dataset.name;
+  var p=ccFindProv(el.dataset.key);
+  document.getElementById('cc-escalation-provider').value=el.dataset.key;
+  ccAttach=true;
+  ccRenderChips();
+  var kw=document.getElementById('cc-escalation-keywrap'); kw.hidden=false;
+  document.getElementById('cc-escalation-keylabel').textContent='Your '+name+' API key';
+  document.getElementById('cc-escalation-key').placeholder='Paste your '+name+' API key';
+  document.getElementById('cc-escalation-keyhint').innerHTML = p
+    ? '<a href="'+p.keyurl+'" target="_blank" rel="noopener">Open your '+name+' API keys page &rarr;</a>'
+    : '';
+  var modeWrap = document.getElementById('cc-esc-mode-wrap');
+  if (modeWrap) modeWrap.hidden=false;
+  var consentStatus = document.getElementById('cc-consent-status');
+  if (consentStatus) consentStatus.hidden = !(ccEscConsented && el.dataset.key === ccEscConnected);
+}
+function ccClearEscalation(){
+  document.querySelectorAll('#cc-escalation-provs .cc-prov').forEach(function(p){p.classList.toggle('sel',p.classList.contains('none'));});
+  document.getElementById('cc-escalation-provider').value='';
+  document.getElementById('cc-escalation-key').value='';
+  ccEscConnected='';  // a deliberate disconnect - a later region rebuild must not resurrect the hint
+  ccAttach=false;
+  ccRenderChips();
+  document.getElementById('cc-escalation-keywrap').hidden=true;
+  var modeWrap = document.getElementById('cc-esc-mode-wrap');
+  if (modeWrap) modeWrap.hidden=true;
+  var consentStatus = document.getElementById('cc-consent-status');
+  if (consentStatus) consentStatus.hidden=true;
+}
+function ccPickMode(btn, mode){
+  document.querySelectorAll('#cc-esc-mode button').forEach(function(b){b.classList.toggle('on',b===btn);});
+  document.getElementById('cc-escalation-mode').value=mode;
+}
+// The revoke path for a consent granted from chat's "Always" click (see this file's header comment) -
+// a real server round-trip, not folded into the surrounding Save button, so it takes effect immediately
+// rather than depending on the rest of this form being saved too.
+function ccRevokeConsent(btn){
+  btn.disabled=true;
+  fetch('/personalize/escalation-consent-revoke', {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d && d.ok) {
+        ccEscConsented=false;
+        var consentStatus=document.getElementById('cc-consent-status');
+        if (consentStatus) consentStatus.hidden=true;
+      } else {
+        btn.disabled=false;
+      }
+    })
+    .catch(function(){btn.disabled=false;});
+}
+// Full hydration: the base tier/cloud-provider state (ccHydrateBase, _compute_chooser.html) plus the
+// escalation attachment - run here, the LAST of the three partials, so the whole DOM (tier cards,
+// council rows, provider cards) exists before anything tries to reconcile against it.
+function ccHydrate(compute, cloudProvider, escalationProvider, escalationMode){
+  ccHydrateBase(compute, cloudProvider);
+  ccAttach = !!escalationProvider;
+  ccRenderChips();
+  if (ccAttach && escalationProvider) {
+    ccEscConnected = escalationProvider;  // ccRenderEscalationProvs() re-applies this on every rebuild
+    var escEl = document.querySelector('#cc-escalation-provs .cc-prov[data-key="'+escalationProvider+'"]');
+    if (escEl) {
+      ccPickEscalationProv(escEl);
+      document.getElementById('cc-escalation-keyhint').innerHTML += ' Already connected - leave the key blank to keep it.';
+      var modeBtn = document.querySelector('#cc-esc-mode button[data-mode="'+escalationMode+'"]');
+      if (modeBtn) ccPickMode(modeBtn, escalationMode);
+    }
+  }
+}
+// Model picker (#854): load the attached provider's live catalogue so the user can pick a model.
+function ccLoadEscalationModels(){
+  var prov = document.getElementById('cc-escalation-provider').value;
+  if (!prov) return;
+  var key = (document.getElementById('cc-escalation-key')||{}).value || '';
+  var sel = document.getElementById('cc-escalation-model');
+  var hint = document.getElementById('cc-escalation-modelhint');
+  var btn = document.getElementById('cc-escalation-loadmodels');
+  btn.disabled = true; hint.textContent = 'Loading models from ' + prov + '...';
+  fetch('/settings/escalation/discover-models', {method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({escalation_provider: prov, escalation_api_key: key})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled = false;
+      if (!d.ok){ hint.textContent = d.error || 'Could not load models.'; return; }
+      var cur = d.current || '';
+      sel.innerHTML = '<option value="">Recommended default (' + (d.default||'') + ')</option>';
+      // Grouped under real <optgroup> labels rather than a "(recommended)"/"(may be slow or verbose)"
+      // suffix on every option - an <option>'s text can't carry a badge, but a group heading needs none.
+      var groups = {rec: [], plain: [], caution: []};
+      (d.models||[]).forEach(function(m){
+        (m.recommended ? groups.rec : m.caution ? groups.caution : groups.plain).push(m);
+      });
+      function addGroup(label, items){
+        if (!items.length) return;
+        var g = document.createElement('optgroup'); g.label = label;
+        items.forEach(function(m){
+          var o = document.createElement('option'); o.value = m.id; o.textContent = m.id;
+          if (m.id === cur) o.selected = true;
+          g.appendChild(o);
+        });
+        sel.appendChild(g);
+      }
+      addGroup('Recommended', groups.rec);
+      addGroup('Models', groups.plain);
+      addGroup('May be slower or more verbose', groups.caution);
+      hint.textContent = (d.models||[]).length + ' models. Prefer a fast, non-reasoning instruct model.';
+    })
+    .catch(function(){ btn.disabled = false; hint.textContent = 'Could not load models - try again.'; });
+}
+// Show the model picker whenever a provider is chosen; hide + reset on "Don't use one". Delegated so
+// it needs no edit to ccPickEscalationProv/ccClearEscalation (their onclick runs first and sets the
+// hidden provider input, which this then reads).
+(function(){
+  var provs = document.getElementById('cc-escalation-provs');
+  if (!provs) return;
+  provs.addEventListener('click', function(){
+    var chosen = document.getElementById('cc-escalation-provider').value;
+    var mw = document.getElementById('cc-escalation-modelwrap'); if (mw) mw.hidden = !chosen;
+    if (!chosen){ var s = document.getElementById('cc-escalation-model'); if (s) s.value=''; }
+    // Re-picking the ALREADY-connected provider (its key is already saved) loads the catalogue right
+    // away - no separate click needed. A freshly-picked, not-yet-connected provider has no key to
+    // authenticate with yet, so it waits for one (see the blur listener below) rather than firing a
+    // call that can only fail.
+    else if (chosen === ccEscConnected) ccLoadEscalationModels();
+  });
+})();
+// Typing/pasting a new key and moving on loads the catalogue automatically - founder feedback
+// (2026-09-30): requiring a key AND a separate "Load models" click read as needless extra friction.
+// The button stays for an explicit retry (e.g. after a load failed).
+(function(){
+  var keyInput = document.getElementById('cc-escalation-key');
+  if (!keyInput) return;
+  keyInput.addEventListener('blur', function(){
+    if (this.value && document.getElementById('cc-escalation-provider').value) ccLoadEscalationModels();
+  });
+})();
+ccRenderEscalationProvs();
+ccHydrate('{{ cur_compute }}', '{{ cur_cloud_provider }}', '{{ cur_escalation_provider }}', '{{ cur_escalation_mode }}');
+// Reveal the model picker on load when a provider is already attached (#854), and load its catalogue
+// immediately - the saved key already authenticates the call, so there is nothing to wait for.
+if (document.getElementById('cc-escalation-provider').value) {
+  var _mw = document.getElementById('cc-escalation-modelwrap'); if (_mw) _mw.hidden = false;
+  ccLoadEscalationModels();
+}
+</script>

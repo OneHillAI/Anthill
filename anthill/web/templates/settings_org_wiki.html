@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Organization wiki hosting{% endblock %}
+{% block page_title %}Cloud &amp; model <span style="font-size:13px;color:var(--muted);font-weight:normal">- wiki</span>{% endblock %}
+{% block content %}
+{% include "_org_cloud_tabs.html" %}
+
+{% if saved %}<div class="alert alert-ok">✅ Saved.</div>{% endif %}
+
+{% set has_org_cloud = cfg.org_provider and (cfg.org_provider|lower) != 'onprem' %}
+{% set provname = (cfg.org_provider or '')|capitalize %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin-bottom:16px">
+  Your organization runs on <b>its own private cloud</b>. When you set up an org cloud on the
+  <a href="/settings/organization">Model</a> tab, your <b>model, this wiki, and fine-tuning all run there</b> -
+  provisioned together on the same account, so the whole organization lives in your cloud. Solo chats are the
+  opposite: a local model and a local wiki, entirely on this device. You do not set the wiki up separately.
+</p>
+
+<form method="post" action="/settings/organization/wiki" class="card" style="max-width:760px">
+  <h3 style="margin-bottom:6px">Your org cloud hosts the wiki + backend</h3>
+  <label style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-bottom:8px">
+    <input type="checkbox" name="org_serve_wiki" {% if cfg.org_serve_wiki %}checked{% endif %}>
+    Run the wiki + backend on my org cloud (recommended)
+  </label>
+  {% if has_org_cloud %}
+  <p class="text-sm text-muted" style="margin:0">
+    When Anthill provisions your model on <b>{{ provname }}</b>, it also brings up a small always-on backend
+    host in the same cloud and moves the wiki + review queue there - automatically, with no URL to enter.
+    Fine-tuning already runs on this cloud too, so model, wiki, and training share one account.
+    <b>Pre-launch note:</b> the backend container image is not public yet, so the live hand-off switches on at
+    launch. Until then the wiki runs on this device so your team is never offline, and it moves to your
+    {{ provname }} cloud on its own once that ships - there is nothing else for you to do here.
+  </p>
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0">
+    Set up an org cloud on the <a href="/settings/organization">Model</a> tab first; the wiki + backend then
+    ride along on that same cloud automatically. With no org cloud configured, the wiki runs on this device.
+  </p>
+  {% endif %}
+  <button type="submit" class="btn btn-primary" style="margin-top:10px">Save</button>
+
+  <details style="margin-top:14px">
+    <summary class="text-sm text-muted" style="cursor:pointer">Self-host the backend on your own VM (advanced)</summary>
+    <p class="text-sm text-muted" style="margin:10px 0 8px">
+      Running your own dedicated VM instead of the managed org-cloud host? Stand up the backend there (see the
+      <a href="/docs/setup">Setup guide</a>), <a href="/backup">download a Backup</a> and restore it, then
+      record its address so the <a href="/backend">Backend</a> page and your team have the canonical URL.
+    </p>
+    <div class="form-group" style="margin:0">
+      <label>Backend URL <span class="text-muted">- leave blank to use the org cloud / this device</span></label>
+      <input type="text" name="wiki_vpc_url" value="{{ cfg.wiki_vpc_url }}"
+             placeholder="https://anthill.yourco.internal">
+    </div>
+  </details>
+</form>
+
+<div class="card" style="max-width:760px;margin-top:16px">
+  <h3 style="margin-bottom:6px">Let your team reach it</h3>
+  <p class="text-sm text-muted" style="margin:0">
+    While the wiki runs on this device, turn on <a href="/settings/remote">Remote access (off-LAN)</a> so
+    teammates outside your LAN can reach it over a secure tunnel (Cloudflare) or your own proxy / VPN.
+  </p>
+</div>
+
+<div class="card" style="max-width:760px;margin-top:16px">
+  <h3 style="margin-bottom:6px">Where it runs right now</h3>
+  <p class="text-sm text-muted" style="margin:0">
+    {% if cfg.wiki_hosting == 'vpc' and cfg.wiki_vpc_url %}Your org cloud at <code>{{ cfg.wiki_vpc_url }}</code>.{% else %}<b>This device</b> (local){% if has_org_cloud %} - moves to your {{ provname }} cloud automatically when the backend host comes up{% endif %}.{% endif %}
+    See <a href="/backend">Organization -&gt; Backend</a> for the full host and data details.
+  </p>
+</div>
+{% endblock %}

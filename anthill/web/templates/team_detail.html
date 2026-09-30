@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }}{% endblock %}
+{% block page_title %}{{ team.name }}{% endblock %}
+{% block content %}
+
+<p style="margin:0 0 14px"><a href="/teams" class="text-sm text-muted">&larr; All projects</a></p>
+
+{% set err = request.query_params.get('error','') %}
+{% set invited = request.query_params.get('invited','') %}
+{% if invited %}<div class="alert alert-ok">Invite sent to <b>{{ invited }}</b> (it appears in their Teams page). The link was printed to the server console.</div>{% endif %}
+{% if err == 'not_org_member' %}<div class="alert alert-warn">That email is not an active member of this organization. Invite them as an org user first (Users page), then add them here.</div>{% endif %}
+{% if err == 'already_member' %}<div class="alert alert-warn">That person is already on the team (or already invited).</div>{% endif %}
+{% if err == 'cannot_remove_owner' %}<div class="alert alert-warn">The team owner cannot be removed.</div>{% endif %}
+{% if err == 'solo_no_members' %}<div class="alert alert-warn">This is a Solo project (single-user). Set up an organization to invite members.</div>{% endif %}
+
+<div class="card mb-2">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 style="font-size:16px;margin:0">{{ team.name }} <span class="text-sm text-muted">/{{ team.slug }}</span></h2>
+      <p class="text-sm text-muted" style="margin:4px 0 0">
+        You are the <b>{{ role }}</b>. This project's chats, wiki, and memory are scoped to the project;
+        promotions to the org are approved by the project owner.
+      </p>
+    </div>
+    <span class="badge badge-{{ 'amber' if is_owner else 'clay' }}">{{ role }}</span>
+  </div>
+</div>
+
+{# Chats in this project (#419): the project home reads as "these chats + this wiki + this team". #}
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h3 style="font-size:15px;margin:0">Chats in this project</h3>
+  <div class="flex gap-2">
+    <a href="/wiki/team/{{ team.id }}" class="btn btn-outline btn-sm">Project wiki</a>
+    <form method="post" action="/chat/new" style="margin:0">
+      <input type="hidden" name="plane" value="team">
+      <input type="hidden" name="team_id" value="{{ team.id }}">
+      <button type="submit" class="btn btn-primary btn-sm">+ New chat in this project</button>
+    </form>
+  </div>
+</div>
+{% if chats %}
+<div class="card mb-2">
+  {% for c in chats %}
+  <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <a href="/chat/{{ c.id }}" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{% if c.pinned %}📌 {% endif %}{{ c.title }}</a>
+    <span class="text-sm text-muted" style="flex:none">{{ c.updated_at.strftime('%b %d') if c.updated_at else '' }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card mb-2" style="text-align:center;padding:20px">
+  <p class="text-muted" style="margin:0">No chats in this project yet. Start one with <b>+ New chat in this project</b> - it runs in this project's plane and draws on the project wiki.</p>
+</div>
+{% endif %}
+
+{# Tasks in this project (#419 P2): recurring/scheduled work scoped to this project. #}
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h3 style="font-size:15px;margin:0">Tasks in this project</h3>
+  <a href="/tasks" class="btn btn-outline btn-sm">Open Tasks</a>
+</div>
+{% if tasks %}
+<div class="card mb-2">
+  {% for t in tasks %}
+  <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <a href="/tasks" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.title }}</a>
+    <span class="text-sm text-muted" style="flex:none"><span class="badge {% if t.status == 'active' %}badge-active{% else %}badge-pending{% endif %}">{{ t.status }}</span> {{ t.schedule }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card mb-2" style="text-align:center;padding:20px">
+  <p class="text-muted" style="margin:0">No tasks in this project yet. A task started from a chat in this project is scoped to it; you can also create one on <a href="/tasks">Tasks</a>.</p>
+</div>
+{% endif %}
+
+{# Agents in this project (#419 P2): agent creation supports team scoping, so "+ New agent in this
+   project" preselects this project on the Agents page. #}
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h3 style="font-size:15px;margin:0">Agents in this project</h3>
+  <a href="/agents?project={{ team.id }}" class="btn btn-primary btn-sm">+ New agent in this project</a>
+</div>
+{% if agents %}
+<div class="card mb-2">
+  {% for a in agents %}
+  <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <a href="/agents/{{ a.id }}" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</a>
+    <span class="text-sm text-muted" style="flex:none"><span class="badge {% if a.status == 'active' %}badge-active{% else %}badge-pending{% endif %}">{{ a.status }}</span></span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card mb-2" style="text-align:center;padding:20px">
+  <p class="text-muted" style="margin:0">No agents in this project yet. <a href="/agents?project={{ team.id }}">Create one</a> - it runs in this project's plane and draws on the project wiki.</p>
+</div>
+{% endif %}
+
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h3 style="font-size:15px;margin:0">Members</h3>
+  <div class="flex gap-2">
+    {% if is_owner %}<a href="/teams/{{ team.id }}/settings" class="btn btn-outline btn-sm">Project settings</a>{% endif %}
+    {# Members are an org-project feature: invite only when this is a real org (a backend is set up). #}
+    {% if is_owner and is_org %}
+    <button onclick="document.getElementById('team-invite').style.display='block'"
+            class="btn btn-primary btn-sm">+ Invite member</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if is_owner and is_org %}
+<div id="team-invite" style="display:none" class="card mb-2">
+  <form method="post" action="/teams/{{ team.id }}/invite" style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="form-group" style="flex:2;min-width:220px;margin:0">
+      <input type="email" name="email" required placeholder="member@company.com">
+    </div>
+    <button type="submit" class="btn btn-primary">Invite</button>
+    <button type="button" class="btn btn-outline"
+            onclick="document.getElementById('team-invite').style.display='none'">Cancel</button>
+  </form>
+  <p class="text-sm text-muted" style="margin-top:10px">
+    Only existing, active org members can be added to a project.
+  </p>
+</div>
+{% elif is_owner and not is_org %}
+<div class="card mb-2" style="text-align:center;padding:14px">
+  <p class="text-sm text-muted" style="margin:0">This is a <b>Solo project</b> (single-user). Members become
+    available once you <a href="/settings/organization">set up an organization</a>.</p>
+</div>
+{% endif %}
+
+<div class="card mb-2">
+<table>
+  <thead><tr><th>Name / Email</th><th>Role</th><th>Status</th>{% if is_owner %}<th></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for m, u in members %}
+  <tr>
+    <td><b>{{ u.display_name or u.email }}</b><br><span class="text-sm text-muted">{{ u.email }}</span></td>
+    <td><span class="badge badge-{{ 'amber' if m.role=='owner' else 'clay' }}">{{ m.role }}</span></td>
+    <td><span class="badge badge-{{ 'active' if m.status=='active' else 'pending' }}">{{ 'active' if m.status=='active' else 'invited' }}</span></td>
+    {% if is_owner %}
+    <td style="text-align:right">
+      {% if m.role != 'owner' %}
+      <form method="post" action="/teams/{{ team.id }}/members/{{ u.id }}/remove" style="display:inline">
+        <button class="btn btn-danger btn-sm" onclick="return confirm('Remove {{ u.email }} from {{ team.name }}?')">Remove</button>
+      </form>
+      {% endif %}
+    </td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h3 style="font-size:15px;margin:18px 0 8px">Project wiki review queue</h3>
+{% if reviews %}
+<div class="card">
+  {% for r in reviews %}
+  <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+    <b>{{ r.slug }}</b>
+    {% if r.flags %}<span class="badge badge-amber">flagged</span>{% endif %}
+    <a href="/wiki/review" class="text-sm" style="float:right">Review &rarr;</a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:24px">
+  <p class="text-muted">Nothing waiting. Clean wiki changes auto-apply; only changes the agent flags land here for the owner to approve.</p>
+</div>
+{% endif %}
+{% endblock %}

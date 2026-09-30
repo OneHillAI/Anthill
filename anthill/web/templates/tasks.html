@@ -1,0 +1,505 @@
+{% extends "base.html" %}
+{% block title %}Tasks{% endblock %}
+{% block page_title %}Tasks{% endblock %}
+{% block content %}
+
+<div class="flex justify-between items-center mb-2">
+  <p class="text-muted text-sm" style="margin:0">Scheduled and recurring work. Create one below, or say "save as a task" in Chat.</p>
+  <button type="button" onclick="resetFormToCreate(); openTaskModal(this)"
+          class="btn btn-primary btn-sm">+ New task</button>
+</div>
+
+{% if is_admin %}
+<!-- org-wide task defaults + run cap (admin) -->
+<details class="card mb-2">
+  <summary style="cursor:pointer;font-weight:600">Task defaults
+    <span class="text-sm text-muted">- org-wide per-run cap for scheduled tasks</span></summary>
+  <form method="post" action="/tasks/settings" style="margin-top:12px">
+    <div class="form-group" style="max-width:280px">
+      <label>Max steps per run <span class="text-sm text-muted">(1-50; the tool-loop cost cap)</span></label>
+      <input type="number" name="task_max_steps" min="1" max="50" value="{{ task_max_steps }}">
+    </div>
+    <div class="form-group" style="max-width:280px">
+      <label>Escalations per month <span class="text-sm text-muted">(0-500; org-wide cap on tasks retrying on the connected backend, #278)</span></label>
+      <input type="number" name="task_escalation_cap_per_month" min="0" max="500" value="{{ task_escalation_cap_per_month }}">
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm">Save defaults</button>
+  </form>
+</details>
+{% endif %}
+
+<!-- conversational task creator (chat is the primary path; this stays as a direct fallback) -->
+<div class="card mb-2">
+  <h3 style="margin-bottom:10px">Create a task by describing it<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Say what you want in plain words. Anthill drafts the title, schedule and goal, and you review and edit before saving.</span></button></h3>
+  <div style="display:flex;gap:10px;align-items:flex-end">
+    <div class="form-group" style="margin:0;flex:1">
+      <textarea id="task-desc" rows="2"
+        placeholder="e.g. Every weekday morning at 8, summarise my unread email and post the digest to Slack"></textarea>
+    </div>
+    <button type="button" class="mic-btn" onclick="anthillDictate('task-desc', this)"
+            title="Voice type (browser dictation; or use Wispr Flow for system-wide voice typing)"><i data-lucide="mic">🎤</i></button>
+    <button id="draft-btn" type="button" class="btn btn-primary" onclick="draftTask()">Draft it</button>
+  </div>
+</div>
+
+<!-- task form (used for both create and edit) -->
+<dialog id="new-task" class="modal" role="dialog" aria-labelledby="task-form-title" aria-modal="true"
+        onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal-card">
+  <div class="modal-h">
+    <h3 id="task-form-title" style="margin:0">Create a task</h3>
+    <button type="button" class="modal-x" aria-label="Close task dialog"
+            onclick="closeTaskModal()">&times;</button>
+  </div>
+  <form id="task-form" method="post" action="/tasks/create">
+    <div class="grid-2">
+      <div class="form-group">
+        <label for="task-title">Task title</label>
+        <input id="task-title" type="text" name="title" required placeholder="e.g. Daily email digest">
+      </div>
+      <div class="form-group">
+        <label for="task-schedule">Schedule</label>
+        <select id="task-schedule" name="schedule" onchange="updateTaskTimezoneVisibility()">
+          <option value="once">Run once</option>
+          <option value="hourly">Every hour</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="weekdays">Weekdays (Mon-Fri)</option>
+          <option value="09:00">Daily at 09:00</option>
+          <option value="08:00">Daily at 08:00</option>
+          <option value="09:00 weekdays">Weekdays at 09:00</option>
+        </select>
+      </div>
+    </div>
+    <div id="task-timezone-note" class="form-group" hidden>
+      <label for="task-timezone">Timezone</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="task-timezone" name="timezone" list="task-timezones"
+               placeholder="e.g. Europe/Madrid" autocomplete="off">
+        <button type="button" class="btn btn-outline btn-sm" onclick="useBrowserTimezone()">Use browser timezone</button>
+      </div>
+      <datalist id="task-timezones"></datalist>
+      <div class="text-sm text-muted" style="margin-top:4px">Calendar times use <span id="task-timezone-label">UTC</span>.</div>
+    </div>
+    <div class="form-group">
+      <label for="task-goal">Goal / instruction for the agent</label>
+      <textarea id="task-goal" name="goal" rows="3" required
+                placeholder="e.g. Read my unread emails and write a summary wiki page with action items"></textarea>
+    </div>
+    {% if escalation_available %}
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:normal">
+        <input type="checkbox" name="escalate_on_uncertainty" value="true" style="width:auto">
+        If a run's answer looks uncertain, retry it once on the connected backend<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Decided here, not live per run - nobody is watching an unattended task to approve anything mid-run. Bounded by the org-wide monthly cap in Task defaults above; when off (or the cap is hit), an uncertain run is flagged for you to review instead.</span></button>
+      </label>
+    </div>
+    {% endif %}
+    {% if doc_sources or snippets %}
+    <fieldset class="form-group" style="border:0;border-top:1px solid var(--border);padding:12px 0 0">
+      <legend style="padding:0;margin-bottom:6px;font-size:15px;font-weight:500">Attach context <span class="text-sm text-muted">(optional, read fresh each run)</span></legend>
+      {% if doc_sources %}
+      <label for="tf-server" class="text-sm" style="font-weight:600;margin:6px 0 4px">Files from a connected service</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <select id="tf-server" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+          {% for ds in doc_sources %}<option value="{{ ds.id }}">{{ ds.name }}</option>{% endfor %}
+        </select>
+        <input type="text" id="tf-q" aria-label="Search files by name" placeholder="Search by name (optional)" style="flex:1;min-width:180px;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <button type="button" class="btn btn-outline btn-sm" onclick="taskFindFiles()">Find files</button>
+      </div>
+      <select name="context_files" id="task-files" aria-label="Files from connected service" multiple size="3" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <option value="" disabled>Search a service above, then select one or more files (Cmd/Ctrl-click)</option>
+      </select>
+      {% endif %}
+      {% if snippets %}
+      <label for="task-snippets" class="text-sm" style="font-weight:600;margin:10px 0 4px">Snippets</label>
+      <select id="task-snippets" name="context_snippets" multiple size="3" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        {% for sn in snippets %}<option value="{{ sn.id }}">{{ sn.label }}</option>{% endfor %}
+      </select>
+      {% endif %}
+    </fieldset>
+    <script>
+    async function taskFindFiles(){
+      const sid=document.getElementById('tf-server').value;
+      const q=document.getElementById('tf-q').value.trim();
+      const sel=document.getElementById('task-files');
+      sel.innerHTML='<option value="" disabled>Searching...</option>';
+      try{
+        const r=await fetch('/wiki/connector-files?server_id='+encodeURIComponent(sid)+'&q='+encodeURIComponent(q));
+        const data=await r.json();
+        sel.innerHTML='';
+        if(!data.files||!data.files.length){sel.innerHTML='<option value="" disabled>No documents found - try a search term</option>';return;}
+        for(const f of data.files){const o=document.createElement('option');o.value=sid+'|'+f.ref;o.textContent=f.label;sel.appendChild(o);}
+      }catch(e){sel.innerHTML='<option value="" disabled>Could not list files</option>';}
+    }
+    </script>
+    {% endif %}
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="run_now" value="true">
+        Run immediately (and then on schedule)
+      </label>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button id="task-submit" type="submit" class="btn btn-primary">Create task</button>
+      <button type="button" class="btn btn-outline" onclick="closeTaskModal()">Cancel</button>
+    </div>
+  </form>
+  </div>
+</dialog>
+
+<!-- task list -->
+{% if tasks %}
+<div class="card">
+<div style="overflow-x:auto">
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Schedule</th>
+      <th>Scope</th>
+      <th>Status</th>
+      <th>Last run</th>
+      <th>Runs</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for task in tasks %}
+  <tr>
+    <td>
+      <b>{{ task.title }}</b><br>
+      <span class="text-sm text-muted">{{ task.goal[:60] }}{% if task.goal|length > 60 %}…{% endif %}</span>
+      {% if task.source_conv_id %}
+      <br><a class="text-sm" href="/chat/{{ task.source_conv_id }}" title="Open the conversation this task came from">💬 from chat</a>
+      {% endif %}
+    </td>
+    <td class="text-sm">
+      {{ task.schedule }}{% if task.schedule|trim|lower not in ['once', 'hourly'] %}<br><span class="text-muted">{{ task.timezone or 'UTC' }}</span>{% endif %}
+      <br><span class="text-muted">Next run:
+        {% if task.status == 'cancelled' %}Cancelled
+        {% elif task.status == 'done' %}Complete
+        {% elif task.next_run_at %}<span data-utc="{{ task.next_run_at|utc_iso }}">{{ task.next_run_at.strftime('%m-%d %H:%M') }} UTC</span>
+        {% elif task.id in active_task_ids %}Running now
+        {% else %}Not scheduled{% endif %}
+      </span>
+    </td>
+    <td class="text-sm"><span class="plane-dot plane-dot-{{ 'org' if task.plane == 'org' else 'solo' }}"></span>{{ task.plane|capitalize }}</td>
+    <td>
+      <span class="badge
+        {% if task.status == 'done' %}badge-active
+        {% elif task.status == 'running' %}badge-running
+        {% elif task.status == 'failed' %}badge-danger
+        {% elif task.status == 'cancelled' %}badge-member
+        {% else %}badge-pending{% endif %}">
+        {{ task.status }}
+      </span>
+    </td>
+    <td class="text-sm text-muted">
+      {% if task.last_run_at %}<span data-utc="{{ task.last_run_at|utc_iso }}">{{ task.last_run_at.strftime('%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}
+    </td>
+    <td class="text-sm">{{ task.run_count }}</td>
+    <td>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        {% if task.last_result %}
+        <a href="/tasks/{{ task.id }}/result" class="btn btn-outline btn-sm">Result</a>
+        {% endif %}
+        {% if task.cadence_needs_review %}
+        <span class="badge badge-pending"
+              title="{{ task.cadence_review_reason|e }}">&#9888; schedule needs review</span>
+        <form method="post" action="/tasks/{{ task.id }}/review-cadence" style="margin:0">
+          <button class="btn btn-outline btn-sm">Schedule reviewed</button>
+        </form>
+        {% endif %}
+        {% if task.verify_needs_review %}
+        <span class="badge badge-pending"
+              title="{{ task.verify_reason|e }}">&#9888; result needs review</span>
+        {% endif %}
+        {% if task.status != 'cancelled' %}
+        <button type="button" class="btn btn-outline btn-sm" onclick="editTask(this)"
+                data-id="{{ task.id }}" data-title="{{ task.title|e }}"
+                data-schedule="{{ task.schedule|e }}" data-timezone="{{ task.timezone|e }}"
+                data-goal="{{ task.goal|e }}"
+                data-escalate="{{ 'true' if task.escalate_on_uncertainty else '' }}">Edit</button>
+        {% endif %}
+        {% if task.status != 'running' %}
+        <form method="post" action="/tasks/{{ task.id }}/run-now" style="margin:0">
+          <button class="btn btn-outline btn-sm">▶ Now</button>
+        </form>
+        {% endif %}
+        {% if task.status not in ['cancelled'] %}
+        <button type="button" class="btn btn-outline btn-sm" onclick="toggleQ('{{ task.id }}')">+ Queue{% if task.queued_list %} ({{ task.queued_list|length }}){% endif %}</button>
+        <form method="post" action="/tasks/{{ task.id }}/cancel" style="margin:0">
+          <button class="btn btn-danger btn-sm"
+                  onclick="return confirm('Cancel this task?')">✕</button>
+        </form>
+        {% endif %}
+      </div>
+    </td>
+  </tr>
+  {% if task.status not in ['cancelled'] %}
+  <tr id="q-{{ task.id }}" style="display:none">
+    <td colspan="7" style="background:var(--bg-subtle)">
+      <div class="text-sm" style="margin-bottom:6px"><b>Queued follow-ups</b> drain into this task on its next run (a finished task re-runs to handle them).</div>
+      {% if task.queued_list %}
+      <ul class="text-sm" style="margin:0 0 8px 18px">
+        {% for q in task.queued_list %}<li>{{ q }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-sm text-muted" style="margin-bottom:8px">Nothing queued yet.</div>
+      {% endif %}
+      <form method="post" action="/tasks/{{ task.id }}/queue" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" name="instruction" required placeholder="Add a follow-up instruction…"
+               style="flex:1;min-width:240px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <button class="btn btn-primary btn-sm">Queue it</button>
+      </form>
+    </td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if task_pages is defined and task_pages > 1 %}
+<div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+  {% if task_page > 1 %}<a class="btn" href="/tasks?page={{ task_page - 1 }}">Previous</a>{% endif %}
+  <span class="text-sm text-muted">Page {{ task_page }} of {{ task_pages }} &middot; {{ task_total }} task{{ '' if task_total == 1 else 's' }}</span>
+  {% if task_page < task_pages %}<a class="btn" href="/tasks?page={{ task_page + 1 }}">Next</a>{% endif %}
+</div>
+{% endif %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px">
+  <div style="font-size:34px;margin-bottom:12px;color:var(--accent)"><i data-lucide="bot">🤖</i></div>
+  <p style="color:var(--clay)">No tasks yet. Ask in <a href="/chat">Chat</a> ("every morning...", or
+    "save as a recurring task" on any answer), or create one above.</p>
+</div>
+{% endif %}
+
+<!-- example tasks -->
+<div class="card mt-4">
+  <h3 style="margin-bottom:14px">Example tasks to try</h3>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+    {% set examples = [
+      ("📧 Daily email digest", "daily", "Read my unread emails and create a wiki page summarising what needs my attention today, with action items."),
+      ("🔍 Competitor research", "weekly", "Search the web for news about our top 3 competitors this week and update the wiki with findings."),
+      ("📄 Weekly report", "weekly", "Generate a PDF report summarising all new wiki pages added this week and email it to the team."),
+      ("🗂️ Jira triage", "daily", "Search Jira for all unassigned high-priority issues and summarise them in a wiki page."),
+      ("📰 Industry news", "daily", "Search for the latest AI and LLM news and add a brief wiki page with the top 5 stories."),
+      ("📋 Notion sync", "hourly", "Read new entries in our Notion team database and add matching wiki pages for any items tagged 'share'."),
+    ] %}
+    {% for title, schedule, goal in examples %}
+    <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:14px">
+      <b style="font-size:14px">{{ title }}</b>
+      <p class="text-sm text-muted" style="margin:4px 0 10px">{{ goal[:80] }}…</p>
+      <button class="btn btn-outline btn-sm"
+              onclick="prefill('{{ title }}','{{ schedule }}',`{{ goal }}`,this)">
+        Use this
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+function toggleQ(id) {
+  const r = document.getElementById('q-' + id);
+  if (r) r.style.display = (r.style.display === 'none' || !r.style.display) ? 'table-row' : 'none';
+}
+function browserTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+  catch (_) { return 'UTC'; }
+}
+function setTaskTimezone(name) {
+  const timezone = name || '';
+  document.getElementById('task-timezone').value = timezone;
+  document.getElementById('task-timezone-label').textContent = timezone || 'UTC';
+}
+function useBrowserTimezone() {
+  setTaskTimezone(browserTimezone());
+}
+function updateTaskTimezoneVisibility() {
+  const schedule = document.querySelector('[name=schedule]').value.trim().toLowerCase();
+  document.getElementById('task-timezone-note').hidden = ['once', 'hourly'].includes(schedule);
+}
+function setSchedule(val) {
+  const sel = document.querySelector('[name=schedule]');
+  if (!val) return;
+  if (![...sel.options].some(o => o.value === val)) {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = /^\d{1,2}:\d{2}$/.test(val) ? ('Daily at ' + val)
+      : /^\d{1,2}:\d{2}\s+weekdays$/.test(val) ? ('Weekdays at ' + val.split(' ')[0])
+      : val === 'weekdays' ? 'Weekdays (Mon-Fri)'
+      : val;
+    sel.appendChild(opt);
+  }
+  sel.value = val;
+  updateTaskTimezoneVisibility();
+}
+const taskModal = document.getElementById('new-task');
+const taskModalHasNativeApi = typeof taskModal.showModal === 'function'
+  && typeof taskModal.close === 'function';
+let taskModalOpener = null;
+let taskModalSession = 0;
+let taskModalBackground = [];
+function isTaskModalOpen() {
+  return taskModalHasNativeApi ? taskModal.open : taskModal.hasAttribute('open');
+}
+function setTaskModalBackgroundDisabled(disabled) {
+  if (!disabled) {
+    for (const state of taskModalBackground) {
+      if (state.ariaHidden === null) state.element.removeAttribute('aria-hidden');
+      else state.element.setAttribute('aria-hidden', state.ariaHidden);
+      if (!state.inert) state.element.removeAttribute('inert');
+      state.element.classList.remove('task-modal-background');
+    }
+    taskModalBackground = [];
+    return;
+  }
+  let child = taskModal;
+  while (child !== document.body) {
+    const parent = child.parentElement;
+    for (const element of parent.children) {
+      if (element === child) continue;
+      taskModalBackground.push({
+        element,
+        ariaHidden: element.getAttribute('aria-hidden'),
+        inert: element.hasAttribute('inert'),
+      });
+      element.setAttribute('aria-hidden', 'true');
+      element.setAttribute('inert', '');
+      element.classList.add('task-modal-background');
+    }
+    child = parent;
+  }
+}
+function restoreTaskModalFocus() {
+  const opener = taskModalOpener;
+  taskModalOpener = null;
+  if (opener && opener.isConnected) opener.focus();
+}
+function openTaskModal(opener) {
+  taskModalSession += 1;
+  if (isTaskModalOpen()) return;
+  if (opener && !taskModal.contains(opener)) taskModalOpener = opener;
+  if (taskModalHasNativeApi) taskModal.showModal();
+  else {
+    taskModal.setAttribute('open', '');
+    taskModal.classList.add('task-modal-fallback-open');
+    setTaskModalBackgroundDisabled(true);
+  }
+  document.getElementById('task-title').focus();
+}
+function closeTaskModal() {
+  if (!isTaskModalOpen()) return;
+  if (taskModalHasNativeApi) taskModal.close();
+  else {
+    taskModal.removeAttribute('open');
+    taskModal.classList.remove('task-modal-fallback-open');
+    setTaskModalBackgroundDisabled(false);
+    restoreTaskModalFocus();
+  }
+}
+taskModal.addEventListener('keydown', event => {
+  event.stopPropagation();
+  if (event.key === 'Escape' && !taskModalHasNativeApi) {
+    event.preventDefault();
+    closeTaskModal();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...taskModal.querySelectorAll(
+    'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])'
+  )].filter(element => !element.disabled && element.getClientRects().length);
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+taskModal.addEventListener('close', () => {
+  if (!isTaskModalOpen()) restoreTaskModalFocus();
+});
+document.addEventListener('focusin', event => {
+  if (!taskModalHasNativeApi && isTaskModalOpen() && !taskModal.contains(event.target)) {
+    document.getElementById('task-title').focus();
+  }
+});
+function resetFormToCreate() {
+  const form = document.getElementById('task-form');
+  form.action = '/tasks/create';
+  document.getElementById('task-form-title').textContent = 'Create a task';
+  document.getElementById('task-submit').textContent = 'Create task';
+  const esc = document.querySelector('[name=escalate_on_uncertainty]');
+  if (esc) esc.checked = false;
+  setTaskTimezone(browserTimezone());
+}
+function prefill(title, schedule, goal, opener) {
+  resetFormToCreate();
+  document.querySelector('[name=title]').value = title;
+  document.querySelector('[name=goal]').value = goal;
+  setSchedule(schedule);
+  openTaskModal(opener);
+}
+async function draftTask() {
+  const d = document.getElementById('task-desc').value.trim();
+  if (!d) return;
+  const btn = document.getElementById('draft-btn');
+  const label = btn.textContent;
+  const session = taskModalSession;
+  btn.disabled = true; btn.textContent = 'Drafting…';
+  try {
+    const fd = new FormData(); fd.append('description', d);
+    const r = await fetch('/tasks/draft', {method: 'POST', body: fd});
+    if (!r.ok) throw new Error();
+    const t = await r.json();
+    if (session !== taskModalSession) return;
+    resetFormToCreate();
+    document.querySelector('[name=title]').value = t.title || '';
+    document.querySelector('[name=goal]').value = t.goal || '';
+    setSchedule(t.schedule || 'once');
+    openTaskModal(btn);
+  } catch (e) {
+    if (session === taskModalSession) {
+      showToast('Could not draft the task. Fill the form manually, or try again.', 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+function editTask(btn) {
+  const d = btn.dataset;
+  const form = document.getElementById('task-form');
+  form.action = '/tasks/' + d.id + '/edit';
+  document.getElementById('task-form-title').textContent = 'Edit task';
+  document.getElementById('task-submit').textContent = 'Save changes';
+  document.querySelector('[name=title]').value = d.title || '';
+  document.querySelector('[name=goal]').value = d.goal || '';
+  setSchedule(d.schedule || 'once');
+  setTaskTimezone(d.timezone);
+  const esc = document.querySelector('[name=escalate_on_uncertainty]');
+  if (esc) esc.checked = d.escalate === 'true';
+  openTaskModal(btn);
+}
+const timezoneInput = document.getElementById('task-timezone');
+timezoneInput.addEventListener('input', () => {
+  document.getElementById('task-timezone-label').textContent = timezoneInput.value || 'UTC';
+});
+try {
+  if (Intl.supportedValuesOf) {
+    const timezones = document.getElementById('task-timezones');
+    for (const timezone of Intl.supportedValuesOf('timeZone')) {
+      const option = document.createElement('option');
+      option.value = timezone;
+      timezones.appendChild(option);
+    }
+  }
+} catch (_) {}
+setTaskTimezone(browserTimezone());
+updateTaskTimezoneVisibility();
+</script>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Remote access{% endblock %}
+{% block page_title %}Remote access (off-LAN){% endblock %}
+{% block content %}
+
+{% if saved %}<div class="alert alert-ok">✅ Remote access settings saved.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:720px;margin-bottom:18px">
+  Reach this Anthill from outside your LAN (other offices, home, mobile) without opening firewall ports.
+  Access stays gated by the normal sign-in - the tunnel only carries traffic to the same authenticated
+  app, so use a strong admin password and keep it on HTTPS. <a href="/settings">Back to settings</a>.
+</p>
+
+<form method="post" action="/settings/remote">
+  <div class="card mb-2" style="max-width:720px">
+    <div class="form-group">
+      <label>Provider</label>
+      <select name="remote_access_provider" id="ra_provider" onchange="raShow()">
+        {% for key, label in providers.items() %}
+        <option value="{{ key }}" {% if cfg.remote_access_provider == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div id="ra_cloudflare" class="ra-panel">
+      <p class="text-sm text-muted">
+        Cloudflare Tunnel exposes this server over HTTPS.
+        {% if cloudflared_available %}
+          <span class="badge badge-active">cloudflared installed</span>
+        {% else %}
+          <span class="badge badge-danger">cloudflared not found</span> - install it
+          (<code>brew install cloudflared</code>), then Save.
+        {% endif %}
+        A blank token uses a free <b>quick tunnel</b> (a throwaway <code>*.trycloudflare.com</code> URL);
+        paste a <b>named-tunnel token</b> for a stable hostname on your own domain.
+      </p>
+      <div class="form-group">
+        <label>Named-tunnel token <span class="text-sm text-muted">(optional)</span>
+          {% if has_token %}<span class="badge badge-active">set</span>{% endif %}</label>
+        <input type="password" name="remote_access_token" autocomplete="off"
+               placeholder="{{ 'leave blank to keep the saved token' if has_token else 'blank = free quick tunnel' }}">
+      </div>
+    </div>
+
+    <div id="ra_manual" class="ra-panel">
+      <p class="text-sm text-muted">You run your own reverse proxy / VPN (Caddy, nginx, Tailscale,
+        WireGuard). Record the public URL so the dashboard can show it to your team.</p>
+      <div class="form-group">
+        <label>Public URL</label>
+        <input type="url" name="remote_access_url" value="{{ cfg.remote_access_url }}"
+               placeholder="https://anthill.yourcompany.com">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save</button>
+    <button type="button" class="btn btn-outline" onclick="raStop()">Stop tunnel</button>
+  </div>
+</form>
+
+<div class="card" style="max-width:720px">
+  <h3 style="margin-bottom:10px">Status</h3>
+  <p class="text-sm text-muted" style="margin-bottom:6px">
+    <span id="ra_provider_label">checking...</span>
+    <span id="ra_badge" class="badge badge-member" hidden></span>
+  </p>
+  <p id="ra_detail" class="text-sm text-muted" style="margin:0 0 10px"></p>
+  <div id="ra_url_row" style="display:none">
+    <div class="flex gap-2 items-center">
+      <input id="ra_url" type="text" readonly style="font-family:monospace">
+      <button type="button" class="btn btn-outline btn-sm" onclick="raCopy()">Copy</button>
+      <a id="ra_open" class="btn btn-outline btn-sm" target="_blank" rel="noopener">Open</a>
+    </div>
+    <p class="text-sm text-muted" style="margin-top:8px">Share this URL (and the sign-in) with your team,
+      or point each node's <code>--org-url</code> at it.</p>
+  </div>
+</div>
+
+<script>
+function raShow() {
+  var p = document.getElementById('ra_provider').value;
+  document.getElementById('ra_cloudflare').style.display = (p === 'cloudflare') ? 'block' : 'none';
+  document.getElementById('ra_manual').style.display = (p === 'manual') ? 'block' : 'none';
+}
+function raRender(d) {
+  document.getElementById('ra_provider_label').textContent = d.provider;
+  var badge = document.getElementById('ra_badge');
+  badge.hidden = false;
+  if (d.running) { badge.className = 'badge badge-active'; badge.textContent = 'running'; }
+  else if (d.provider === 'off') { badge.className = 'badge badge-member'; badge.textContent = 'off'; }
+  else { badge.className = 'badge badge-danger'; badge.textContent = 'not running'; }
+  document.getElementById('ra_detail').textContent = d.detail || '';
+  var row = document.getElementById('ra_url_row');
+  if (d.url) {
+    document.getElementById('ra_url').value = d.url;
+    document.getElementById('ra_open').href = d.url;
+    row.style.display = 'block';
+  } else { row.style.display = 'none'; }
+}
+function raPoll() {
+  fetch('/settings/remote/status').then(function (r) { return r.json(); }).then(raRender).catch(function () {});
+}
+function raStop() {
+  fetch('/settings/remote/stop', { method: 'POST' }).then(function (r) { return r.json(); }).then(raRender);
+}
+function raCopy() {
+  var v = document.getElementById('ra_url').value;
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(v).then(function(){}, function(){ window.prompt('Copy:', v); }); }
+  else { window.prompt('Copy:', v); }
+}
+raShow(); raPoll(); setInterval(raPoll, 2500);
+</script>
+{% endblock %}

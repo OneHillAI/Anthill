@@ -1,0 +1,252 @@
+# PR contribution-guideline gates.
+#
+# Catches violations that are cheap to detect automatically and are easy to miss:
+#   - CHANGELOG.md structural invariant: [Unreleased] section must always exist
+#   - Feature PRs (pillar:feature label) must touch CHANGELOG.md
+#   - pyproject.toml version and anthill/__init__.py version must match
+#   - Known CVEs in direct dependencies (pip-audit)
+#   - SAST: bandit on changed Python files (HIGH severity + HIGH confidence = hard block)
+#   - License compatibility: UNKNOWN license in any dep = hard block; unrecognized = warning
+#
+# Relationship to the advisory review (pr-review.yml / security_scan.py):
+#   - The advisory review runs bandit + deterministic rules at MEDIUM+MEDIUM and posts an
+#     advisory comment. It can set a blocking commit status but only when
+#     ASDD_RUNTIME_TOKEN is configured.
+#   - This workflow is a HARD gate (always blocks merge regardless of secrets) at the
+#     HIGH+HIGH threshold for true positives only. The two layers are complementary.
+#
+# Security posture: READ-ONLY token, no secrets, untrusted PR content is never
+# interpolated into shell or prompts - only base/head SHAs from the GitHub context
+# are used to drive git diff.
+
+name: PR validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changelog-and-version:
+    name: Changelog & version consistency
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history so git diff can compare base..head accurately.
+          fetch-depth: 0
+
+      - name: CHANGELOG.md must have an [Unreleased] section
+        run: |
+          if ! grep -qE "^## \[Unreleased\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md is missing the '## [Unreleased]' section. Add one at the top (see CONTRIBUTING.md - Releasing)."
+            exit 1
+          fi
+          echo "CHANGELOG.md [Unreleased] section present."
+
+      - name: Feature PRs must add a changelog fragment
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+        run: |
+          is_feature=$(echo "$LABELS_JSON" | jq -r 'any(.[]; .name == "pillar:feature")')
+          if [ "$is_feature" != "true" ]; then
+            echo "Not a pillar:feature PR - no changelog requirement."
+            exit 0
+          fi
+          fragment_re='^changelog\.d/.+\.(added|changed|deprecated|removed|fixed|security)\.md$'
+          if ! git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -qE "$fragment_re"; then
+            echo "::error file=changelog.d/README.md::pillar:feature PRs must add changelog.d/<id>.<category>.md. See CONTRIBUTING.md."
+            exit 1
+          fi
+          python scripts/build_changelog.py --draft >/dev/null
+          echo "Changelog fragment present and valid."
+
+      - name: Version must be consistent across pyproject.toml and anthill/__init__.py
+        run: |
+          pyver=$(grep -E '^version[[:space:]]*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          initver=$(grep -E '^__version__' anthill/__init__.py | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$pyver" != "$initver" ]; then
+            echo "::error::Version mismatch: pyproject.toml=${pyver} anthill/__init__.py=${initver}. Keep them in sync when bumping (CONTRIBUTING.md - Releasing)."
+            exit 1
+          fi
+          echo "Version consistent: ${pyver}"
+
+  dep-audit:
+    name: Dependency vulnerability audit
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps and pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci]" pip-audit
+
+      - name: Audit for known CVEs
+        # --skip-editable skips the local anthill package itself (no PyPI entry to check).
+        # --desc on prints the CVE description inline for easier triage.
+        # The step fails if any unfixed CVE is found in a direct or transitive dependency.
+        #
+        # Documented exceptions (revisit when upstream ships a fix):
+        #   PYSEC-2026-1325 (ecdsa) - P-256 timing side-channel in SigningKey.sign_digest(). No upstream
+        #     fix exists (python-ecdsa treats side-channels as out of scope). ecdsa is a transitive dep of
+        #     python-jose only; Anthill signs JWTs with HS256 (HMAC, see anthill/web/crypto.py) and never
+        #     performs ECDSA signing, so the attack is unreachable. ECDSA verification is unaffected per
+        #     the advisory. Re-audit if a fixed ecdsa is released or the JWT algorithm changes.
+        run: pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325
+
+  security:
+    name: SAST & license audit
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-licenses
+
+      - name: SAST - bandit on changed Python files (HIGH+HIGH)
+        # Scans only files changed in this PR to avoid pre-existing debt blocking contributors.
+        # Threshold: HIGH severity + HIGH confidence (-lll -iii) = near-zero false-positives.
+        # The advisory review (pr-review.yml / security_scan.py) also scans at MEDIUM+MEDIUM
+        # and posts findings as comments - the two layers are complementary, not redundant.
+        # Files under .github/ are trusted protected paths and excluded (reviewed by humans).
+        run: |
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD \
+            | grep -E '\.py$' | grep -v '^\.github/' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No Python files changed - skipping SAST."
+            exit 0
+          fi
+          COUNT=$(echo "$CHANGED" | wc -l | tr -d ' ')
+          echo "Running bandit (HIGH+HIGH) on ${COUNT} changed file(s):"
+          echo "$CHANGED"
+          echo "$CHANGED" | xargs bandit -lll -iii -q
+
+      - name: License compatibility
+        # Blocks on UNKNOWN (pip-licenses could not find a license field at all - almost always a
+        # packaging error or a bundled dep without metadata). Warns on licenses outside the
+        # known-compatible set so a human can verify before merging.
+        # AGPL-3.0 project: MIT, BSD, Apache, LGPL, MPL-2.0, ISC, and PSF are compatible.
+        # pip-licenses reports SPDX identifiers ("MIT", "BSD-3-Clause", "Apache-2.0") so we
+        # match by substring rather than exact equality against PyPI classifier strings.
+        # Isolated venv prevents runner pre-installed packages (cuda-toolkit, etc.) from
+        # poisoning the scan with UNKNOWN licenses unrelated to anthill's deps.
+        run: |
+          python3 -m venv /tmp/lic-venv
+          /tmp/lic-venv/bin/pip install -q -e ".[ci]" pip-licenses
+          /tmp/lic-venv/bin/pip-licenses --format=json --with-license-file --output-file=licenses.json
+          python3 - <<'PYEOF'
+          import json, sys
+          # Substring patterns matched case-insensitively against the SPDX identifier.
+          # A license is compatible if any pattern appears in its lowercased string.
+          COMPATIBLE_PATTERNS = [
+              "mit",
+              "bsd",
+              "apache",
+              "isc",
+              "lgpl",
+              "mpl",
+              "mozilla",
+              "psf",
+              "python software",
+              "python license",
+              "agpl",      # anthill itself is AGPL-3.0-or-later
+              "cc0",
+              "public domain",
+              "unlicense",
+              "hpnd",
+              "historical permission",
+              "zope",
+              "openssl",
+              "eupl",
+          ]
+          # Skip NVIDIA/CUDA packages: lancedb pulls them in as transitive CUDA deps.
+          # They are runtime-optional wheels with proprietary licenses that are expected
+          # and reviewed at the lancedb dependency level, not anthill's direct dep list.
+          EXCLUDED_PKG_PREFIXES = ("nvidia-", "cuda-", "cuda_", "libcublas", "libcufile",
+                                   "libcurand", "libcusolver", "libcusparse")
+          def is_excluded(name):
+              n = name.lower()
+              return any(n.startswith(p) for p in EXCLUDED_PKG_PREFIXES)
+
+          def is_compatible(lic):
+              key = lic.lower()
+              return any(p in key for p in COMPATIBLE_PATTERNS)
+
+          # A PEP 639 package can declare `License-File:` and ship the licence while omitting the old
+          # `License:` field and classifier - pip-licenses then reports UNKNOWN even though the licence is
+          # right there in the wheel (sigstore-models 0.0.6 is MIT, Astral Software Inc., exactly this).
+          # Blocking on that is blocking on a metadata gap, not on an unlicensed dependency. So when the
+          # metadata is silent, read what the package actually shipped and classify its title. A package
+          # with neither metadata NOR a licence file still blocks - the gate keeps its teeth.
+          def from_license_file(p):
+              text = (p.get("LicenseText") or "").strip()
+              if not text or text == "UNKNOWN":
+                  return ""
+              # The title lives in the first few lines ("MIT License", "Apache License Version 2.0"),
+              # so match there rather than the body, where another licence may merely be mentioned.
+              head = " ".join(text.splitlines()[:5]).lower()
+              for spdx, needle in (
+                  ("MIT", "mit license"),
+                  ("Apache-2.0", "apache license"),
+                  ("BSD", "bsd"),
+                  ("ISC", "isc license"),
+                  ("MPL-2.0", "mozilla public license"),
+                  ("GPL", "gnu general public license"),
+                  ("LGPL", "gnu lesser general public license"),
+              ):
+                  if needle in head:
+                      return spdx
+              return ""
+
+          data = json.load(open("licenses.json"))
+          unknown, flagged = [], []
+          for p in data:
+              name = p["Name"]
+              if is_excluded(name):
+                  continue
+              lic = p["License"].strip()
+              source = "metadata"
+              if lic == "UNKNOWN":
+                  recovered = from_license_file(p)
+                  if recovered:
+                      lic, source = recovered, "bundled LICENSE file"
+                      print(f"::notice::{name}=={p['Version']} declares no license in its metadata; "
+                            f"read '{lic}' from its {source}.")
+              if lic == "UNKNOWN":
+                  unknown.append((name, p["Version"]))
+              elif not is_compatible(lic):
+                  flagged.append((name, p["Version"], lic))
+          for name, ver in unknown:
+              print(f"::error::{name}=={ver} has UNKNOWN license and ships no license file - "
+                    "check package metadata or vendor the license file.")
+          for name, ver, lic in flagged:
+              print(f"::warning::{name}=={ver} license '{lic}' is not in the "
+                    "known-compatible set - verify AGPL-3.0 compatibility before merging.")
+          if unknown:
+              sys.exit(1)
+          if not flagged:
+              print("All dependency licenses are in the known-compatible set.")
+          PYEOF

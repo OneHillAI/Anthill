@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block page_title %}Your profile{% endblock %}
+{% block content %}
+
+{% if saved == 'name' %}<div class="alert alert-ok">✅ Name saved.</div>{% endif %}
+{% if saved == 'profile' %}<div class="alert alert-ok">✅ Profile updated.</div>{% endif %}
+{% if changed %}<div class="alert alert-ok">✅ Your password has been updated.</div>{% endif %}
+{% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:640px;margin:0 0 18px">
+  Everything about you on this device in one place: which profile you are in, your account, and how
+  Anthill is personalized for you.
+</p>
+
+{# ── This profile: the isolated account this window is running as ──────────────────── #}
+{% if profile %}
+<div class="card" style="max-width:640px;border-left:4px solid {{ profile.colour }}">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+    <span class="profile-dot" style="width:14px;height:14px;background:{{ profile.colour }}"></span>
+    <h2 style="font-size:16px;margin:0">This profile: {{ profile.name }}</h2>
+    <span class="badge badge-active" style="margin-left:auto">Active</span>
+  </div>
+  <p class="text-sm text-muted" style="margin:0 0 14px">
+    A profile is a separate, fully isolated account on this device - its own chats, wiki, models and
+    data. Name and colour are just how you recognize it; the colour is the dot you see in the sidebar
+    and top bar.
+  </p>
+  <form method="post" action="/profiles/{{ profile.id }}/edit"
+        style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+    <div class="form-group" style="margin:0;flex:1 1 220px">
+      <label>Profile name</label>
+      <input type="text" name="name" value="{{ profile.name }}" maxlength="60" required>
+    </div>
+    <div class="form-group" style="margin:0;flex:0 0 90px">
+      <label>Colour</label>
+      <input type="color" name="colour" value="{{ profile.colour }}" style="height:40px;padding:2px;width:100%">
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </form>
+  <p class="text-sm" style="margin:12px 0 0">
+    <a href="/profiles">Switch profile or add another{% if other_count %} ({{ other_count }} other{{ 's' if other_count != 1 }}){% endif %} &rarr;</a>
+  </p>
+</div>
+{% endif %}
+
+{# ── Your account: identity + password (reuses the account endpoints) ──────────────── #}
+<div class="card" style="max-width:640px;margin-top:16px">
+  <h2 style="font-size:16px;margin:0 0 4px">Your account</h2>
+  <p class="text-sm text-muted" style="margin:0 0 14px">
+    {{ account.email }} &middot; role <b>{{ account.role }}</b>{% if account.oauth_provider %} &middot; signed in with {{ account.oauth_provider }}{% endif %}
+  </p>
+  <form method="post" action="/account/name"
+        style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+    <div class="form-group" style="margin:0;flex:1 1 240px">
+      <label>Display name <span class="text-muted">- how you appear to teammates</span></label>
+      <input type="text" name="display_name" value="{{ account.display_name or '' }}" maxlength="120"
+             autocomplete="name" placeholder="Jane Smith">
+    </div>
+    <button type="submit" class="btn btn-outline">Save name</button>
+  </form>
+
+  <h3 style="margin:0 0 12px">{{ 'Change password' if account.hashed_password else 'Set a password' }}</h3>
+  {% if not account.hashed_password %}
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    You sign in with {{ account.oauth_provider or 'single sign-on' }}. Set a password to also sign in
+    with email and password.
+  </p>
+  {% endif %}
+  <form method="post" action="/account/password" style="max-width:360px">
+    <input type="hidden" name="next_url" value="/profile">
+    {% if account.hashed_password %}
+    <div class="form-group">
+      <label>Current password</label>
+      <input type="password" name="current_password" required placeholder="••••••••" autocomplete="current-password">
+    </div>
+    {% endif %}
+    <div class="form-group">
+      <label>New password</label>
+      <input type="password" name="new_password" required minlength="12" placeholder="min 12 characters" autocomplete="new-password">
+    </div>
+    <button type="submit" class="btn btn-primary">Update password</button>
+  </form>
+</div>
+
+{# ── Solo settings pointer ─────────────────────────────────────────────────────────── #}
+<div class="card" style="max-width:640px;margin-top:16px">
+  <h2 style="font-size:16px;margin:0 0 4px">Solo settings</h2>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    Your model and compute, how Anthill should sound, your tuning, and your personal knowledge - all in
+    one place. This shapes how chat and agents answer for you.
+  </p>
+  <a href="/personalize" class="btn btn-outline btn-sm">Open Solo settings &rarr;</a>
+</div>
+
+{% endblock %}

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Offline - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* Reuses error.html's "fleeing ant scene" verbatim, so a cached, offline shell page reads as
+       the same colony rather than a random satellite icon lifted from a generic PWA template
+       (founder report: wrong icon, wrong voice, for an app whose own error pages already have
+       one). Inlined (not templated) because this file is precached by the service worker and
+       served with zero network/server involvement by design - it has to work standalone. */
+    html, body { height:100%; }
+    body { margin:0; display:flex; align-items:center; justify-content:center; min-height:100vh;
+      background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; padding:24px; }
+    .err-card { width:100%; max-width:520px; text-align:center; }
+    .escene { position:relative; height:118px; margin:0 auto 28px; max-width:440px;
+      border-bottom:1.5px solid var(--border); }
+    .escene .ant { position:absolute; top:103px; width:24px; height:14px; color:#3A2A1C;
+      transform:scaleX(-1); will-change:left; animation:antflee 6s linear infinite; }
+    .escene .ant svg { width:100%; height:100%; display:block; }
+    .escene-hill { position:absolute; right:6px; bottom:-4px; width:80px; height:50px;
+      transform-origin:50% 100%; animation:hillpulse 2.4s ease-in-out infinite; }
+    .escene-hill svg { width:100%; height:100%; display:block; }
+    @keyframes antflee { from { left:calc(100% - 74px); } to { left:-8%; } }
+    @keyframes hillpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.07); } }
+    @media (prefers-reduced-motion:reduce){ .escene .ant{ animation:none; left:34%; } .escene-hill{ animation:none; } }
+    @media (prefers-color-scheme:dark){ .escene .ant{ color:#C9BBA8; } }
+    .err-code { font-size:15px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+      color:var(--accent); margin:0 0 6px; }
+    .err-heading { font-size:26px; font-weight:700; line-height:1.2; margin:0 0 10px; color:var(--text); }
+    .err-msg { font-size:16px; line-height:1.55; color:var(--muted); margin:0 auto 24px; max-width:400px; }
+    .err-btn { display:inline-flex; align-items:center; gap:7px; padding:10px 20px; border-radius:10px;
+      font-size:14px; font-weight:600; text-decoration:none; cursor:pointer; border:1.5px solid transparent;
+      background:var(--accent); color:#fff; width:100%; box-sizing:border-box; justify-content:center; }
+    .err-btn:hover { background:var(--accent-dk); }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="o-logo" viewBox="0 0 200 126">
+      <path d="M44,116 C48,62 78,40 100,40 C122,40 152,62 156,116 Z" fill="#E29A2B"/>
+      <path d="M78,68 Q100,49 122,68" fill="none" stroke="#BC7C1D" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M67,88 Q100,63 133,88" fill="none" stroke="#BC7C1D" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M58,105 Q100,79 142,105" fill="none" stroke="#BC7C1D" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M85,116 Q85,99 100,99 Q115,99 115,116 Z" fill="#1A1206"/>
+      <line x1="30" y1="116" x2="170" y2="116" stroke="#9C6B22" stroke-width="3.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="o-ant" viewBox="0 0 24 14">
+      <g fill="currentColor"><ellipse cx="6" cy="7" rx="4" ry="3"/><ellipse cx="12" cy="7" rx="2.3" ry="2.3"/><ellipse cx="16" cy="7" rx="2" ry="2"/></g>
+      <g stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none">
+        <path d="M10 8 L7 12 M12 8.4 L11 13 M13.6 8 L16 12"/>
+        <path d="M10 6 L7 2.6 M12 5.6 L11 1.4 M13.6 6 L16 2.6" opacity=".5"/>
+        <path d="M17 6 L20 3 M17 6.6 L20 5.2"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <main class="err-card">
+    <div class="escene" aria-hidden="true">
+      <span class="ant" style="animation-delay:0s"><svg viewBox="0 0 24 14"><use href="#o-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-1.2s"><svg viewBox="0 0 24 14"><use href="#o-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-2.4s"><svg viewBox="0 0 24 14"><use href="#o-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-3.6s"><svg viewBox="0 0 24 14"><use href="#o-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-4.8s"><svg viewBox="0 0 24 14"><use href="#o-ant"/></svg></span>
+      <svg class="escene-hill" viewBox="0 0 200 126"><use href="#o-logo"/></svg>
+    </div>
+
+    <p class="err-code">SOMETHING BROKE</p>
+    <h1 class="err-heading">You stepped on one of us</h1>
+    <p class="err-msg">
+      Try again below. If it keeps happening, quit Anthill and reopen it.
+    </p>
+    <button class="err-btn" onclick="location.reload()">Try again</button>
+  </main>
+
+  <script>
+    // Quietly keep trying in the background - covers the ordinary case (the app's own backend is
+    // still finishing startup a moment after the window opened) without making the user read
+    // anything about why, or click anything, before it resolves itself. No wording here talks about
+    // "the server" or "your network" - on this app both are just this same computer, and saying
+    // otherwise is confusing at best (founder: "remove the server message, it's bullshit").
+    (function () {
+      var attempts = 0;
+      (function poll() {
+        if (attempts++ >= 15) return;
+        setTimeout(function () {
+          fetch(location.origin + "/", { cache: "no-store" })
+            .then(function (r) { if (r.ok || r.status < 500) location.reload(); else poll(); })
+            .catch(poll);
+        }, 2000);
+      })();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+{# A markdown doc (e.g. the published OKGF spec). Unlike the hand-written HTML docs, the source is
+   markdown, so render it client-side with the marked + DOMPurify the app already ships. The content
+   is passed as a JSON string (tojson) so it is safe to embed regardless of what the markdown contains. #}
+<div class="doc-md" id="doc-md" style="max-width:820px;margin:0 auto"></div>
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
+<script>
+  (function () {
+    var src = {{ content | tojson }};
+    document.getElementById("doc-md").innerHTML = DOMPurify.sanitize(marked.parse(src));
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+[package]
+name = "anthill-desktop"
+version = "0.7.5"
+description = "Anthill desktop shell (Tauri) - native window that hosts the local backend"
+authors = ["Onehill Foundation"]
+license = "AGPL-3.0-or-later"
+edition = "2021"
+rust-version = "1.77"
+
+# UNVERIFIED DRAFT - this crate has never been compiled in CI or locally (the authoring
+# environment had no Rust/Node/Tauri toolchain). Pin/verify versions when you first `cargo build`.
+# See src-tauri/README.md for the build steps and the open items to confirm.
+
+[lib]
+name = "anthill_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Desktop-only: guard against a second launch spawning a second backend that fights over the
+# shared SQLite database. Not applicable on mobile (single process), so scoped to desktop targets.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

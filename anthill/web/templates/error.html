@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ code }} - Anthill</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* Standalone error page: no sidebar/nav (an error can hit an anonymous or broken request), so it
+       pulls only the shared tokens from style.css and inlines its own scene. The animation is the
+       mirror of the chat "antstreet": there the ants march TO the hill as work happens; here, when
+       something breaks, the colony streams AWAY from the hill to the rescue. */
+    html, body { height:100%; }
+    body { margin:0; display:flex; align-items:center; justify-content:center; min-height:100vh;
+      background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; padding:24px; }
+    .err-card { width:100%; max-width:520px; text-align:center; }
+
+    /* the trail: one straight ground line with the anthill anchored (and pulsing) at the right. This is
+       the mirror of the app's working animation - there the ants march INTO the hill as work happens;
+       on an error they go the other way, right -> left, away from the hill. */
+    .escene { position:relative; height:118px; margin:0 auto 28px; max-width:440px;
+      border-bottom:1.5px solid var(--border); }
+    .escene .ant { position:absolute; top:103px; width:24px; height:14px; color:#3A2A1C;
+      transform:scaleX(-1); will-change:left; animation:antflee 6s linear infinite; }
+    .escene .ant svg { width:100%; height:100%; display:block; }
+    .escene-hill { position:absolute; right:6px; bottom:-4px; width:80px; height:50px;
+      transform-origin:50% 100%; animation:hillpulse 2.4s ease-in-out infinite; }
+    .escene-hill svg { width:100%; height:100%; display:block; }
+    /* ants leave the hill on the right and scurry off the left edge */
+    @keyframes antflee { from { left:calc(100% - 74px); } to { left:-8%; } }
+    @keyframes hillpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.07); } }
+    @media (prefers-reduced-motion:reduce){ .escene .ant{ animation:none; left:34%; } .escene-hill{ animation:none; } }
+    @media (prefers-color-scheme:dark){ .escene .ant{ color:#C9BBA8; } }
+
+    .err-code { font-size:15px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+      color:var(--accent); margin:0 0 6px; }
+    .err-heading { font-size:26px; font-weight:700; line-height:1.2; margin:0 0 10px; color:var(--text); }
+    .err-msg { font-size:16px; line-height:1.55; color:var(--muted); margin:0 auto 24px; max-width:400px; }
+    .err-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .err-btn { display:inline-flex; align-items:center; gap:7px; padding:10px 20px; border-radius:10px;
+      font-size:14px; font-weight:600; text-decoration:none; cursor:pointer; border:1.5px solid transparent; }
+    .err-btn-primary { background:var(--accent); color:#fff; }
+    .err-btn-primary:hover { background:var(--accent-dk); }
+    .err-btn-ghost { background:transparent; color:var(--text); border-color:var(--border-strong); }
+    .err-btn-ghost:hover { background:var(--bg-subtle); }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="e-logo" viewBox="0 0 200 126">
+      <path d="M44,116 C48,62 78,40 100,40 C122,40 152,62 156,116 Z" fill="#3D8B63"/>
+      <path d="M78,68 Q100,49 122,68" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M67,88 Q100,63 133,88" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M58,105 Q100,79 142,105" fill="none" stroke="#1F5C40" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M85,116 Q85,99 100,99 Q115,99 115,116 Z" fill="#081C13"/>
+      <line x1="30" y1="116" x2="170" y2="116" stroke="#15462F" stroke-width="3.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="e-ant" viewBox="0 0 24 14">
+      <g fill="currentColor"><ellipse cx="6" cy="7" rx="4" ry="3"/><ellipse cx="12" cy="7" rx="2.3" ry="2.3"/><ellipse cx="16" cy="7" rx="2" ry="2"/></g>
+      <g stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none">
+        <path d="M10 8 L7 12 M12 8.4 L11 13 M13.6 8 L16 12"/>
+        <path d="M10 6 L7 2.6 M12 5.6 L11 1.4 M13.6 6 L16 2.6" opacity=".5"/>
+        <path d="M17 6 L20 3 M17 6.6 L20 5.2"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <main class="err-card">
+    <div class="escene" aria-hidden="true">
+      <span class="ant" style="animation-delay:0s"><svg viewBox="0 0 24 14"><use href="#e-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-1.2s"><svg viewBox="0 0 24 14"><use href="#e-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-2.4s"><svg viewBox="0 0 24 14"><use href="#e-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-3.6s"><svg viewBox="0 0 24 14"><use href="#e-ant"/></svg></span>
+      <span class="ant" style="animation-delay:-4.8s"><svg viewBox="0 0 24 14"><use href="#e-ant"/></svg></span>
+      <svg class="escene-hill" viewBox="0 0 200 126"><use href="#e-logo"/></svg>
+    </div>
+
+    <p class="err-code">{{ code }}{% if code_label %} {{ code_label }}{% endif %}</p>
+    <h1 class="err-heading">{{ heading }}</h1>
+    <p class="err-msg">{{ message }}</p>
+    <div class="err-actions">
+      <a class="err-btn err-btn-primary" href="/">Back to safe ground</a>
+      {% if retry %}<a class="err-btn err-btn-ghost" href="{{ retry_href or '' }}" onclick="location.reload();return false;">Try again</a>{% endif %}
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Cloudflare Pages response headers. https://developers.cloudflare.com/pages/configuration/headers/
+#
+# The model catalog is refreshed daily (see .github/workflows/refresh-model-catalog.yml). Keep the CDN
+# copy short-lived so a refresh reaches Anthill's "Refresh models" button promptly instead of being
+# masked by a long-lived cache. must-revalidate makes caches re-check once the 5-minute window lapses.
+/model-catalog.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300, must-revalidate
+  Access-Control-Allow-Origin: *

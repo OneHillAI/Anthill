@@ -1,0 +1,278 @@
+{# Shared, TIER-AWARE council builder: up to 3 models, first ticked = lead. Two lists toggled by the
+   chosen compute tier (ccCouncilTier, called from the chooser's ccSetTier - local/cloud only; an
+   attached escalation provider is a separate, per-turn hand-off and does NOT change which models form
+   the council, see docs/specs/expert-tier-compound-compute-and-escalation.md):
+     - Your machine -> #council-local: models that FIT this machine (fitting-first, too-big collapsed).
+     - Your cloud -> #council-cloud: the bigger models that tier unlocks (no local memory limit - each
+       on its own cloud GPU).
+   The hidden list's checkboxes are disabled so they never submit. Both post name="council_models".
+   Pass `chooser_form` to target a form by id via the HTML5 form= attribute (Settings, so it does not
+   nest inside another form); omit it in the setup flow. Requires `families`, `cloud_models`, `hw_label`,
+   `mem_gb` (raw number), `council_floor_gb`, `council_recommended_gb` (both from app.py's
+   _LOCAL_COUNCIL_RAM_FLOOR_GB / _LOCAL_COUNCIL_RECOMMENDED_GB, passed through rather than
+   re-hardcoded so the UI can never drift from what _apply_solo_compute actually enforces). #}
+{% set cf = chooser_form|default('') %}
+{% set mem_gb = mem_gb|default(0.0) %}
+{% set council_floor_gb = council_floor_gb|default(24.0) %}
+{% set council_recommended_gb = council_recommended_gb|default(48.0) %}
+{% set below_floor = mem_gb > 0 and mem_gb < council_floor_gb %}
+{# The actually-saved model(s), lead first - empty for a fresh setup account with nothing saved yet.
+   Founder report, 2026-09-28: reopening this in Settings never reflected what was really active
+   (every box rendered unchecked), so it looked like your choice was never remembered; worse, saving
+   from that state could silently replace it. Hydrated below: matching boxes render checked, and the
+   DOMContentLoaded handler restores this exact order into ccSel afterward, so the real lead is
+   preserved even if it isn't first in catalog/DOM order. #}
+{% set current_council_tags = current_council_tags|default([]) %}
+{% if in_setup %}
+<div class="cc-step-title" style="margin-top:28px">Which model do you run?
+  <button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button>
+</div>
+{% else %}
+<div class="set-cardh" style="margin:22px 0 8px"><h3 style="font-size:16px">Choose your council<button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button></h3></div>
+{% endif %}
+
+<div class="mp-filter">
+  <span class="text-sm text-muted">Model origin:</span>
+  <button type="button" class="mp-chip on" data-region="all" onclick="mpFilter(this,'all')">All</button>
+  <button type="button" class="mp-chip" data-region="us" onclick="mpFilter(this,'us')">US</button>
+  <button type="button" class="mp-chip" data-region="eu" onclick="mpFilter(this,'eu')">EU</button>
+  <button type="button" class="mp-chip" data-region="china" onclick="mpFilter(this,'china')">China</button>
+  <button type="button" class="mp-chip" data-region="other" onclick="mpFilter(this,'other')">Other</button>
+</div>
+
+{# Your machine: models that fit locally (fitting-first). Defaults to a SINGLE model - a local council
+   (2-3 models sharing this machine's memory bandwidth) is opt-in, not the default outcome, since running
+   them concurrently is slower than one model alone (see the caveat below, and _LOCAL_COUNCIL_RAM_FLOOR_GB
+   + the onprem_council_fits gate in app.py, which enforce this at save time). For a multi-model council
+   at full speed - each member on its own dedicated hardware - pick "Your cloud" above instead. #}
+<div id="council-local">
+  {# Server-rendered so the limit is visible immediately, not just discovered by trying to check a 2nd
+     box and having it silently refuse (or being told only after submit) - "super simple and super
+     logical" per the founder's ask. Below the floor, the local tier is presented as single-model only;
+     ccLocalSingle (below) enforces the same at click-time so it stays true even if mem_gb misreads. #}
+  {% if below_floor %}
+  <p class="text-sm" id="local-floor-banner" style="margin:0 0 12px;color:var(--warn,#b45309)">Council needs at least {{ council_floor_gb|round(0)|int }} GB of memory - this machine has about {{ mem_gb|round(0)|int }} GB, so it runs <b>one model</b>. For a multi-model council, pick "Your cloud" above.</p>
+  {% endif %}
+  <div class="mp-list">
+    {% for fam in families %}{% for m in fam.models if m.fits %}
+    <label class="mp-row council-row" data-region="{{ fam.region }}">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <div class="mp-main">
+        <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span>
+          {% if m.recommended %}<span class="mp-badge rec">recommended</span>{% endif %}
+          {% if m.installed %}<span class="mp-badge inst">installed</span>{% endif %}
+        </div>
+        <div class="mp-meta">{{ fam.origin }} &middot; {{ m.params_b|round(0)|int }}B{% if not m.installed %} &middot; ~{{ m.download_gb }} GB{% endif %}</div>
+      </div>
+      <div class="mp-fit">{% if m.offload %}<span class="fit warn">Runs, slower</span>{% elif m.tight %}<span class="fit warn">Runs, tight</span>{% else %}<span class="fit ok">Fits</span>{% endif %}</div>
+    </label>
+    {% endfor %}{% endfor %}
+  </div>
+  {% set ns2 = namespace(big=false) %}
+  {% for fam in families %}{% for m in fam.models if not m.fits %}{% set ns2.big = true %}{% endfor %}{% endfor %}
+  {% if ns2.big %}
+  <details style="margin-top:12px">
+    <summary class="text-sm text-muted" style="cursor:pointer">Models too big for this machine</summary>
+    <div class="mp-list" style="margin-top:8px">
+      {% for fam in families %}{% for m in fam.models if not m.fits %}
+      <div class="mp-row nofit" data-region="{{ fam.region }}">
+        <div class="mp-main"><div class="mp-name">{{ m.name }}</div>
+          <div class="mp-meta">{{ fam.origin }} &middot; {{ m.params_b|round(0)|int }}B &middot; needs more memory than {{ hw_label or "this machine" }}</div></div>
+        <div class="mp-fit"><span class="fit no">Too big</span></div>
+      </div>
+      {% endfor %}{% endfor %}
+    </div>
+    <p class="text-sm text-muted" style="margin:8px 0 0">These run in your cloud - pick "Your cloud" above.</p>
+  </details>
+  {% endif %}
+</div>
+
+{# Your cloud / Inference provider: the bigger models those tiers unlock (disabled until picked).
+   `fits` (added 2026-09-29): self-provisioned RunPod/Lambda are real single-GPU rentals with a real
+   VRAM ceiling (up to 141 GB/H200-class at full precision, ~65-70B params) - not "no memory limit" as
+   the old copy claimed. A model past that ceiling is collapsed into its own "too large" disclosure,
+   same as the local tier's "too big for this machine" pattern, rather than listed as an equally real
+   option that would very likely fail to actually provision. #}
+<div id="council-cloud" hidden>
+  <div class="mp-list">
+    {% for m in cloud_models if m.fits %}
+    <label class="mp-row council-row" data-region="{{ m.region }}">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-cloud" disabled{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <div class="mp-main">
+        <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span></div>
+        <div class="mp-meta">{{ m.origin }} &middot; {{ m.params_b|round(0)|int }}B</div>
+      </div>
+      <div class="mp-fit"><span class="fit ok">Cloud</span></div>
+    </label>
+    {% endfor %}
+  </div>
+  {% set ns3 = namespace(big=false) %}
+  {% for m in cloud_models if not m.fits %}{% set ns3.big = true %}{% endfor %}
+  {% if ns3.big %}
+  <details style="margin-top:12px">
+    <summary class="text-sm text-muted" style="cursor:pointer">Too large to self-provision (single GPU)</summary>
+    <div class="mp-list" style="margin-top:8px">
+      {% for m in cloud_models if not m.fits %}
+      <div class="mp-row nofit" data-region="{{ m.region }}">
+        <div class="mp-main"><div class="mp-name">{{ m.name }}</div>
+          <div class="mp-meta">{{ m.origin }} &middot; {{ m.params_b|round(0)|int }}B &middot; needs more VRAM than any self-serve GPU offers</div></div>
+        <div class="mp-fit"><span class="fit no">Too big</span></div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="text-sm text-muted" style="margin:8px 0 0">An inference provider (below) hosts models at this scale on its own infrastructure instead.</p>
+  </details>
+  {% endif %}
+</div>
+
+<input type="hidden" name="council_lead" id="cc-lead"{% if cf %} form="{{ cf }}"{% endif %}>
+<div class="text-sm text-muted" id="council-count" style="margin:8px 0 0">Pick 1 to 3 models - more than one runs them in parallel and combines the answers into one stronger result. The first you pick leads.</div>
+{# Shown only for the local tier with 2+ picked: local council members share this ONE machine's memory
+   bandwidth, so each answers slower than it would alone - unlike cloud/inference, where every member
+   gets its own dedicated hardware. Toggled live by ccCouncil() below. #}
+<p class="text-sm" id="local-council-caveat" style="margin:6px 0 0;color:var(--warn,#b45309);display:none">Running more than one model locally shares this machine's memory bandwidth - each answers slower than it would alone. For full speed with a multi-model council, pick "Your cloud" or an inference provider above.</p>
+{# "Your cloud" provisions each member on its own billable GPU - unlike inference-provider (one hosted
+   API call either way), there is no cost estimate anywhere in Anthill today, so a 2-3 model pick here
+   is disclosed plainly rather than silently multiplying spend. Toggled live by ccCouncil() below. #}
+<p class="text-sm" id="cloud-council-disclosure" style="margin:6px 0 0;color:var(--warn,#b45309);display:none"></p>
+<p class="text-sm text-muted" style="margin:8px 0 0" id="mp-empty" hidden>No models from that region here. Try another region.</p>
+
+<script>
+// Council builder: the LEAD is the model you pick FIRST (selection order), not the topmost in the list.
+// ccSel tracks the tags in the order they were ticked, within the active (enabled) tier. At most 3.
+var ccSel = [];
+// The real saved order (lead first, see the file-header hydration note) - re-applied in the
+// DOMContentLoaded handler below, AFTER hydration's own ccCouncilTier() call (which resets ccSel to
+// `[]` for its "fresh selection on a tier switch" behavior) has already settled, so it isn't wiped by
+// that reset. Without this, ccCouncil()'s own reconciliation derives order from DOM/catalog position,
+// which would misreport the lead on any account whose lead isn't first in that order.
+var CC_SAVED_ORDER = {{ current_council_tags|tojson }};
+var ccPickedTier = 'local';  // which base tier is active - 'local' or 'cloud' only
+var CC_MEM_GB = {{ mem_gb }};
+var CC_FLOOR_GB = {{ council_floor_gb }};
+var CC_RECOMMENDED_GB = {{ council_recommended_gb }};
+// "Your cloud" (RunPod/Lambda) provisions each council member on its OWN GPU instance via
+// provision_council_member/teardown_council_member (indices 1+, alongside the lead's existing
+// single-instance path) - real multi-instance provisioning, not a single shared backend, so it gets
+// the same 3-model multi-select as "Inference provider". Each instance is its own billable resource on
+// the provider account (see cloud-council-disclosure below) - there is no cost estimate anywhere in
+// Anthill today, so picking 2-3 models here is disclosed plainly rather than silently multiplying spend.
+// Below CC_FLOOR_GB a local council can't run at all (matches _LOCAL_COUNCIL_RAM_FLOOR_GB's server-side
+// refusal) - live radio-select pattern, so checking a 2nd local box snaps back instead of silently
+// failing on submit (the local-floor-banner above already explains why).
+var ccLocalSingle = {{ 'true' if below_floor else 'false' }};
+function ccCouncil(cb) {
+  if (cb && 'checked' in cb) {  // a real checkbox toggled -> maintain selection order
+    var t = cb.value;
+    if (cb.checked) {
+      if (ccLocalSingle && cb.classList.contains('csel-local')) {
+        // radio-like: checking one unchecks every other local-tier box
+        document.querySelectorAll('.csel-local').forEach(function (b) { if (b !== cb) b.checked = false; });
+        ccSel = [];
+      }
+      if (ccSel.indexOf(t) < 0) ccSel.push(t);
+    }
+    else { var j = ccSel.indexOf(t); if (j >= 0) ccSel.splice(j, 1); }
+  }
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.csel'));
+  var live = boxes.filter(function (b) { return b.checked && !b.disabled; }).map(function (b) { return b.value; });
+  ccSel = ccSel.filter(function (t) { return live.indexOf(t) >= 0; });   // drop unchecked/other-tier
+  live.forEach(function (t) { if (ccSel.indexOf(t) < 0) ccSel.push(t); }); // append defaults, keep order
+  while (ccSel.length > 3) {  // 4th pick is rejected; the first three (lead first) are kept
+    var drop = ccSel.pop();
+    boxes.forEach(function (b) { if (b.value === drop) b.checked = false; });
+  }
+  var lead = ccSel[0] || '';
+  document.querySelectorAll('.lead-badge').forEach(function (l) { l.hidden = true; });
+  if (lead) boxes.forEach(function (b) {
+    if (b.value === lead && !b.disabled) {
+      var r = b.closest('.mp-row'); var lb = r && r.querySelector('.lead-badge'); if (lb) lb.hidden = false;
+    }
+  });
+  var h = document.getElementById('cc-lead'); if (h) h.value = lead;
+  // Setup wizard only (personalize.html has no matching id, so this is a no-op there): nothing is
+  // pre-checked any more (founder correction, 2026-09-28 - "it offers no choice then"), so require an
+  // actual pick before Continue is clickable, rather than silently letting an empty submit through.
+  var continueBtn = document.getElementById('mp-continue');
+  if (continueBtn) continueBtn.disabled = ccSel.length === 0;
+  var localTier = document.getElementById('council-local');
+  var localActive = !!(localTier && !localTier.hidden);
+  // Below the memory floor, the orange banner above already says everything there is to say
+  // (single-model only, why, and the way out) - this line stays empty rather than restating it
+  // in smaller words (founder report, 2026-09-29: unrequested text nobody asked for).
+  var el = document.getElementById('council-count');
+  if (el) el.textContent = (ccLocalSingle && localActive)
+    ? ''
+    : ccSel.length
+    ? ccSel.length + ' of 3 chosen - ' + (ccSel.length === 1 ? 'it runs solo (add more for a council).' : 'the first you pick is your lead.')
+    : 'Pick 1 to 3 models - more than one runs them in parallel and combines the answers into one stronger result. The first you pick leads.';
+  // The speed caveat only applies to LOCAL multi-model councils (shared machine, shared memory
+  // bandwidth) - a cloud/inference council has no such contention (each member gets its own hardware).
+  // Graduated: a machine between the floor and the recommended threshold CAN run 2-3 local models (the
+  // fit gate + floor already passed) but feels the contention more than a well-provisioned one - a
+  // stronger discourage-caveat there, the milder one above the recommended threshold.
+  var caveat = document.getElementById('local-council-caveat');
+  if (caveat) {
+    if (localActive && ccSel.length >= 2) {
+      caveat.style.display = '';
+      caveat.textContent = (CC_MEM_GB > 0 && CC_MEM_GB < CC_RECOMMENDED_GB)
+        ? 'Not recommended below ' + Math.round(CC_RECOMMENDED_GB) + ' GB: running 2+ models locally on this machine (about ' + Math.round(CC_MEM_GB) + ' GB) will feel noticeably slower. For a fast multi-model council, pick "Your cloud" above.'
+        : 'Running more than one model locally shares memory bandwidth on this machine - each answers slower than it would alone. For full speed with a multi-model council, pick "Your cloud" above.';
+    } else {
+      caveat.style.display = 'none';
+    }
+  }
+  // "Your cloud" provisions each member on its OWN billable GPU instance (unlike inference-provider,
+  // one hosted API call either way) - Anthill has no cost estimate anywhere today, so this is disclosed
+  // plainly rather than letting a 3-model pick silently multiply spend with no visibility.
+  var cloudTier = document.getElementById('council-cloud');
+  var cloudActive = !!(cloudTier && !cloudTier.hidden) && ccPickedTier === 'cloud';
+  var disclosure = document.getElementById('cloud-council-disclosure');
+  if (disclosure) {
+    if (cloudActive && ccSel.length >= 1) {
+      disclosure.style.display = '';
+      disclosure.textContent = ccSel.length === 1
+        ? 'This provisions 1 GPU instance on your cloud account, billed by the provider.'
+        : 'This provisions ' + ccSel.length + ' separate GPU instances on your cloud account - each is billed separately by the provider.';
+    } else {
+      disclosure.style.display = 'none';
+    }
+  }
+}
+// Switch the model list to match the chosen BASE compute tier (called by the chooser's ccSetTier).
+// Only 'local'/'cloud' reach here now - an attached escalation provider is a separate, per-turn
+// hand-off and never changes which models form the council (docs/specs/
+// expert-tier-compound-compute-and-escalation.md).
+function ccCouncilTier(tier) {
+  ccPickedTier = tier;
+  var isCloud = (tier === 'cloud');
+  var loc = document.getElementById('council-local'), cld = document.getElementById('council-cloud');
+  if (loc) loc.hidden = isCloud;
+  if (cld) cld.hidden = !isCloud;
+  document.querySelectorAll('.csel-local').forEach(function (b) { b.disabled = isCloud; });
+  document.querySelectorAll('.csel-cloud').forEach(function (b) { b.disabled = !isCloud; });
+  ccSel = [];  // fresh selection order for the newly-active tier
+  ccCouncil();
+}
+// Origin filter across whichever list is visible (both lists carry data-region rows).
+function mpFilter(btn, region) {
+  document.querySelectorAll('.mp-chip').forEach(function (c) { c.classList.toggle('on', c === btn); });
+  var shown = 0;
+  document.querySelectorAll('.mp-row[data-region]').forEach(function (row) {
+    var match = region === 'all' || row.dataset.region === region;
+    row.style.display = match ? '' : 'none';
+    if (match) shown++;
+  });
+  var empty = document.getElementById('mp-empty');
+  if (empty) empty.hidden = shown !== 0;
+}
+document.addEventListener('DOMContentLoaded', function () {
+  if (CC_SAVED_ORDER.length) {
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('.csel'));
+    var liveNow = boxes.filter(function (b) { return b.checked && !b.disabled; }).map(function (b) { return b.value; });
+    var ordered = CC_SAVED_ORDER.filter(function (t) { return liveNow.indexOf(t) >= 0; });
+    if (ordered.length) ccSel = ordered;
+  }
+  ccCouncil();
+});
+</script>

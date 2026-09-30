@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Anthill uses the microphone only when you tap the dictation button, to convert your speech to text in the field you're editing. Nothing is recorded or sent anywhere unless you start dictation yourself.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Anthill uses on-device speech recognition only when you tap the dictation button, to convert your speech to text in the field you're editing.</string>
+</dict>
+</plist>

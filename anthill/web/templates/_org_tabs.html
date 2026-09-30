@@ -1,0 +1,8 @@
+{# Sub-tab bar for the Organization page (the org-level config rail item). Three sub-pages:
+   General (org identity), Backend (where the backend runs), Backup (download / restore).
+   Included at the top of settings_general.html, backend.html and backup.html. Admin-only. #}
+<div class="settings-tabs">
+  <a href="/settings/general" class="{% if request.url.path == '/settings/general' %}active{% endif %}">General</a>
+  <a href="/backend" class="{% if '/backend' in request.url.path %}active{% endif %}">Backend</a>
+  <a href="/backup" class="{% if '/backup' in request.url.path %}active{% endif %}">Backup</a>
+</div>

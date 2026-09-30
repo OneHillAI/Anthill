@@ -1,0 +1,983 @@
+{% extends "base.html" %}
+{% block title %}Organization model server{% endblock %}
+{% block page_title %}Cloud &amp; model <span style="font-size:13px;color:var(--muted);font-weight:normal">- model</span>{% endblock %}
+{% block content %}
+{% include "_org_cloud_tabs.html" %}
+
+{% if cfg.org_backend_status == 'provisioning' %}
+<script id="provision-autorefresh">setTimeout(function () { location.reload(); }, 6000);</script>
+{% endif %}
+
+{% if saved %}<div class="alert alert-ok">✅ Saved. The provisioning plan is shown below.</div>{% endif %}
+{% if error == 'provider' %}<div class="alert alert-danger">That provider is not recognized.</div>{% endif %}
+{% if error == 'endpoint' %}<div class="alert alert-danger">Enter the endpoint URL to validate.</div>{% endif %}
+{% if connected == 'ok' %}<div class="alert alert-ok">✅ Endpoint validated end to end.</div>{% endif %}
+{% if connected == 'fail' %}<div class="alert alert-danger">Endpoint validation failed - see the detail below.</div>{% endif %}
+{% if provisioning == 'started' and cfg.org_backend_status == 'provisioning' %}<div class="alert alert-ok">⏳ Provisioning started. This can take a few minutes; this page refreshes automatically until it finishes.</div>{% endif %}
+{% if torn %}<div class="alert alert-ok">Backend torn down.</div>{% endif %}
+{% if error == 'no_key' %}<div class="alert alert-danger">Add your provider API key before provisioning.</div>{% endif %}
+{% if error == 'no_plan' %}<div class="alert alert-danger">Pick a provider and a model first.</div>{% endif %}
+{% if error == 'not_live' %}<div class="alert alert-danger">Live provisioning is not available for that provider yet - use "Connect a model server you already run" below.</div>{% endif %}
+{% if error == 'too_big' %}<div class="alert alert-danger">That model is too big for the chosen GPU size on a single GPU - pick a larger GPU, turn on 4-bit if the model has that build, or choose a smaller model.</div>{% endif %}
+{% if error == 'teardown_first' %}<div class="alert alert-danger">A removed reviewer is still provisioned - tear it down with its own "Tear down" button first, then remove and save again.</div>{% endif %}
+{% if error == 'onprem_council_too_big' %}<div class="alert alert-danger">Your on-prem council members don't fit together on this machine's memory. On-prem members all run on the same local box and share its RAM/VRAM - each may fit alone, but combined they exceed the budget. Remove a member, pick smaller models, or run fewer on-prem at once.</div>{% endif %}
+
+<p class="text-sm text-muted" style="max-width:760px;margin-bottom:18px">
+  Connect the shared model server your team uses. <a href="/settings/organization/wiki">Wiki</a> hosting
+  and <a href="/training">training</a> are the other two tabs.
+</p>
+
+<form method="post" action="/settings/organization">
+  <div class="card mb-2" style="max-width:760px">
+    <div class="form-group">
+      <label>Where Anthill provisions the model</label>
+      <select name="org_provider" id="org_provider">
+        <option value="" {% if not cfg.org_provider %}selected{% endif %}>- not chosen yet -</option>
+        {% for g in groups %}
+        <optgroup label="{{ g.tier.name }}{% if g.tier.sovereignty == 'amber' %} (amber: shared GPUs){% endif %}">
+          {% for p in g.providers %}
+          {% set ready = p.key in ('onprem', 'lambda', 'runpod') %}
+          <option value="{{ p.key }}" {% if cfg.org_provider == p.key %}selected{% endif %}>{{ p.name }}{% if p.eu_sovereign %} (EU sovereign){% endif %}{% if p.key == 'runpod' %} - recommended: fastest to set up{% endif %}{% if not ready %} - not fully wired up yet, plan preview only{% endif %}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" id="gpu_row" style="{% if not cfg.org_provider or cfg.org_provider == 'onprem' %}display:none{% endif %}">
+      <label>GPU size (VRAM) <span class="text-sm text-muted">- pick this first; it sets what fits</span></label>
+      <select name="org_gpu" id="org_gpu" style="max-width:340px">
+        <option value="" data-maxparams="" data-maxparams-q="" {% if not cfg.org_gpu %}selected{% endif %}>- choose a GPU size -</option>
+        {% for g in gpu_tiers %}
+        <option value="{{ g.key }}" data-maxparams="{{ g.max_params }}" data-maxparams-q="{{ g.max_params_q }}" {% if cfg.org_gpu == g.key %}selected{% endif %}>{{ g.label }} - serves up to ~{{ g.max_params|round|int }}B</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Model to serve
+        <button type="button" id="gated_help_btn" title="This model needs setup - click for steps"
+                style="display:none;border:0;background:none;cursor:pointer;color:var(--warn);font-size:13px;padding:0 4px">
+          &#9432; gated - setup needed
+        </button>
+      </label>
+      <select name="org_model" id="org_model" style="max-width:420px">
+        <option value="">- choose a model -</option>
+        {% for m in catalog %}
+        <option value="{{ m.name }}" data-params="{{ m.params_b }}" data-gated="{{ '1' if m.gated else '' }}" data-quant="{{ '1' if m.has_quant else '' }}" data-coming="{{ '1' if m.params_b and m.params_b > coming_threshold else '' }}" data-coming-q="{{ '1' if m.params_b and m.params_b > coming_threshold_quantized else '' }}" {% if cfg.org_model == m.name %}selected{% endif %}>{{ m.name }} - {{ m.params_b }}B{% if m.gated %} (gated){% endif %}</option>
+        {% endfor %}
+        <option value="__custom__" {% if is_custom_model %}selected{% endif %}>Other - enter a model id...</option>
+      </select>
+      <div id="model_custom_row" style="margin-top:8px;{% if not is_custom_model %}display:none{% endif %}">
+        <input type="text" name="org_model_custom" id="org_model_custom"
+               value="{{ cfg.org_model if is_custom_model else '' }}"
+               placeholder="exact Ollama tag or HF repo id, e.g. Qwen/Qwen2.5-7B-Instruct" style="width:100%;max-width:420px">
+      </div>
+      <div id="gated_help" style="display:none;margin-top:8px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:12px">
+        <p class="text-sm" style="margin:0 0 6px"><b>This model is gated on Hugging Face</b> - serving it on a cloud GPU needs a one-time setup:</p>
+        <ol class="text-sm" style="margin:0 0 6px;padding-left:20px">
+          <li>Sign in to Hugging Face, open the model's page, and <b>accept its license</b> (access is usually granted right away).</li>
+          <li>Create a <b>read</b> token at <code>huggingface.co/settings/tokens</code>.</li>
+          <li>Paste it into the <b>Hugging Face token</b> field under Advanced settings, then provision.</li>
+        </ol>
+        <p class="text-sm text-muted" style="margin:0">On-prem (Ollama) and the open Qwen models need none of this.</p>
+      </div>
+    </div>
+
+    <div id="lambda_launch" style="margin-top:10px;{% if cfg.org_provider != 'lambda' %}display:none{% endif %}">
+      <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:12px">
+        <p class="text-sm" style="margin:0 0 10px"><b>Lambda Labs launch config</b>
+          <span class="text-sm text-muted">- Lambda serves on an always-on GPU VM</span></p>
+        <div class="flex gap-2" style="flex-wrap:wrap">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label>SSH key name(s) <span class="text-sm text-muted">- required by Lambda</span></label>
+            <input type="text" name="org_lambda_ssh_keys" value="{{ cfg.org_lambda_ssh_keys }}"
+                   placeholder="my-key (comma-separate several)" style="width:100%">
+          </div>
+          <div class="form-group" style="margin:0;width:180px">
+            <label>Instance type <span class="text-sm text-muted">- optional</span></label>
+            <input type="text" name="org_lambda_instance_type" value="{{ cfg.org_lambda_instance_type }}"
+                   placeholder="gpu_1x_a10" style="width:100%">
+          </div>
+          <div class="form-group" style="margin:0;width:160px">
+            <label>Region <span class="text-sm text-muted">- data center</span></label>
+            <input type="text" name="org_region" value="{{ cfg.org_region }}"
+                   placeholder="us-west-1" style="width:100%">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <details class="card mb-2" style="max-width:760px"
+    {% if cfg.org_warm_workers or org_model_quantized or cfg.org_hf_token_enc or reviewers or (cfg.org_provider and cfg.org_provider not in ('onprem', 'lambda', 'runpod')) %}open{% endif %}>
+    <summary style="cursor:pointer;font-weight:600">Advanced settings</summary>
+
+    <p class="text-sm text-muted" style="margin:12px 0">
+      On-prem and your own cloud VPC are <b>always-on, green</b> (fully your perimeter). A neocloud
+      (Modal / RunPod) is <b>per-use, amber</b> - your account and your model, but inference transits a
+      third party's shared GPUs, with a cold start on the first request after idle.
+    </p>
+
+    <div class="form-group">
+      <p class="text-sm text-muted" style="margin:0">
+        A provider-agnostic <b>VRAM target</b>: Anthill maps it to the concrete GPU your provider runs the
+        model on - on <b>RunPod</b> the serverless GPU pool it provisions, on a cloud VPC a GPU instance of
+        that size - so the list is the same whichever provider you pick. Fit is at <b>full precision</b>
+        (what vLLM serves by default): ~2 GB per billion params, so a 70B needs about 140 GB and will not
+        fit one of these GPUs. To run a big curated model (32B, 70B) on a single GPU, turn on <b>Serve
+        4-bit (AWQ)</b> below - it is roughly a quarter of the size, so a 70B fits a 48 GB GPU. The labels
+        show the full-precision size; the 4-bit toggle raises what fits.
+      </p>
+    </div>
+
+    <div class="form-group" id="warm_workers_row" style="{% if cfg.org_provider != 'runpod' %}display:none{% endif %}">
+      <label>Warm workers <span class="text-sm text-muted">- RunPod only, optional</span></label>
+      <input type="number" name="org_warm_workers" id="org_warm_workers" min="0" max="50" step="1"
+             value="{{ cfg.org_warm_workers or 0 }}" style="max-width:120px">
+      <p class="text-sm text-muted" style="margin:4px 0 0">
+        0 (default) scales fully to zero when idle - lowest cost, but the first request after idle is a
+        cold start. A higher number keeps that many workers ready to bound cold starts, at ongoing cost
+        even while unused.
+      </p>
+    </div>
+
+    <div class="form-group" id="quant_row" style="{% if not cfg.org_provider or cfg.org_provider == 'onprem' %}display:none{% endif %}">
+      <label class="flex gap-2" style="align-items:center;margin:0;cursor:pointer">
+        <input type="checkbox" name="org_model_quantized" id="org_model_quantized" {% if org_model_quantized %}checked{% endif %}>
+        <span>Serve 4-bit (AWQ) <span class="text-sm text-muted">- fit a big model on a smaller GPU</span></span>
+      </label>
+      <p class="text-sm text-muted" style="margin:6px 0 0;max-width:420px">
+        Models are sized to your <b>GPU size (VRAM)</b>: greyed ones need a bigger GPU (pick a larger one
+        above to unlock them). The largest need <b>Serve 4-bit (AWQ)</b> - turn it on and a curated 32B or
+        70B fits a single normal GPU. A few are too big even at 4-bit and need multi-GPU serving.
+      </p>
+    </div>
+
+    <div class="form-group mb-2" style="margin:0">
+      <label>Hugging Face token <span class="text-sm text-muted">- only for gated models (e.g. Llama)</span>
+        {% if has_hf_token %}<span class="badge badge-active">set</span>{% endif %}</label>
+      <div class="flex gap-2" style="align-items:center">
+        <input type="password" id="org_hf_token" autocomplete="off" style="flex:1"
+               placeholder="{{ 'leave blank to keep the saved token (send empty + Save to clear)' if has_hf_token else 'hf_... read token; needed only for gated models' }}">
+        <button type="button" class="btn btn-outline"
+                onclick="_settingsFormPost('/settings/organization/hf-token', {org_hf_token: document.getElementById('org_hf_token').value})">Save token</button>
+      </div>
+      <p class="text-sm text-muted" style="margin:6px 0 0">
+        Open Qwen models need no token. For a gated model, accept its license on Hugging Face and paste a
+        read token here; Anthill passes it to the GPU so it can pull the weights (encrypted at rest).
+      </p>
+    </div>
+
+    <div class="card mb-2" style="margin-top:14px">
+      <h3 style="margin-bottom:4px">Council reviewers <span class="text-sm text-muted" style="font-weight:normal">- optional</span></h3>
+      <p class="text-sm text-muted" style="margin:0 0 14px">
+        Extra models that cross-check the lead's answer before your team sees it - the lead answers,
+        reviewers critique, Anthill returns one synthesized reply. Each reviewer is its own model with its
+        own resources, so add one only if you can support it too.
+      </p>
+      <div id="reviewer-rows">
+      {% for r in reviewers %}
+      <div class="reviewer-row" data-index="{{ loop.index0 }}" data-status="{{ r.backend_status }}"
+           style="border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">
+        <div class="flex gap-2" style="align-items:center;flex-wrap:wrap">
+          <select name="reviewer_provider_{{ loop.index0 }}" class="reviewer-provider" style="min-width:180px">
+            <option value="" {% if not r.provider %}selected{% endif %}>- not chosen yet -</option>
+            {% for g in groups %}
+            {% for p in g.providers %}
+            <option value="{{ p.key }}" {% if r.provider == p.key %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+            {% endfor %}
+          </select>
+          <select name="reviewer_model_{{ loop.index0 }}" class="reviewer-model" style="min-width:220px;flex:1">
+            <option value="">- choose a model -</option>
+            {% for m in catalog %}
+            <option value="{{ m.name }}" {% if r.model == m.name %}selected{% endif %}>{{ m.name }} - {{ m.params_b }}B</option>
+            {% endfor %}
+            <option value="__custom__" {% if r._is_custom_model %}selected{% endif %}>Other - enter a model id...</option>
+          </select>
+          <span class="badge {% if r.backend_status == 'provisioned' %}badge-active{% elif r.backend_status == 'error' %}badge-danger{% elif r.backend_status == 'provisioning' %}badge-warning{% else %}badge-member{% endif %}">{{ r.backend_status }}</span>
+          <button type="button" class="btn btn-outline btn-sm remove-reviewer-btn">Remove</button>
+        </div>
+        <div class="reviewer-custom-row" style="margin-top:8px;{% if not r._is_custom_model %}display:none{% endif %}">
+          <input type="text" name="reviewer_model_custom_{{ loop.index0 }}"
+                 value="{{ r.model if r._is_custom_model else '' }}"
+                 placeholder="exact Ollama tag or HF repo id" style="width:100%;max-width:420px">
+        </div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Advanced - GPU size, region, 4-bit, Lambda launch config ▾</summary>
+          <div class="flex gap-2" style="flex-wrap:wrap;margin-top:8px">
+            <div class="form-group" style="margin:0;width:220px">
+              <label class="text-sm">GPU size (VRAM)</label>
+              <select name="reviewer_gpu_{{ loop.index0 }}" style="width:100%">
+                <option value="" {% if not r.gpu_tier %}selected{% endif %}>- choose a GPU size -</option>
+                {% for g in gpu_tiers %}
+                <option value="{{ g.key }}" {% if r.gpu_tier == g.key %}selected{% endif %}>{{ g.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;width:160px">
+              <label class="text-sm">Region</label>
+              <input type="text" name="reviewer_region_{{ loop.index0 }}" value="{{ r.region }}" placeholder="us-west-1" style="width:100%">
+            </div>
+            <label class="flex gap-2" style="align-items:center;margin:0;cursor:pointer;width:100%">
+              <input type="checkbox" name="reviewer_quantized_{{ loop.index0 }}" {% if r.quantized %}checked{% endif %}>
+              <span class="text-sm">Serve 4-bit (AWQ) - fit a big model on a smaller GPU</span>
+            </label>
+            <div class="form-group" style="margin:0;flex:1;min-width:200px">
+              <label class="text-sm">Lambda SSH key(s) <span class="text-muted">- Lambda only</span></label>
+              <input type="text" name="reviewer_lambda_ssh_keys_{{ loop.index0 }}"
+                     value="{{ (r.provider_config or {}).get('ssh_keys', '') }}" style="width:100%">
+            </div>
+            <div class="form-group" style="margin:0;width:180px">
+              <label class="text-sm">Lambda instance type</label>
+              <input type="text" name="reviewer_lambda_instance_type_{{ loop.index0 }}"
+                     value="{{ (r.provider_config or {}).get('instance_type', '') }}" style="width:100%">
+            </div>
+          </div>
+        </details>
+        {% if r.backend_detail %}<p class="text-sm text-muted" style="margin:6px 0 0">{{ r.backend_detail }}</p>{% endif %}
+        {% if r.provider and r.model %}
+        <div class="flex gap-2" style="margin-top:8px">
+          <button type="button" class="btn btn-outline btn-sm"
+                  onclick="_settingsFormPost('/settings/organization/council/provision', {member_index: {{ loop.index0 }}})"
+                  {% if not r._available or not has_provision_key or r.backend_status == 'provisioning' %}disabled{% endif %}>
+            {% if r.backend_status == 'provisioned' %}Re-provision{% else %}Provision{% endif %}
+          </button>
+          {% if r.backend_handle %}
+          <button type="button" class="btn btn-outline btn-sm"
+                  onclick="if (confirm('Tear down this reviewer\'s provisioned endpoint?')) _settingsFormPost('/settings/organization/council/teardown', {member_index: {{ loop.index0 }}})">
+            Tear down
+          </button>
+          {% endif %}
+        </div>
+        {% if not r._available %}<p class="text-sm text-muted" style="margin:6px 0 0">Live provisioning is not available for that provider yet.</p>{% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <input type="hidden" name="reviewer_count" id="reviewer_count" value="{{ reviewers|length }}">
+    <button type="button" id="add-reviewer-btn" class="btn btn-outline btn-sm">+ Add a reviewer model</button>
+  </div>
+
+  <div class="card mb-2" style="max-width:760px">
+    <h3 style="margin-bottom:4px">Review scheduled tasks &amp; agent runs</h3>
+    <p class="text-sm text-muted" style="margin:0 0 12px">
+      When you have reviewers configured above, a scheduled task or agent run's finished answer is
+      critiqued by them too (text only - reviewers never take any action themselves) before you see it.
+      This is extra API calls, latency, and cost on every run, and sends the finished answer to your
+      other configured models - turn it off here if you want reviewers for chat only.
+    </p>
+    <label class="flex gap-2" style="align-items:center;cursor:pointer">
+      <input type="checkbox" onchange="_settingsFormPost('/settings/organization/council/review-toggle', {})"
+             {% if cfg.council_review_tasks %}checked{% endif %}>
+      <span class="text-sm">Review scheduled tasks and agent runs
+        {% if cfg.council_review_tasks %}<span class="badge badge-active">on</span>
+        {% else %}<span class="badge">off</span>{% endif %}
+      </span>
+    </label>
+  </div>
+  </details>
+
+  <button type="submit" class="btn btn-primary" style="max-width:760px">Save changes</button>
+</form>
+
+<template id="reviewer-row-template">
+  <div class="reviewer-row" data-index="__INDEX__" data-status="unconfigured"
+       style="border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">
+    <div class="flex gap-2" style="align-items:center;flex-wrap:wrap">
+      <select name="reviewer_provider___INDEX__" class="reviewer-provider" style="min-width:180px">
+        <option value="" selected>- not chosen yet -</option>
+        {% for g in groups %}
+        {% for p in g.providers %}
+        <option value="{{ p.key }}">{{ p.name }}</option>
+        {% endfor %}
+        {% endfor %}
+      </select>
+      <select name="reviewer_model___INDEX__" class="reviewer-model" style="min-width:220px;flex:1">
+        <option value="">- choose a model -</option>
+        {% for m in catalog %}
+        <option value="{{ m.name }}">{{ m.name }} - {{ m.params_b }}B</option>
+        {% endfor %}
+        <option value="__custom__">Other - enter a model id...</option>
+      </select>
+      <span class="badge badge-member">new</span>
+      <button type="button" class="btn btn-outline btn-sm remove-reviewer-btn">Remove</button>
+    </div>
+    <div class="reviewer-custom-row" style="margin-top:8px;display:none">
+      <input type="text" name="reviewer_model_custom___INDEX__" placeholder="exact Ollama tag or HF repo id" style="width:100%;max-width:420px">
+    </div>
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Advanced - GPU size, region, 4-bit, Lambda launch config ▾</summary>
+      <div class="flex gap-2" style="flex-wrap:wrap;margin-top:8px">
+        <div class="form-group" style="margin:0;width:220px">
+          <label class="text-sm">GPU size (VRAM)</label>
+          <select name="reviewer_gpu___INDEX__" style="width:100%">
+            <option value="" selected>- choose a GPU size -</option>
+            {% for g in gpu_tiers %}
+            <option value="{{ g.key }}">{{ g.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;width:160px">
+          <label class="text-sm">Region</label>
+          <input type="text" name="reviewer_region___INDEX__" placeholder="us-west-1" style="width:100%">
+        </div>
+        <label class="flex gap-2" style="align-items:center;margin:0;cursor:pointer;width:100%">
+          <input type="checkbox" name="reviewer_quantized___INDEX__">
+          <span class="text-sm">Serve 4-bit (AWQ) - fit a big model on a smaller GPU</span>
+        </label>
+        <div class="form-group" style="margin:0;flex:1;min-width:200px">
+          <label class="text-sm">Lambda SSH key(s) <span class="text-muted">- Lambda only</span></label>
+          <input type="text" name="reviewer_lambda_ssh_keys___INDEX__" style="width:100%">
+        </div>
+        <div class="form-group" style="margin:0;width:180px">
+          <label class="text-sm">Lambda instance type</label>
+          <input type="text" name="reviewer_lambda_instance_type___INDEX__" style="width:100%">
+        </div>
+      </div>
+    </details>
+  </div>
+</template>
+
+<script>
+// A plain <button onclick> + fetch POST, not a <form> - these sit inside the page's main
+// <form action="/settings/organization">, and a nested <form> is invalid HTML: the browser's parser
+// closes the outer form at the first nested </form> it sees, silently detaching "Save changes" (and
+// everything after it) from the outer form so the real Save stops submitting anything at all.
+function _settingsFormPost(url, data) {
+  var body = new URLSearchParams();
+  Object.keys(data).forEach(function (k) { body.append(k, data[k]); });
+  fetch(url, { method: 'POST', body: body })
+    .then(function (r) { location.href = r.url || location.href; })
+    .catch(function () { showToast('Could not reach the server.', 'error'); });
+}
+
+(function () {
+  var rowsWrap = document.getElementById('reviewer-rows');
+  var countInput = document.getElementById('reviewer_count');
+  var addBtn = document.getElementById('add-reviewer-btn');
+  var tpl = document.getElementById('reviewer-row-template');
+  if (!rowsWrap || !countInput || !addBtn || !tpl) return;
+
+  function reindex() {
+    var rows = rowsWrap.querySelectorAll('.reviewer-row');
+    rows.forEach(function (row, i) {
+      row.setAttribute('data-index', i);
+      row.querySelectorAll('[name]').forEach(function (el) {
+        el.name = el.name.replace(/_\d+$/, '_' + i);
+      });
+    });
+    countInput.value = rows.length;
+  }
+
+  function wireRemove(row) {
+    var btn = row.querySelector('.remove-reviewer-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var status = row.getAttribute('data-status');
+      if ((status === 'provisioned' || status === 'provisioning') &&
+          !confirm('This reviewer is ' + status + '. Tear it down first (its own Tear down button) ' +
+                   'before removing it, or the save will be refused. Remove anyway?')) {
+        return;
+      }
+      row.remove();
+      reindex();
+    });
+  }
+
+  rowsWrap.querySelectorAll('.reviewer-row').forEach(wireRemove);
+  var customToggleWire = function (row) {
+    var sel = row.querySelector('.reviewer-model');
+    var customRow = row.querySelector('.reviewer-custom-row');
+    if (!sel || !customRow) return;
+    sel.addEventListener('change', function () {
+      customRow.style.display = (sel.value === '__custom__') ? '' : 'none';
+    });
+  };
+  rowsWrap.querySelectorAll('.reviewer-row').forEach(customToggleWire);
+
+  addBtn.addEventListener('click', function () {
+    var index = rowsWrap.querySelectorAll('.reviewer-row').length;
+    var html = tpl.innerHTML.split('__INDEX__').join(String(index));
+    var div = document.createElement('div');
+    div.innerHTML = html.trim();
+    var row = div.firstElementChild;
+    rowsWrap.appendChild(row);
+    wireRemove(row);
+    customToggleWire(row);
+    countInput.value = rowsWrap.querySelectorAll('.reviewer-row').length;
+  });
+})();
+</script>
+
+<script>
+  (function () {
+    var providerSel = document.getElementById('org_provider');
+    var lambdaBox = document.getElementById('lambda_launch');
+    var gpuRow = document.getElementById('gpu_row');
+    var warmWorkersRow = document.getElementById('warm_workers_row');
+    var gpuSel = document.getElementById('org_gpu');
+    var modelSel = document.getElementById('org_model');
+    var customRow = document.getElementById('model_custom_row');
+    var gatedBtn = document.getElementById('gated_help_btn');
+    var gatedHelp = document.getElementById('gated_help');
+    var quantRow = document.getElementById('quant_row');
+    var quantChk = document.getElementById('org_model_quantized');
+    if (!providerSel || !modelSel) return;
+
+    function isCloud() { var p = providerSel.value; return !!p && p !== 'onprem'; }
+    function quantOn() { return !!quantChk && quantChk.checked; }
+    // The GPU's ceiling depends on precision: 4-bit fits ~3x the params of full precision (fp16). Read the
+    // right ceiling so a 70B can light up on a 48 GB GPU once 4-bit is on.
+    function selectedGpuMax(useQuant) {
+      if (!gpuSel) return null;
+      var o = gpuSel.options[gpuSel.selectedIndex];
+      if (!o) return null;
+      var v = o.getAttribute(useQuant ? 'data-maxparams-q' : 'data-maxparams');
+      return (v === '' || v == null) ? null : (parseFloat(v) || 0);
+    }
+    function selectedModelOption() { return modelSel.options[modelSel.selectedIndex] || null; }
+    function selectedModelParams() {
+      var o = selectedModelOption();
+      var v = o ? o.getAttribute('data-params') : null;
+      return (v == null || v === '') ? null : (parseFloat(v) || 0);
+    }
+    // 4-bit only helps a model that has a verified quant build (data-quant). The toggle is global, so a
+    // selected model without one is still served full precision - the per-option check below reflects that.
+    function modelUsesQuant(o) { return quantOn() && !!o && o.getAttribute('data-quant') === '1'; }
+    function toggleCustom() {
+      if (customRow) customRow.style.display = (modelSel.value === '__custom__') ? '' : 'none';
+    }
+    // Set each model option's state for the current provider/GPU/precision. On cloud, every model stays
+    // VISIBLE with the reason it is (or is not) selectable, so it is clear what to do:
+    //   - too big even at 4-bit for any GPU      -> "needs multi-GPU serving"
+    //   - too big at fp16 but has a 4-bit build  -> "turn on 4-bit to fit" (actionable)
+    //   - bigger than the CHOSEN GPU             -> "needs a bigger GPU size" (pick a larger one above)
+    // On-prem keeps the full list selectable (the box is your own). Placeholder/custom are never touched.
+    function applyModelStates() {
+      var cloud = isCloud();
+      Array.prototype.forEach.call(modelSel.options, function (o) {
+        if (o.value === '' || o.value === '__custom__') return;
+        if (!o.getAttribute('data-base')) o.setAttribute('data-base', o.text);
+        var base = o.getAttribute('data-base');
+        var p = parseFloat(o.getAttribute('data-params')) || 0;
+        var useQuant = modelUsesQuant(o);
+        var hasQuant = o.getAttribute('data-quant') === '1';
+        var max = cloud ? selectedGpuMax(useQuant) : null;
+        o.hidden = false;  // keep every model visible so the reason is always clear
+        if (!cloud) {
+          o.disabled = false; o.text = base;
+        } else if (useQuant && o.getAttribute('data-coming-q') === '1') {
+          o.disabled = true; o.text = base + ' - needs multi-GPU serving';
+        } else if (!useQuant && o.getAttribute('data-coming') === '1') {
+          o.disabled = true;
+          o.text = base + (hasQuant ? ' - turn on 4-bit (AWQ) to fit' : ' - needs multi-GPU serving');
+        } else if (max != null && p > max) {
+          o.disabled = true;
+          o.text = base + ((!useQuant && hasQuant) ? ' - needs a bigger GPU (or turn on 4-bit)'
+                                                    : ' - needs a bigger GPU size');
+        } else {
+          o.disabled = false; o.text = base + (useQuant ? ' - 4-bit' : '');
+        }
+      });
+      var cur = selectedModelOption();
+      if (cur && cur.disabled) modelSel.value = '';  // a now-unselectable pick resets to the placeholder
+      toggleCustom();
+    }
+    // Grey (don't hide) GPUs too small for the chosen model, with the reason - so the size relationship
+    // stays visible both ways instead of options silently vanishing. Uses the 4-bit ceiling when the
+    // selected model is being served quantized.
+    function filterGpusByModel() {
+      if (!gpuSel) return;
+      var need = selectedModelParams();
+      var useQuant = modelUsesQuant(selectedModelOption());
+      Array.prototype.forEach.call(gpuSel.options, function (o) {
+        if (!o.getAttribute('data-gbase')) o.setAttribute('data-gbase', o.text);
+        var gbase = o.getAttribute('data-gbase');
+        var v = o.getAttribute(useQuant ? 'data-maxparams-q' : 'data-maxparams');
+        var maxP = (v === '' || v == null) ? null : (parseFloat(v) || 0);
+        var tooSmall = (maxP != null && need != null && maxP < need);
+        o.hidden = false; o.disabled = tooSmall;
+        o.text = tooSmall ? gbase + ' - too small for this model' : gbase;
+      });
+      var cur = gpuSel.options[gpuSel.selectedIndex];
+      if (cur && cur.disabled) { gpuSel.value = ''; applyModelStates(); }
+    }
+    function syncGated() {
+      if (!gatedBtn) return;
+      var o = selectedModelOption();
+      var show = isCloud() && !!o && o.getAttribute('data-gated') === '1';
+      gatedBtn.style.display = show ? '' : 'none';
+      if (!show && gatedHelp) gatedHelp.style.display = 'none';
+    }
+    function syncProvider() {
+      if (lambdaBox) lambdaBox.style.display = (providerSel.value === 'lambda') ? '' : 'none';
+      if (gpuRow) gpuRow.style.display = isCloud() ? '' : 'none';
+      // RunPod only - Lambda is an always-on VM (never scales to zero), on-prem doesn't apply.
+      if (warmWorkersRow) warmWorkersRow.style.display = (providerSel.value === 'runpod') ? '' : 'none';
+      if (quantRow) quantRow.style.display = isCloud() ? '' : 'none';  // 4-bit is a cloud-serving choice
+      applyModelStates();  // cloud<->onprem changes filtering + the precision greying
+      syncGated();
+    }
+
+    providerSel.addEventListener('change', syncProvider);
+    if (gpuSel) gpuSel.addEventListener('change', applyModelStates);
+    // Toggling 4-bit changes which models fit and which GPUs are big enough - re-run both gates.
+    if (quantChk) quantChk.addEventListener('change', function () { applyModelStates(); filterGpusByModel(); });
+    modelSel.addEventListener('change', function () { filterGpusByModel(); syncGated(); toggleCustom(); });
+    if (gatedBtn && gatedHelp) gatedBtn.addEventListener('click', function () {
+      gatedHelp.style.display = (gatedHelp.style.display === 'none') ? '' : 'none';
+    });
+
+    syncProvider();
+    filterGpusByModel();
+    toggleCustom();
+  })();
+</script>
+
+{% if plan %}
+<div class="card" style="max-width:760px">
+  <h3 style="margin-bottom:6px">Provisioning plan</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    <b>{{ plan.provider_name }}</b> - {{ plan.tier_name }} tier, served with
+    <code>{{ plan.serving_stack }}</code>.
+    {% if cfg.org_model_quantized %}<span class="badge">4-bit (AWQ)</span>{% endif %}
+    {% if plan.cold_start %}<span class="badge badge-warning">cold start on first request</span>{% endif %}
+  </p>
+
+  {% if not plan.available %}
+  <div class="alert" style="background:var(--bg-subtle);color:var(--text);margin-bottom:12px">
+    <b>Not wired up yet.</b> {{ plan.readiness }}
+    <div class="text-sm" style="margin-top:6px">{{ plan.escape_hatch }}</div>
+  </div>
+  {% endif %}
+
+  <p class="text-sm" style="margin:0 0 6px"><b>What Anthill will do when you provision (nothing has run yet):</b></p>
+  <ol style="margin:0 0 12px;padding-left:22px">
+    {% for s in plan.steps %}
+    <li style="margin-bottom:4px">{{ s.detail }}</li>
+    {% endfor %}
+  </ol>
+
+  {% if plan.notes %}
+  <p class="text-sm text-muted" style="margin:0">{{ plan.notes }}</p>
+  {% endif %}
+  {% if plan.available %}<p class="text-sm text-muted" style="margin:8px 0 0">Add your provider key and run it
+    in the next step.</p>{% endif %}
+</div>
+
+{% if plan.available %}
+<div class="card" style="max-width:760px;margin-top:18px">
+  <h3 style="margin-bottom:6px">Provision it <span class="badge badge-active">live</span></h3>
+  <p class="text-sm" style="margin:0 0 12px;color:var(--warn)">
+    ⚠️ Runs the plan above: it spins up a <b>real, billable GPU</b> in your own {{ plan.provider_name }}
+    account. It scales to zero when idle, but you pay for usage. Anthill never sees the GPU - it runs in
+    your account.
+  </p>
+
+  <form method="post" action="/settings/organization/provision-key" class="mb-2">
+    <div class="form-group" style="margin:0">
+      <label>{{ plan.provider_name }} API key
+        {% if has_provision_key %}<span class="badge badge-active">set</span>{% endif %}</label>
+      <div class="flex gap-2" style="align-items:center">
+        <input type="password" name="org_provision_key" autocomplete="off" style="flex:1"
+               placeholder="{{ 'leave blank to keep the saved key' if has_provision_key else 'your provider account API key' }}">
+        <button type="submit" class="btn btn-outline">Save key</button>
+      </div>
+    </div>
+  </form>
+
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;
+       padding:12px;font-size:13px;color:var(--text);margin-bottom:12px">
+    <b>Status:</b>
+    {% if cfg.org_backend_status == 'provisioned' %}<span class="badge badge-active">provisioned</span>
+    {% elif cfg.org_backend_status == 'provisioning' %}<span class="badge badge-warning">provisioning...</span>
+    {% elif cfg.org_backend_status == 'error' %}<span class="badge badge-danger">error</span>
+    {% else %}{{ cfg.org_backend_status }}{% endif %}
+    {% if cfg.org_backend_detail %}<div class="text-sm text-muted" style="margin-top:6px">{{ cfg.org_backend_detail }}</div>{% endif %}
+    {% if cfg.org_model_endpoint and cfg.org_backend_status == 'provisioned' %}
+    <div class="text-sm" style="margin-top:6px">Endpoint: <code>{{ cfg.org_model_endpoint }}</code></div>
+    {% endif %}
+  </div>
+
+  <div class="flex gap-2" style="flex-wrap:wrap">
+    <form method="post" action="/settings/organization/provision">
+      <button type="submit" class="btn btn-primary"
+              {% if not has_provision_key or cfg.org_backend_status == 'provisioning' %}disabled{% endif %}>
+        {% if cfg.org_backend_status == 'provisioned' %}Re-provision{% else %}Provision now{% endif %}
+      </button>
+    </form>
+    {% if cfg.org_backend_handle %}
+    <form method="post" action="/settings/organization/teardown"
+          onsubmit="return confirm('Tear down the provisioned endpoint? You can re-provision later.')">
+      <button type="submit" class="btn btn-outline">Tear down</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% else %}
+<p class="text-sm text-muted" style="max-width:760px">
+  Pick a provider and a model above, then Save to preview exactly what Anthill will set up.
+</p>
+{% endif %}
+
+{% if cfg.org_provider == 'aws' %}
+<form method="post" action="/settings/organization/aws" class="card" style="max-width:760px;margin-top:18px">
+  <h3 style="margin-bottom:6px">AWS account <span class="text-sm text-muted">(your GPU + optional backend host)</span>
+    {% if cfg.aws_status == 'validated' %}<span class="badge badge-active">connected</span>
+    {% elif cfg.aws_status == 'error' %}<span class="badge badge-danger">error</span>
+    {% else %}<span class="badge badge-member">not configured</span>{% endif %}
+  </h3>
+  <p class="text-sm text-muted" style="margin-bottom:12px">
+    Anthill provisions a GPU in <b>your own AWS account</b> only for a run, then releases it.
+    Set up AWS once (below), paste the credentials here, and <b>Test connection</b>.
+  </p>
+
+  <details style="margin-bottom:14px">
+    <summary style="cursor:pointer;font-weight:600;font-size:14px">What to set up in AWS first ▾</summary>
+    <ol class="text-sm" style="margin:10px 0 0;padding-left:20px;line-height:1.6">
+      <li><b>AWS account + billing</b> for the company (one dedicated account is cleanest).</li>
+      <li><b>Request a GPU quota increase</b> - <i>do this first, it can take hours-days to approve.</i>
+        Service Quotas → EC2 → "Running On-Demand G and VT instances" → request ≥ 4 vCPUs. New
+        accounts start at 0, so nothing GPU will launch until this is granted.</li>
+      <li><b>Pick a region</b> with GPU availability (e.g. <code>us-east-1</code>, <code>us-west-2</code>).</li>
+      <li><b>Create a least-privilege IAM user</b> with programmatic access; save its access key ID + secret.</li>
+      <li><b>Note a Deep Learning AMI</b> for your region (optional; blank uses Anthill's validated default).</li>
+      <li><b>Set an AWS Budget alert</b> as a backstop (Anthill also enforces a max-runtime cap below).</li>
+    </ol>
+  </details>
+
+  <div class="grid-2">
+    <div class="form-group">
+      <label>AWS region</label>
+      <input type="text" name="aws_region" value="{{ cfg.aws_region }}" placeholder="us-east-1">
+    </div>
+    <div class="form-group">
+      <label>Instance type</label>
+      <input type="text" name="aws_instance_type" value="{{ cfg.aws_instance_type }}" placeholder="g5.xlarge">
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Access key ID</label>
+      <input type="text" name="aws_access_key_id" value="{{ cfg.aws_access_key_id }}" placeholder="AKIA…" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label>Secret access key</label>
+      <input type="password" name="aws_secret_access_key" autocomplete="off"
+             placeholder="{% if cfg.aws_secret_access_key_enc %}•••••••• (saved - leave blank to keep){% else %}AWS secret access key{% endif %}">
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Deep Learning AMI ID <span class="text-muted">(optional)</span></label>
+      <input type="text" name="aws_ami_id" value="{{ cfg.aws_ami_id }}"
+             placeholder="{% if aws_default_ami %}{{ aws_default_ami }} (regional default){% else %}ami-…{% endif %}">
+    </div>
+    <div class="form-group">
+      <label>Max runtime (minutes) <span class="text-muted">- hard cost cap</span></label>
+      <input type="number" name="aws_max_runtime_min" value="{{ cfg.aws_max_runtime_min }}" min="5" step="5">
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Subnet ID <span class="text-muted">(optional)</span></label>
+      <input type="text" name="aws_subnet_id" value="{{ cfg.aws_subnet_id }}" placeholder="subnet-…">
+    </div>
+    <div class="form-group">
+      <label>Security group ID <span class="text-muted">(optional)</span></label>
+      <input type="text" name="aws_security_group_id" value="{{ cfg.aws_security_group_id }}" placeholder="sg-…">
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Per-run budget cap (USD) <span class="text-muted">- refuses to launch above this</span></label>
+      <input type="text" name="aws_max_cost_usd" value="{{ cfg.aws_max_cost_usd }}" placeholder="25.00">
+    </div>
+    <div class="form-group" style="display:flex;align-items:flex-end">
+      <span class="text-sm text-muted">Anthill only launches an allow-listed GPU type, tags it, caps
+      its runtime, and <b>always terminates</b> it - with a boot-time reaper for any orphans.</span>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-primary" style="margin-bottom:12px">Save AWS settings</button>
+
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:13px;color:var(--text)">
+    <b>Status:</b> {{ cfg.aws_status }}{% if cfg.aws_status_detail %} - {{ cfg.aws_status_detail }}{% endif %}<br>
+    <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="awsTest()">Test connection</button>
+    <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="awsProvisionTest()">Provision a test GPU</button>
+    <span class="text-muted" style="margin-left:8px">Save first. <b>Test connection</b> = free read-only check. <b>Provision a test GPU</b> launches an allow-listed instance and <b>immediately terminates</b> it.</span>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:600">Least-privilege IAM policy ▾</summary>
+      <p class="text-sm" style="margin:6px 0">This is <b>your own AWS account</b>. Attach this policy to the Anthill AWS user/role: terminate/stop are scoped to the <code>anthill</code> tag <b>and this org's id</b>, so Anthill can only tear down <b>this org's</b> instances:</p>
+      <pre style="background:var(--code-bg);color:var(--code-text);padding:10px;border-radius:6px;overflow:auto;font-size:12px">{{ aws_iam_policy }}</pre>
+    </details>
+  </div>
+</form>
+
+<script>
+function _awsAction(url, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  fetch(url, { method: 'POST' })
+    .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
+    .then(function (d) { toastAfter(d.detail || (d.ok ? 'Done.' : 'Something went wrong.'), d.ok ? 'success' : 'error'); location.reload(); })
+    .catch(function () { showToast('Could not reach the server.', 'error'); });
+}
+function awsTest() { _awsAction('/settings/aws/test'); }
+function awsProvisionTest() { _awsAction('/settings/aws/provision-test', 'Launch a real GPU instance and immediately terminate it? It bills only the few seconds it runs, and proves launch + guaranteed teardown work.'); }
+</script>
+{% endif %}
+
+<details class="card" style="max-width:760px;margin-top:18px" {% if cfg.org_model_endpoint or cfg.org_cluster_enabled %}open{% endif %}>
+  <summary style="cursor:pointer;font-weight:600">Connect a model server you already run <span class="text-sm text-muted">(instead of provisioning above)</span></summary>
+  <p class="text-sm text-muted" style="margin:10px 0 14px">
+    Already running the org's model yourself - a vLLM, Ollama, or other standard <code>/v1</code> model
+    server you stood up? Skip the provisioning above and just point Anthill at it. Paste the URL (and key, if any) and Anthill
+    validates it end to end: <b>reachable</b> -> <b>serves the chosen model</b> -> <b>a real round-trip
+    answers</b>. Your data stays on your server; only this one validation request is sent.
+  </p>
+  {% if not solo and (cfg.wiki_hosting or "local") == "local" %}
+  <div class="alert alert-warn" style="margin-bottom:14px">
+    Your organization's wiki is still hosted locally, on whatever device runs Anthill - that doesn't
+    reach the rest of your team on a shared backend like this one. Set up
+    <a href="/settings/organization/wiki">wiki hosting</a> so everyone can actually reach it.
+  </div>
+  {% endif %}
+  <div class="form-group" style="margin-bottom:14px">
+    <button type="button" class="btn btn-outline btn-sm" onclick="
+        document.getElementById('org_model_endpoint').value='https://api.berget.ai/v1';
+        document.getElementById('org_model_endpoint').dispatchEvent(new Event('input'));">
+      Quick-connect: Berget AI
+    </button>
+    <p class="text-sm text-muted" style="margin:6px 0 0">
+      A vetted, EU-sovereign (Sweden) inference provider serving open-weight models (Llama, Mistral,
+      Gemma, gpt-oss, GLM) over this same standard API - no GPU to rent or manage. You don't own the
+      served model or its infrastructure (Partial ownership), but your wiki and every interaction stay
+      yours to keep - Berget states it never stores prompt or output content at all, and does not train
+      on your data. Paste your Berget API key below after clicking.
+    </p>
+  </div>
+  <form method="post" action="/settings/organization/connect">
+    <div class="form-group">
+      <label>Server URL <span class="text-sm text-muted">- your model server's standard chat API base, including /v1</span></label>
+      <input type="url" name="org_model_endpoint" id="org_model_endpoint" value="{{ cfg.org_model_endpoint }}"
+             placeholder="https://gpu.your-org.example/v1">
+    </div>
+    <div class="form-group">
+      <label>API key <span class="text-sm text-muted">- optional</span>
+        {% if has_org_key %}<span class="badge badge-active">set</span>{% endif %}</label>
+      <input type="password" name="org_model_key" autocomplete="off"
+             placeholder="{{ 'leave blank to keep the saved key' if has_org_key else 'blank if the endpoint needs no key' }}">
+    </div>
+    <div class="flex gap-2">
+      <button type="submit" class="btn btn-primary">Validate server</button>
+      <button type="button" id="discover-btn" class="btn btn-outline"
+              title="List the models this server actually serves, so you can pick from what the box really has">Discover models</button>
+    </div>
+  </form>
+
+  <div id="discover-error" class="alert alert-danger" style="display:none;margin-top:12px"></div>
+  <div id="discovered-wrap" style="display:none;margin-top:12px">
+    <div class="text-sm text-muted" style="margin-bottom:6px">Served on this server - click one to use it as the org model:</div>
+    <div id="discovered-list" class="flex gap-2" style="flex-wrap:wrap"></div>
+  </div>
+
+  {% if cfg.org_backend_status in ('validated', 'error') and cfg.org_backend_detail %}
+  <div class="alert {{ 'alert-ok' if cfg.org_backend_status == 'validated' else 'alert-danger' }}"
+       style="margin-top:14px">
+    <b>{{ 'Validated' if cfg.org_backend_status == 'validated' else 'Validation failed' }}.</b>
+    <div class="text-sm" style="margin-top:4px">{{ cfg.org_backend_detail }}</div>
+  </div>
+  {% endif %}
+
+  {% if cfg.org_provider == 'onprem' %}
+  <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+    <h3 style="font-size:15px;margin:0 0 8px">Distributed local pooling (advanced)
+      <button type="button" class="help" aria-label="About distributed local pooling">?<span class="help-pop">Pool 2-4 machines you already own on your LAN, via llama.cpp's rpc-server (which you set up yourself - Anthill never launches or manages it). Memory figures below are self-reported: Anthill cannot probe a remote machine, so every capacity number here is an estimate, not a measurement.</span></button>
+    </h3>
+
+    {% if cluster_sizing %}
+    <p class="text-sm" style="margin:0 0 8px">
+      Estimated pooled capacity: <b>~{{ cluster_sizing.max_params_b | round(0) | int }}B params</b>
+      ({{ cluster_sizing.node_count }} node{{ 's' if cluster_sizing.node_count != 1 else '' }}).
+      <span class="text-sm text-muted">{{ cluster_sizing.note }}</span>
+    </p>
+    {% endif %}
+
+    {% if cluster_model_fits is not none and not cluster_model_fits %}
+    <div class="alert alert-warn" style="margin-bottom:10px">
+      Your selected model may exceed this cluster's estimated capacity. This is a warning only, based
+      on unmeasured self-reported memory - your settings will still save.
+    </div>
+    {% endif %}
+
+    <form method="post" action="/settings/organization/cluster">
+      <label class="flex gap-2" style="align-items:center;cursor:pointer;margin-bottom:10px">
+        <input type="checkbox" name="org_cluster_enabled" {% if cfg.org_cluster_enabled %}checked{% endif %}>
+        <span class="text-sm">Enable cluster pooling</span>
+      </label>
+
+      <div class="flex gap-2" style="flex-wrap:wrap;margin-bottom:10px">
+        <div class="form-group" style="margin:0;width:200px">
+          <label class="text-sm">Cluster kind</label>
+          <select name="org_cluster_kind" style="width:100%">
+            <option value="apple" {% if cfg.org_cluster_kind == 'apple' %}selected{% endif %}>Apple Silicon (unified memory)</option>
+            <option value="gpu" {% if cfg.org_cluster_kind == 'gpu' %}selected{% endif %}>Dedicated GPU (VRAM)</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;width:160px">
+          <label class="text-sm">Main node memory (GB)</label>
+          <input type="text" name="org_cluster_main_mem_gb" value="{{ cfg.org_cluster_main_mem_gb }}"
+                 placeholder="64" style="width:100%">
+        </div>
+      </div>
+
+      <div id="cluster-worker-rows">
+      {% for w in cluster_workers %}
+      <div class="cluster-worker-row flex gap-2" style="align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" name="worker_label_{{ loop.index0 }}" value="{{ w.label }}" placeholder="label" style="width:120px">
+        <input type="text" name="worker_host_{{ loop.index0 }}" value="{{ w.host }}" placeholder="host" style="width:160px">
+        <input type="text" name="worker_port_{{ loop.index0 }}" value="{{ w.port }}" placeholder="port" style="width:80px">
+        <input type="text" name="worker_mem_gb_{{ loop.index0 }}" value="{{ w.mem_gb }}" placeholder="mem GB" style="width:90px">
+        <span class="badge {{ 'badge-active' if w.reachable else 'badge-danger' }}">{{ 'port open' if w.reachable else 'no response' }}</span>
+        <button type="button" class="btn btn-outline btn-sm cluster-remove-row">Remove</button>
+      </div>
+      {% endfor %}
+      </div>
+      <input type="hidden" name="worker_count" id="cluster-worker-count" value="{{ cluster_workers | length }}">
+      <div class="flex gap-2">
+        <button type="button" id="cluster-add-row" class="btn btn-outline btn-sm">+ Add a worker</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save cluster settings</button>
+      </div>
+    </form>
+
+    <template id="cluster-worker-row-template">
+      <div class="cluster-worker-row flex gap-2" style="align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" name="worker_label___INDEX__" placeholder="label" style="width:120px">
+        <input type="text" name="worker_host___INDEX__" placeholder="host" style="width:160px">
+        <input type="text" name="worker_port___INDEX__" placeholder="port" style="width:80px">
+        <input type="text" name="worker_mem_gb___INDEX__" placeholder="mem GB" style="width:90px">
+        <button type="button" class="btn btn-outline btn-sm cluster-remove-row">Remove</button>
+      </div>
+    </template>
+  </div>
+  {% endif %}
+</details>
+
+<script>
+(function () {
+  var btn = document.getElementById('discover-btn');
+  if (!btn) return;
+  var wrap = document.getElementById('discovered-wrap');
+  var list = document.getElementById('discovered-list');
+  var errBox = document.getElementById('discover-error');
+
+  function useModel(id) {
+    var sel = document.getElementById('org_model');
+    var custom = document.getElementById('org_model_custom');
+    if (sel) {
+      sel.value = '__custom__';
+      sel.dispatchEvent(new Event('change'));  // reveals the custom row via the existing handler
+    }
+    if (custom) {
+      custom.value = id;
+      custom.scrollIntoView({behavior: 'smooth', block: 'center'});
+      custom.style.transition = 'background-color .3s';
+      custom.style.backgroundColor = 'var(--accent-soft, #fde68a)';
+      setTimeout(function () { custom.style.backgroundColor = ''; }, 900);
+      custom.focus();
+    }
+  }
+
+  btn.addEventListener('click', async function () {
+    var form = btn.closest('form');
+    var fd = new FormData();
+    fd.append('org_model_endpoint', form.querySelector('[name=org_model_endpoint]').value || '');
+    fd.append('org_model_key', form.querySelector('[name=org_model_key]').value || '');
+    errBox.style.display = 'none';
+    wrap.style.display = 'none';
+    list.innerHTML = '';
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = 'Discovering...';
+    try {
+      var r = await fetch('/settings/organization/discover-models', {method: 'POST', body: fd});
+      var d = await r.json();
+      if (!d.ok) {
+        errBox.textContent = d.error || 'Discovery failed.';
+        errBox.style.display = '';
+        return;
+      }
+      if (!d.models || !d.models.length) {
+        errBox.textContent = 'The server is reachable but reports no models.';
+        errBox.style.display = '';
+        return;
+      }
+      d.models.forEach(function (id) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-sm ' + (id === d.current ? 'btn-primary' : 'btn-outline');
+        b.textContent = id + (id === d.current ? ' (current)' : '');
+        b.addEventListener('click', function () { useModel(id); });
+        list.appendChild(b);
+      });
+      wrap.style.display = '';
+    } catch (e) {
+      errBox.textContent = 'Discovery request failed: ' + e;
+      errBox.style.display = '';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var rowsWrap = document.getElementById('cluster-worker-rows');
+  var countInput = document.getElementById('cluster-worker-count');
+  var addBtn = document.getElementById('cluster-add-row');
+  var tpl = document.getElementById('cluster-worker-row-template');
+  if (!rowsWrap || !countInput || !addBtn || !tpl) return;
+
+  function reindex() {
+    var rows = rowsWrap.querySelectorAll('.cluster-worker-row');
+    rows.forEach(function (row, i) {
+      row.querySelectorAll('[name]').forEach(function (el) {
+        el.name = el.name.replace(/_\d+$/, '_' + i);
+      });
+    });
+    countInput.value = rows.length;
+    addBtn.disabled = rows.length >= 3;  // main + 3 workers = 4 nodes, matching the server-side cap
+  }
+
+  function wireRemove(row) {
+    var btn = row.querySelector('.cluster-remove-row');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      row.remove();
+      reindex();
+    });
+  }
+
+  rowsWrap.querySelectorAll('.cluster-worker-row').forEach(wireRemove);
+
+  addBtn.addEventListener('click', function () {
+    if (rowsWrap.querySelectorAll('.cluster-worker-row').length >= 3) return;
+    var index = rowsWrap.querySelectorAll('.cluster-worker-row').length;
+    var html = tpl.innerHTML.split('__INDEX__').join(String(index));
+    var div = document.createElement('div');
+    div.innerHTML = html.trim();
+    var row = div.firstElementChild;
+    rowsWrap.appendChild(row);
+    wireRemove(row);
+    reindex();
+  });
+
+  reindex();
+})();
+</script>
+
+{% endblock %}

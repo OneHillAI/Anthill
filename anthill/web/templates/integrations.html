@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Integrations{% endblock %}
+{% block page_title %}Integrations{% endblock %}
+{% block content %}
+
+{% if saved == 'requested' %}<div class="alert alert-ok">Request sent to your admins for review. You'll be notified when it's decided.</div>{% endif %}
+{% if error == 'missing_fields' %}<div class="alert alert-warn">Provide a name and the URL (HTTP) or command (stdio).</div>{% endif %}
+
+<div class="flex justify-between items-center" style="margin:4px 0 8px">
+  <h3 style="font-size:15px;margin:0">Approved integrations<button type="button" class="help" aria-label="About integrations">?<span class="help-pop">Tools your org has connected over MCP. Everything here is admin-approved and visible to everyone. Request another below.</span></button></h3>
+  {% if is_admin %}<a href="/connectors/mcp" class="text-sm">Manage connectors →</a>{% endif %}
+</div>
+{% if servers %}
+<div class="card">
+<table>
+  <thead><tr><th>Name</th><th>Tools</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for s in servers %}
+  <tr>
+    <td><b>{{ s.name }}</b><br><span class="text-sm text-muted">{{ s.transport }}</span></td>
+    <td class="text-sm">{% if s.tool_list %}{{ s.tool_list|length }}: {{ s.tool_list[:6]|join(', ') }}{% if s.tool_list|length > 6 %}…{% endif %}{% else %}<span class="text-muted">-</span>{% endif %}</td>
+    <td><span class="badge badge-active">approved</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:30px"><p class="text-muted">No integrations connected yet. Request one below.</p></div>
+{% endif %}
+
+<h3 style="font-size:15px;margin:24px 0 8px">Request an integration<button type="button" class="help" aria-label="How requests work">?<span class="help-pop">Slack, Notion, Jira, Google Drive, Microsoft 365, or any MCP server. Your request goes to an admin to review, and nothing connects until they approve it.</span></button></h3>
+<div class="card">
+  <form method="post" action="/mcp/servers/request" onsubmit="return confirm('Send this to your admin to review and approve?')">
+    <div class="grid-2">
+      <div class="form-group" style="margin:0"><label>Name</label><input type="text" name="name" placeholder="Slack" required></div>
+      <div class="form-group" style="margin:0">
+        <label>Transport</label>
+        <select name="transport" onchange="document.getElementById('int-url').style.display=this.value==='http'?'block':'none';document.getElementById('int-cmd').style.display=this.value==='stdio'?'block':'none'">
+          <option value="http">HTTP (URL)</option>
+          <option value="stdio">stdio (command)</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" id="int-url" style="margin-top:10px"><label>Server URL</label><input type="text" name="url" placeholder="https://mcp.example.com"></div>
+    <div class="form-group" id="int-cmd" style="margin-top:10px;display:none"><label>Command</label><input type="text" name="command" placeholder="npx -y @org/mcp-server"></div>
+    <button type="submit" class="btn btn-primary" style="margin-top:10px">Request integration</button>
+  </form>
+</div>
+{% endblock %}

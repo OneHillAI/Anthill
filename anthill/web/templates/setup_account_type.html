@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Solo or organization{% endblock %}
+{% block page_title %}Solo or organization{% endblock %}
+{% block content %}
+<div class="card" style="max-width:520px;margin:0 auto">
+  <h1>How will you use Anthill?</h1>
+  <p class="subtitle">Both give you the same model and council access. The only difference is whether
+    anyone else can join you.</p>
+  {% include "_setup_steps.html" %}
+
+  <form method="post" action="/setup/account-type">
+    <div class="form-group" style="border:2px solid var(--accent);border-radius:10px;padding:16px;margin-bottom:14px">
+      <h3 style="margin:0 0 4px">Just me</h3>
+      <p class="text-sm text-muted" style="margin:0 0 12px">
+        Your own private workspace - full model and council access, nothing shared.
+      </p>
+      <button type="submit" name="account_type" value="solo" class="btn btn-primary" style="width:100%">
+        Continue solo
+      </button>
+    </div>
+
+    <div class="form-group" style="border:1px solid var(--border);border-radius:10px;padding:16px">
+      <h3 style="margin:0 0 4px;font-size:0.95em">Or set up an organization</h3>
+      <p class="text-sm text-muted" style="margin:0 0 10px">
+        Same model and council access, plus the ability to invite people later to share the same
+        wiki, model, chats, agents, and tasks.
+      </p>
+      <input type="text" name="org_name" placeholder="Organization name (optional for now)"
+             style="width:100%;margin-bottom:10px">
+      <button type="submit" name="account_type" value="org" class="btn btn-outline" style="width:100%">
+        Set up an organization
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

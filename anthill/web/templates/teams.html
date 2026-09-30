@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block page_title %}Projects{% endblock %}
+{% block content %}
+
+{% set err = request.query_params.get('error','') %}
+{% if err == 'slug_taken' %}<div class="alert alert-warn">A project with that name already exists.</div>{% endif %}
+{% if err == 'name_required' %}<div class="alert alert-warn">Please give the project a name.</div>{% endif %}
+
+<div class="card mb-2" style="background:var(--bg-subtle)">
+  <h2 style="font-size:16px;margin:0 0 8px">What is this?</h2>
+  {% if is_org %}
+  <p class="text-sm" style="margin:0">
+    A <b>project</b> ties its <b>chats</b>, its <b>wiki</b>, and its <b>team</b> together: the middle
+    knowledge tier between your <b>personal</b> space and the shared <b>org</b>. Each project has its own
+    wiki and memory; you invite existing org members, and the <b>project owner</b> approves anything
+    promoted out. Knowledge climbs the ladder: <b>personal → project → org</b>.
+  </p>
+  {% else %}
+  <p class="text-sm" style="margin:0">
+    A <b>project</b> ties its <b>chats</b>, its <b>wiki</b>, and its knowledge together, so a piece of work
+    lives in one place. On a Solo account a project is <b>your own</b> - single-user and <b>always local</b>,
+    with its own wiki and memory that never leave this device. It sits alongside your <b>personal</b> space.
+    Set up an organization later and projects become shared team spaces you can invite people to.
+  </p>
+  {% endif %}
+</div>
+
+{% if invites %}
+<div class="card mb-2">
+  <h3 style="margin:0 0 10px">Pending invites</h3>
+  {% for team, m in invites %}
+  <div class="flex items-center justify-between" style="padding:6px 0">
+    <span><b>{{ team.name }}</b> <span class="text-sm text-muted">/{{ team.slug }}</span></span>
+    <form method="post" action="/teams/{{ team.id }}/accept" style="margin:0">
+      <button class="btn btn-primary btn-sm">Accept invite</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="flex gap-2 items-center justify-between mb-2">
+  <h2 style="font-size:16px">Your projects</h2>
+  <button onclick="document.getElementById('new-team').style.display='block'"
+          class="btn btn-primary btn-sm">+ New project</button>
+</div>
+
+<div id="new-team" style="display:none" class="card mb-2">
+  <h3 style="margin-bottom:14px">Create a project</h3>
+  <form method="post" action="/teams" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    {# sentinel so the route can tell an unchecked box (isolate) from an omitted field (connected default) #}
+    <input type="hidden" name="cpw_submitted" value="1">
+    <div class="form-group" style="flex:2;min-width:220px;margin:0">
+      <input type="text" name="name" required placeholder="e.g. Platform, Growth, Research">
+    </div>
+    <button type="submit" class="btn btn-primary">Create</button>
+    <button type="button" class="btn btn-outline"
+            onclick="document.getElementById('new-team').style.display='none'">Cancel</button>
+    <label style="display:flex;align-items:center;gap:8px;min-width:100%;margin-top:4px;cursor:pointer">
+      <input type="checkbox" name="connect_parent_wiki" checked>
+      <span class="text-sm">Also read your <b>parent</b> wiki - your personal wiki, or the org wiki in an
+        organization. Uncheck for a project that uses only its own knowledge.</span>
+    </label>
+  </form>
+  <p class="text-sm text-muted" style="margin-top:10px">
+    You become the project owner.{% if is_org %} You can invite existing org members afterwards.{% else %} On a Solo account it is a personal project, kept on this device.{% endif %}
+  </p>
+</div>
+
+{% if teams %}
+<div class="card">
+<table>
+  <thead><tr><th>Project</th><th>Your role</th><th></th></tr></thead>
+  <tbody>
+  {% for t in teams %}
+  <tr>
+    <td><b>{{ t.name }}</b><br><span class="text-sm text-muted">/{{ t.slug }}</span></td>
+    <td>
+      <span class="badge badge-{{ 'amber' if t.id in owner_of else 'clay' }}">
+        {{ 'owner' if t.id in owner_of else 'member' }}
+      </span>
+    </td>
+    <td style="text-align:right"><a href="/teams/{{ t.id }}" class="btn btn-outline btn-sm">Open</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:30px">
+  <p class="text-muted">No projects yet. Create one above to keep a set of chats, a wiki, and its knowledge together{% if is_org %} for a team{% endif %}.</p>
+</div>
+{% endif %}
+{% endblock %}

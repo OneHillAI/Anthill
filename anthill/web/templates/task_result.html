@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Task result{% endblock %}
+{% block page_title %}Task result{% endblock %}
+{% block content %}
+
+<div class="flex justify-between items-center mb-2">
+  <a href="/tasks" class="btn btn-outline btn-sm">← All tasks</a>
+  <form method="post" action="/tasks/{{ task.id }}/run-now">
+    <button class="btn btn-primary btn-sm">▶ Run again</button>
+  </form>
+</div>
+
+{% if live %}
+<div class="alert alert-running text-sm" style="margin-bottom:12px">
+  <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2E86C1;margin-right:6px"></span>
+  This task is running now. This page refreshes automatically until it finishes.
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="flex justify-between items-center mb-2">
+    <h2 style="font-size:18px;margin:0">{{ task.title }}</h2>
+    <span class="badge badge-{{ 'active' if task.status == 'done' else 'member' }}">
+      {{ task.status }}
+    </span>
+  </div>
+  <div style="font-size:14px;color:var(--clay);margin-bottom:16px;line-height:1.8">
+    <b>Schedule:</b> {{ task.schedule }} &nbsp;·&nbsp;
+    <b>Runs:</b> {{ task.run_count }} &nbsp;·&nbsp;
+    <b>Last run:</b>
+    {% if task.last_run_at %}<span data-utc="{{ task.last_run_at|utc_iso }}">{{ task.last_run_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}
+    &nbsp;·&nbsp; <b>Next run:</b>
+    {% if task.status == 'cancelled' %}Cancelled
+    {% elif task.status == 'done' %}Complete
+    {% elif task.next_run_at %}<span data-utc="{{ task.next_run_at|utc_iso }}">{{ task.next_run_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+    {% elif live %}Running now
+    {% else %}Not scheduled{% endif %}
+  </div>
+  <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:12px;
+              font-size:13px;color:var(--text);margin-bottom:16px">
+    <b>Goal:</b> {{ task.goal }}
+  </div>
+  <h3 style="margin-bottom:10px">Last result</h3>
+  {% if task.last_result %}
+  <div id="task-result" style="white-space:pre-wrap;font-size:14px;line-height:1.7">{{ task.last_result }}</div>
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <input type="text" id="snip-tags" placeholder="tags (comma-separated)"
+           style="flex:1;min-width:180px;max-width:340px">
+    <button class="btn btn-outline btn-sm" onclick="saveResultSnippet()">✂️ Save as snippet</button>
+    <span id="snip-status" class="text-sm text-muted"></span>
+  </div>
+  {% else %}
+  <p class="text-muted text-sm">No result yet - task has not run.</p>
+  {% endif %}
+</div>
+
+<!-- run history: every past run, newest first (the newest expanded) -->
+<div class="card mb-2">
+  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted">· {{ task.run_count }} run{{ '' if task.run_count == 1 else 's' }}</span></h3>
+  {% if runs %}
+  {% for r in runs %}
+  <details {% if loop.first %}open{% endif %}
+           style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+    <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="text-sm text-muted">{% if r.finished_at %}<span data-utc="{{ r.finished_at|utc_iso }}">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% endif %}</span>
+      <span class="badge">{{ r.trigger }}</span>
+      {% if r.status == 'running' %}
+      <span class="badge badge-running">running&hellip;</span>
+      {% elif r.status == 'error' %}
+      <span class="badge badge-danger">error</span>
+      {% elif r.verify_needs_review %}
+      <span class="badge badge-warning">&#9888; needs review</span>
+      {% else %}
+      <span class="badge badge-active">ok</span>
+      {% endif %}
+      {% if r.duration_ms %}<span class="text-sm text-muted">{{ (r.duration_ms / 1000)|round(1) }}s</span>{% endif %}
+    </summary>
+    {% if r.verify_needs_review and r.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin:8px 0 2px">
+      &#9888; Verifier (confidence {{ r.verify_confidence }}): {{ r.verify_reason }}
+    </div>
+    {% endif %}
+    {% if r.status == 'running' %}
+    <div class="text-sm text-muted" style="margin:8px 0 0">The task is running now. This page refreshes automatically.</div>
+    {% else %}
+    <pre style="white-space:pre-wrap;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:10px;margin:8px 0 0;overflow-x:auto">{{ r.error if r.status == 'error' else r.result }}</pre>
+    {% endif %}
+  </details>
+  {% endfor %}
+  {% else %}
+  <p class="text-sm text-muted">No runs recorded yet.</p>
+  {% endif %}
+</div>
+
+{% if live %}
+{# Watch the run: reload every few seconds until it settles (mirrors the agent detail auto-refresh).
+   The `live` flag is false once the task is no longer running, so this stops on its own. #}
+<script>setTimeout(function () { window.location.reload(); }, 4000);</script>
+{% endif %}
+
+<script>
+async function saveResultSnippet() {
+  const status = document.getElementById('snip-status');
+  status.innerText = 'Saving + deriving the red line…';
+  const fd = new FormData();
+  fd.append('content',  document.getElementById('task-result').innerText);
+  fd.append('tags',     document.getElementById('snip-tags').value);
+  fd.append('question', {{ task.goal | tojson }});
+  fd.append('source',   'task');
+  fd.append('source_ref', 'task:{{ task.id }}');
+  try {
+    const r = await fetch('/snippets/save', {method:'POST', body:fd});
+    const d = await r.json();
+    status.innerText = '✓ ' + (d.rationale ? ('Red line: ' + d.rationale) : 'Saved.');
+  } catch (e) { status.innerText = '⚠️ save failed'; }
+}
+</script>
+{% endblock %}

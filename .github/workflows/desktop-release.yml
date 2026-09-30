@@ -1,0 +1,244 @@
+name: Desktop release (Tauri auto-update)
+
+# Builds the Tauri desktop shell and its SIGNED auto-update artifacts, attaching them - plus the
+# updater manifest latest.json - to the GitHub Release for tag vX.Y.Z. Every installed Anthill.app
+# checks that release on launch and self-installs the update (anthill/../src-tauri/src/lib.rs).
+#
+# DORMANT until signing is set up: every build step is gated on TAURI_SIGNING_PRIVATE_KEY. Without
+# that secret the job no-ops, so this never breaks the standard dmg release (release.yml) and ships
+# no unsigned auto-update. One-time owner setup (see engineering-plans/TAURI_AUTOUPDATE.md):
+#   1. cargo install tauri-cli --version '^2' --locked
+#      cargo tauri signer generate -w anthill-updater.key   (choose a password)
+#   2. paste the printed PUBLIC key into src-tauri/tauri.conf.json -> plugins.updater.pubkey
+#   3. add repo secrets: TAURI_SIGNING_PRIVATE_KEY = contents of anthill-updater.key,
+#      TAURI_SIGNING_PRIVATE_KEY_PASSWORD = the password you chose.
+# The updater only reaches installs once the repo's releases are public (at launch).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    # Cost: GitHub-hosted macOS bills at 10x. Set the MACOS_RUNNER repo variable to a self-hosted label
+    # (e.g. your always-on Mac Mini) to build for free; defaults to GitHub's macos-14 (Apple Silicon).
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-14' }}
+    timeout-minutes: 60
+    # GitHub forbids the `secrets` context in a job/step `if:`, so the signing key is hoisted to env
+    # and the build steps gate on env.SIGN_KEY (empty -> the job no-ops). Same pattern as release.yml.
+    env:
+      SIGN_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      AC_API_KEY_B64: ${{ secrets.AC_API_KEY_B64 }} # App Store Connect API key (for notarization)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auto-update signing not configured - skipping
+        if: ${{ env.SIGN_KEY == '' }}
+        run: |
+          echo "TAURI_SIGNING_PRIVATE_KEY is not set; the desktop auto-update build is dormant."
+          echo "See engineering-plans/TAURI_AUTOUPDATE.md for the one-time signing setup."
+
+      # Gate: the tagged version must be changelogged and match pyproject (same as the dmg release).
+      - name: Verify the version is changelogged
+        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
+        run: bash scripts/check-release.sh --release "${{ github.ref_name }}"
+
+      - uses: actions/setup-python@v5
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        if: ${{ env.SIGN_KEY != '' }}
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ env.SIGN_KEY != '' }}
+      # Cache the Rust build (registry + src-tauri/target) so re-runs reuse compiled deps - the first
+      # Tauri build pulls a large dependency tree, and without this every run recompiles it from zero.
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          node-version: "20"
+
+      # Keep the desktop app version in lockstep with the release tag - the updater compares the
+      # installed app's version against latest.json, so a stale tauri.conf.json version breaks it.
+      - name: Sync the Tauri app version to the tag
+        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          python3 - "${GITHUB_REF_NAME#v}" <<'PY'
+          import re, sys
+          v = sys.argv[1]
+          # tauri.conf.json: replace the top-level "version": "x" (regex, preserves formatting).
+          p = "src-tauri/tauri.conf.json"
+          s = open(p, encoding="utf-8").read()
+          s = re.sub(r'("version"\s*:\s*)"[^"]+"', rf'\g<1>"{v}"', s, count=1)
+          open(p, "w", encoding="utf-8").write(s)
+          # Cargo.toml: the [package] version line.
+          c = "src-tauri/Cargo.toml"
+          t = open(c, encoding="utf-8").read()
+          t = re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', t, count=1)
+          open(c, "w", encoding="utf-8").write(t)
+          PY
+
+      # Build the backend sidecar (one-file PyInstaller binary) the Tauri app bundles as externalBin.
+      - name: Build the anthill-server sidecar
+        if: ${{ env.SIGN_KEY != '' }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/build-sidecar.sh
+
+      # Prebuilt CLI (npm ships compiled binaries) instead of `cargo install tauri-cli`, which
+      # recompiled the CLI from source every run (~10 min). tauriScript below calls `tauri`.
+      - name: Install the Tauri CLI
+        if: ${{ env.SIGN_KEY != '' }}
+        run: npm install -g @tauri-apps/cli@^2
+
+      # Tauri embeds the app/window icons at build time (tauri::generate_context!), and src-tauri/icons
+      # is gitignored, so generate the full icon set first. Use the 1024 master (tauri icon wants
+      # 1024x1024) so the largest icon slots are crisp, not upscaled from the 512 mark.
+      - name: Generate app icons
+        if: ${{ env.SIGN_KEY != '' }}
+        run: tauri icon assets/anthill-icon-1024.png
+
+      # Decode the App Store Connect API key (.p8) so tauri-action can NOTARIZE the app with it (same
+      # key release.yml uses). APPLE_API_KEY_PATH in the build env points at it.
+      - name: Prepare Apple notarization key
+        if: ${{ env.SIGN_KEY != '' && env.AC_API_KEY_B64 != '' }}
+        run: |
+          echo "$AC_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/ac_api_key.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/ac_api_key.p8" >> "$GITHUB_ENV"
+
+      # Build + sign the desktop app + updater artifacts + latest.json. On a TAG push it also publishes
+      # them to that release (tagName set). On a manual workflow_dispatch tagName is empty, so it is a
+      # build-only DRY RUN: it proves the Rust shell compiles and the signing works without creating a
+      # junk release - the safe first validation for a shell that has never compiled.
+      - name: Build + publish desktop app and update artifacts
+        if: ${{ env.SIGN_KEY != '' }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple Developer ID: sign + notarize the .app/.dmg so they open with no Gatekeeper warning
+          # (same certs/key as release.yml). tauri-action imports APPLE_CERTIFICATE into a keychain;
+          # the App Store Connect API key (APPLE_API_*) notarizes. Empty secrets -> unsigned build.
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERT_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.AC_API_ISSUER_ID }}
+          APPLE_API_KEY: ${{ secrets.AC_API_KEY_ID }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+        with:
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Anthill {0}', github.ref_name) || '' }}
+          releaseDraft: false
+          prerelease: false
+          tauriScript: tauri
+          projectPath: .
+
+      # Self-check the SIGNED sidecar before we trust the build. The dead-on-launch class of bug
+      # (macOS hardened-runtime library validation rejecting the sidecar's embedded, differently-
+      # signed Python.framework) is INVISIBLE on the unsigned binary - it only surfaces once the
+      # binary carries a hardened-runtime signature. So we test the signed sidecar pulled straight
+      # out of the built .app: (1) assert its signature carries disable-library-validation (the exact
+      # entitlement whose absence caused the regression), then (2) actually run it and require it to
+      # bind a port - proving the embedded Python.framework loads. A crash here fails the build.
+      # On a workflow_dispatch dry run this gates BEFORE any tag/release exists; on a tag push it is a
+      # loud post-publish alarm (tauri-action publishes inline) - so validate via a dry run first.
+      - name: Self-check the signed sidecar boots
+        if: ${{ env.SIGN_KEY != '' }}
+        run: |
+          set -euo pipefail
+          APP=$(find src-tauri/target -path '*/bundle/macos/*.app' | head -1)
+          if [ -z "$APP" ]; then echo "FAIL: no built .app found"; exit 1; fi
+          SIDECAR="$APP/Contents/MacOS/anthill-server"
+          if [ ! -x "$SIDECAR" ]; then echo "FAIL: sidecar missing at $SIDECAR"; exit 1; fi
+          echo "Checking $SIDECAR"
+          # (1) The exact regression guard: the signed sidecar MUST allow loading its differently
+          # signed embedded framework, or library validation kills it on every user's machine.
+          if ! codesign -d --entitlements :- "$SIDECAR" 2>/dev/null | grep -q 'com.apple.security.cs.disable-library-validation'; then
+            echo "FAIL: sidecar signature is missing com.apple.security.cs.disable-library-validation"
+            echo "      (this is the dead-on-launch regression - check bundle.macOS.entitlements)"
+            exit 1
+          fi
+          echo "OK: sidecar carries disable-library-validation"
+          # (2) Prove it actually boots: run headless and require a PORT= line + a live TCP listener.
+          OUT="$RUNNER_TEMP/sidecar-selfcheck.log"
+          ANTHILL_NO_BROWSER=1 "$SIDECAR" > "$OUT" 2>&1 &
+          PID=$!
+          PORT=""
+          for _ in $(seq 1 60); do
+            PORT=$(grep -oE 'PORT=[0-9]+' "$OUT" | head -1 | cut -d= -f2 || true)
+            [ -n "$PORT" ] && break
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "FAIL: sidecar exited before binding a port"; cat "$OUT"; exit 1
+            fi
+            sleep 1
+          done
+          if [ -z "$PORT" ]; then
+            echo "FAIL: sidecar never printed PORT= within 60s"; cat "$OUT"; kill "$PID" 2>/dev/null || true; exit 1
+          fi
+          # The sidecar prints PORT= BEFORE uvicorn finishes binding, so poll the socket with retries
+          # (as the real Tauri shell does in wait_until_up) rather than probing once and racing the
+          # bind - a single instant nc gave a false "not accepting connections" on a sidecar that was
+          # about to come up.
+          listening=0
+          for _ in $(seq 1 30); do
+            if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then listening=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "FAIL: sidecar exited before its port came up"; cat "$OUT"; exit 1
+            fi
+            sleep 1
+          done
+          if [ "$listening" = "1" ]; then
+            echo "OK: signed sidecar bound and is accepting connections on port $PORT"
+          else
+            echo "FAIL: sidecar printed PORT=$PORT but never accepted a connection within 30s"; cat "$OUT"; kill "$PID" 2>/dev/null || true; exit 1
+          fi
+          kill "$PID" 2>/dev/null || true
+
+      # tauri-action notarizes + staples the .app, but NOT the .dmg wrapper it builds - so the
+      # downloaded dmg is signed-but-unnotarized and Gatekeeper warns on OPEN (macOS Sequoia/Tahoe
+      # removed the old right-click bypass), even though the app inside is fine. Notarize + staple
+      # the dmg here (the ticket embeds in the file, so it survives the copy), then publish it under
+      # BOTH the versioned name (overwriting tauri-action's unstapled upload) and the stable
+      # download URL:  https://github.com/OneHillAI/Anthill/releases/latest/download/Anthill.dmg
+      # (tauri-action's Anthill_<version>_<arch>.dmg changes every release, so a fixed link needs the
+      # stable copy). gh --clobber only replaces these assets; the notes stay untouched. Tag pushes
+      # only (a workflow_dispatch dry run has no release to attach to).
+      - name: Notarize + staple the dmg, publish stable + versioned names
+        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          DMG=$(find src-tauri/target -path '*/bundle/dmg/*.dmg' | head -1)
+          if [ -z "$DMG" ]; then echo "No dmg found under src-tauri/target"; exit 1; fi
+          echo "Built dmg: $DMG"
+          # APPLE_API_KEY_PATH is exported to $GITHUB_ENV by the earlier "Prepare Apple notarization
+          # key" step (only when the AC key secret is set). Notarize the dmg with the same key that
+          # notarized the app; without it, warn loudly rather than ship a silently-unnotarized dmg.
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            echo "Notarizing the dmg (a few minutes)..."
+            xcrun notarytool submit "$DMG" \
+              --key "$APPLE_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" --wait
+            xcrun stapler staple "$DMG"
+            xcrun stapler validate "$DMG"
+            echo "OK: dmg notarized + stapled"
+          else
+            echo "::warning::App Store Connect key absent - dmg NOT notarized (Gatekeeper warns on open)."
+          fi
+          cp "$DMG" "$RUNNER_TEMP/Anthill.dmg"
+          # Replace tauri-action's unstapled versioned dmg with the stapled one, then publish the
+          # permanent stable-named download.
+          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Anthill.dmg" --clobber

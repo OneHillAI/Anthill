@@ -1,0 +1,180 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anthill"
+version = "0.12.10"
+description = "Organization-scoped GPT that runs on local machines and grows a knowledge wiki the model maintains itself."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.10"
+authors = [{ name = "anthill contributors" }]
+keywords = ["llm", "federated", "wiki", "knowledge-base", "local-ai", "ollama"]
+# Base runtime deps carry a floor AND an upper bound at the next major (supply-chain hygiene, #355):
+# the floor keeps required features, the ceiling stops an untested major from silently entering a build.
+# Bounds sit above the versions we currently resolve, so this caps surprises without forcing any change.
+# Two are intentionally left unbounded and marked so: cryptography and certifi are security-critical and
+# must be free to take forward updates (incl. a new major / a fresh CA bundle) without a release edit.
+dependencies = [
+    "httpx>=0.27,<1.0",
+    "typer>=0.12,<1.0",
+    "rich>=13.7,<16",
+    "lancedb>=0.10,<0.20",
+    "numpy>=1.24,<3",
+    "fastapi>=0.111,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "sqlalchemy>=2.0,<3",
+    "passlib[bcrypt]>=1.7,<2",
+    "python-jose[cryptography]>=3.3,<4",
+    "authlib>=1.3,<2",
+    "cryptography>=42",  # intentionally unbounded: security-critical, must accept forward security releases
+    "jinja2>=3.1,<4",
+    "python-multipart>=0.0.9,<1.0",
+    "itsdangerous>=2.1,<3",
+    "platformdirs>=4.0,<5",  # cross-platform per-user data dir (desktop.py data_dir); macOS path unchanged
+    "pyyaml>=6.0,<7",  # OKF (Open Knowledge Format) frontmatter for the wiki interchange layer (wiki/okf.py)
+    "aiofiles>=23,<26",
+    "pypdf>=6.8,<7",  # embedded-image extraction for Anthill's local scanned-PDF vision fallback
+    "pypdfium2>=5,<6",  # bounded local rendering for native PDF vector graphics
+    "markitdown[pdf,docx,pptx,xlsx]>=0.1.6,<0.2",  # local structured Office/PDF-to-Markdown conversion.
+    # HTML needs no extra: MarkItDown's HtmlConverter only needs beautifulsoup4, a base dep.
+    # Verified against MarkItDown 0.1.7 (PyPI, checked 2026-08-02): `docx` pulls mammoth+lxml,
+    # `pptx` pulls python-pptx, `xlsx` pulls openpyxl+pandas. Re-check the live PyPI page before
+    # merge in case a newer release renames or removes these extras.
+    # MarkItDown's Magika classifier otherwise resolves to onnxruntime 1.20, whose macOS wheels
+    # require macOS 13. Packaged apps use Python 3.11 and still support the declared macOS 11 floor.
+    "onnxruntime>=1.19.2,<1.20; sys_platform == 'darwin' and python_version < '3.13'",
+    "ddgs>=9.0,<10",     # zero-config web-search fallback; Google CSE (httpx, no extra dep) is primary when keys are set
+    "reportlab>=4.0,<5",
+    "Pillow>=10.0,<13",
+    "certifi>=2024.2",  # intentionally unbounded: rolling CA bundle so the frozen app's OpenSSL can verify TLS (SMTP email, HTTPS APIs); wired by desktop._ensure_tls_certs
+    "sigstore>=4.4,<5",  # verifies the model catalog was published by our workflow (keyless, no key custody); see anthill/hosting/catalog_trust.py. Floor is 4.4: the API this calls (Verifier.production/verify_artifact, Bundle.from_json, policy.Identity) is what was verified against. NOT pinned exactly: an exact pin here would be theatre while ~25 sibling deps float, and it would cut off upstream security fixes to the library that performs our verification (same reasoning as cryptography above). Real dependency integrity needs hash-pinned locking across every dep, not one favoured `==`.
+]
+
+[project.optional-dependencies]
+# ruff/mypy pinned: lint must be deterministic (CI matches). numpy capped: 2.5+ ships PEP 695
+# `type` statements in its stubs, which mypy rejects under python_version = "3.10", so an
+# uncapped dev venv (e.g. Python 3.13 resolving numpy 2.5.x) breaks `make typecheck`.
+dev = ["pytest>=8.0", "ruff==0.15.16", "mypy==2.1.0", "numpy>=1.24,<2.5"]
+# Web push for the PWA. Without it, push degrades to a no-op.
+push = ["pywebpush>=1.14"]
+# AWS VPC GPU backend (credential validation now; provisioning next). Optional -
+# without it the AWS settings still save, validation just reports boto3 is missing.
+aws = ["boto3>=1.34"]
+# Office file creation (docx/pptx/xlsx). PDF (reportlab), HTML/MD/TXT, and PNG/JPG
+# charts (Pillow) work without this; these libs add the Microsoft formats.
+docs = ["python-docx>=1.1", "python-pptx>=0.6.21", "openpyxl>=3.1"]
+# Model Context Protocol: connect to third-party MCP servers (client) and expose the
+# org brain (server). The official `mcp` SDK requires Python 3.10+. Without this extra,
+# MCP features report as unavailable and the rest of the app is unaffected.
+mcp = ["mcp>=1.2"]
+# On-device LoRA fine-tuning on Apple Silicon (the local/solo training path). Pulls mlx + mlx-lm; not
+# in the base deps or the packaged app to keep it small. Without it, local training reports "not ready"
+# and you train on a connected GPU instead. NVIDIA hosts use the `peft`+`torch` toolchain instead.
+train-mac = ["mlx-lm>=0.26"]
+# Browser/visual tests (Playwright). A headless Chromium drives the real dashboard to verify the
+# JavaScript that unit tests can't run (show/hide toggles, etc.). Runs in its own CI job; the main
+# test suite skips these when Playwright isn't installed. Needs `playwright install chromium` too.
+browser = ["playwright>=1.40"]
+# Stronger PII scrubbing on perimeter-crossing paths (cloud escalation, training export, wiki review):
+# Microsoft Presidio (MIT) NER catches free-text names/locations/government IDs a regex can't. Heavy
+# (pulls spaCy) so it's optional; without it the regex baseline is used. Also needs a spaCy model:
+# `python -m spacy download en_core_web_lg`. See anthill/hybrid/scrub.py.
+privacy = ["presidio-analyzer>=2.2"]
+# CI installs this instead of the full deps - a hand-picked, minimal set (skips optional extras like
+# presidio/boto3/mlx-lm/playwright that tests don't need) rather than everything `dependencies` pulls.
+ci = [
+    "pytest>=8.0",
+    "pytest-xdist>=3.5",  # parallel test execution (pytest -n) in ci.yml
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13.7",
+    "lancedb>=0.10,<0.20",
+    "numpy>=1.24",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "pyyaml>=6.0",  # wiki/okf.py (OKF frontmatter) is import-tested in CI
+    # Office export libs, so the docx/pptx/xlsx tests + the packaged-app self-check RUN in CI instead
+    # of skipping - this is exactly where a "templates dropped from the bundle" regression would hide.
+    "python-docx>=1.1",
+    "python-pptx>=0.6.21",
+    "openpyxl>=3.1",
+    # The hosted-runner base image ships setuptools 79.0.1, which pip-audit flags as PYSEC-2026-3447
+    # (MANIFEST.in exclude directives matched without Unicode normalization, so an NFD filename can
+    # bypass an NFC exclude when building an sdist on macOS APFS/HFS+). No runtime exposure here - we
+    # ship a PyInstaller app, not an sdist - but the audit gate is env-wide, so pin the fixed build to
+    # resolve it (covers pr-validation.yml + security-audit.yml) rather than suppress it.
+    "setuptools>=83.0.0",
+]
+
+[project.scripts]
+anthill = "anthill.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["anthill"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore:.*NotOpenSSL.*:Warning"]
+# ASDD invariant markers: a test tagged here guards a core-pillar MUST-invariant. The
+# asdd-invariants workflow runs `pytest -m "<these>"` report-only (see the invariant manifest).
+markers = [
+    "privacy_invariant: guards a Privacy pillar MUST-invariant (ASDD)",
+    "knowledge_invariant: guards a Knowledge pillar MUST-invariant",
+    "model_invariant: guards a Model pillar MUST-invariant",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# E/F=pyflakes+pycodestyle, I=isort, UP=pyupgrade, B=bugbear, SIM=simplify,
+# C4=comprehensions, PERF=perf, RUF=ruff-specific.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PERF", "RUF"]
+# Intentional patterns / high-churn style not enforced as a hard gate:
+#   E501 line length; E701/E702 compound one-liners (an idiom here); SIM105
+#   contextlib.suppress; PERF203 try/except in a loop. Broad `except` (BLE) is a
+#   deliberate graceful-degradation pattern, reviewed via grep, not a blanket fail.
+ignore = ["E501", "E701", "E702", "SIM105", "PERF203",
+          # low-value/style for this codebase: micro list-comprehension perf, single-char
+          # names in math/regex code, nested-with, useless-if-else, ambiguous unicode in a
+          # comment, and raise-without-from (CLI uses `raise typer.Exit` as control flow).
+          "PERF401", "E741", "SIM117", "RUF034", "RUF003", "B904"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI and Typer put Depends()/Form()/Option()/Argument() in argument defaults by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query",
+                          "fastapi.Cookie", "fastapi.File", "fastapi.Header", "fastapi.Path",
+                          "typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true   # gradual adoption; tighten over time
+
+# mypy is BLOCKING in CI on the clean majority (73/88 files). These modules carry
+# pre-existing type debt (mostly SQLAlchemy Column false-positives in the web layer);
+# grandfathered here so regressions in the clean modules fail CI today. Remove a
+# module from this list once it is annotated/cleaned.
+[[tool.mypy.overrides]]
+module = [
+    "anthill.web.app",  # SQLAlchemy Column[...] false-positives (no mypy plugin); union-attr block cleared via _require_org
+    "anthill.web.agents",
+    "anthill.web.snippets",
+    "anthill.web.scheduler",
+    "anthill.web.provision_run",  # SQLAlchemy Column-assignment false-positives (ORM status writes)
+    "anthill.web.mcp_store",  # SQLAlchemy Column-assignment false-positives (ORM log writes)
+    "anthill.web.knowledge_registry",  # SQLAlchemy Column-assignment false-positives (registry upsert)
+    "anthill.agent.executor",
+    "anthill.agent.tools",
+    "anthill.training.export",
+    "anthill.training.collect",
+    "anthill.training.executor",
+    "anthill.multimodal.files",
+    "anthill.search.web",
+    "anthill.cloud.aws",
+    "anthill.lifecycle.renovate",
+    "anthill.mcp.server",
+    "anthill.cli",
+]
+ignore_errors = true

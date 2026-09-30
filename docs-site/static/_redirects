@@ -1,0 +1,5 @@
+# Legacy /docs/* URLs from before the docs moved to the subdomain root
+# (routeBasePath '/'). Redirect them to the matching root path so old
+# bookmarks and external links don't 404. Cloudflare Pages serves this file.
+/docs/*   /:splat   301
+/docs     /         301

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Chat history{% endblock %}
+{% block page_title %}Chat history{% endblock %}
+{% block content %}
+<style>
+  .hist-search { display:flex; gap:8px; max-width:560px; margin-bottom:14px; }
+  .hist-search input[type=search] { flex:1; }
+  .hist-group { margin-bottom:16px; }
+  .hist-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; }
+  .hist-row:hover { background: var(--bg-subtle); }
+  .hist-link { display:flex; align-items:center; gap:8px; flex:1; min-width:0; text-decoration:none; color:inherit; }
+  .hist-title { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hist-meta { margin-left:auto; white-space:nowrap; }
+  .hist-pager { display:flex; gap:8px; align-items:center; margin-top:14px; }
+</style>
+
+<form method="get" action="/chat/history" class="hist-search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search your chats by title or message text..." aria-label="Search chats">
+  <button class="btn btn-primary" type="submit">Search</button>
+  {% if q %}<a class="btn" href="/chat/history">Clear</a>{% endif %}
+</form>
+
+<p class="text-sm text-muted mb-2">
+  {{ total }} conversation{{ '' if total == 1 else 's' }}{% if q %} matching "{{ q }}"{% endif %}.
+  <a href="/chat">Back to chat</a>
+</p>
+
+{% if not groups %}
+<p class="text-muted">No conversations{% if q %} match your search{% endif %} yet. <a href="/chat">Start one</a>.</p>
+{% endif %}
+
+{% for label, convs in groups %}
+<div class="hist-group">
+  <div class="rail-conv-section">{{ label }}</div>
+  {% for c in convs %}
+  <div class="hist-row">
+    <a href="/chat/{{ c.id }}" class="hist-link" title="{{ c.title }}">
+      <span class="plane-dot plane-dot-{{ 'org' if c.plane == 'org' else 'solo' }}"></span>
+      <span class="hist-title">{{ c.title }}</span>
+      <span class="hist-meta text-sm text-muted">{% if c.pinned %}pinned &middot; {% endif %}{{ 'Org' if c.plane == 'org' else 'Solo' }}{% if c.updated_at %} &middot; {{ c.updated_at.strftime('%Y-%m-%d') }}{% endif %}</span>
+    </a>
+    <form method="post" action="/chat/{{ c.id }}/pin">
+      <button type="submit" class="rail-conv-del-btn" title="{{ 'Unpin' if c.pinned else 'Pin to top' }}" aria-label="{{ 'Unpin conversation' if c.pinned else 'Pin conversation' }}"><i data-lucide="{{ 'pin-off' if c.pinned else 'pin' }}">📌</i></button>
+    </form>
+    <form method="post" action="/chat/{{ c.id }}/delete" onsubmit="return confirm('Delete this conversation?')">
+      <button type="submit" class="rail-conv-del-btn" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2">🗑</i></button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% if pages > 1 %}
+<div class="hist-pager">
+  {% if page > 1 %}<a class="btn" href="/chat/history?q={{ q | urlencode }}&amp;page={{ page - 1 }}">Previous</a>{% endif %}
+  <span class="text-sm text-muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="/chat/history?q={{ q | urlencode }}&amp;page={{ page + 1 }}">Next</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

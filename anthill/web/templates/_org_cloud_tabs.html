@@ -1,0 +1,16 @@
+{# Sub-tab bar for the org's cloud config (the "Cloud & model" rail item). Three sub-pages:
+   Wiki (where the org's knowledge base is hosted), Model (the org's shared model server), and
+   Training (fine-tune the org model on your gold). Admin-only for an org. A Solo account can
+   land on /training too (it trains on its own connected cloud GPU - see model_select's
+   is_local_training vs is_solo_account) but has no use for Model/Wiki here: those are the
+   admin-only org backend pages, and Solo already manages its own compute at /personalize. There's
+   nothing for it to switch between, so it gets no tab bar at all rather than one tab that looks
+   like a dead nav control. #}
+{% if solo|default(false) %}
+{% else %}
+<div class="settings-tabs">
+  <a href="/settings/organization" class="{% if request.url.path == '/settings/organization' %}active{% endif %}">Model</a>
+  <a href="/settings/organization/wiki" class="{% if '/settings/organization/wiki' in request.url.path %}active{% endif %}">Wiki</a>
+  <a href="/training" class="{% if '/training' in request.url.path %}active{% endif %}">Training</a>
+</div>
+{% endif %}

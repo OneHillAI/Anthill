@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Training{% endblock %}
+{% block page_title %}Cloud &amp; model <span style="font-size:13px;color:var(--muted);font-weight:normal">- training</span>{% endblock %}
+{% block content %}
+{% include "_org_cloud_tabs.html" %}
+
+<style>
+  .readiness td { padding: 6px 8px; vertical-align: top; }
+</style>
+
+<div class="card" style="grid-column:1 / -1; margin-bottom:16px">
+  <h3 style="margin-bottom:6px">Automated training <span class="text-sm text-muted">(train your own model)</span>
+    {% if readiness.ready %}<span class="badge badge-active">ready</span>
+    {% else %}<span class="badge badge-member">not ready</span>{% endif %}
+  </h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px">
+    Anthill fine-tunes your <b>own</b> open-weight model on your <b>approved (gold)</b> answers, on a GPU
+    <b>you connect</b>, and promotes the result only if it beats the current model. Three things to go live:
+  </p>
+  <table class="readiness" style="width:100%">
+    <tbody>
+      <tr>
+        <td style="width:30px">{% if readiness.backend_connected %}✅{% else %}⬜{% endif %}</td>
+        <td><b>1. {% if readiness.local %}On-device LoRA toolchain{% else %}Connect a GPU backend{% endif %}</b> &mdash; {{ readiness.backend_label }}.
+          {% if not readiness.backend_connected %}<br><span class="text-muted">{{ readiness.backend_needs }}</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>{% if readiness.gold_ok %}✅{% else %}⬜{% endif %}</td>
+        <td><b>2. Approve gold examples</b> &mdash; <b>{{ readiness.gold }}</b> org-scope gold so far.
+          {% if not readiness.gold_ok %}<br><span class="text-muted">Give good answers a thumbs-up or approve them in Wiki review; once promoted to the org they count here. (Bronze examples below are auto-collected and do not train the model.)</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>{% if readiness.enabled %}✅{% else %}⬜{% endif %}</td>
+        <td><b>3. Turn training on</b> &mdash; {% if readiness.enabled %}{% if readiness.local %}always on (one local model).{% else %}enabled.{% endif %}{% else %}<span class="text-muted">tick "Train your model here" below in Training settings.</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    {% if readiness.ready %}
+      <button type="button" class="btn btn-primary" onclick="trainNow()">Train now</button>
+    {% elif readiness.local %}
+      <span class="text-sm text-muted">Install the on-device LoRA toolchain to enable training (see step 1).</span>
+    {% elif solo %}
+      <a class="btn btn-primary" href="/personalize#model">Change where it runs</a>
+    {% else %}
+      <a class="btn btn-primary" href="/settings/organization">Connect your org cloud</a>
+    {% endif %}
+    <a class="btn btn-outline" href="/backend">Where the backend runs</a>
+    <span class="text-sm text-muted">Current model version: <b>v{{ readiness.model_ver }}</b></span>
+  </div>
+  {% if readiness.status_detail %}<p class="text-sm text-muted" style="margin-top:8px">Last: {{ readiness.status_detail }}</p>{% endif %}
+</div>
+
+{% if cfg %}
+{% if request.query_params.get('saved') %}<div class="alert alert-ok" style="margin-bottom:12px">✅ Training settings saved.</div>{% endif %}
+<div class="card" style="grid-column:1 / -1; margin-bottom:16px">
+  <h3 style="margin-bottom:6px">Training settings</h3>
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    {% if readiness.local %}Fine-tunes your local model on this machine (Apple-Silicon GPU) - nothing
+    leaves the device.{% elif solo %}Fine-tunes the model you use, on the cloud GPU you connected under
+    <a href="/personalize#model">Change where it runs</a>.
+    {% else %}Fine-tunes the model your org serves, on your
+    <a href="/settings/organization">org cloud</a> (the same account that serves it).{% endif %}
+    A new model is promoted only if it beats the current one.</p>
+  <form method="post" action="/training/config">
+    <div class="form-group">
+      {% if readiness.local %}
+      <label style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" {% if readiness.backend_connected %}checked{% endif %} disabled>
+        On-device training is {% if readiness.backend_connected %}<b>on</b>{% else %}<b>not ready</b> (toolchain missing){% endif %}
+      </label>
+      {% if readiness.backend_connected %}
+      <p class="text-sm text-muted" style="margin-top:4px">Your local model is fine-tuned on this Mac
+        (Apple-Silicon MLX) as approved gold accumulates (checked every {{ cfg.training_schedule_hrs }}h).
+        Nothing leaves the device.</p>
+      {% else %}
+      <p class="text-sm text-muted" style="margin-top:4px">{{ readiness.backend_needs }}</p>
+      {% endif %}
+      {% else %}
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="training_enabled" {% if cfg.training_enabled %}checked{% endif %}>
+        Train your model here
+      </label>
+      <p class="text-sm text-muted" style="margin-top:4px">Fine-tune on your approved gold on the connected cloud
+        GPU. Checked every {{ cfg.training_schedule_hrs }}h; runs only when new gold has accumulated.</p>
+      {% endif %}
+    </div>
+    {% if cfg.org_provider == 'onprem' %}
+    <div class="form-group">
+      <label>GPU endpoint <span class="text-muted">(on-prem SSH host)</span></label>
+      <input type="text" name="training_gpu_endpoint" value="{{ cfg.training_gpu_endpoint }}"
+             placeholder="ssh user@gpu-box">
+      <p class="text-sm text-muted" style="margin-top:4px">The SSH host of your on-prem GPU box (Docker +
+        NVIDIA runtime). The fine-tune runs there in the trainer container and the adapter is fetched back.</p>
+    </div>
+    {% endif %}
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Model fine-tuned</label>
+        <input type="text" value="{{ readiness.base_model }}" disabled
+               title="The model you serve is the model that gets fine-tuned">
+        <p class="text-sm text-muted" style="margin-top:4px">
+          {% if readiness.local %}Your local model.
+          {% elif solo %}Your <a href="/personalize#model">model</a> - change it there.
+          {% else %}Your <a href="/settings/organization">org model</a> - change it there.{% endif %}</p>
+      </div>
+      <div class="form-group">
+        <label>Check cadence (hours)</label>
+        <input type="number" name="training_schedule_hrs" value="{{ cfg.training_schedule_hrs }}" min="1" step="1">
+      </div>
+    </div>
+    <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;
+         padding:12px;font-size:13px;color:var(--text);margin-bottom:12px">
+      <b>Status:</b> {{ cfg.training_status }}
+      &nbsp;·&nbsp; <b>Current model version:</b> v{{ cfg.training_model_ver }}
+      &nbsp;·&nbsp; <b>Gold at last run:</b> {{ cfg.training_gold_mark }}
+      &nbsp;·&nbsp; <b>Last run:</b> {{ cfg.training_last_run.strftime('%Y-%m-%d %H:%M') if cfg.training_last_run else '-' }}
+      <br><span class="text-muted">🔒 Examples are PII-scrubbed and sent over mTLS to your own server
+      (AES-256 at rest). Nothing leaves the org.</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="submit" class="btn btn-primary">Save training settings</button>
+      <button type="button" class="btn btn-outline" onclick="trainingTest()">Test connection</button>
+      {% if cfg.training_status_detail %}<span class="text-sm text-muted">{{ cfg.training_status_detail }}</span>{% endif %}
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<h3 style="margin:0 0 8px">Training data</h3>
+<div class="grid-4 mb-2">
+  <div class="card">
+    <h3>Trains shared model</h3>
+    <div class="big" style="color:var(--accent)">{{ stats.org_trainable }}</div>
+    <div class="sub">org-scope (corroborated / reviewed)</div>
+  </div>
+  <div class="card">
+    <h3>Personal</h3>
+    <div class="big" style="color:var(--clay)">{{ stats.personal }}</div>
+    <div class="sub">one-user signals, awaiting corroboration</div>
+  </div>
+  <div class="card">
+    <h3>Gold / Silver</h3>
+    <div class="big">{{ stats.gold }} / {{ stats.silver }}</div>
+    <div class="sub">human signal · org-index reuse</div>
+  </div>
+  <div class="card">
+    <h3>Bronze</h3>
+    <div class="big" style="color:var(--warn)">{{ stats.bronze }}</div>
+    <div class="sub">generated, unvalidated</div>
+  </div>
+</div>
+
+<div class="alert alert-info text-sm" style="margin-bottom:8px">
+  Only <b>org-scope</b> examples train the shared model: a signal is one user's
+  until <b>≥2 distinct users</b> corroborate it (or an admin approves it into the
+  wiki). Personal signals improve that user's own experience and wait until
+  others agree.
+</div>
+
+<div class="alert {% if stats.ready_to_train %}alert-ok{% else %}alert-info{% endif %}">
+  {{ stats.note }}
+  {% if stats.ready_to_train %}
+  ✅ You have enough data to start a LoRA fine-tuning run.
+  {% else %}
+  Keep using the system - quality signals accumulate automatically.
+  {% endif %}
+</div>
+
+<div class="grid-2 mt-4">
+  <div class="card">
+    <h3 style="margin-bottom:14px">Export dataset</h3>
+    <p class="text-sm text-muted" style="margin-bottom:14px">
+      Download as JSONL ready for <b>unsloth</b> or <b>axolotl</b> LoRA fine-tuning.<br>
+      Format: <code>{"instruction":"…","input":"wiki context","output":"…"}</code>
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a href="/training/export?quality=silver" class="btn btn-primary">
+        ⬇ Export silver+gold
+      </a>
+      <a href="/training/export?quality=gold" class="btn btn-outline">
+        ⬇ Export gold only
+      </a>
+      <a href="/training/export?quality=bronze" class="btn btn-outline">
+        ⬇ Export everything
+      </a>
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:14px">How quality is assigned</h3>
+    <div style="font-size:14px;line-height:1.8">
+      <p><span style="color:var(--warn)">●</span> <b>Bronze</b> - every generated answer.
+         Collected automatically.</p>
+      <p><span style="color:var(--accent)">●</span> <b>Silver</b> - reused by a different node
+         via the org index. Signals the answer was useful to more than one person.</p>
+      <p><span style="color:var(--accent)">●</span> <b>Gold</b> - admin-approved wiki promotion,
+         or a 👍 in the chat UI. Human signal of correctness.</p>
+      <p class="text-muted" style="font-size:13px;margin-top:8px">
+        Recommend: export silver+gold for fine-tuning.
+        500+ examples is a good starting point for LoRA on qwen3:8b.
+      </p>
+    </div>
+  </div>
+</div>
+
+{% if stats.by_task %}
+<div class="card mt-4">
+  <h3 style="margin-bottom:12px">Examples by task type</h3>
+  <table>
+    <thead><tr><th>Task</th><th>Count</th></tr></thead>
+    <tbody>
+    {% for task, count in stats.by_task.items()|sort(attribute='1', reverse=True) %}
+    <tr><td>{{ task }}</td><td>{{ count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card mt-4">
+  <h3 style="margin-bottom:8px">Fine-tuning with your dataset</h3>
+  <p style="font-size:14px;line-height:1.7">
+    Once you have 500+ silver+gold examples, run LoRA fine-tuning with
+    <a href="https://github.com/unslothai/unsloth">unsloth</a>:
+  </p>
+  <pre style="background:var(--code-bg);color:var(--code-text);padding:14px;border-radius:8px;font-size:12px">
+# Export your data
+anthill export-training --output dataset.jsonl --quality silver
+
+# Fine-tune (requires GPU; unsloth handles quantisation)
+pip install unsloth
+unsloth train \
+  --model qwen3:8b \
+  --data dataset.jsonl \
+  --output ./myorg-adapter \
+  --epochs 3
+
+# Register with Ollama
+ollama create myorg-model -f ./myorg-adapter/Modelfile</pre>
+  <p class="text-sm text-muted" style="margin-top:10px">
+    The resulting model will be specifically good at your organisation's domain
+    and vocabulary - similar to what Perplexity did with their search Q&amp;A pairs.
+  </p>
+</div>
+
+<script>
+// showToast + toastAfter + the queued-toast reader are global (base.html).
+function trainNow() {
+  if (!confirm('Queue a training run now? It exports your org gold (PII-scrubbed), fine-tunes on the connected backend, and promotes a new model only if it beats the current one.')) return;
+  fetch('/training/run', { method: 'POST' })
+    .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
+    .then(function (d) { showToast(d.detail || (d.ok ? 'Training started.' : 'Could not start.'), d.ok ? 'success' : 'error'); })
+    .catch(function () { showToast('Could not reach the server.', 'error'); });
+}
+function trainingTest() {
+  // Validate the training backend's config/credentials (no GPU launched), then reload to refresh status.
+  fetch('/settings/training/test', { method: 'POST' })
+    .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
+    .then(function (d) {
+      toastAfter(d.detail || (d.ok ? 'Connected.' : 'Could not connect.'), d.ok ? 'success' : 'error');
+      location.reload();
+    })
+    .catch(function () { showToast('Could not reach the server.', 'error'); });
+}
+</script>
+{% endblock %}

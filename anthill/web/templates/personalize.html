@@ -1,0 +1,525 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+
+{% if saved %}<div class="alert alert-ok">Saved. Anthill will reflect this in future answers.</div>{% endif %}
+{% if request.query_params.get('org_created') %}<div class="alert alert-ok">Your organisation is set up. Invite people and connect a shared model below.</div>{% endif %}
+{% if request.query_params.get('error') == 'model_too_large' %}
+<div class="alert alert-err">That model is too large for {{ picker.hw_label if picker else "this machine" }} - pick one marked "fits" below.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'local_council_floor' %}
+<div class="alert alert-err">A multi-model council needs more memory than {{ picker.hw_label if picker else "this machine" }} has. Pick one model, or choose "Your cloud" or an inference provider for a multi-model council.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'local_council_too_big' %}
+<div class="alert alert-err">Those models don't fit together in {{ picker.hw_label if picker else "this machine" }}'s memory. Pick fewer or smaller models, or choose "Your cloud" or an inference provider for a multi-model council.</div>
+{% endif %}
+
+<p class="text-muted" style="margin:0 0 16px">Everything about your AI, in one place - scoped to you and private. A project or an org adds a shared wiki and members on top.</p>
+
+<style>
+  /* Settings: summary + preferences. Cards, toggles, segmented prefs, setrows. Type/spacing scale
+     (docs/specs/design-tokens-wave1.md) applied wherever an exact value on the scale exists; meta/
+     description text runs at --fs-2 (14px), not --fs-1, after founder feedback that this whole panel's
+     secondary text was too small to comfortably read (2026-09-26). Only compact badges (pill-on,
+     lead-tag) stay smaller - they're scanned, not read as prose. (Also dropped: a duplicate `.help`/
+     `.pop` tooltip shadowing the real global `.help`/`.help-pop` from style.css, unused in this file -
+     and `.paths2`/`.pathc*`, a compute-picker layout from before _compute_chooser.html existed.) */
+  .set-cardh{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:var(--sp-2)}
+  .set-cardh h3{margin:0;font-size:15px;display:flex;align-items:center}
+  .pill-on{font-size:12px;font-weight:600;color:var(--accent,#2f6b4f);background:var(--bg-subtle);border:1px solid var(--border);border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .pill-soon{color:var(--muted);background:var(--bg-subtle)}
+  .pill-warn{color:var(--warn,#b0721c);background:rgba(176,114,28,.12);border-color:var(--warn,#b0721c)}
+  .set-note{font-size:var(--fs-2);color:var(--muted);line-height:1.55;margin:0}
+  .core-line{font-size:var(--fs-3);font-weight:600}
+  .lead-tag{font-size:11px;font-weight:600;color:var(--accent,#2f6b4f);background:var(--bg-subtle);border-radius:4px;padding:2px 6px;margin-left:var(--sp-1)}
+  .core-meta{font-size:var(--fs-2);color:var(--muted);margin-top:3px;line-height:1.5}
+  .core-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+  .core-item{font-size:var(--fs-2);padding:8px 11px;background:var(--bg-subtle);border-radius:8px;line-height:1.5}
+  .core-cta{margin-top:var(--sp-3)}
+  .setlist{display:flex;flex-direction:column}
+  .setrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:11px 0;border-top:1px solid var(--border)}
+  .setrow:first-child{border-top:0}
+  .setrow-main{display:flex;flex-direction:column;gap:2px;flex:1}
+  .setrow-name{font-weight:600;font-size:var(--fs-2)}
+  .setrow-d{font-size:var(--fs-2);color:var(--muted);line-height:1.5}
+  /* toggle: a real checkbox styled as a switch */
+  .tog{position:relative;display:inline-block;width:38px;height:22px;flex:none}
+  .tog input{position:absolute;opacity:0;width:0;height:0}
+  .tog .track{position:absolute;inset:0;background:var(--border);border-radius:999px;transition:background .15s}
+  .tog .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s}
+  .tog input:checked + .track{background:var(--accent,#2f6b4f)}
+  .tog input:checked + .track + .knob{transform:translateX(16px)}
+  .tog.soon{opacity:.5}
+  .seg2{display:inline-flex;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:2px}
+  .seg2.wide{display:flex}
+  .seg2 button{flex:1;border:0;background:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
+  .seg2 button.on{background:var(--bg,#fff);color:var(--accent,#2f6b4f);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .seg2 button:disabled{cursor:not-allowed}
+  .pbar{height:6px;background:var(--bg-subtle);border-radius:3px;overflow:hidden;margin-top:var(--sp-2)}
+  .pbar i{display:block;height:100%;background:var(--accent,#2f6b4f)}
+  .prog-l{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .soon-chip{font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+  .st-panel{display:none}
+  .st-panel.active{display:block}
+  /* "Where your AI runs": two sub-cards (compute + inference provider) side by side, so both are
+     visible at once instead of the inference attachment being invisible until "Change where it runs"
+     is opened (founder ask, 2026-09-26). Stacks to one column when the card itself is narrow. */
+  .wir-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-top:var(--sp-2)}
+  @media(max-width:640px){.wir-grid{grid-template-columns:1fr}}
+  .wir-sub{border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--sp-3);background:var(--bg-subtle)}
+  .wir-sub-h{display:flex;align-items:center;gap:6px;font-size:var(--fs-2);font-weight:600;color:var(--muted);margin-bottom:7px}
+  .wir-sub-h i{width:16px;height:16px;flex:none}
+  .wir-sub-h span:first-of-type{flex:1;font-size:var(--fs-3);color:var(--text)}
+  /* Inference is the escalation path to frontier-scale answers - deliberately given its own warm accent
+     (the same amber already used for the "Expert" tier chip) instead of the same neutral grey as the
+     compute sub-card, so it reads as a real, inviting option rather than fine print (founder ask,
+     2026-09-26: "the inference part needs to be way more prominent"). */
+  .wir-sub.wir-infer{border-color:var(--warn,#b0721c);background:rgba(176,114,28,.1)}
+  .wir-sub.wir-infer .wir-sub-h,.wir-sub.wir-infer .wir-sub-h i{color:var(--warn,#b0721c)}
+  /* Council chips: same bordered-panel/chip language as _compute_chooser.html's tier cards, so the
+     council card reads as the same design system instead of a plain bullet list (founder ask). */
+  .council-panel{border:1.5px solid var(--border);border-radius:var(--radius);padding:var(--sp-4);background:var(--bg-subtle)}
+  .council-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .council-chip{display:flex;align-items:center;gap:6px;border:1.5px solid var(--border);border-radius:10px;padding:8px 13px;background:var(--surface,#fff);font-size:var(--fs-2);font-weight:600}
+  .council-chip i{width:15px;height:15px;color:var(--accent,#2f6b4f)}
+  .council-chip.lead{border-color:var(--accent,#2f6b4f);box-shadow:0 0 0 2px var(--bg-subtle)}
+  /* De-emphasized card inside a disclosure (e.g. Self-tuning under This device -> Advanced): visible
+     and fully functional, just visually secondary - not a "coming soon" claim. */
+  .dim-card{opacity:.7}
+  /* rich local-model picker (fit + capability + origin): this page includes _council_builder.html (now
+     behind the "Your council" card's own "Change models" disclosure, not inside the compute chooser),
+     which renders .mp-* markup with no style block of its own - this definition is a real, load-bearing
+     dependency of that include. (Mirrors model_picker.html's own copy for the setup wizard, which also
+     includes _council_builder.html - two copies because the two pages don't share a stylesheet.) */
+  .mp-filter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .mp-chip{border:1px solid var(--border);background:var(--bg,#fff);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:var(--fs-1);font-weight:600;cursor:pointer}
+  .mp-chip.on{background:var(--accent,#2f6b4f);border-color:var(--accent,#2f6b4f);color:#fff}
+  .mp-list{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;padding-right:2px}
+  .mp-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  .mp-row:hover{border-color:var(--muted)}
+  .mp-row:has(input:checked){border-color:var(--accent,#2f6b4f);box-shadow:0 0 0 3px var(--bg-subtle)}
+  .mp-row.nofit{opacity:.55;cursor:not-allowed}
+  .mp-row input{flex:none;margin:0}
+  .mp-main{flex:1;min-width:0}
+  .mp-name{font-weight:600;font-size:var(--fs-2);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .mp-badge{font-size:11px;font-weight:700;border-radius:4px;padding:2px 7px}
+  .mp-badge.rec{color:#fff;background:var(--accent,#2f6b4f)}
+  .mp-badge.inst{color:var(--muted);background:var(--bg-subtle);border:1px solid var(--border)}
+  .mp-meta{font-size:var(--fs-1);color:var(--muted);margin-top:3px}
+  .mp-fit{flex:none;text-align:right}
+  .fit{font-size:var(--fs-1);font-weight:700;white-space:nowrap}
+  .fit.ok{color:var(--accent,#2f6b4f)}
+  .fit.warn{color:var(--warn,#b45309)}
+  .fit.no{color:var(--muted)}
+</style>
+
+{# Scope tabs, one workflow per tab so each stays a single decision instead of a grab-bag: Model (where
+   it runs, incl. any inference provider, the council, and its own Advanced), Knowledge (where it
+   lives, wiki/memory/sources), Personality (how it talks to you), Privacy, This device (last - just
+   appearance, genuinely device-local, nothing about which model runs), and Organisation (admins). One
+   form - Save submits every field regardless of the open tab. Order and grouping per founder direction,
+   2026-09-26: This device had become a dumping ground for model-related Advanced settings that belong
+   with the model decision itself, not the device. #}
+<div class="settings-tabs" id="set-tabs">
+  <a href="#" data-st="model" class="active" onclick="setST('model');return false">Model</a>
+  <a href="#" data-st="knowledge" onclick="setST('knowledge');return false">Knowledge</a>
+  <a href="#" data-st="personality" onclick="setST('personality');return false">Personality</a>
+  <a href="#" data-st="privacy" onclick="setST('privacy');return false">Privacy</a>
+  <a href="#" data-st="device" onclick="setST('device');return false">This device</a>
+  {% if user and user.role == 'admin' %}<a href="#" data-st="org" onclick="setST('org');return false">Organisation</a>{% endif %}
+</div>
+
+{# Empty sibling form for the Solo cloud-endpoint controls. The compute controls live INSIDE the
+   outer /personalize form, and a nested <form> is invalid HTML (it silently detaches), so the
+   connect inputs below target this form by id via the HTML5 form= attribute instead of being
+   nested. This form carries no fields of its own - only the inputs that opt in with form=. #}
+<form id="solo-cloud-form" method="post" action="/personalize/cloud"></form>
+<form id="compute-form" method="post" action="/personalize/compute"></form>
+<form id="org-setup-form" method="post" action="/personalize/organization/setup"></form>
+
+<form method="post" action="/personalize">
+
+<!-- ── Model (where it runs, the council, self-tuning - one workflow) ─────────── -->
+<div class="st-panel active" data-st="model">
+
+  {% set INFER_NAMES = {'berget': 'Berget AI', 'groq': 'Groq', 'infercom': 'Infercom'} %}
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Where your AI runs<button type="button" class="help" aria-label="What these mean">?<span class="help-pop">Both run open models you fully own - nothing sent to us. Your machine keeps everything on this device; Your cloud runs it on a private GPU in your own cloud account.</span></button></h3></div>
+    <div class="wir-grid">
+      <div class="wir-sub">
+        <div class="wir-sub-h"><i data-lucide="{{ 'cloud' if solo_cloud else 'laptop' }}"></i><span>{% if solo_cloud %}Your cloud{% else %}Your machine{% endif %}</span>
+          <span class="pill-on">{% if solo_cloud %}In your cloud{% else %}On this device{% endif %}</span></div>
+        <div class="core-line">{% if current_local_model %}{{ current_local_model }}{% else %}Your model{% endif %}</div>
+        <div class="core-meta">
+          {% if solo_cloud %}Runs on your private cloud GPU{% if not cloud_ready %} - no endpoint connected yet{% endif %}{% else %}On this device{% if model_storage_gb %} &middot; {{ model_storage_gb }} GB{% endif %} &middot; fully offline{% endif %}</div>
+      </div>
+      <div class="wir-sub wir-infer">
+        <div class="wir-sub-h"><i data-lucide="zap"></i><span>Inference provider</span>
+          <span class="pill-on{% if not escalation_provider %} pill-soon{% endif %}">{% if escalation_provider %}Connected{% else %}Not connected{% endif %}</span></div>
+        {% if escalation_provider %}
+        <div class="core-line">{{ INFER_NAMES.get(escalation_provider, escalation_provider) }}</div>
+        <div class="core-meta">Handles hard questions your lead is unsure about.</div>
+        {% else %}
+        <div class="core-meta">Frontier open models now reach into the trillions of parameters - attach Berget, Groq or Infercom for answers at that scale.</div>
+        {% endif %}
+      </div>
+    </div>
+    <button type="button" class="btn btn-outline btn-sm core-cta" onclick="toggleChangeRuns()"><i data-lucide="refresh-cw"></i> Change where it runs</button>
+
+    {# The compute picker AND the model/council picker - hidden until "Change where it runs", then
+       shown together as ONE flow (same as the setup wizard's Step 1 -> Step 2), so the model list is
+       never a second thing to go hunt for elsewhere. Still the real control (saves solo_compute + the
+       local model + council); Settings just leads with the summaries above. #}
+    <div id="change-runs" hidden style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+      {% set chooser_form = "compute-form" %}
+      {% include "_compute_chooser.html" %}
+      {% include "_council_builder.html" %}
+      {% include "_inference_provider.html" %}
+      <div style="margin-top:16px">
+        <button type="submit" form="compute-form" class="btn btn-primary btn-sm">Save where it runs &amp; your council</button>
+        {% if request.query_params.get('compute') == 'provisioning' %}<span class="text-sm text-muted" style="margin-left:10px">Provisioning your cloud - this can take a few minutes.</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# No "Answer style" speed/depth lever here by design: Anthill's router decides depth automatically
+     (docs/specs/chat-depth-autoroute.md - "the system decides depth, no manual better-answer levers"). #}
+
+  {# Only shown when there's something council-specific to say: an active multi-model council, or
+     hardware that could fit one. A single model with no council fit is already named in full in
+     "Where your AI runs" above - restating it here in a second card (founder report, 2026-09-29:
+     "having this in your council below makes no sense, where you have on top where your AI runs")
+     added nothing but a second card saying the same thing a different way. #}
+  {% if council_members | length > 1 or (council_fit and council_fit.mode == 'council') %}
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Your council<button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first is the lead that synthesises the rest.</span></button></h3>
+      <span class="pill-on">{% if council_members | length > 1 %}{{ council_members | length }} models{% else %}Not set{% endif %}</span></div>
+    <div class="council-panel" style="margin-top:2px">
+      <div class="council-chips">
+        {% if council_members | length > 1 %}
+          {% for m in council_members %}<div class="council-chip{% if loop.first %} lead{% endif %}"><i data-lucide="cpu"></i>{{ m.model }}{% if loop.first %} <span class="lead-tag">lead</span>{% endif %}</div>{% endfor %}
+        {% else %}
+          <div class="council-chip lead"><i data-lucide="cpu"></i>{{ current_local_model }} <span class="lead-tag">lead</span></div>
+        {% endif %}
+      </div>
+      <p class="set-note" style="margin-top:10px">
+        {% if council_members | length > 1 %}Several models answer in parallel and a lead synthesises them - more reliable than any single model.{% else %}A {{ council_fit.n }}-model council fits your {{ council_fit.hw }} - run several models together for stronger, more reliable answers.{% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2" style="flex-wrap:wrap;margin-top:10px">
+      {% if council_members | length > 1 %}
+      <button type="button" class="btn btn-outline btn-sm" onclick="soloCouncil('single')">Use one model</button>
+      {% else %}
+      <button type="button" class="btn btn-primary btn-sm" onclick="soloCouncil('council')"><i data-lucide="users"></i> Set up a council</button>
+      {% endif %}
+      <button type="button" class="btn btn-outline btn-sm" onclick="toggleChangeRuns(true)"><i data-lucide="boxes"></i> Change models</button>
+    </div>
+    <p class="text-sm text-muted" id="council-msg" style="margin:8px 0 0"></p>
+  </div>
+  {% endif %}
+
+  {# Advanced, model-scoped setup - lives here, not under This device: these are decisions about which
+     model runs and where (founder ask, 2026-09-26). Model storage moved back out to This device on
+     2026-09-29 - disk usage is a device fact, not a "which model" decision, and nesting it inside this
+     disclosure added an unneeded extra layer to reach a page that's mostly just "how much space am I
+     using." #}
+  <details class="card mb-2" style="padding:0">
+    <summary style="cursor:pointer;font-weight:600;font-size:14px;padding:14px 16px;list-style:none">Advanced</summary>
+    <div style="padding:0 16px 14px">
+      <div class="setlist">
+        {% if solo_cloud %}<div class="setrow"><div class="setrow-main"><span class="setrow-name">Custom cloud endpoint</span><span class="setrow-d">Point Anthill at a model server you run instead (vLLM, llama.cpp, a hosted API).</span></div><button type="button" class="btn btn-outline btn-sm" onclick="toggleChangeRuns(true)">Set up</button></div>{% endif %}
+      </div>
+
+      {% if can_tune %}
+      <div class="card dim-card" style="margin-top:12px">
+        <div class="set-cardh"><h3>Self-tuning<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Your model retrains itself from your approved answers over time, on your own compute - nothing leaves your perimeter.</span></button></h3><span class="pill-on pill-soon">On</span></div>
+        {% if served_finetune %}<p class="set-note">A fine-tuned model is currently served.</p>{% endif %}
+        <div style="margin-top:12px">
+          <div class="prog-l"><span>Approved examples</span><span id="tune-count">{{ tune_gold }}</span></div>
+          <div class="pbar"><i style="width:{{ [tune_gold, 100] | min }}%"></i></div>
+        </div>
+        <div class="flex gap-2" style="align-items:center;flex-wrap:wrap;margin-top:12px">
+          <button type="button" class="btn btn-outline btn-sm" id="tune-btn" onclick="trainNow()"
+            {% if tune_gold == 0 %}disabled title="Approve some answers as gold first (thumbs-up, or save a snippet)"{% endif %}>
+            <i data-lucide="graduation-cap"></i> Train now
+          </button>
+          <span class="text-sm text-muted">status: <span id="tune-status" class="badge {% if tune_status in ('running', 'scheduled') %}badge-running{% elif tune_status == 'error' %}badge-danger{% else %}badge-member{% endif %}">{{ tune_status }}</span></span>
+        </div>
+        {% if tune_gold == 0 %}<p class="text-sm text-muted" style="margin-top:8px">Approve some answers as gold first (thumbs-up a reply, or save a snippet) - "Train now" turns on once you have at least one.</p>{% endif %}
+        <p class="text-sm text-muted" id="tune-msg" style="margin:8px 0 0">{% if tune_status == 'error' and tune_last_detail %}{{ tune_last_detail }}{% endif %}</p>
+      </div>
+      {% elif can_tune_not_ready %}
+      <div class="card dim-card" style="margin-top:12px">
+        <div class="set-cardh"><h3>Self-tuning<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Your model retrains itself from your approved answers over time, on your own compute - nothing leaves your perimeter.</span></button></h3><span class="pill-on pill-soon">Not available here</span></div>
+        <p class="set-note" style="margin-top:12px">{{ tune_not_ready_detail }} The packaged app doesn't include this
+          toolchain yet, so on-device training can't run on "Your machine" today - connect a cloud GPU under
+          <a href="#" onclick="setST('model');return false">"Change where it runs"</a> to fine-tune now instead.</p>
+      </div>
+      {% elif can_tune_cloud %}
+      <div class="card dim-card" style="margin-top:12px">
+        <div class="set-cardh"><h3>Self-tuning<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Your model retrains itself from your approved answers over time, on the cloud GPU you connected.</span></button></h3><span class="pill-on pill-soon">Available</span></div>
+        <div style="margin-top:12px">
+          <div class="prog-l"><span>Approved examples</span><span>{{ tune_gold }}</span></div>
+          <div class="pbar"><i style="width:{{ [tune_gold, 100] | min }}%"></i></div>
+        </div>
+        <p class="set-note" style="margin-top:12px">Trains on the cloud GPU you connected under "Change where it runs" above,
+          not on this device. Manage readiness and "Train now" on the
+          <a href="/training">Training page &rarr;</a>.</p>
+      </div>
+      {% endif %}
+    </div>
+  </details>
+</div>
+
+<!-- ── Knowledge ───────────────────────────────────────────────────────────── -->
+<div class="st-panel" data-st="knowledge">
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Where your knowledge lives<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Your model can run on this device or a rented cloud GPU - that choice never moves your knowledge. Only the model itself relocates with "Your cloud"; your wiki, memory and files are never uploaded anywhere by it.</span></button></h3>
+      <span class="pill-on">On this device</span></div>
+    <p class="set-note">Always here, whether your model runs on this device or in your cloud. <a href="#" onclick="setST('model');return false">Change where the model runs &rarr;</a></p>
+  </div>
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Knowledge</h3></div>
+    <div class="setlist">
+      <div class="setrow"><div class="setrow-main"><span class="setrow-name">Living wiki</span><span class="setrow-d">Builds and updates itself from your chats and files.</span></div><span class="pill-on">On</span></div>
+      <div class="setrow"><div class="setrow-main"><span class="setrow-name">Memory across chats</span><span class="setrow-d">Remembers people, projects and decisions. Managed in Privacy.</span></div><span class="pill-on{% if not memory_on %} pill-soon{% endif %}">{% if memory_on %}On{% else %}Off{% endif %}</span></div>
+      <div class="setrow"><div class="setrow-main"><span class="setrow-name">Sources</span><span class="setrow-d">{{ wiki_count }} wiki entr{{ 'y' if wiki_count == 1 else 'ies' }}. Add files, a drive or a site.</span></div><a href="/wiki" class="btn btn-outline btn-sm">Add</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Personality (how it talks to you - not a model/provider decision) ──────── -->
+<div class="st-panel" data-st="personality">
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>How your AI sounds<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Who you are and how you like answers - this guides every response. Fill the prompts, or write it yourself.</span></button></h3></div>
+    <div style="margin-top:12px">
+      {% for key, label in fields %}
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:4px">{{ label }}</label>
+        <textarea name="{{ key }}" rows="2" data-field
+                  style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)"
+                  placeholder="{{ {
+                    'role':'e.g. Backend engineer on the payments team; I own the billing service.',
+                    'context':'e.g. Series-A fintech, ~30 people; stack is Python + Postgres + AWS.',
+                    'tone':'e.g. Direct and pragmatic; skip the preamble.',
+                    'format':'e.g. Short answers first, then detail; bullets; include code and sources.',
+                    'goals':'e.g. Ship the new invoicing flow this quarter; reduce on-call load.',
+                    'donts':'e.g. Never suggest paid SaaS without a self-hosted option; metric units.',
+                    'avoid':'e.g. Long history lessons; marketing fluff.'
+                  }[key] }}"></textarea>
+      </div>
+      {% endfor %}
+      <button type="button" class="btn btn-outline btn-sm" onclick="genProfile()">Generate from the above</button>
+      <div style="margin-top:12px">
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:4px">Your profile (edit and approve)</label>
+        <textarea name="profile" id="profile-box" rows="7" spellcheck="false"
+                  style="width:100%;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm)">{{ profile }}</textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Privacy ─────────────────────────────────────────────────────────────── -->
+<div class="st-panel" data-st="privacy">
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Privacy</h3></div>
+    <div class="setlist">
+      <div class="setrow">
+        <div class="setrow-main"><span class="setrow-name">Improve my model from my answers</span><span class="setrow-d">Stored privately and used to tune your own model - never shared.</span></div>
+        <label class="tog"><input type="checkbox" name="memory_on" {% if memory_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
+      </div>
+      <div class="setrow">
+        <div class="setrow-main"><span class="setrow-name">Scrub personal details before training</span><span class="setrow-d">Removes names, emails and IDs first.</span></div>
+        <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
+      </div>
+      <div class="setrow">
+        <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. Off by default; you can also toggle it per chat.</span></div>
+        <label class="tog"><input type="checkbox" name="web_access" {% if web_access_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>What leaves your setup</h3><span class="pill-on">{% if solo_cloud %}Your cloud{% else %}Nothing{% endif %}</span></div>
+    <p class="set-note">
+      {% if solo_cloud %}Your model lives in <b>your own cloud</b> - yours, not shared. Your wiki and data stay on this device; nothing else leaves.{% else %}Your model, wiki and data stay <b>on this device</b>. Nothing leaves unless you connect a cloud.{% endif %}
+    </p>
+    {% if org_available %}
+    <div class="core-item" style="margin-top:10px">In an org, your Solo chats run on the org model but stay private: grounded in your own wiki, never shared, never retained org-side.</div>
+    {% endif %}
+  </div>
+
+  {% if user and user.role == 'admin' %}
+  <p class="text-sm text-muted" style="margin:4px 0 0"><a href="/settings">Advanced privacy settings</a> - PII scrubbing coverage and a one-click privacy pack.</p>
+  {% endif %}
+</div>
+
+<!-- ── This device (last: genuinely device-local, nothing about which model runs) ─────────── -->
+<div class="st-panel" data-st="device">
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Appearance<button type="button" class="help" aria-label="How this works">?<span class="help-pop">System follows your device's light or dark setting.</span></button></h3></div>
+    <div class="seg2 wide" id="appearance-seg" style="margin-top:10px">
+      <button type="button" onclick="anthillPickTheme(this,'light')">Light</button>
+      <button type="button" onclick="anthillPickTheme(this,'dark')">Dark</button>
+      <button type="button" onclick="anthillPickTheme(this,'system')">System</button>
+    </div>
+  </div>
+  {# Moved out of Model -> Advanced (founder ask, 2026-09-29): disk usage is a device fact, not part
+     of the "which model, running where" decision - and it read as an extra buried sub-menu nested
+     two levels deep (Advanced disclosure -> Manage -> a whole separate page) for what a device-level
+     setting shouldn't need. This reverses the 2026-09-26 move in the other direction; both were the
+     same founder's own call, made a few days apart. #}
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Model storage</h3></div>
+    <p class="set-note">{% if model_storage_gb %}{{ model_storage_gb }} GB on this device - downloaded models and cache.{% else %}Downloaded models and cache on this device.{% endif %}</p>
+    <a href="/models#installed" class="btn btn-outline btn-sm" style="margin-top:8px">Manage</a>
+  </div>
+</div>
+
+{% if user and user.role == 'admin' %}
+<!-- ── Organisation (admin) ────────────────────────────────────────────────── -->
+<div class="st-panel" data-st="org">
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>What an organisation is</h3><span class="pill-on{% if not is_org_deployment %} pill-soon{% endif %}">{% if is_org_deployment %}Admin{% else %}Not set up{% endif %}</span></div>
+    <p class="set-note">One shared model, council and wiki for everyone who joins, instead of each person's own Model/Knowledge/Personality/Privacy tabs. Your own Solo chats stay private either way - grounded in your wiki, never shared, never retained org-side.</p>
+  </div>
+
+  {% if is_org_deployment %}
+  <div class="wir-grid">
+    <div class="card mb-2">
+      <div class="set-cardh"><h3>People</h3></div>
+      <p class="set-note">Invite people and manage who has access.</p>
+      <a href="/users" class="btn btn-outline btn-sm core-cta"><i data-lucide="users"></i> Manage people</a>
+    </div>
+    <div class="card mb-2">
+      <div class="set-cardh"><h3>Cloud &amp; model</h3><span class="pill-on{% if not org_available %} pill-soon{% endif %}">{% if org_available %}Connected{% else %}Not set up{% endif %}</span></div>
+      <p class="set-note">The shared model and council everyone in the org uses.</p>
+      <a href="/settings/organization" class="btn btn-outline btn-sm core-cta"><i data-lucide="cloud"></i> Set up cloud &amp; model</a>
+    </div>
+  </div>
+
+  <p class="text-sm text-muted" style="margin:4px 0 0"><a href="/settings/org">See everything in Manage organisation &rarr;</a> - knowledge, integrations, metrics and infrastructure.</p>
+  {% else %}
+  {# One-way door (no route back to Solo once converted) - locked behind an explicit confirm+name step
+     rather than immediately usable, per the founder's ask (2026-09-28). Two-click confirm, not
+     window.confirm(): the desktop app's webview does not reliably run it (see team_settings.html). #}
+  <div class="card mb-2" style="border:1px solid var(--warn,#b0721c)">
+    <h3 style="font-size:15px;margin:0 0 8px">Set up an organisation</h3>
+    {% if org_setup_error == 'name_required' %}<div class="alert alert-warn" style="margin-bottom:10px">Give the organisation a name.</div>{% endif %}
+    <p class="text-sm text-muted" style="margin:0 0 12px">This turns your account into an organisation others can join, sharing one model, council and wiki. <b>There is no way back to Solo once you do this.</b></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="text" name="org_name" id="org-setup-name" form="org-setup-form" placeholder="Organisation name" required style="flex:2;min-width:220px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <button type="button" class="btn btn-primary" id="org-setup-btn" onclick="armOrgSetup()">Set up an organisation</button>
+      <span id="org-setup-hint" class="text-sm text-muted" style="display:none">Click again to confirm - this can't be undone</span>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="flex gap-2 mt-2" id="set-savebar" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+  <button type="submit" class="btn btn-primary">Save</button>
+</div>
+</form>
+
+<script>
+const FIELD_LABELS = {{ fields|tojson }};
+function toggleChangeRuns(forceOpen) {
+  var el = document.getElementById('change-runs');
+  if (!el) return;
+  el.hidden = forceOpen ? false : !el.hidden;
+  if (forceOpen) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+// Two-click confirm (not window.confirm() - the desktop app's webview does not reliably run it,
+// see team_settings.html's armDelete): converting to an org is a one-way door.
+let _orgSetupArmed = false;
+function armOrgSetup() {
+  var nameInput = document.getElementById('org-setup-name');
+  if (!nameInput.reportValidity()) return;  // needs a name first
+  var btn = document.getElementById('org-setup-btn');
+  if (!_orgSetupArmed) {
+    _orgSetupArmed = true;
+    btn.textContent = 'Confirm - this can\'t be undone';
+    document.getElementById('org-setup-hint').style.display = 'inline';
+    return;
+  }
+  document.getElementById('org-setup-form').submit();
+}
+// Scope tabs: show one panel at a time; the Save bar hides on the Organisation tab (link-only).
+function setST(t) {
+  document.querySelectorAll('#set-tabs a').forEach(function (a) { a.classList.toggle('active', a.dataset.st === t); });
+  document.querySelectorAll('.st-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.st === t); });
+  var sb = document.getElementById('set-savebar');
+  if (sb) sb.style.display = (t === 'org') ? 'none' : '';
+}
+// Rail sub-items link to /personalize#model|knowledge|personality|device|privacy|org - open that tab on
+// load + on hash change.
+(function () {
+  function fromHash() {
+    var k = (location.hash || '').replace('#', '');
+    if (['model', 'knowledge', 'personality', 'device', 'privacy', 'org'].indexOf(k) !== -1) setST(k);
+  }
+  fromHash();
+  window.addEventListener('hashchange', fromHash);
+})();
+// Appearance: Light / Dark / System. anthillSetTheme (base.html) persists the choice to localStorage and
+// flips data-theme; here we just drive the segmented control and reflect the saved choice on load.
+function anthillPickTheme(btn, mode) {
+  Array.prototype.forEach.call(btn.parentElement.querySelectorAll('button'), function (b) { b.classList.toggle('on', b === btn); });
+  if (window.anthillSetTheme) window.anthillSetTheme(mode);
+}
+(function () {
+  var seg = document.getElementById('appearance-seg');
+  if (!seg) return;
+  var cur = (window.anthillCurrentTheme && window.anthillCurrentTheme()) || 'system';
+  var idx = { light: 0, dark: 1, system: 2 }[cur];
+  Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b, i) { b.classList.toggle('on', i === idx); });
+})();
+// Solo council: set up a hardware-fitting local council (or revert to one model). POSTs via fetch (not a
+// nested form - this card lives inside the main Settings form), then reloads the Intelligence tab.
+function soloCouncil(action) {
+  var msg = document.getElementById('council-msg');
+  if (msg) msg.textContent = action === 'council'
+    ? 'Setting up your council - the models download in the background...'
+    : 'Switching back to a single model...';
+  var fd = new FormData();
+  fd.append('action', action);
+  fetch('/personalize/council', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d && d.ok) { location.hash = 'model'; location.reload(); }
+      else if (msg) msg.textContent = 'Could not set up a council on this machine right now.';
+    })
+    .catch(function () { if (msg) msg.textContent = 'Could not set up a council right now.'; });
+}
+function genProfile() {
+  const parts = [];
+  for (const [key, label] of FIELD_LABELS) {
+    const el = document.querySelector(`[name="${key}"]`);
+    const v = el && el.value.trim();
+    if (v) parts.push(`${label}: ${v}`);
+  }
+  if (parts.length) document.getElementById('profile-box').value = parts.join('\n');
+}
+// Solo tuning: kick off a fine-tune on your own gold examples, served on-device.
+function trainNow() {
+  const btn = document.getElementById('tune-btn');
+  const msg = document.getElementById('tune-msg');
+  const st = document.getElementById('tune-status');
+  if (btn) btn.disabled = true;
+  if (msg) msg.textContent = 'Starting a training run...';
+  fetch('/training/run', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (msg) msg.textContent = d.detail || '';
+      if (st && d.status) {
+        st.textContent = d.status;
+        st.className = 'badge ' + (['running', 'scheduled'].includes(d.status) ? 'badge-running' : d.status === 'error' ? 'badge-danger' : 'badge-member');
+      }
+      if (btn) btn.disabled = !d.ok;
+    })
+    .catch(function () { if (msg) msg.textContent = 'Could not start a training run.'; if (btn) btn.disabled = false; });
+}
+</script>
+{% endblock %}

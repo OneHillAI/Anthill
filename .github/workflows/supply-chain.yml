@@ -1,0 +1,91 @@
+# Supply-chain integrity for the Python distribution: build the sdist/wheel and
+# generate a CycloneDX SBOM on every PR. On non-PR events, and when the repo
+# variable SUPPLY_CHAIN_ATTEST is "true", it also produces Sigstore-signed
+# build-provenance and SBOM attestations for the distribution.
+#
+# NOTE: GitHub artifact attestations (actions/attest-*) require a public repo or a
+# plan that includes them; on a private repo they fail with "Feature not available".
+# They are therefore gated behind the SUPPLY_CHAIN_ATTEST repo variable (default off,
+# so the job stays green) - set it to "true" once the repo is public or the plan
+# supports it. The SBOM is generated on every run and attached to the GitHub Release
+# on a release event. This job does NOT build the macOS app; the macOS build itself
+# now installs from the pinned requirements.lock (scripts/build-sidecar.sh), and its
+# own build-provenance attestation is a follow-up (issue #355).
+name: supply-chain
+
+on:
+  pull_request:
+    paths:  # only scan when dependencies actually change (see the note if this check is branch-protected)
+      - "pyproject.toml"
+      - "**/requirements*.txt"
+      - "requirements*.txt"
+      - "package.json"
+      - "package-lock.json"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - ".github/workflows/supply-chain.yml"
+  workflow_dispatch:
+  release:
+    types: [published]
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    name: SBOM + provenance (Python distribution)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # attach the SBOM to the GitHub Release (release event only)
+      id-token: write      # keyless Sigstore signing for the attestations
+      attestations: write  # actions/attest-*
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: dist
+          format: cyclonedx-json
+          output-file: anthill.cdx.json
+          upload-artifact: false
+
+      - name: Attest build provenance for the distribution
+        if: ${{ vars.SUPPLY_CHAIN_ATTEST == 'true' && github.event_name != 'pull_request' }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+
+      - name: Attest the SBOM
+        if: ${{ vars.SUPPLY_CHAIN_ATTEST == 'true' && github.event_name != 'pull_request' }}
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: "dist/*.whl"
+          sbom-path: anthill.cdx.json
+
+      - name: Upload distribution and SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: anthill-supply-chain
+          path: |
+            dist/*
+            anthill.cdx.json
+
+      - name: Attach SBOM to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: anthill.cdx.json
