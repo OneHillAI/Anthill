@@ -90,13 +90,13 @@
        a new one. "Fits" is shown unconditionally rather than computed: it's already downloaded and
        has already been running on this exact machine, which is stronger evidence than the
        catalog's own params_b-based estimate for everything else in this list. #}
-    {% for m in other_installed if not in_setup %}
+    {% for m in other_installed %}
     <label class="mp-row council-row">
       <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name"><code>{{ m.tag }}</code> <span class="lead-badge mp-badge rec" hidden>Lead</span>
           <span class="mp-badge inst">installed</span>
-          {% if m.tag not in current_council_tags %}
+          {% if m.tag not in current_council_tags and not in_setup %}
           <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.tag }}')">Uninstall</button>
           {% endif %}
         </div>

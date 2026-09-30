@@ -127,6 +127,32 @@ def test_non_catalog_installed_model_is_a_real_selectable_row(tmp_path, monkeypa
     assert "not in the curated list" in body  # labelled honestly, not passed off as a catalog pick
 
 
+def test_non_catalog_installed_model_is_selectable_during_first_run_setup(tmp_path, monkeypatch):
+    # Bug caught live, 2026-10-01: the row's own `{% for m in other_installed if not in_setup %}`
+    # loop guard hid the ENTIRE row during setup, not just its Uninstall button - contradicting the
+    # same founder principle above ("why should they not be in the normal list?"). A fresh account
+    # whose machine already has Ollama models pulled (verified live: 9 of 13 installed tags on a real
+    # test machine) must be able to pick one of them before ever finishing setup, same as afterward in
+    # Settings - only the Uninstall control has any reason to differ by in_setup, not the row itself.
+    import anthill.inference.ollama as ollama_mod
+
+    monkeypatch.setattr(
+        ollama_mod.OllamaBackend,
+        "installed_models_with_sizes",
+        lambda self: [{"name": "mistral:7b", "size_bytes": 4_400_000_000}],
+    )
+    c, app_mod = _client(tmp_path, monkeypatch)
+    from anthill.web.db import OrgSettings
+
+    s = app_mod._SessionFactory()
+    s.query(OrgSettings).update({"local_model_chosen": False})
+    s.commit()
+    body = c.get("/setup/model").text
+    assert 'value="mistral:7b"' in body  # real checkbox row, not hidden during setup
+    assert "not in the curated list" in body
+    assert "mcUninstall(this," not in body  # uninstall itself still absent during setup
+
+
 def test_selecting_a_non_catalog_installed_model_as_lead_saves_with_no_catalog_check(
     tmp_path, monkeypatch
 ):

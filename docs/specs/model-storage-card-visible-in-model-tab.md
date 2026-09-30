@@ -81,6 +81,14 @@ already installed and running - stronger evidence than the catalog's own size-es
 check) and an honest `{{ size }} GB - not in the curated list` meta line instead of a fabricated
 catalog description, plus the same `installed`/`Uninstall` badges as any other row.
 
+Caught in live verification before this shipped: the first implementation's `other_installed` loop
+carried the same `if not in_setup` guard as the neighboring Uninstall button, which hid the entire
+row - not just Uninstall - during first-run setup. Checked live against a real machine with `ollama
+list` showing 13 installed tags: `mistral:7b` was genuinely invisible on `/setup/model` even though
+it rendered correctly on `/personalize` afterward. Fixed by moving `not in_setup` to gate only the
+Uninstall button (matching the catalog row's own pattern at the badge, not the loop), so a fresh
+account with models already on disk can select one during setup exactly as it can in Settings.
+
 ## Verification
 
 New tests in `tests/test_settings_model_picker.py`: the Uninstall control appears next to an
