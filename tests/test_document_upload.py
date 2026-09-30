@@ -90,53 +90,66 @@ def test_flagged_upload_survives_the_request_boundary_and_can_be_approved(tmp_pa
     committed, and _DBSessionMiddleware only CLOSES a request's sessions, never commits them. Passed
     every prior test because those either construct a WikiReview directly with a committed session
     (test_wiki_personal_review.py), or use a fake backend that never flags anything at all (this
-    file's default `_app()` fixture). This test does neither: it forces a REAL flag (a dangling
-    [[link]], mechanical - the model review pass is skipped entirely for personal scope, so no backend
-    JSON to fake) through the REAL /wiki/upload route, then checks from a FRESH session (a genuinely
-    separate request/session, the same way a real page load would see it) rather than the same session
-    the route used - the only way to actually catch a missing commit instead of reading an uncommitted
-    add back out of the same session's identity map."""
+    file's default `_app()` fixture). This test does neither: it forces a REAL flag through the REAL
+    /wiki/upload route, then checks from a FRESH session (a genuinely separate request/session, the
+    same way a real page load would see it) rather than the same session the route used - the only
+    way to actually catch a missing commit instead of reading an uncommitted add back out of the
+    same session's identity map.
+
+    Uses a near-duplicate title, not a dangling [[link]] (this test's flag originally, before
+    ingest() started neutralising a dangling link's brackets rather than leaving it for
+    outline_change to flag - see test_wiki_dangling_links_fix.py). Both are mechanical, model-
+    independent flags - the model review pass is skipped entirely for personal scope either way -
+    so the substitution changes nothing about what this test is actually proving."""
     from anthill.web.db import WikiReview
     from anthill.wiki.workspace import workspace_for
 
     client, app_mod, ids = _app(tmp_path, monkeypatch)
     _auth(client, ids["member"], ids["org"])
-    # The ingest summariser's reply becomes the page body verbatim for a single-chunk .txt upload
-    # (personal scope skips the model review pass entirely), so the dangling link needs to be IN the
-    # fake reply, not the uploaded bytes - the upload's own text is what gets summarised, not what
-    # becomes the page.
+    ws = workspace_for("personal", user_id=ids["member"])
+    ws.init()
+    ws.write_page("Company Policy Handbook", "# Company Policy Handbook\n\nAlready here.\n")
+    # The ingest summariser's reply becomes the page body verbatim for a single-chunk .txt upload,
+    # so the near-duplicate title needs to be IN the fake reply's H1, not the uploaded bytes - the
+    # upload's own text is what gets summarised, not what becomes the page. "v2" keeps the title a
+    # near-duplicate (fuzzy-matches >= 0.85) without making the slug IDENTICAL to the existing
+    # page's - an identical slug makes outline_change treat this as editing that same page, which
+    # skips the duplicate check entirely (it's meant for genuinely new, merely similar pages).
     monkeypatch.setattr(
         app_mod,
         "_backend_from_cfg",
         lambda cfg: _FakeBackend(
-            "# Note\n\nSee [[a-page-that-does-not-exist]] for the full policy.\n"
+            "# Company Policy Handbook v2\n\nA second note covering the same ground.\n"
         ),
     )
 
     r = client.post(
         "/wiki/upload",
         data={"target_scope": "personal"},
-        files={"file": ("note.txt", b"See the linked page for the full policy.", "text/plain")},
+        files={"file": ("note.txt", b"Some notes on company policy.", "text/plain")},
         follow_redirects=False,
     )
     assert r.status_code == 302
     assert "saved=queued" in r.headers["location"]  # the route itself already claimed success
 
-    ws = workspace_for("personal", user_id=ids["member"])
-    assert len(ws.pages()) == 0  # nothing applied yet - it's supposed to be pending review
+    assert len(ws.pages()) == 1  # only the pre-existing page - nothing new applied yet
 
     fresh = app_mod._SessionFactory()  # a NEW session - must not see an uncommitted add
     review = fresh.query(WikiReview).filter_by(org_id=ids["org"]).one()
     assert review.status == "pending"
-    assert "broken_links" in review.flags
-    assert "a-page-that-does-not-exist" in review.content
+    assert "duplicate" in review.flags
+    assert "second note" in review.content
 
     # Close the loop per QA's suggested regression: a second, independent request can find and act on
     # the row an earlier request created - proving it is durably committed, not just visible because
     # the test happens to reuse a session.
     r2 = client.post(f"/wiki/review/{review.id}/approve", data={}, follow_redirects=False)
     assert r2.status_code in (200, 302)
-    assert len(workspace_for("personal", user_id=ids["member"]).pages()) == 1  # now it applies
+    ws_after = workspace_for("personal", user_id=ids["member"])
+    assert (
+        len(ws_after.pages()) == 2
+    )  # distinct slug from the pre-existing page - adds, not overwrites
+    assert "second note" in (ws_after.wiki / "company-policy-handbook-v2.md").read_text()
 
     fresh2 = app_mod._SessionFactory()
     assert fresh2.query(WikiReview).filter_by(id=review.id).one().status == "approved"

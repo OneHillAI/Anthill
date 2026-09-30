@@ -26,6 +26,31 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Document upload on a fresh Knowledge wiki actually publishes now - pending PR, prepared 2026-09-30
+**System impact:** founder report on v0.12.10: "document upload on the knowledge doesn't really
+work - it doesn't upload it, doesn't do anything, nor show the uploaded docs after." Two independent
+root causes. (1) The AI summariser's own "## Related" section links to pages that don't exist yet on
+a fresh/sparse wiki; the mechanical broken-links check then flags every upload and it's queued for
+review instead of published - the model's own generated links stranded its own first pages forever.
+Fixed by neutralising a dangling link at ingest time (kept as plain text; a "## Related" section
+that's nothing but dangling links is dropped entirely) before the review gate ever sees it - a
+genuinely broken link a person types during a manual edit is untouched and still caught. (2) The
+upload file picker's accepted-format list had drifted from the backend's actual supported formats -
+Word/PowerPoint/Excel/HTML were greyed out even though the server already handled them; the picker
+now derives its list from the same constant the backend uses. Verified live against a real local
+model (qwen3.5:9b), not mocked: a genuinely empty wiki's first upload published immediately, and a
+second upload produced a real mixed "## Related" section (one link kept because that page now
+existed, two others correctly delinked) exactly as designed. Spec:
+`docs/specs/wiki-upload-dangling-links-and-format-picker.md`.
+**Surface:** `anthill/wiki/ingest.py` (`_neutralize_dangling_links`, new), `anthill/web/app.py`
+(`_wiki_ctx`), `anthill/web/templates/wiki.html`.
+**User-visible:** yes - uploaded documents on a fresh or sparse wiki now actually appear, and the
+file picker accepts every format the app supports.
+**Footprint:** no migration, no schema change; 12 new tests
+(`tests/test_wiki_dangling_links_fix.py`); one existing test updated (its dangling-link fixture no
+longer produces a flag after this fix, so it was switched to a near-duplicate title - a different
+mechanical, model-independent flag - without changing what it proves).
+
 ### `/chat/download` answers 400, not 422, for empty content - pending PR, prepared 2026-09-30
 **System impact:** post-launch check on the new public repo (core-dev's punch list). `content` was a
 required `Form` field, so an omitted or empty value tripped FastAPI's own validation with a bare

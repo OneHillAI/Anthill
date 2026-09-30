@@ -13,7 +13,7 @@ from itertools import chain
 from math import ceil
 from pathlib import Path
 
-from ..common.text import first_h1, normalize_wiki_page
+from ..common.text import first_h1, normalize_wiki_page, slugify
 from ..inference.base import InferenceBackend
 from ..multimodal import read_file
 from ..multimodal.reader import PDF_HARD_PROCESSING_SECONDS
@@ -129,6 +129,55 @@ def _is_timeout_error(exc: BaseException) -> bool:
     return False
 
 
+def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str = "") -> str:
+    """Drop `[[wiki-link]]` brackets whose target has no existing page yet, keeping the link text;
+    a link to a page that genuinely exists is left intact.
+
+    The summariser writes a trailing "## Related" section of `[[links]]` it infers from the
+    document's own content. On a fresh or sparse wiki those targets don't exist yet, so
+    `outline_change`'s mechanical broken-links check flags every ingested page and
+    `propose_wiki_write` never writes it - the model's own generated links strand its own first
+    pages in review forever (issue: "document upload doesn't do anything"). This runs only for
+    ingest's AI-generated links; a genuinely broken link a person types during a later edit still
+    goes through `outline_change` untouched and is still caught.
+    """
+    existing = {p.stem for p in ws.pages()}
+    self_slug = slugify(self_title) if self_title else ""
+
+    def _is_dangling(target: str) -> bool:
+        slug = slugify(target.strip())
+        return not (slug in existing or (self_slug and slug == self_slug))
+
+    def _sub(m: re.Match) -> str:
+        target = m.group(1)
+        return target if _is_dangling(target) else m.group(0)
+
+    # A "## Related" section is, in practice, nothing but [[links]] (the summariser's own format;
+    # normalize_wiki_page has already joined its lines into one). If every one of those is
+    # dangling, the section becomes a heading over a bare, delinked list with nothing left in it -
+    # drop the whole section rather than ship that. A section with any other content (real prose,
+    # or at least one link whose target already exists) is left alone. "Nothing but links" is
+    # judged by removing every [[link]] plus ordinary list punctuation and seeing if anything of
+    # substance remains, rather than assuming a particular line/bullet shape.
+    section_re = re.compile(r"(?im)^##\s*related\s*\n(?P<body>(?:(?!^##\s).)*)", re.DOTALL)
+
+    def _section_sub(m: re.Match) -> str:
+        body = m.group("body")
+        links = re.findall(r"\[\[([^\]]+)\]\]", body)
+        if not links:
+            return m.group(0)  # no links here at all - not this fix's concern, leave it alone
+        residual = re.sub(r"\[\[[^\]]+\]\]", "", body)
+        residual = re.sub(r"[-*,\s]+", "", residual)
+        if residual:
+            return m.group(0)  # real prose mixed in alongside the links - keep the section
+        if all(_is_dangling(t) for t in links):
+            return ""  # nothing but dangling links - drop heading and body together
+        return m.group(0)
+
+    page_md = section_re.sub(_section_sub, page_md)
+    return re.sub(r"\[\[([^\]]+)\]\]", _sub, page_md)
+
+
 def ingest(
     ws: Workspace,
     source: Path,
@@ -188,6 +237,13 @@ def ingest(
     if not first_h1(page_md):
         page_md = f"# {source.stem}\n\n{page_md}".strip()
 
+    title = first_h1(page_md) or source.stem
+    # Before tag_page appends its own trailing provenance comment below - that comment isn't
+    # wiki-link content, but _neutralize_dangling_links's "## Related" handling matches to the end
+    # of the page, and the comment's text would otherwise look like leftover prose in the section
+    # and stop a fully-dangling section from being dropped.
+    page_md = _neutralize_dangling_links(page_md, ws, self_title=title)
+
     # Record which model wrote this page so a later model upgrade can find and
     # renovate stale pages (see anthill.lifecycle).
     if writer_model:
@@ -201,7 +257,6 @@ def ingest(
             pipeline_model=pipeline_model,
         )
 
-    title = first_h1(page_md) or source.stem
     if on_write is not None:  # caller routes the page through a review gate
         on_write(title, page_md)
         return None
