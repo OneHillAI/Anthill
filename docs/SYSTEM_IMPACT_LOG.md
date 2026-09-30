@@ -26,6 +26,19 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Desktop splash screen shows the Anthill mark instead of a generic orange square - pending PR, prepared 2026-09-30
+**System impact:** the desktop shell's first screen (`src-tauri/splash/index.html`, shown while the
+Python backend boots) was an unbranded 64x64 orange-gradient square with "Starting Anthill". Founder
+report: "when the app is opened, it shows an orange square for loading." Redrawn as inline SVG/CSS
+(still zero external assets, zero network - the window renders before the backend or the app's own
+stylesheet exist): the green hill mark, five small ants running toward it, and the caption "We're on
+our way!". The background/accent now follow the OS light/dark setting using the app's real
+`--accent`/`--bg` tokens instead of always rendering dark, and `prefers-reduced-motion` freezes the
+animation.
+**Surface:** `src-tauri/splash/index.html` only; no Rust, `tauri.conf.json`, or boot-sequence changes.
+**User-visible:** yes - the loading screen every desktop launch briefly shows.
+**Footprint:** additive (content-only); no regression risk to the boot sequence itself.
+
 ### Document upload on a fresh Knowledge wiki actually publishes now - pending PR, prepared 2026-09-30
 **System impact:** founder report on v0.12.10: "document upload on the knowledge doesn't really
 work - it doesn't upload it, doesn't do anything, nor show the uploaded docs after." Two independent
