@@ -7358,6 +7358,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "active_wiki_tab": tab,
         "compute_ready": compute_ready,
         "setup_href": setup_href,
+        "upload_accept": ",".join(sorted(SUPPORTED_UPLOAD_EXT)),
     }
 
 

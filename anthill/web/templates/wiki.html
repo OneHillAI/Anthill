@@ -86,7 +86,7 @@
   <form method="post" action="/wiki/upload" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <input type="hidden" name="target_scope" value="{{ scope }}">
     {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
-    <input type="file" name="file" required accept=".md,.txt,.pdf,.png,.jpg,.jpeg,.gif,.webp">
+    <input type="file" name="file" required accept="{{ upload_accept }}">
     <button type="submit" class="btn btn-primary btn-sm">Upload</button>
     <label class="text-sm text-muted" style="display:flex;align-items:center;gap:5px;width:100%"><input type="checkbox" name="confirm_large_pdf" value="true"> Confirm larger PDF processing within Anthill's hard safety limits</label>
   </form>
