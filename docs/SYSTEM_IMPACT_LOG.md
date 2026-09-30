@@ -26,6 +26,24 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Model uninstall is now discoverable and inline - pending PR, prepared 2026-09-30
+**System impact:** founder QA: "this must be a solution for any user. They don't like a model. They
+need to be able to uninstall it. Otherwise, it uses gigabytes of space on the computer." The
+capability already worked (`/models#installed`'s Remove button) but took three navigation steps to
+reach. Two changes: (1) a red "Uninstall" control now sits directly next to a model's "installed"
+badge in the model list itself ("Change where it runs" in Settings, and the same list component
+elsewhere) - `fetch()`s the existing `/models/delete` route, no new endpoint, hidden for the
+currently-active model and during first-run setup. (2) The standalone "Model storage" card (this
+exact card's third placement move in a few days, all founder calls) relocated from a secondary
+"This device" tab into the main Model tab Settings opens on, as its own visible card before the
+Advanced disclosure. Spec: `docs/specs/model-storage-card-visible-in-model-tab.md`.
+**Surface:** `anthill/web/templates/_council_builder.html` (new inline control + `mcUninstall` JS),
+`anthill/web/templates/personalize.html` (card relocation + shared badge CSS).
+**User-visible:** yes - uninstalling a model no longer requires leaving the model list, and the
+storage card is where Settings actually opens.
+**Footprint:** no migration, no schema change, no new endpoint; 4 new tests; two existing placement
+tests updated (they asserted the location this change deliberately moves away from).
+
 ### Document upload on a fresh Knowledge wiki actually publishes now - pending PR, prepared 2026-09-30
 **System impact:** founder report on v0.12.10: "document upload on the knowledge doesn't really
 work - it doesn't upload it, doesn't do anything, nor show the uploaded docs after." Two independent

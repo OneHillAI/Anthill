@@ -106,6 +106,9 @@
   .mp-badge{font-size:11px;font-weight:700;border-radius:4px;padding:2px 7px}
   .mp-badge.rec{color:#fff;background:var(--accent,#2f6b4f)}
   .mp-badge.inst{color:var(--muted);background:var(--bg-subtle);border:1px solid var(--border)}
+  .mp-badge.uninstall{color:#fff;background:var(--danger,#A32D2D);border:none;cursor:pointer;font:inherit;font-size:11px;font-weight:700}
+  .mp-badge.uninstall:hover{opacity:.85}
+  .mp-badge.uninstall:disabled{opacity:.5;cursor:default}
   .mp-meta{font-size:var(--fs-1);color:var(--muted);margin-top:3px}
   .mp-fit{flex:none;text-align:right}
   .fit{font-size:var(--fs-1);font-weight:700;white-space:nowrap}
@@ -219,11 +222,20 @@
   </div>
   {% endif %}
 
+  {# A visible card, not nested in Advanced below: founder QA (2026-09-30) found "uninstall a
+     model" too buried to discover on its own ("This device" tab, Advanced-adjacent) for a user who
+     just wants to reclaim disk space. Lives in Model (the tab Settings opens on) since it's a fact
+     about the models this decision downloaded, not a device setting like Appearance - as its own
+     always-visible card rather than inside Advanced, so it doesn't repeat the exact "buried two
+     levels deep" complaint that moved it out of Advanced in the first place (2026-09-26 -> 09-29). #}
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Model storage<button type="button" class="help" aria-label="What this is">?<span class="help-pop">Every model you've ever downloaded or tried stays on disk until you remove it - switching models doesn't free the old one's space automatically.</span></button></h3></div>
+    <p class="set-note">{% if model_storage_gb %}{{ model_storage_gb }} GB on this device - downloaded models and cache.{% else %}Downloaded models and cache on this device.{% endif %}</p>
+    <a href="/models#installed" class="btn btn-outline btn-sm" style="margin-top:8px">Manage</a>
+  </div>
+
   {# Advanced, model-scoped setup - lives here, not under This device: these are decisions about which
-     model runs and where (founder ask, 2026-09-26). Model storage moved back out to This device on
-     2026-09-29 - disk usage is a device fact, not a "which model" decision, and nesting it inside this
-     disclosure added an unneeded extra layer to reach a page that's mostly just "how much space am I
-     using." #}
+     model runs and where (founder ask, 2026-09-26). #}
   <details class="card mb-2" style="padding:0">
     <summary style="cursor:pointer;font-weight:600;font-size:14px;padding:14px 16px;list-style:none">Advanced</summary>
     <div style="padding:0 16px 14px">
@@ -364,16 +376,6 @@
       <button type="button" onclick="anthillPickTheme(this,'dark')">Dark</button>
       <button type="button" onclick="anthillPickTheme(this,'system')">System</button>
     </div>
-  </div>
-  {# Moved out of Model -> Advanced (founder ask, 2026-09-29): disk usage is a device fact, not part
-     of the "which model, running where" decision - and it read as an extra buried sub-menu nested
-     two levels deep (Advanced disclosure -> Manage -> a whole separate page) for what a device-level
-     setting shouldn't need. This reverses the 2026-09-26 move in the other direction; both were the
-     same founder's own call, made a few days apart. #}
-  <div class="card mb-2">
-    <div class="set-cardh"><h3>Model storage</h3></div>
-    <p class="set-note">{% if model_storage_gb %}{{ model_storage_gb }} GB on this device - downloaded models and cache.{% else %}Downloaded models and cache on this device.{% endif %}</p>
-    <a href="/models#installed" class="btn btn-outline btn-sm" style="margin-top:8px">Manage</a>
   </div>
 </div>
 
