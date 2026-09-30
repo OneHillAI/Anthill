@@ -5,13 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Anthill</title>
     <style>
-      :root { color-scheme: light dark; }
+      :root {
+        color-scheme: light dark;
+        /* Same palette as the web app's :root tokens (anthill/web/static/style.css) so the splash
+           reads as a continuation of the app rather than a generic loader. Duplicated, not shared,
+           because this window renders before the backend exists to serve that stylesheet - the splash
+           must stay fully self-contained (no assets, no network; see the closing comment below). */
+        --bg: #F7F8FA;
+        --text: #20201E;
+        --accent: #2F6B4F;      /* the hill's dome - matches --accent */
+        --accent-dk: #255A41;   /* the hill's strata lines + ground - matches --accent-dk */
+        --hill-entrance: #0E2117;
+        --hill-shadow: rgba(20, 22, 28, .14);
+        --ant: #D48926;         /* matches assets/ant-mark.png's body colour */
+        --ant-dk: #A8631A;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #141619;
+          --text: #EAECEF;
+          --accent: #4E9E78;
+          --accent-dk: #3E8A66;
+          --hill-shadow: rgba(0, 0, 0, .42);
+        }
+      }
       html, body {
         height: 100%;
         margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #0f1115;
-        color: #e6e8ec;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
       }
       .wrap {
         height: 100%;
@@ -19,31 +42,176 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 18px;
+        gap: 22px;
       }
-      .mark {
-        width: 64px; height: 64px; border-radius: 16px;
-        background: linear-gradient(135deg, #ffb020, #ff7a18);
+
+      /* ── The hill (brand mark, redrawn as inline SVG - see assets/anthill-mark.png) ── */
+      .hill svg { display: block; width: 148px; height: auto; }
+      .hill-dome { fill: var(--accent); }
+      .hill-arc { fill: none; stroke: var(--accent-dk); stroke-width: 5; stroke-linecap: round; }
+      .hill-entrance { fill: var(--hill-entrance); }
+      .hill-ground { fill: var(--accent-dk); }
+      .hill-shadow { fill: var(--hill-shadow); }
+
+      /* ── The ants (running toward the hill) ──
+         Each <svg class="ant"> is a full, independent copy (not a shared <symbol>/<use>) so the
+         per-instance --d stagger is plain, guaranteed-to-inherit CSS custom-property cascade rather
+         than something riding on <use> shadow-tree inheritance. */
+      .trail {
+        display: flex;
+        align-items: flex-end;
+        gap: 9px;
+        animation: ant-creep 2.6s ease-in-out infinite;
       }
-      .label { font-size: 15px; letter-spacing: 0.2px; opacity: 0.85; }
-      .dots { display: flex; gap: 6px; }
-      .dot {
-        width: 7px; height: 7px; border-radius: 50%;
-        background: #ff9a2e;
-        animation: pulse 1.2s infinite ease-in-out;
+      .ant { display: block; width: 38px; height: auto; }
+      .ant-part { fill: var(--ant); }
+      .ant-eye { fill: var(--hill-entrance); }
+      .ant-antenna { fill: none; stroke: var(--ant-dk); stroke-width: 1.6; stroke-linecap: round; }
+      .ant-legs path {
+        fill: none; stroke: var(--ant-dk); stroke-width: 2.6;
+        stroke-linecap: round; stroke-linejoin: round;
       }
-      .dot:nth-child(2) { animation-delay: 0.15s; }
-      .dot:nth-child(3) { animation-delay: 0.3s; }
-      @keyframes pulse { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+      /* A 2-frame running cycle: legs-a and legs-b are the same three legs in two alternating
+         positions, hard-cut with steps(1) rather than crossfaded, so it reads as a quick trot
+         instead of a blur. The whole ant bobs in sync with the same cadence. */
+      .ant-legs-b { opacity: 0; }
+      .ant-body, .ant-legs-a, .ant-legs-b {
+        animation-duration: .32s;
+        animation-iteration-count: infinite;
+        animation-delay: var(--d, 0s);
+      }
+      .ant-body { animation-name: ant-bob; animation-timing-function: ease-in-out; }
+      .ant-legs-a { animation-name: ant-step-a; animation-timing-function: steps(1); }
+      .ant-legs-b { animation-name: ant-step-b; animation-timing-function: steps(1); }
+      @keyframes ant-step-a { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+      @keyframes ant-step-b { 0%, 49% { opacity: 0; } 50%, 100% { opacity: 1; } }
+      @keyframes ant-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.6px); } }
+      @keyframes ant-creep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(6px); } }
+
+      .caption { font-size: 20px; font-weight: 700; letter-spacing: .1px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .trail, .ant-body, .ant-legs-a, .ant-legs-b { animation: none !important; }
+        .ant-legs-a { opacity: 1; }
+        .ant-legs-b { opacity: 0; }
+      }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <div class="mark" aria-hidden="true"></div>
-      <div class="label">Starting Anthill</div>
-      <div class="dots" aria-hidden="true">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <div class="hill" aria-hidden="true">
+        <svg viewBox="0 0 200 130">
+          <ellipse class="hill-shadow" cx="100" cy="114" rx="76" ry="10" />
+          <path class="hill-dome" d="M20,106 A80,78 0 0 1 180,106 Z" />
+          <path class="hill-arc" d="M55,86 Q100,64 145,86" />
+          <path class="hill-arc" d="M62,98 Q100,80 138,98" />
+          <path class="hill-entrance" d="M90,106 Q90,66 100,66 Q110,66 110,106 Z" />
+          <rect class="hill-ground" x="16" y="103" width="168" height="8" rx="4" />
+        </svg>
       </div>
+      <div class="trail" aria-hidden="true">
+        <svg class="ant" viewBox="0 0 64 40" style="--d:0s">
+          <g class="ant-body">
+            <path class="ant-antenna" d="M46 10 Q51 2 57 4" />
+            <path class="ant-antenna" d="M46 11 Q50 5 55 9" />
+            <circle class="ant-part" cx="47" cy="14" r="4.2" />
+            <circle class="ant-eye" cx="48.6" cy="12.6" r="1" />
+            <ellipse class="ant-part" cx="38" cy="17" rx="6" ry="5" />
+            <ellipse class="ant-part" cx="23" cy="19" rx="10" ry="7.5" />
+            <g class="ant-legs ant-legs-a">
+              <path d="M42 18 L47 26 L50 34" />
+              <path d="M37 20 L36 28 L34 35" />
+              <path d="M31 19 L26 26 L20 33" />
+            </g>
+            <g class="ant-legs ant-legs-b">
+              <path d="M42 18 L44 27 L41 34" />
+              <path d="M37 20 L38 28 L40 35" />
+              <path d="M31 19 L29 27 L24 34" />
+            </g>
+          </g>
+        </svg>
+        <svg class="ant" viewBox="0 0 64 40" style="--d:0.07s">
+          <g class="ant-body">
+            <path class="ant-antenna" d="M46 10 Q51 2 57 4" />
+            <path class="ant-antenna" d="M46 11 Q50 5 55 9" />
+            <circle class="ant-part" cx="47" cy="14" r="4.2" />
+            <circle class="ant-eye" cx="48.6" cy="12.6" r="1" />
+            <ellipse class="ant-part" cx="38" cy="17" rx="6" ry="5" />
+            <ellipse class="ant-part" cx="23" cy="19" rx="10" ry="7.5" />
+            <g class="ant-legs ant-legs-a">
+              <path d="M42 18 L47 26 L50 34" />
+              <path d="M37 20 L36 28 L34 35" />
+              <path d="M31 19 L26 26 L20 33" />
+            </g>
+            <g class="ant-legs ant-legs-b">
+              <path d="M42 18 L44 27 L41 34" />
+              <path d="M37 20 L38 28 L40 35" />
+              <path d="M31 19 L29 27 L24 34" />
+            </g>
+          </g>
+        </svg>
+        <svg class="ant" viewBox="0 0 64 40" style="--d:0.14s">
+          <g class="ant-body">
+            <path class="ant-antenna" d="M46 10 Q51 2 57 4" />
+            <path class="ant-antenna" d="M46 11 Q50 5 55 9" />
+            <circle class="ant-part" cx="47" cy="14" r="4.2" />
+            <circle class="ant-eye" cx="48.6" cy="12.6" r="1" />
+            <ellipse class="ant-part" cx="38" cy="17" rx="6" ry="5" />
+            <ellipse class="ant-part" cx="23" cy="19" rx="10" ry="7.5" />
+            <g class="ant-legs ant-legs-a">
+              <path d="M42 18 L47 26 L50 34" />
+              <path d="M37 20 L36 28 L34 35" />
+              <path d="M31 19 L26 26 L20 33" />
+            </g>
+            <g class="ant-legs ant-legs-b">
+              <path d="M42 18 L44 27 L41 34" />
+              <path d="M37 20 L38 28 L40 35" />
+              <path d="M31 19 L29 27 L24 34" />
+            </g>
+          </g>
+        </svg>
+        <svg class="ant" viewBox="0 0 64 40" style="--d:0.21s">
+          <g class="ant-body">
+            <path class="ant-antenna" d="M46 10 Q51 2 57 4" />
+            <path class="ant-antenna" d="M46 11 Q50 5 55 9" />
+            <circle class="ant-part" cx="47" cy="14" r="4.2" />
+            <circle class="ant-eye" cx="48.6" cy="12.6" r="1" />
+            <ellipse class="ant-part" cx="38" cy="17" rx="6" ry="5" />
+            <ellipse class="ant-part" cx="23" cy="19" rx="10" ry="7.5" />
+            <g class="ant-legs ant-legs-a">
+              <path d="M42 18 L47 26 L50 34" />
+              <path d="M37 20 L36 28 L34 35" />
+              <path d="M31 19 L26 26 L20 33" />
+            </g>
+            <g class="ant-legs ant-legs-b">
+              <path d="M42 18 L44 27 L41 34" />
+              <path d="M37 20 L38 28 L40 35" />
+              <path d="M31 19 L29 27 L24 34" />
+            </g>
+          </g>
+        </svg>
+        <svg class="ant" viewBox="0 0 64 40" style="--d:0.28s">
+          <g class="ant-body">
+            <path class="ant-antenna" d="M46 10 Q51 2 57 4" />
+            <path class="ant-antenna" d="M46 11 Q50 5 55 9" />
+            <circle class="ant-part" cx="47" cy="14" r="4.2" />
+            <circle class="ant-eye" cx="48.6" cy="12.6" r="1" />
+            <ellipse class="ant-part" cx="38" cy="17" rx="6" ry="5" />
+            <ellipse class="ant-part" cx="23" cy="19" rx="10" ry="7.5" />
+            <g class="ant-legs ant-legs-a">
+              <path d="M42 18 L47 26 L50 34" />
+              <path d="M37 20 L36 28 L34 35" />
+              <path d="M31 19 L26 26 L20 33" />
+            </g>
+            <g class="ant-legs ant-legs-b">
+              <path d="M42 18 L44 27 L41 34" />
+              <path d="M37 20 L38 28 L40 35" />
+              <path d="M31 19 L29 27 L24 34" />
+            </g>
+          </g>
+        </svg>
+      </div>
+      <div class="caption">We're on our way!</div>
     </div>
     <!-- The shell navigates this window to http://127.0.0.1:<port> once the backend is up. -->
   </body>
