@@ -26,6 +26,17 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### `/chat/download` answers 400, not 422, for empty content - pending PR, prepared 2026-09-30
+**System impact:** post-launch check on the new public repo (core-dev's punch list). `content` was a
+required `Form` field, so an omitted or empty value tripped FastAPI's own validation with a bare
+`422` before the route's own friendly `"nothing to export"` `400` check ever ran. Made the field
+default to `""` so both cases reach that existing check - no new branch, no new error shape.
+Anthill's own UI always sends non-empty content, so this never surfaced in normal use; found by
+reading the route directly, not from a bug report.
+**Surface:** `anthill/web/app.py` (`chat_download`).
+**User-visible:** no - internal/API-consumer-only; the app's own JS caller was never affected.
+**Footprint:** no migration, no schema change; 1 new test.
+
 ### Thumbs feedback is now visible, and a downvote actually affects training data - pending PR, prepared 2026-09-30
 **System impact:** founder QA on v0.12.9, live on real hardware: "thumbs up and down in chat doesn't
 seem to work." Reproduction showed the rating itself was always recorded correctly (server round-trip,
