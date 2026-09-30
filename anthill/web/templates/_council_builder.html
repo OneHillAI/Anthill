@@ -77,6 +77,34 @@
       <div class="mp-fit">{% if m.offload %}<span class="fit warn">Runs, slower</span>{% elif m.tight %}<span class="fit warn">Runs, tight</span>{% else %}<span class="fit ok">Fits</span>{% endif %}</div>
     </label>
     {% endfor %}{% endfor %}
+    {# Installed but not in the curated catalog above: an older pull no longer curated (founder
+       question, 2026-09-30 - "why does mistral:7b not show up? 16GB should work" - not a fit
+       problem, the catalog is a deliberately small ~29-model curated list, not every model Ollama
+       can run), one grabbed via /models' "pull a model by tag", or a non-chat model like the
+       embedding model this app itself uses. Real row, real checkbox, same as any catalog entry -
+       founder pushback: "these are core models... why should they not be in the normal list?" A
+       single-model selection already accepts any tag with no catalog check (_apply_solo_compute);
+       only a MULTI-model council's memory-fit sum needs each member's params_b, which these don't
+       have, so it silently contributes 0 GB for one of these if picked into a 2-3 model council on
+       a >=24GB machine - the same gap a manually pulled custom single model already has today, not
+       a new one. "Fits" is shown unconditionally rather than computed: it's already downloaded and
+       has already been running on this exact machine, which is stronger evidence than the
+       catalog's own params_b-based estimate for everything else in this list. #}
+    {% for m in other_installed if not in_setup %}
+    <label class="mp-row council-row">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <div class="mp-main">
+        <div class="mp-name"><code>{{ m.tag }}</code> <span class="lead-badge mp-badge rec" hidden>Lead</span>
+          <span class="mp-badge inst">installed</span>
+          {% if m.tag not in current_council_tags %}
+          <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.tag }}')">Uninstall</button>
+          {% endif %}
+        </div>
+        <div class="mp-meta">{{ m.size_gb }} GB &middot; not in the curated list</div>
+      </div>
+      <div class="mp-fit"><span class="fit ok">Fits</span></div>
+    </label>
+    {% endfor %}
   </div>
   {% set ns2 = namespace(big=false) %}
   {% for fam in families %}{% for m in fam.models if not m.fits %}{% set ns2.big = true %}{% endfor %}{% endfor %}

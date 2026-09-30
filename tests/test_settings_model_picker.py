@@ -63,8 +63,11 @@ def test_uninstall_button_next_to_installed_badge_hides_for_the_active_model(tmp
 
     monkeypatch.setattr(
         ollama_mod.OllamaBackend,
-        "installed_models",
-        lambda self: ["qwen3.5:4b", "nemotron-3-nano:4b"],
+        "installed_models_with_sizes",
+        lambda self: [
+            {"name": "qwen3.5:4b", "size_bytes": 3_200_000_000},
+            {"name": "nemotron-3-nano:4b", "size_bytes": 2_600_000_000},
+        ],
     )
     c, _ = _client(tmp_path, monkeypatch)  # ollama_model="qwen2.5:7b" is NOT in this installed list
     # Reconfigure the current model to one of the two "installed" tags, so it's the row under test.
@@ -77,14 +80,18 @@ def test_uninstall_button_next_to_installed_badge_hides_for_the_active_model(tmp
 
     body = c.get("/personalize").text
     assert "mcUninstall(this, 'qwen3.5:4b')" not in body  # the active/lead model: no uninstall
-    assert "mcUninstall(this, 'nemotron-3-nano:4b')" in body  # installed, not active: uninstall offered
+    assert (
+        "mcUninstall(this, 'nemotron-3-nano:4b')" in body
+    )  # installed, not active: uninstall offered
 
 
 def test_uninstall_button_is_never_shown_during_first_run_setup(tmp_path, monkeypatch):
     import anthill.inference.ollama as ollama_mod
 
     monkeypatch.setattr(
-        ollama_mod.OllamaBackend, "installed_models", lambda self: ["nemotron-3-nano:4b"]
+        ollama_mod.OllamaBackend,
+        "installed_models_with_sizes",
+        lambda self: [{"name": "nemotron-3-nano:4b", "size_bytes": 2_600_000_000}],
     )
     c, app_mod = _client(tmp_path, monkeypatch)
     from anthill.web.db import OrgSettings
@@ -96,6 +103,52 @@ def test_uninstall_button_is_never_shown_during_first_run_setup(tmp_path, monkey
     assert "installed" in body  # the badge itself still shows
     # the mcUninstall() JS function is always defined (shared script), but no row should call it
     assert "mcUninstall(this," not in body  # no uninstall control during setup
+
+
+def test_non_catalog_installed_model_is_a_real_selectable_row(tmp_path, monkeypatch):
+    # Founder pushback, 2026-09-30: "these are core models [Qwen, Mistral, Llama, Granite]... why
+    # should they not be in the normal list?" mistral:7b (an older, no-longer-curated Mistral release
+    # - the catalog has "Mistral Small 3 24B" instead) fits this machine trivially but isn't a
+    # catalog entry, so it used to be invisible everywhere in this picker. It's not second-class:
+    # real checkbox, same council_models mechanism as any catalog row - _apply_solo_compute already
+    # accepts an arbitrary tag for a single-model selection with no catalog-membership check at all.
+    import anthill.inference.ollama as ollama_mod
+
+    monkeypatch.setattr(
+        ollama_mod.OllamaBackend,
+        "installed_models_with_sizes",
+        lambda self: [{"name": "mistral:7b", "size_bytes": 4_400_000_000}],
+    )
+    c, _ = _client(tmp_path, monkeypatch)
+    body = c.get("/personalize").text
+    assert 'value="mistral:7b"' in body  # a real checkbox value, not just a badge
+    assert 'name="council_models"' in body.split('value="mistral:7b"')[0][-200:]  # same input
+    assert "mcUninstall(this, 'mistral:7b')" in body  # still removable, like any installed model
+    assert "not in the curated list" in body  # labelled honestly, not passed off as a catalog pick
+
+
+def test_selecting_a_non_catalog_installed_model_as_lead_saves_with_no_catalog_check(
+    tmp_path, monkeypatch
+):
+    import anthill.inference.ollama as ollama_mod
+
+    monkeypatch.setattr(
+        ollama_mod.OllamaBackend,
+        "installed_models_with_sizes",
+        lambda self: [{"name": "mistral:7b", "size_bytes": 4_400_000_000}],
+    )
+    c, app_mod = _client(tmp_path, monkeypatch)
+    from anthill.web.db import OrgSettings
+
+    r = c.post(
+        "/personalize/compute",
+        data={"compute": "local", "council_models": ["mistral:7b"], "council_lead": "mistral:7b"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    assert "error" not in r.headers["location"]
+    cfg = app_mod._SessionFactory().query(OrgSettings).first()
+    assert cfg.ollama_model == "mistral:7b"
 
 
 def test_origin_region_bucketing():

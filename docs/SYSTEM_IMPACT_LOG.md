@@ -26,23 +26,39 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
-### Model uninstall is now discoverable and inline - pending PR, prepared 2026-09-30
+### Model uninstall is now discoverable and inline - pending PR, prepared 2026-10-01
 **System impact:** founder QA: "this must be a solution for any user. They don't like a model. They
 need to be able to uninstall it. Otherwise, it uses gigabytes of space on the computer." The
 capability already worked (`/models#installed`'s Remove button) but took three navigation steps to
-reach. Two changes: (1) a red "Uninstall" control now sits directly next to a model's "installed"
+reach. Three changes: (1) a red "Uninstall" control now sits directly next to a model's "installed"
 badge in the model list itself ("Change where it runs" in Settings, and the same list component
 elsewhere) - `fetch()`s the existing `/models/delete` route, no new endpoint, hidden for the
 currently-active model and during first-run setup. (2) The standalone "Model storage" card (this
 exact card's third placement move in a few days, all founder calls) relocated from a secondary
 "This device" tab into the main Model tab Settings opens on, as its own visible card before the
-Advanced disclosure. Spec: `docs/specs/model-storage-card-visible-in-model-tab.md`.
-**Surface:** `anthill/web/templates/_council_builder.html` (new inline control + `mcUninstall` JS),
-`anthill/web/templates/personalize.html` (card relocation + shared badge CSS).
-**User-visible:** yes - uninstalling a model no longer requires leaving the model list, and the
-storage card is where Settings actually opens.
-**Footprint:** no migration, no schema change, no new endpoint; 4 new tests; two existing placement
-tests updated (they asserted the location this change deliberately moves away from).
+Advanced disclosure. (3) Founder pushback after seeing (1) and (2) live - "these are core models...
+why should they not be there in the normal list?" - surfaced a real architectural gap: the curated
+catalog only has ~29 entries, so 9 of 13 actually-installed models on the founder's own machine
+(including a plain `mistral:7b`) were invisible everywhere in this picker, not just harder to reach.
+Fixed by adding `OllamaBackend.installed_models_with_sizes()` and a new `other_installed` list (every
+installed tag not in the catalog) that `_council_builder.html` renders as real, checkbox-selectable
+`.mp-list` rows - the same `council_models` mechanism as any catalog row, safe because
+`_apply_solo_compute` already has no catalog-membership check for a single-model selection - each
+labelled honestly ("not in the curated list") rather than segregated into a separate read-only
+section, which was the first (founder-rejected) attempt. Spec:
+`docs/specs/model-storage-card-visible-in-model-tab.md`.
+**Surface:** `anthill/inference/ollama.py` (`installed_models_with_sizes()`, `installed_models()` now
+delegates to it), `anthill/web/app.py` (`other_installed` in `_model_picker_view` and the
+`personalize()` route context), `anthill/web/templates/_council_builder.html` (inline Uninstall
+control + `mcUninstall` JS + the merged non-catalog rows), `anthill/web/templates/personalize.html`
+(card relocation + shared badge CSS).
+**User-visible:** yes - uninstalling a model no longer requires leaving the model list, the storage
+card is where Settings actually opens, and every installed model is a real, selectable row whether or
+not it's in the curated catalog.
+**Footprint:** no migration, no schema change, no new endpoint; 8 new tests (4 in
+`tests/test_settings_model_picker.py`, 2 in `tests/test_ollama_serving.py`, plus the 2 placement
+tests below); two existing placement tests updated (they asserted the location this change
+deliberately moves away from).
 
 ### Document upload on a fresh Knowledge wiki actually publishes now - pending PR, prepared 2026-09-30
 **System impact:** founder report on v0.12.10: "document upload on the knowledge doesn't really

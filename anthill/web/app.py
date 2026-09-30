@@ -2384,8 +2384,24 @@ def _model_picker_view(cfg):
     # Only relevant on a discrete GPU box (the CPU-offload spill target); None elsewhere/if unreadable,
     # which safely degrades `fit_tier` to never offering "offload" (docs/specs/local-moe-offload-fit.md).
     system_ram_gb = gpu_box_system_ram_gb() if kind == "gpu" else None
-    installed = (
-        set(OllamaBackend(cfg.ollama_url, cfg.ollama_model).installed_models()) if cfg else set()
+    _ollama = OllamaBackend(cfg.ollama_url, cfg.ollama_model) if cfg else None
+    _installed_with_sizes = _ollama.installed_models_with_sizes() if _ollama else []
+    installed = {m["name"] for m in _installed_with_sizes}
+    # Every installed model that ISN'T in the curated catalog above (an older pull, a model the
+    # catalog dropped, one grabbed via /models' "pull a model by tag", or a non-chat model like the
+    # embedding model this app itself uses) - founder ask, 2026-09-30: a model doesn't stop existing
+    # just because it isn't in the curated list; if it's on disk, it belongs in the same "what's
+    # installed, what can I remove" picture as everything else, not a second, separate page. On this
+    # test machine 9 of 13 actually-installed tags fell outside the curated 23, so this is the common
+    # case, not an edge case.
+    _catalog_tags = {m.ollama_tag for m in LOCAL_CATALOG}
+    other_installed = sorted(
+        (
+            {"tag": m["name"], "size_gb": round(m["size_bytes"] / 1e9, 1)}
+            for m in _installed_with_sizes
+            if m["name"] and m["name"] not in _catalog_tags
+        ),
+        key=lambda m: m["tag"],
     )
 
     def _tier(m):
@@ -2526,6 +2542,7 @@ def _model_picker_view(cfg):
         "intel_max": intel_max,
         "default_tag": default_tag.ollama_tag if default_tag else "",
         "installed": sorted(installed),
+        "other_installed": other_installed,
         "is_solo": is_solo,
         "compute_options": compute_options,
         "suggestion_mode": suggestion.mode,
@@ -5858,6 +5875,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             ),
             "intel_max": (picker or {}).get("intel_max", 1.0),
             "cloud_models": (picker or {}).get("cloud_models", []),
+            "other_installed": (picker or {}).get("other_installed", []),
             "fields": _PROFILE_FIELDS,
             "profile": (me.profile if me else "") or "",
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,

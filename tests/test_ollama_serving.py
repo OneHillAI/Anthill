@@ -181,6 +181,39 @@ def test_installed_models_survives_a_non_json_response(monkeypatch):
     assert ollama.OllamaBackend(_LOCAL, "").installed_models() == []
 
 
+def test_installed_models_with_sizes_returns_name_and_size_pairs(monkeypatch):
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "models": [
+                    {"name": "mistral:7b", "size": 4_400_000_000},
+                    {"name": "qwen3.5:9b", "size": 6_100_000_000},
+                ]
+            }
+
+    monkeypatch.setattr(ollama.httpx, "get", lambda *a, **k: _Resp())
+    got = ollama.OllamaBackend(_LOCAL, "").installed_models_with_sizes()
+    assert got == [
+        {"name": "mistral:7b", "size_bytes": 4_400_000_000},
+        {"name": "qwen3.5:9b", "size_bytes": 6_100_000_000},
+    ]
+
+
+def test_installed_models_with_sizes_survives_a_non_json_response(monkeypatch):
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    monkeypatch.setattr(ollama.httpx, "get", lambda *a, **k: _Resp())
+    assert ollama.OllamaBackend(_LOCAL, "").installed_models_with_sizes() == []
+
+
 def test_resident_models_survives_a_non_json_response(monkeypatch):
     class _Resp:
         def raise_for_status(self):

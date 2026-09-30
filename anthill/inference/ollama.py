@@ -319,10 +319,20 @@ class OllamaBackend:
         whatever is on ``base_url`` (e.g. mid-restart, or a different service on that port) is
         treated the same as unreachable - callers on a request-handling path (first-run setup,
         Settings) must not 500 on a malformed probe (mirrors ``context_window``'s own guarantee)."""
+        return [m["name"] for m in self.installed_models_with_sizes()]
+
+    def installed_models_with_sizes(self) -> list[dict]:
+        """Every locally installed model as ``{"name": tag, "size_bytes": int}``, in whatever order
+        Ollama's own ``/api/tags`` returns them. Same never-raises guarantee as ``installed_models``
+        (which this backs) - a caller wanting sizes (e.g. the "installed but not in the curated
+        catalog" list in the model picker) gets one probe instead of two."""
         try:
             resp = httpx.get(f"{self.base_url}/api/tags", timeout=10)
             resp.raise_for_status()
-            return [m.get("name", "") for m in resp.json().get("models", [])]
+            return [
+                {"name": m.get("name", ""), "size_bytes": m.get("size", 0)}
+                for m in resp.json().get("models", [])
+            ]
         except (httpx.HTTPError, ValueError):
             return []
 
