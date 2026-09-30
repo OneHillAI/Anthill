@@ -12704,7 +12704,7 @@ async def memory_to_wiki(
 
 @app.post("/chat/download")
 async def chat_download(
-    content: str = Form(...),
+    content: str = Form(""),
     format: str = Form("pdf"),
     title: str = Form(""),
     user: dict = Depends(_require_user),

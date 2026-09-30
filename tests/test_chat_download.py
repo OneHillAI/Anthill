@@ -92,6 +92,19 @@ def test_download_rejects_bad_format_and_empty(tmp_path, monkeypatch):
     assert client.post("/chat/download", data={"content": "   ", "format": "md"}).status_code == 400
 
 
+def test_download_with_no_content_field_is_a_friendly_400_not_a_422(tmp_path, monkeypatch):
+    # content used to be a required Form field, so omitting it (or posting content="") never
+    # reached the "nothing to export" check below - FastAPI's own validation answered a bare
+    # 422 first. Found post-launch: the client always sends the field, but anything hitting this
+    # route directly (or a future caller) shouldn't get a raw validation error for an empty answer.
+    client, ids = _app(tmp_path, monkeypatch)
+    _auth(client, ids["member"], ids["org"])
+    r = client.post("/chat/download", data={"format": "md"})
+    assert r.status_code == 400
+    assert r.json()["error"] == "nothing to export"
+    assert client.post("/chat/download", data={"content": "", "format": "md"}).status_code == 400
+
+
 def test_download_requires_login(tmp_path, monkeypatch):
     client, _ids = _app(tmp_path, monkeypatch)
     r = client.post("/chat/download", data={"content": "x", "format": "md"}, follow_redirects=False)
