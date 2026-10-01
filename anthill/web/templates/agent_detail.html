@@ -32,7 +32,7 @@
   </form>
   {% if can_write %}
   <form method="post" action="/agents/{{ agent.id }}/delete" style="margin:0"
-        onsubmit="return confirm('Delete this agent and its pending approvals?')">
+        data-confirm="Delete this agent and its pending approvals?">
     <button class="btn btn-danger btn-sm">Delete</button>
   </form>
   {% endif %}

@@ -143,7 +143,7 @@
         {% if s.status != 'approved' %}<form method="post" action="/mcp/servers/{{ s.id }}/approve" style="margin:0"><button class="btn btn-success btn-sm">Approve</button></form>{% endif %}
         {% if s.status not in ['approved', 'rejected'] %}<form method="post" action="/mcp/servers/{{ s.id }}/reject" style="margin:0" onsubmit="this.reason.value = prompt('Reason (optional):') || ''"><input type="hidden" name="reason"><button class="btn btn-outline btn-sm">Reject</button></form>{% endif %}
         {% if s.status == 'approved' %}<form method="post" action="/mcp/servers/{{ s.id }}/disable" style="margin:0"><button class="btn btn-outline btn-sm">Disable</button></form>{% endif %}
-        <form method="post" action="/mcp/servers/{{ s.id }}/remove" style="margin:0"><button class="btn btn-danger btn-sm" onclick="return confirm('Remove {{ s.name }}?')">✕</button></form>
+        <form method="post" action="/mcp/servers/{{ s.id }}/remove" style="margin:0"><button class="btn btn-danger btn-sm" data-confirm="Remove {{ s.name }}?">✕</button></form>
       </div>
       {% if s.last_error %}<div class="text-sm" style="color:var(--danger);margin-top:4px">{{ s.last_error }}</div>{% endif %}
       {% if s.status == 'rejected' and s.reject_reason %}<div class="text-sm text-muted" style="margin-top:4px">Rejected: {{ s.reject_reason }}</div>{% endif %}
@@ -231,7 +231,7 @@
         <form method="post" action="/connectors/mcp/consumers/{{ con.id }}/approve" style="display:inline"><button class="btn btn-outline btn-sm">Approve</button></form>
         {% endif %}
         {% if con.status != 'revoked' %}
-        <form method="post" action="/connectors/mcp/consumers/{{ con.id }}/revoke" style="display:inline"><button class="btn btn-outline btn-sm" onclick="return confirm('Revoke this consumer? Its token stops working immediately.')">Revoke</button></form>
+        <form method="post" action="/connectors/mcp/consumers/{{ con.id }}/revoke" style="display:inline"><button class="btn btn-outline btn-sm" data-confirm="Revoke this consumer? Its token stops working immediately.">Revoke</button></form>
         {% endif %}
       </td>
     </tr>
@@ -362,10 +362,16 @@ function mcpTransport(v) {
   document.getElementById('mcp-cmd').style.display = (v === 'stdio') ? 'block' : 'none';
 }
 function confirmExpose(form) {
-  if (form.mcp_server_enabled.checked) {
-    return confirm('You are exposing your org brain (the checked resources) to external tools that hold the token. Approve?');
-  }
-  return true;
+  // window.confirm() is a no-op in the packaged Tauri webview, so confirm via the shared in-DOM
+  // dialog (base.html) and re-submit on approval. Only asks when actually turning exposure ON.
+  if (!form.mcp_server_enabled.checked) return true;                       // not exposing -> submit
+  if (form.__ahConfirmed) { form.__ahConfirmed = false; return true; }     // approved -> submit
+  anthillConfirm('You are exposing your org brain (the checked resources) to external tools that hold the token. Approve?').then(function (ok) {
+    if (!ok) return;
+    form.__ahConfirmed = true;
+    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+  });
+  return false;                                                           // block; async resubmits
 }
 </script>
 {% endblock %}

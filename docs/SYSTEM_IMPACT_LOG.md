@@ -26,6 +26,12 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Destructive confirmations work in the packaged desktop; model-storage list removed - pending PR, prepared 2026-10-01
+**System impact:** every destructive action gated by a native confirm silently did nothing in the packaged Tauri webview (no native JS dialogs); a shared in-DOM confirm (`data-confirm` / `window.anthillConfirm`) now gates them all, so uninstall, deletes, revokes and the rest work in the desktop app. The model picker's per-model Uninstall works, and the separate raw model-storage list is gone.
+**Surface:** `anthill/web/templates/base.html` (shared `#ah-confirm` dialog + delegated click/submit handler); `_council_builder.html` (per-model Uninstall); about 15 templates converted to `data-confirm` / `anthillConfirm`; `models.html` and `personalize.html` drop the storage list.
+**User-visible:** yes: destructive buttons now actually work in the desktop app; the separate model-storage list is removed (uninstall is per-model in the picker).
+**Footprint:** refactor; UI-only, no endpoint or schema change (the `/models/delete` route is unchanged); risk is low and contained to the web templates.
+
 ### Rotated the Tauri auto-updater's signing key before first release - pending PR, prepared 2026-10-01
 **System impact:** the desktop app's auto-update signing key (minisign key 433C4DC5, generated during
 the clean-slate launch prep) had its password lost - never captured anywhere the founder could

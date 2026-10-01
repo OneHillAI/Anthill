@@ -30,7 +30,7 @@
   <div class="sugg-actions">
     <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open to edit before approving">Adjust</a>
     <form method="post" action="{{ it.approve }}"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-primary btn-sm">Approve</button></form>
-    <form method="post" action="{{ it.reject }}" onsubmit="return confirm('Dismiss this suggestion?')"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
+    <form method="post" action="{{ it.reject }}" data-confirm="Dismiss this suggestion?"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
   </div>
 </div>
 {% endfor %}

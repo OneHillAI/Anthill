@@ -57,7 +57,7 @@
       </form>
       {% endif %}
       <form method="post" action="/snippets/{{ s.id }}/delete" style="margin:0"
-            onsubmit="return confirm('Delete this snippet?')">
+            data-confirm="Delete this snippet?">
         <button class="btn btn-danger btn-sm">✕</button>
       </form>
     </div>

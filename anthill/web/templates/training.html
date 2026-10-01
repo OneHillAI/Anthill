@@ -248,11 +248,13 @@ ollama create myorg-model -f ./myorg-adapter/Modelfile</pre>
 <script>
 // showToast + toastAfter + the queued-toast reader are global (base.html).
 function trainNow() {
-  if (!confirm('Queue a training run now? It exports your org gold (PII-scrubbed), fine-tunes on the connected backend, and promotes a new model only if it beats the current one.')) return;
-  fetch('/training/run', { method: 'POST' })
-    .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
-    .then(function (d) { showToast(d.detail || (d.ok ? 'Training started.' : 'Could not start.'), d.ok ? 'success' : 'error'); })
-    .catch(function () { showToast('Could not reach the server.', 'error'); });
+  anthillConfirm('Queue a training run now? It exports your org gold (PII-scrubbed), fine-tunes on the connected backend, and promotes a new model only if it beats the current one.').then(function (ok) {
+    if (!ok) return;
+    fetch('/training/run', { method: 'POST' })
+      .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
+      .then(function (d) { showToast(d.detail || (d.ok ? 'Training started.' : 'Could not start.'), d.ok ? 'success' : 'error'); })
+      .catch(function () { showToast('Could not reach the server.', 'error'); });
+  });
 }
 function trainingTest() {
   // Validate the training backend's config/credentials (no GPU launched), then reload to refresh status.

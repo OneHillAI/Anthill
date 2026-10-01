@@ -115,7 +115,7 @@
       {% if m.id != user.sub|int and m.active %}
       <form method="post" action="/users/{{ m.id }}/deactivate" style="display:inline">
         <button class="btn btn-danger btn-sm"
-                onclick="return confirm('Deactivate {{ m.email }}?')">Deactivate</button>
+                data-confirm="Deactivate {{ m.email }}?">Deactivate</button>
       </form>
       {% endif %}
     </td>

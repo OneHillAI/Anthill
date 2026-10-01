@@ -42,7 +42,7 @@
     <b>Restart Anthill</b> after restoring.
   </p>
   <form method="post" action="/backup/restore" enctype="multipart/form-data"
-        onsubmit="return confirm('Restore from this backup? It overwrites the current data (a safety copy is taken first), and you will need to restart Anthill.');">
+        data-confirm="Restore from this backup? It overwrites the current data (a safety copy is taken first), and you will need to restart Anthill.">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <input type="file" name="file" accept=".gz,.tar.gz,application/gzip" required>
       <button type="submit" class="btn btn-outline"><i data-lucide="upload">⬆️</i> Restore</button>
