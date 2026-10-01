@@ -24,9 +24,15 @@
   </p>
   {% if not mcp_available %}
   <p class="text-sm" style="margin:0;color:var(--danger)">
-    The MCP runtime is not installed here. It needs <b>Python 3.10+</b> and
+    {% if is_packaged %}
+    Something needed for integrations to work is missing from this install. You can still add
+    connectors below; they will start working once this is fixed. If reinstalling the latest
+    version of Anthill doesn't resolve it, let us know.
+    {% else %}
+    The MCP runtime is not installed in this dev environment. It needs <b>Python 3.10+</b> and
     <code>pip install -e ".[mcp]"</code>. You can still register servers; their tools
     activate once the runtime is available.
+    {% endif %}
   </p>
   {% endif %}
 </div>
@@ -151,10 +157,16 @@
 <div class="card" style="text-align:center;padding:30px"><p class="text-muted">No MCP servers yet. Add one above to give agents new tools without writing code.</p></div>
 {% endif %}
 
-<hr style="margin:26px 0;border:none;border-top:1px solid var(--border)">
-
+{# UI/UX review, 2026-10-01: this is a different feature from everything above - exposing Anthill
+   OUT to other tools, not connecting a tool IN - and had zero visual separation from the connector
+   gallery, so a user just wanting to connect Slack scrolled through org-brain-exposure config that
+   doesn't apply to them. Collapsed by default (not removed - a Solo account can still want this,
+   e.g. to expose their own wiki to another local tool); the gallery and server-exposure cases are
+   clearly two different sections now, not one long page. #}
+<details class="mb-2" style="margin-top:26px" {% if cfg and cfg.mcp_server_enabled %}open{% endif %}>
+  <summary style="cursor:pointer;font-weight:600;font-size:15px;padding:10px 0;border-top:1px solid var(--border)">Advanced: expose Anthill over MCP (let other tools query it)</summary>
+  <div style="margin-top:4px">
 <div class="card mb-2" style="background:var(--bg-subtle)">
-  <h2 style="font-size:16px;margin:0 0 8px">Expose Anthill over MCP (server)</h2>
   <p class="text-sm" style="margin:0">
     Let other tools query your org brain over MCP. <b>Off by default.</b> You choose exactly which
     resources are exposed, each external <b>consumer</b> gets its own scoped token and (in review
@@ -263,6 +275,8 @@
 {% else %}
 <div class="card" style="text-align:center;padding:20px"><p class="text-muted">No external MCP access yet.</p></div>
 {% endif %}
+  </div>
+</details>
 
 <script>
 const CONNECTOR_CATALOG = {{ catalog|tojson }};

@@ -63,7 +63,7 @@
     "auth": {"type": "oauth", "fields": []},
     "scopes": ["search pages", "read a page", "query a database"],
     "provides_files": true,
-    "guided": false,
+    "guided": true,
     "setup_url": "https://www.notion.so/help/mcp",
     "note": "Authorise Anthill from your Notion workspace during setup."
   },
@@ -85,8 +85,9 @@
     },
     "scopes": ["read repos", "search code", "read and comment on issues and PRs"],
     "provides_files": false,
-    "guided": true,
-    "setup_url": "https://github.com/github/github-mcp-server"
+    "guided": false,
+    "setup_url": "https://github.com/github/github-mcp-server",
+    "note": "Create a GitHub personal access token with the scopes you need, then paste it. Anthill stores it encrypted and runs the connector with it."
   },
   {
     "id": "linear",
@@ -100,7 +101,7 @@
     "auth": {"type": "oauth", "fields": []},
     "scopes": ["read and create issues", "read projects"],
     "provides_files": false,
-    "guided": false,
+    "guided": true,
     "setup_url": "https://linear.app/docs/mcp",
     "note": "Authorise Anthill in Linear during setup."
   },
@@ -132,7 +133,7 @@
     "auth": {"type": "oauth", "fields": []},
     "scopes": ["read issues", "read events"],
     "provides_files": false,
-    "guided": false,
+    "guided": true,
     "setup_url": "https://docs.sentry.io/product/sentry-mcp/",
     "note": "Authorise Anthill in Sentry during setup."
   },
@@ -154,7 +155,7 @@
     },
     "scopes": ["read channels", "read messages", "post a message"],
     "provides_files": false,
-    "guided": true,
+    "guided": false,
     "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
     "note": "Create a Slack bot, then paste its token and your team ID. Anthill stores them encrypted and runs the connector with them."
   },
@@ -175,7 +176,7 @@
     },
     "scopes": ["read channels", "read messages", "post a message"],
     "provides_files": false,
-    "guided": true,
+    "guided": false,
     "setup_url": "https://www.npmjs.com/package/@pasympa/discord-mcp",
     "note": "Community MCP server (not an official Anthropic/Discord package), pinned to a reviewed version (@2.0.0) so a later release cannot silently change what runs with your bot token - review its scopes before use. Create a Discord application and bot, invite it with only the permissions you need, then paste its token. Anthill stores it encrypted and runs the connector with it."
   },

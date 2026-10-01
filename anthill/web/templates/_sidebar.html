@@ -229,6 +229,7 @@
         <a href="/personalize#personality">Personality</a>
         <a href="/personalize#privacy">Privacy</a>
         <a href="/personalize#device">This device</a>
+        {% if user and user.role == 'admin' %}<a href="/personalize#integrations">Integrations</a>{% endif %}
         {% if user and user.role == 'admin' %}<a href="/personalize#org">Organisation</a>{% endif %}
       </div>
       {% endif %}

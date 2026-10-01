@@ -26,6 +26,48 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Integrations tab restores MCP connectors for Solo accounts - pending PR, prepared 2026-10-01
+**System impact:** founder report: "the mcp connectors... it was built in, now it seems gone." The
+backend (`/connectors/mcp` - Filesystem, Google Drive, Slack, GitHub, and the rest of the gallery, plus
+"Expose Anthill over MCP") was never removed and only ever required admin, which a Solo account's own
+user already is - but the only UI link to it lived inside the Organisation tab's org-converted branch,
+so a Solo account (the common case) had no path to it at all short of typing the URL directly.
+Integrations is now its own Settings tab (Model | Knowledge | Personality | Privacy | This device |
+Integrations | Organisation), gated the same way Organisation already is, with a live "N connected"
+status pill and a link out to the full gallery page - matching the existing tab bar's design exactly
+rather than embedding the gallery's OAuth/test/approve UI inline. Live-verified end-to-end with the
+`mcp` extra installed: Filesystem's full Add -> Test -> Approve cycle genuinely spawns a real MCP
+server subprocess and lists real tools; Google Drive correctly declines with its own "needs Google
+Cloud OAuth credentials" guidance (by design - Anthill ships no pre-registered OAuth client for any
+provider). Spec: `docs/specs/mcp-integrations-tab-for-solo.md`.
+A follow-up UI/UX design session review of this tab and `mcp.html` found four more issues, all fixed in
+the same PR per founder direction: (1) the Integrations card was the one Settings card missing its `?`
+jargon tooltip - added, matching the other 9. (2) the "MCP runtime is not installed here... pip install"
+banner is dev-only language that could reach a non-technical user in a packaged install (the sidecar
+always bundles the `mcp` extra, so seeing this there would mean something broke) - `mcp_page()` now
+passes `is_packaged` (`sys.frozen`) and the template shows "reinstall Anthill" guidance instead when
+packaged. (3) "Expose Anthill over MCP (server)" - a different feature (exposing Anthill out, not
+connecting a tool in) with zero visual separation from the connector gallery - moved under a collapsed
+"Advanced" disclosure (auto-open if already enabled). (4) the gallery's "Connect now" vs "Requires
+provider setup" badges were wrong in both directions: Slack/GitHub/Discord need a self-obtained token
+(same prerequisite shape as OAuth, just copy-paste) and were wrongly badged "Connect now"; Notion/
+Linear/Sentry use real OAuth Dynamic Client Registration (confirmed in `mcp_oauth.py`'s own docstring)
+and are genuinely one-click, but were wrongly badged "Requires provider setup" - both corrected in
+`anthill/connectors/catalog.json`'s `guided` field (Atlassian's existing `false` stays - its own note
+documents one-click OAuth isn't live for it yet, a real, separate exception).
+**Surface:** `anthill/web/app.py` (`integrations_connected` count and `is_packaged` in `personalize()`/
+`mcp_page()`; `/connectors/mcp` gets its own `_back_nav_for` case instead of the generic org-subsettings
+fallback), `anthill/web/templates/personalize.html` (new Integrations tab + panel + tooltip),
+`anthill/web/templates/_sidebar.html` (matching Settings sub-rail entry),
+`anthill/web/templates/mcp.html` (packaged-aware banner, collapsed server-exposure disclosure),
+`anthill/connectors/catalog.json` (`guided` corrected for 6 of 13 entries).
+**User-visible:** yes - Integrations is reachable from Settings for every account, Solo or org, and the
+gallery's own badges/copy are now honest about what each connector actually needs.
+**Footprint:** no migration, no schema change, no new endpoint; 5 new tests in a true-Solo fixture
+(`tests/test_integrations_discoverable.py`) - the gap `test_nav_roles.py`'s org-only fixture never
+covered, which is why this regression shipped unnoticed; `tests/test_stdio_env.py`'s Slack test renamed
+and corrected (it had encoded the old, wrong "one-click" assumption as a hard assertion).
+
 ### Chat sidebar: removed duplicate Rename/Delete header buttons, fixed overlapping row icons - pending PR, prepared 2026-10-01
 **System impact:** founder report on the desktop app (screenshot): the sidebar's per-conversation
 pin/rename/delete icons overlapped the conversation's title text and looked misaligned, and the open

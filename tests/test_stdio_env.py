@@ -1,5 +1,6 @@
-"""Encrypted env for stdio connectors (one-click Slack): decrypt_env round-trip, the add route
-storing env encrypted, and the Slack catalog entry being valid + one-click."""
+"""Encrypted env for stdio connectors (Slack's bot-token + team-ID pair): decrypt_env round-trip,
+the add route storing env encrypted, and the Slack catalog entry's env-target auth fields being
+valid."""
 
 import json
 
@@ -20,10 +21,14 @@ def test_decrypt_env_round_trip():
     assert mcp_store.decrypt_env(MCPServer(env_enc="")) == {}  # none stored
 
 
-def test_slack_catalog_entry_is_one_click_with_env_fields():
+def test_slack_catalog_entry_needs_a_bot_token_with_env_fields():
+    # UI/UX review, 2026-10-01: Slack was wrongly badged "Connect now" (guided=True) even though it
+    # needs the same out-of-band setup as any OAuth provider - creating your own Slack bot/app and
+    # pasting its token - just via copy-paste instead of a redirect. Fixed to guided=False, matching
+    # its own "Requires provider setup" reality (same bucket as Google Drive, not Filesystem).
     slack = catalog_by_id("slack")
     assert validate_entry(slack) == []  # env-target field accepted
-    assert slack["guided"] is True
+    assert slack["guided"] is False
     targets = {f["target"] for f in slack["auth"]["fields"]}
     envs = {f.get("env") for f in slack["auth"]["fields"]}
     assert targets == {"env"} and "SLACK_BOT_TOKEN" in envs
