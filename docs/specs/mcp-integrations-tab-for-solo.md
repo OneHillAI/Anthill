@@ -79,28 +79,55 @@ Settings sub-rail carries the matching link; `/connectors/mcp`'s back link point
 an approved `MCPServer` row exists. Full suite: 2819 passed, 8 skipped. `ruff check` / `ruff format
 --check` and the em/en-dash slop gate clean on all three touched files.
 
-## UI/UX review (2026-10-01)
+## UI/UX review (2026-10-01) - all findings fixed
 
 The UI/UX design session reviewed this tab plus `mcp.html` (the gallery it links to) live, as a Solo
-admin. One finding was in scope here and fixed: every other Settings card header on this page has a
-`?` help-pop explaining its jargon inline (9 of them, via `grep`) - Integrations was the one exception,
-and "MCP" is exactly the term that needed it. Added, matching the existing pattern exactly; locked in
-by a new assertion in `test_solo_settings_has_an_integrations_tab_linking_to_connectors`.
+admin, and found four issues. Founder direction: fix all of them, folded into this same PR.
 
-Three further findings are about `mcp.html` itself - pre-existing, not introduced by this change, but
-now reaching a wider (and more likely non-technical) audience precisely because this fix makes the page
-easier to find. Out of scope for this PR; left for the founder to prioritize separately:
+**1. Missing jargon tooltip.** Every other Settings card header on this page has a `?` help-pop
+explaining its term inline (9 of them, via `grep`) - Integrations was the one exception, and "MCP" is
+exactly the term that needed it. Added, matching the existing pattern exactly; locked in by a new
+assertion in `test_solo_settings_has_an_integrations_tab_linking_to_connectors`.
 
-1. The "MCP runtime is not installed here... `pip install -e \".[mcp]\"`" banner is developer-facing
-   language that could reach a non-technical Solo user if the packaged desktop app ever ships without
-   the `mcp` extra.
-2. "Expose Anthill over MCP (server)" (consumers, scoped tokens, review mode, access log) is a
-   different feature from what "Manage integrations" promises (connecting Slack/Drive/etc TO Anthill,
-   not exposing Anthill's own brain outward) and has zero visual separation from the connector gallery
-   above it - a user just wanting to connect Slack scrolls through org-brain-exposure config that does
-   not apply to them.
-3. Slack is badged "Connect now" (no warning) but actually requires the same out-of-band setup as
-   Google Drive's honestly-badged "Requires provider setup" - creating your own Slack bot/app at
-   api.slack.com and pasting its token, with "Open the setup guide" linking to a developer-facing raw
-   GitHub README. The badge's real distinction is "paste credentials you already have" vs. "OAuth
-   redirect," not "easy" vs. "hard," and Slack's own copy contradicts its badge.
+**2. Developer-facing runtime-missing banner.** "The MCP runtime is not installed here... `pip install
+-e ".[mcp]"`" is pip-install language a non-technical Solo user has no way to act on, especially in a
+packaged desktop app with no terminal. The packaged sidecar always bundles the `mcp` extra
+(`scripts/build-sidecar.sh` builds its lockfile with `--extra mcp`), so seeing this banner there would
+mean something in the install is actually broken, not that the user needs to run a command. `mcp_page()`
+now passes `is_packaged` (`sys.frozen`, the same signal `anthill/inference/ollama.py` already uses for
+this distinction) and the template branches: a packaged install gets "reinstall Anthill / let us know"
+guidance; an unpackaged dev checkout keeps the original pip-install message, which is the only place
+it's actually actionable.
+
+**3. "Expose Anthill over MCP (server)" had zero visual separation from the connector gallery.** It is
+a different feature from what "Manage integrations" promises - exposing Anthill's own org brain OUT to
+other tools, not connecting a tool IN - and a user just wanting to add Slack scrolled straight through
+consumer tokens, review mode, and an access log that don't apply to them. Wrapped in a collapsed
+`<details>` ("Advanced: expose Anthill over MCP"), not removed (a Solo account can still want it), and
+left auto-open when `cfg.mcp_server_enabled` is already true so an admin who has it on doesn't lose
+sight of their own active config.
+
+**4. Slack's "Connect now" badge was dishonest - and so, it turned out, were four others in the
+opposite direction.** Slack needs a bot token you create yourself at api.slack.com (same shape of
+prerequisite as any OAuth provider, just copy-paste instead of redirect), but was badged the same
+green "Connect now" as truly zero-setup connectors like Filesystem. The badge (`mcp.html`) is driven
+entirely by each catalog entry's `guided` boolean, which turned out to just be `auth.type != "oauth"`
+- conflating "no setup at all" (`auth.type: "none"`) with "paste a credential you still have to go get"
+(`auth.type: "token"`). Checking `anthill/web/mcp_oauth.py`'s own docstring surfaced the mirror-image
+bug: Notion, Linear and Sentry are `oauth` + `http` transport, which means Anthill's RFC 7591 Dynamic
+Client Registration makes them genuinely one-click with zero admin setup (confirmed by `mcp.html`'s own
+`isOAuthHttp` JS branch, which already shows "No setup needed" for them, contradicting their own tile
+badge) - they were wrongly badged "Requires provider setup". Atlassian is also `oauth` + `http` but
+keeps its existing `guided: false`: its own catalog note documents that one-click OAuth isn't live for
+it yet (SSE transport, not yet supported), a real, separate exception. Corrected in
+`anthill/connectors/catalog.json`: `github`/`slack`/`discord` (`token`) flip to `guided: false`;
+`notion`/`linear`/`sentry` (`oauth`+`http`, no caveat) flip to `guided: true`; `google-drive`/
+`microsoft-365` (`oauth`+`stdio`, genuinely need a self-registered app) and `atlassian` (documented
+exception) are unchanged. Added a `note` to GitHub's entry (it lacked one, unlike Slack/Discord)
+explaining the PAT it needs. `tests/test_stdio_env.py`'s `test_slack_catalog_entry_is_one_click_...`
+encoded the old, wrong assumption directly (`assert slack["guided"] is True`) - renamed and corrected
+to assert the honest value instead.
+
+Live-verified after all four fixes: Slack now shows the amber "needs setup first" warning (matching
+Google Drive's); Notion shows "One-click connect... No setup needed" (matching its new green badge);
+the "Advanced" section renders collapsed by default and expands to its full form correctly.

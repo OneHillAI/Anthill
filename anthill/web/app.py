@@ -6354,6 +6354,8 @@ def integrations_page(request: Request, user: dict = Depends(_require_user)):
 def mcp_page(request: Request, user: dict = Depends(_require_admin)):
     db = _db()
     org = _require_org(db, user)
+    import sys
+
     from ..mcp import mcp_available
 
     servers = (
@@ -6421,6 +6423,11 @@ def mcp_page(request: Request, user: dict = Depends(_require_admin)):
             "catalog": catalog,
             "catalog_groups": catalog_groups,
             "mcp_available": mcp_available(),
+            # UI/UX review, 2026-10-01: the dev-only "pip install the mcp extra" message is wrong
+            # guidance for a packaged install (the sidecar always bundles it -
+            # scripts/build-sidecar.sh), where this would mean something actually broke, not
+            # something the user can fix by running a command they have no terminal for.
+            "is_packaged": bool(getattr(sys, "frozen", False)),
             "cfg": cfg,
             "mcp_token": token,
             "consumers": consumers,
