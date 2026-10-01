@@ -1666,6 +1666,54 @@ def _cfg_or_create(db: Session, org: Organization) -> OrgSettings:
     return cfg
 
 
+def _compute_where_label(cfg) -> str:
+    """Human label for where inference actually runs: `your machine` / `your cloud` / `the org
+    model`. Single source of truth so the Dashboard's council card and an upload's "indexed by"
+    confirmation can never describe the same deployment two different ways.
+    """
+    from ..training.model_select import is_solo_account
+
+    solo = is_solo_account(cfg)
+    is_cloud = (getattr(cfg, "solo_compute", "") or "") == "cloud"
+    return ("your cloud" if is_cloud else "your machine") if solo else "the org model"
+
+
+def _ensure_backend_ready(backend) -> None:
+    """If `backend` is a local Ollama backend, make sure it is actually serving before an ingest
+    call that needs it - so an engine that crashed, was quit, or never restarted after the machine
+    slept self-heals instead of failing the user's upload outright (founder, 2026-10-01: "there's a
+    problem: it can't be uploaded... we don't need to release a fix if we didn't fix the problem" -
+    a better error message is not a fix). No-op for any other backend kind. Never raises and never
+    retries itself beyond what `ensure_serving` already does (one spawn attempt, polled up to 12s)
+    - a failed restart just leaves the ingest call that follows to fail with its own real error,
+    handled by the caller exactly as before this existed.
+    """
+    from ..inference.ollama import OllamaBackend, ensure_serving
+
+    if not isinstance(backend, OllamaBackend):
+        return
+    try:
+        ensure_serving(backend.base_url)
+    except Exception:
+        pass
+
+
+def _ingest_failure_reason(backend) -> str:
+    """Best-effort live diagnosis for the audit log below a failed document ingest (not shown to
+    the user - founder, 2026-10-01: "I don't care if we give the user the real reason. What should
+    the user do with that?" - a technical reason without an action is not help). `health()` is
+    specific to a local Ollama backend; other backend kinds have no such check, and this must never
+    itself raise - a diagnostic that crashes the error path would replace one bug with a worse one.
+    """
+    health = getattr(backend, "health", None)
+    if not callable(health):
+        return ""
+    try:
+        return health() or ""
+    except Exception:
+        return ""
+
+
 def _backend_from_cfg(cfg):
     """Build an inference backend from an org's settings (best-effort)."""
     from ..config import Config
@@ -5035,8 +5083,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
         "wiki": len(wiki_pages_list),
         "memory": mem_count,
     }
-    is_cloud = (getattr(cfg, "solo_compute", "") or "") == "cloud"
-    where_label = ("your cloud" if is_cloud else "your machine") if solo else "the org model"
+    where_label = _compute_where_label(cfg)
     model_name = (getattr(cfg, "ollama_model", "") or "").strip()
     # The council the dashboard actually runs (index 0 = lead), so the header/council card reflect the
     # whole council - not just ollama_model, which is only ever one model (founder: "it says which model
@@ -7332,6 +7379,48 @@ def _pending_pdf_confirmation_path(ws, name: str):
     return candidate
 
 
+def _wiki_raw_files(ws) -> list[dict]:
+    """List the immutable raw source documents preserved under this workspace's raw/ (every
+    upload is copied here before ingest - see wiki/ingest.py's preserve_raw_source), newest first,
+    for the wiki's Files tab. An unreadable or not-yet-created raw/ just means no files yet."""
+    if not ws.raw.is_dir():
+        return []
+    out = []
+    for p in ws.raw.iterdir():
+        if p.is_symlink() or not p.is_file() or p.resolve().parent != ws.raw.resolve():
+            continue
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
+        out.append(
+            {
+                "name": p.name,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+    out.sort(key=lambda f: f["mtime"], reverse=True)
+    return out
+
+
+def _wiki_raw_file_path(ws, name: str) -> Path | None:
+    """Resolve a raw file's name to its path, refusing anything outside ws.raw (path traversal, a
+    symlink escape, or a name that isn't a bare filename)."""
+    if not name or Path(name).name != name:
+        return None
+    candidate = ws.raw / name
+    if (
+        not ws.raw.is_dir()
+        or candidate.is_symlink()
+        or not candidate.is_file()
+        or candidate.resolve().parent != ws.raw.resolve()
+    ):
+        return None
+    return candidate
+
+
 def _move_pdf_confirmation(source: Path, state: str) -> None:
     if not source.exists():
         return
@@ -7372,7 +7461,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         except Exception:
             pages.append({"slug": p.stem, "title": p.stem})
     tab = request.query_params.get("tab", "pages")
-    if tab not in ("pages", "principles"):
+    if tab not in ("pages", "principles", "files"):
         tab = "pages"
     return {
         "request": request,
@@ -7383,6 +7472,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "can_edit": _wiki_can_edit(db, user, scope, team_id),
         "principles_text": read_principles(ws),
         "pages": pages,
+        "raw_files": _wiki_raw_files(ws) if tab == "files" else [],
         "pdf_confirmations": (
             [p.name for p in _pending_pdf_confirmation_paths(ws)]
             if _wiki_can_edit(db, user, scope, team_id)
@@ -7586,6 +7676,39 @@ def wiki_page_view(
     )
 
 
+@app.get("/wiki/raw/{name}")
+def wiki_raw_file(
+    name: str,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    """Download one of this scope's raw uploaded source documents (the immutable copy every
+    upload is preserved as before ingest - see the wiki's Files tab). Same scope/membership rules
+    as viewing a page."""
+    from fastapi.responses import FileResponse
+
+    db = _db()
+    org = _require_org(db, user)
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    target = _wiki_raw_file_path(ws, name)
+    if target is None:
+        raise HTTPException(status_code=404)
+    _audit_request(
+        request,
+        "wiki.raw_download",
+        f"name={name} scope={scope}",
+        org_id=org.id,
+        user_id=int(user["sub"]),
+    )
+    return FileResponse(str(target), filename=target.name)
+
+
 def _wiki_dest(scope, team_id):
     return f"/teams/{team_id}" if scope == "team" else ("/wiki/org" if scope == "org" else "/wiki")
 
@@ -7651,7 +7774,7 @@ async def _ingest_and_propose(
     cfg,
     *,
     allow_large_pdf: bool = False,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
     """Run a local source file through the shared ingest pipeline (read + summarise into a
     page) and file the result through the wiki review gate.
 
@@ -7660,9 +7783,11 @@ async def _ingest_and_propose(
     then summarise - and cannot drift back into one of them filing raw/unsummarised text. Only
     `source_label` (what the proposal's provenance note says) differs between callers.
 
-    Returns (applied, slug). Raises whatever `ingest_file` raises (`PdfConfirmationRequired`,
-    `PdfProcessingLimitExceeded`, or any other conversion failure) - the caller owns its own
-    error-code mapping and audit logging, which differ by context.
+    Returns (applied, slug, title) - the title so a caller's confirmation message can name the
+    actual page produced, not just a generic "document added" (founder, 2026-10-01: an upload
+    needs to say what happened to it). Raises whatever `ingest_file` raises
+    (`PdfConfirmationRequired`, `PdfProcessingLimitExceeded`, or any other conversion failure) -
+    the caller owns its own error-code mapping and audit logging, which differ by context.
     """
     from starlette.concurrency import run_in_threadpool
 
@@ -7675,6 +7800,7 @@ async def _ingest_and_propose(
         proposal["title"] = title
         proposal["page_md"] = page_md
 
+    await run_in_threadpool(_ensure_backend_ready, backend)
     await run_in_threadpool(
         ingest_file,
         ws,
@@ -7695,7 +7821,7 @@ async def _ingest_and_propose(
         team_id=team_id,
         source=source_label,
     )
-    return applied, slug
+    return applied, slug, proposal["title"]
 
 
 @app.post("/wiki/upload")
@@ -7717,6 +7843,7 @@ async def wiki_upload(
     import shutil
     import tempfile
     from pathlib import Path as _Path
+    from urllib.parse import quote
 
     from ..wiki.ingest import (
         PdfConfirmationRequired,
@@ -7775,9 +7902,10 @@ async def wiki_upload(
     if not ws.exists():
         ws.init()
 
-    outcome: dict = {"applied": None, "slug": None}
+    outcome: dict = {"applied": None, "slug": None, "title": None}
 
     tmp_dir = tempfile.mkdtemp()
+    backend = None
     try:
         tmp_path = _Path(tmp_dir) / name
         size = 0
@@ -7795,7 +7923,7 @@ async def wiki_upload(
             return RedirectResponse(dest + "?error=toobig", status_code=302)
 
         backend = _backend_from_cfg(cfg)
-        outcome["applied"], outcome["slug"] = await _ingest_and_propose(
+        outcome["applied"], outcome["slug"], outcome["title"] = await _ingest_and_propose(
             db,
             org,
             ws,
@@ -7828,10 +7956,12 @@ async def wiki_upload(
         code = "pdfretry" if e.transient else "pdflimit"
         return RedirectResponse(dest + f"?error={code}", status_code=302)
     except Exception as e:
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.upload",
-            f"name={name} scope={target_scope} error={type(e).__name__}",
+            f"name={name} scope={target_scope} error={type(e).__name__}"
+            + (f" reason={reason}" if reason else ""),
             org_id=org.id,
             user_id=uid,
         )
@@ -7846,8 +7976,11 @@ async def wiki_upload(
         org_id=org.id,
         user_id=uid,
     )
+    saved = "added" if outcome["applied"] else "queued"
+    via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + ("?saved=added" if outcome["applied"] else "?saved=queued"),
+        dest + f"?saved={saved}&slug={quote(outcome['slug'])}"
+        f"&title={quote(outcome['title'])}&via={via}",
         status_code=302,
     )
 
@@ -7861,6 +7994,8 @@ async def confirm_pdf_upload(
     user: dict = Depends(_require_user),
 ):
     """Process one scheduler-held PDF exactly once after an authorized confirmation."""
+    from urllib.parse import quote
+
     from starlette.concurrency import run_in_threadpool
 
     from ..wiki.ingest import (
@@ -7900,7 +8035,7 @@ async def confirm_pdf_upload(
     except OSError:
         return RedirectResponse(dest + "?error=pdfconfirm_missing", status_code=302)
 
-    outcome: dict = {"applied": None, "slug": None}
+    outcome: dict = {"applied": None, "slug": None, "title": None}
     proposal: dict = {}
 
     def _capture(title, page_md):
@@ -7912,6 +8047,7 @@ async def confirm_pdf_upload(
 
         slug = slugify(proposal["title"]) or slugify(processing.stem) or "document"
         outcome["slug"] = slug
+        outcome["title"] = proposal["title"]
         outcome["applied"] = propose_wiki_write(
             db,
             org_id=org.id,
@@ -7927,9 +8063,11 @@ async def confirm_pdf_upload(
         if processing.exists() and not source.exists():
             processing.rename(source)
 
+    backend = None
     try:
         cfg = _cfg(db, org)
         backend = _backend_from_cfg(cfg)
+        await run_in_threadpool(_ensure_backend_ready, backend)
         await run_in_threadpool(
             ingest_file,
             ws,
@@ -7960,10 +8098,12 @@ async def confirm_pdf_upload(
         return RedirectResponse(dest + "?error=pdfconfirm", status_code=302)
     except Exception as exc:
         _restore()
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.upload.confirm",
-            f"name={name} scope={target_scope} error={type(exc).__name__}",
+            f"name={name} scope={target_scope} error={type(exc).__name__}"
+            + (f" reason={reason}" if reason else ""),
             org_id=org.id,
             user_id=uid,
         )
@@ -7976,8 +8116,12 @@ async def confirm_pdf_upload(
         org_id=org.id,
         user_id=uid,
     )
+    saved = "added" if outcome["applied"] else "queued"
+    via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + ("?saved=added" if outcome["applied"] else "?saved=queued"), status_code=302
+        dest + f"?saved={saved}&slug={quote(outcome['slug'])}"
+        f"&title={quote(outcome['title'])}&via={via}",
+        status_code=302,
     )
 
 
@@ -8020,6 +8164,7 @@ async def wiki_import_connector(
     import shutil
     import tempfile
     from pathlib import Path as _Path
+    from urllib.parse import quote
 
     from ..common.text import slugify
     from .docsource import doc_source_servers, read_document
@@ -8048,6 +8193,7 @@ async def wiki_import_connector(
         ws.init()
 
     tmp_dir = tempfile.mkdtemp()
+    backend = None
     try:
         tmp_name = (slugify(label) or "document") + ".md"
         tmp_path = _Path(tmp_dir) / tmp_name
@@ -8059,7 +8205,7 @@ async def wiki_import_connector(
 
         cfg = _cfg(db, org)
         backend = _backend_from_cfg(cfg)
-        applied, slug = await _ingest_and_propose(
+        applied, slug, page_title = await _ingest_and_propose(
             db,
             org,
             ws,
@@ -8072,10 +8218,12 @@ async def wiki_import_connector(
             cfg,
         )
     except Exception as e:
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.import_connector",
-            f"server={srv.name} ref={ref[:80]} scope={target_scope} error={type(e).__name__}",
+            f"server={srv.name} ref={ref[:80]} scope={target_scope} error={type(e).__name__}"
+            + (f" reason={reason}" if reason else ""),
             org_id=org.id,
             user_id=uid,
         )
@@ -8090,8 +8238,11 @@ async def wiki_import_connector(
         org_id=org.id,
         user_id=uid,
     )
+    saved = "added" if applied else "queued"
+    via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + ("?saved=added" if applied else "?saved=queued"), status_code=302
+        dest + f"?saved={saved}&slug={quote(slug)}&title={quote(page_title)}&via={via}",
+        status_code=302,
     )
 
 

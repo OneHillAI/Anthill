@@ -37,6 +37,27 @@
   {% endif %}
 </div>
 
+{% elif active_wiki_tab == 'files' %}
+{# ── Files sub-tab: the immutable raw documents every upload is preserved as before ingest
+   (founder, 2026-10-01: "where are uploaded docs stored?" - previously filesystem-only). ────── #}
+<div class="card">
+  <h2 style="font-size:15px;margin:0 0 4px">Files</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them.</p>
+  {% if raw_files %}
+  <table class="text-sm" style="width:100%;border-collapse:collapse">
+    {% for f in raw_files %}
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name }}</a></td>
+      <td class="text-muted" style="padding:8px;white-space:nowrap">{{ f.size | filesizeformat }}</td>
+      <td class="text-muted" style="padding:8px 0 8px 8px;white-space:nowrap">{{ f.modified }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="text-muted text-sm" style="margin-top:8px">No files yet. Files you upload under <b>Pages</b> show up here.</p>
+  {% endif %}
+</div>
+
 {% else %}
 {# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}
 <div class="card mb-2" id="wiki-pages-card">
@@ -57,11 +78,14 @@
   <h2 style="font-size:15px;margin:0 0 8px">Add a document</h2>
   {% set saved = request.query_params.get('saved') %}
   {% set uerr = request.query_params.get('error') %}
-  {% if saved=='added' %}<div class="alert alert-ok">Document added to this wiki.</div>{% endif %}
-  {% if saved=='queued' %}<div class="alert alert-warn">Document was flagged on review - it's waiting in the review queue.</div>{% endif %}
+  {% set saved_title = request.query_params.get('title') %}
+  {% set saved_slug = request.query_params.get('slug') %}
+  {% set saved_via = request.query_params.get('via') %}
+  {% if saved=='added' %}<div class="alert alert-ok">"{{ saved_title or 'Your document' }}" added to this wiki - indexed by {{ saved_via or 'your model' }}. {% if saved_slug %}<a href="/wiki/page/{{ saved_slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">View the page →</a>{% endif %}</div>{% endif %}
+  {% if saved=='queued' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was indexed by {{ saved_via or 'your model' }} and flagged on review - it's waiting in the <a href="/wiki/review">review queue</a>.</div>{% endif %}
   {% if saved=='queued_for_model' %}<div class="alert alert-warn">Your local AI is still downloading. This document is saved and will be added automatically as soon as it's ready.</div>{% endif %}
   {% if uerr=='unsupported' %}<div class="alert alert-warn">Unsupported file type. Use .md, .txt, .pdf, or an image (.png/.jpg/.gif/.webp).</div>{% endif %}
-  {% if uerr=='ingest' %}<div class="alert alert-warn">Couldn't read that document - is the model running? Try again.</div>{% endif %}
+  {% if uerr=='ingest' %}<div class="alert alert-warn">Couldn't reach your AI to read that document. <a href="/personalize#model">Check your model setup</a>, then try again.</div>{% endif %}
   {% if uerr=='pdfconfirm' %}<div class="alert alert-warn">This PDF needs more work than Anthill runs automatically. Re-select it, confirm larger PDF processing below, and upload again.</div>{% endif %}
   {% if uerr=='pdflimit' %}<div class="alert alert-warn">This PDF exceeds Anthill's hard processing safety limits and cannot be uploaded automatically.</div>{% endif %}
   {% if uerr=='pdfretry' %}<div class="alert alert-warn">Couldn't process that PDF right now - this isn't a problem with the file. Check that Ollama and this host are set up, then try again.</div>{% endif %}
@@ -83,12 +107,13 @@
     {% endfor %}
   </div>
   {% endif %}
-  <form method="post" action="/wiki/upload" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <form method="post" action="/wiki/upload" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" onsubmit="return wikiUploadSubmit(this)">
     <input type="hidden" name="target_scope" value="{{ scope }}">
     {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
     <input type="file" name="file" required accept="{{ upload_accept }}">
     <button type="submit" class="btn btn-primary btn-sm">Upload</button>
     <label class="text-sm text-muted" style="display:flex;align-items:center;gap:5px;width:100%"><input type="checkbox" name="confirm_large_pdf" value="true"> Confirm larger PDF processing within Anthill's hard safety limits</label>
+    <div class="text-sm text-muted" id="wiki-upload-progress" hidden style="width:100%">Uploading and reading your document - this can take up to a minute while your local AI processes it…</div>
   </form>
 </div>
 
@@ -157,6 +182,20 @@
 {% endif %}
 
 <script>
+// Classic multipart form POST (not fetch) - the backend reads the file and runs it through the
+// local AI to summarise it into a wiki page before it ever redirects back, which can take real time
+// (tens of seconds) for anything non-trivial. Without this, the page just sits there with no visible
+// change until the reload lands, which reads as "did my click even register?" (founder report,
+// repeated). Runs synchronously before the browser navigates away, so it's visible immediately.
+function wikiUploadSubmit(form) {
+  var fileInput = form.querySelector('input[type="file"]');
+  if (!fileInput || !fileInput.files || !fileInput.files.length) return true;
+  var btn = form.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+  var progress = document.getElementById('wiki-upload-progress');
+  if (progress) progress.hidden = false;
+  return true;
+}
 document.addEventListener('DOMContentLoaded', function () {
   anthillWalkthrough('wiki', [
     {sel: '#wiki-pages-card', title: 'Your wiki', body: 'This is your knowledge base. The model writes pages here as it files good answers and ingests sources - you approve, you do not hand-edit.'},

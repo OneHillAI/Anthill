@@ -1190,7 +1190,7 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
     from ..common.text import slugify
     from ..wiki.ingest import ingest as ingest_file
     from ..wiki.workspace import workspace_for
-    from .app import _backend_from_cfg, _wiki_page_url, propose_wiki_write
+    from .app import _backend_from_cfg, _ensure_backend_ready, _wiki_page_url, propose_wiki_write
     from .notify import notify
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == row.org_id).first()
@@ -1220,6 +1220,7 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
         tmp_dir = tempfile.mkdtemp()
         source_copy = Path(tmp_dir) / row.filename
         shutil.copyfile(stored, source_copy)
+        _ensure_backend_ready(backend)
         ingest_file(
             ws,
             source_copy,
