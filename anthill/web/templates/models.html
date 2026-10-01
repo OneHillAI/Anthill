@@ -95,6 +95,22 @@
   {% endif %}
 </div>
 
+{# Benchmark a model against the current one. This is a model-management action, not the raw on-disk
+   storage list that was removed (founder 2026-10-01): a single picker, no sizes and no Remove. Uninstall
+   lives on each model in Settings' picker. #}
+{% if current_model and gold_count >= 3 and available %}
+<div class="card mt-4" id="benchmark">
+  <h3 style="margin-bottom:8px">Benchmark a model</h3>
+  <p class="set-note">Score another installed model against your current one ({{ current_model }}) on your {{ gold_count }} approved answers.</p>
+  <form method="post" action="/models/benchmark" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+    <select name="model_tag" required style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      {% for m in available %}{% if m.name != current_model and m.name != pulling %}<option value="{{ m.name }}">{{ m.name }}</option>{% endif %}{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm">Benchmark</button>
+  </form>
+</div>
+{% endif %}
+
 <script>
 async function fetchModelJSON(url, options) {
   var r = await fetch(url, options);
