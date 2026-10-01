@@ -267,7 +267,7 @@ def _read_file(path: str, *, base_dir: Path | None = None) -> str:
     return read_file(target).text[:6000]
 
 
-# ── email stubs (configure with ANTHILL_EMAIL_* env vars) ──────────────────────
+# ── email reading (configure with ANTHILL_EMAIL_* env vars) ────────────────────
 
 
 def _read_emails(max_count: int = 10) -> list[dict]:
@@ -331,7 +331,7 @@ def _draft_email(to: str, subject: str, body: str) -> str:
         f"Subject: {subject}\n"
         f"---\n{body}\n"
         f"---\n"
-        f"(Review and send manually, or configure ANTHILL_EMAIL_* to enable sending)"
+        f"(Review and send manually - this tool only drafts, it never sends)"
     )
 
 

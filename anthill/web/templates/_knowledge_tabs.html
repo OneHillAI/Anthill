@@ -1,8 +1,9 @@
-{# Knowledge hub sub-tab bar. Wiki, Snippets, Memory and Skills are one "Knowledge" area in the rail
-   (see _sidebar.html); this bar switches between the four surfaces. Active state is derived from the
-   request path so no route/handler change is needed to render it. Snippets sits next to Wiki because a
-   snippet is a self-added wiki element (docs/specs/knowledge-onboarding-and-guidance.md); a later change
-   folds it fully into the Wiki surface. #}
+{# Knowledge hub sub-tab bar. Wiki, Snippets, Memory, Skills and Suggestions are one "Knowledge" area
+   in the rail (see _sidebar.html); this bar switches between the five surfaces. Active state is
+   derived from the request path so no route/handler change is needed to render it. Snippets sits next
+   to Wiki because a snippet is a self-added wiki element
+   (docs/specs/knowledge-onboarding-and-guidance.md); a later change folds it fully into the Wiki
+   surface. #}
 {% set _kp = request.url.path %}
 <div class="knowledge-tabs">
   <a href="/wiki" class="{% if _kp.startswith('/wiki') %}active{% endif %}">Wiki{% if user and user.role == 'admin' and nav_badges and nav_badges.review %} <span class="nav-badge">{{ nav_badges.review }}</span>{% endif %}</a>
@@ -13,7 +14,7 @@
 </div>
 
 {# A light per-tab hint + a re-openable hub-level self-explanation. This is the guidance that leads now,
-   instead of four separate per-surface auto-tours (those stay replayable via each tab's "Take a tour").
+   instead of five separate per-surface auto-tours (those stay replayable via each tab's "Take a tour").
    See docs/specs/knowledge-guidance-reconciliation.md. #}
 {% set _hint = {
   '/wiki': 'Your knowledge base - your AI writes pages here as you work; you steer and approve.',

@@ -108,8 +108,9 @@
       {# Show the home headings only when more than the Personal home is in play (an Org backend is
          connected, or Org/Project chats exist); a Personal-only user keeps the simple single list. #}
       {% set show_homes = org_plane_available or org_convs or team_convs %}
-      {# Each rail conversation is a row: the link + a delete control that appears on hover, so a
-         conversation can be deleted right from the list (not only the open one). #}
+      {# Each rail conversation is a row: the link + a pin/rename/delete icon group that appears on
+         hover, so a conversation can be pinned, renamed, or deleted right from the list (not only
+         the open one). #}
       {% macro conv_item(c, cls, suffix, dot) %}
       <div class="rail-conv-row">
         <a href="/chat/{{ c.id }}" class="rail-conv {{ cls }}{% if active_conv and c.id == active_conv.id %} active{% endif %}" title="{{ c.title }}{{ suffix }}">{% if dot %}<span class="plane-dot plane-dot-{{ dot }}"></span>{% endif %}{{ c.title }}</a>
@@ -218,9 +219,9 @@
       <a href="/teams" class="{% if '/teams' in _sp %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>Projects</a>
       {% for t in nav_teams %}<a href="/wiki/team/{{ t.id }}" class="{% if _sp == '/wiki/team/' ~ t.id %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>{{ t.name }}</a>{% endfor %}
       {# Settings: the single settings entry. Your personal setup (Model / Knowledge / Personality /
-         This device / Privacy) lives on /personalize, one workflow per tab; the shared Organisation
-         settings are reached from there. Active on any settings/model/org-config sub-page. When on
-         /personalize, its sub-sections show as sub-items. #}
+         This device / Privacy / Integrations) lives on /personalize, one workflow per tab; the shared
+         Organisation settings are reached from there. Active on any settings/model/org-config
+         sub-page. When on /personalize, its sub-sections show as sub-items. #}
       <a href="/personalize" class="{% if _sp.startswith('/personalize') or _sp.startswith('/settings') or _sp.startswith('/models') or _sp.startswith('/training') or _sp.startswith('/backend') or _sp.startswith('/backup') or _sp.startswith('/agent-access') %}active{% endif %}"><i data-lucide="settings">⚙️</i>Settings</a>
       {% if _sp.startswith('/personalize') %}
       <div class="settings-subrail">
