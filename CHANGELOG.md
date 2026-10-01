@@ -20,6 +20,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- **Cleaned up outdated comments and docstrings across the codebase.** Several template comments, CLI
+  docstrings, and agent tool headers had drifted out of date with recent features (such as
+  pin/rename conversation actions, the new Integrations settings tab, five Knowledge surfaces, and
+  retired agent overrides). Updated all 7 affected locations to accurately reflect the current
+  implementation.
 - **Fixed a leftover inconsistency on the Jira and Confluence connector card**: it previously showed a
   green "no setup needed" message right next to its own note explaining that one-click setup isn't live
   for it yet. It now correctly shows the same "needs setup first" guidance as any other not-yet-wired
@@ -70,6 +75,7 @@ Thanks to everyone who shipped this release - the humans directing the work and,
 disclosed alongside them, the agents that did it:
 
 - **awchristoph** (8 changes), directing Claude Sonnet 5 (Claude Code)
+- **Raul Amedey Ciria** (1 change), directing Gemini 3.8 Flash
 
 ## [0.12.10] - 2026-09-30
 
