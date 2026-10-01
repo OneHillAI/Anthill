@@ -26,6 +26,29 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Integrations tab restores MCP connectors for Solo accounts - pending PR, prepared 2026-10-01
+**System impact:** founder report: "the mcp connectors... it was built in, now it seems gone." The
+backend (`/connectors/mcp` - Filesystem, Google Drive, Slack, GitHub, and the rest of the gallery, plus
+"Expose Anthill over MCP") was never removed and only ever required admin, which a Solo account's own
+user already is - but the only UI link to it lived inside the Organisation tab's org-converted branch,
+so a Solo account (the common case) had no path to it at all short of typing the URL directly.
+Integrations is now its own Settings tab (Model | Knowledge | Personality | Privacy | This device |
+Integrations | Organisation), gated the same way Organisation already is, with a live "N connected"
+status pill and a link out to the full gallery page - matching the existing tab bar's design exactly
+rather than embedding the gallery's OAuth/test/approve UI inline. Live-verified end-to-end with the
+`mcp` extra installed: Filesystem's full Add -> Test -> Approve cycle genuinely spawns a real MCP
+server subprocess and lists real tools; Google Drive correctly declines with its own "needs Google
+Cloud OAuth credentials" guidance (by design - Anthill ships no pre-registered OAuth client for any
+provider). Spec: `docs/specs/mcp-integrations-tab-for-solo.md`.
+**Surface:** `anthill/web/app.py` (`integrations_connected` count in `personalize()`; `/connectors/mcp`
+gets its own `_back_nav_for` case instead of the generic org-subsettings fallback),
+`anthill/web/templates/personalize.html` (new Integrations tab + panel),
+`anthill/web/templates/_sidebar.html` (matching Settings sub-rail entry).
+**User-visible:** yes - Integrations is reachable from Settings for every account, Solo or org.
+**Footprint:** no migration, no schema change, no new endpoint; 5 new tests in a true-Solo fixture
+(`tests/test_integrations_discoverable.py`) - the gap `test_nav_roles.py`'s org-only fixture never
+covered, which is why this regression shipped unnoticed.
+
 ### Model uninstall is now discoverable and inline - pending PR, prepared 2026-10-01
 **System impact:** founder QA: "this must be a solution for any user. They don't like a model. They
 need to be able to uninstall it. Otherwise, it uses gigabytes of space on the computer." The

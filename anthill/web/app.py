@@ -145,6 +145,11 @@ def _back_nav_for(path: str) -> tuple[str, str]:
         return "/personalize", "Settings"
     if p == "/settings/org":  # the hub itself - no back link
         return "", ""
+    # Integrations now has its own Settings tab (reachable without an org - docs/specs/
+    # mcp-integrations-tab-for-solo.md), so its primary way back is Settings, not the org hub it is
+    # ALSO still reachable from.
+    if p == "/connectors/mcp":
+        return "/personalize#integrations", "Settings"
     if any(p == s or p.startswith(s + "/") for s in _ORG_SUBSETTINGS):
         return "/settings/org", "Manage organisation"
     return "", ""
@@ -5809,6 +5814,11 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
         wiki_count = len(_ws.pages()) if _ws.exists() else 0
     except Exception:
         wiki_count = 0
+    integrations_connected = (
+        db.query(MCPServer)
+        .filter(MCPServer.org_id == org.id, MCPServer.status == "approved")
+        .count()
+    )
     model_storage_gb = 0
     try:
         from ..backup import ollama_models_dir
@@ -5883,6 +5893,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
+            "integrations_connected": integrations_connected,
             "council_members": council_members,
             "current_council_tags": current_council_tags,
             "council_fit": council_fit,
