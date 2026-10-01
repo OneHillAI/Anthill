@@ -311,7 +311,11 @@ function pickConnector(id) {
     wrap.appendChild(lab);
   }
   let setup = '';
-  const isOAuthHttp = e.auth && e.auth.type === 'oauth' && e.transport === 'http';
+  // guided is required alongside the oauth+http shape, not just oauth+http alone: a connector can be
+  // oauth+http but NOT yet wired for one-click (e.g. Atlassian's SSE transport isn't live), in which
+  // case guided is deliberately false and this must fall to the amber "needs setup" branch instead of
+  // contradicting its own badge and note with a green "no setup needed" claim (test agent QA, 2026-10-01).
+  const isOAuthHttp = e.auth && e.auth.type === 'oauth' && e.transport === 'http' && e.guided;
   if (isOAuthHttp) setup += '<div class="alert alert-ok" style="margin:0 0 6px">One-click connect: after you add this, you will be sent to ' + escapeHtml(e.name) + ' to authorize. No setup needed.</div>';
   else if (!e.guided) setup += '<div class="alert alert-warn" style="margin:0 0 6px">This connector needs setup on the provider side first (sign-in or credentials). Add it, follow the guide, then Test.</div>';
   if (e.note) setup += '<div class="text-muted">' + escapeHtml(e.note) + '</div>';

@@ -131,3 +131,27 @@ to assert the honest value instead.
 Live-verified after all four fixes: Slack now shows the amber "needs setup first" warning (matching
 Google Drive's); Notion shows "One-click connect... No setup needed" (matching its new green badge);
 the "Advanced" section renders collapsed by default and expands to its full form correctly.
+
+## Test-agent QA (2026-10-01, post-merge) - one bug found and fixed
+
+The test agent QA'd the merged PR live (a Solo account, the real merged source) and found a genuine
+three-way self-contradiction left behind on the Atlassian (Jira and Confluence) card: its badge read
+"Requires provider setup" (`guided: false`, correctly left alone above since its own note documents
+one-click OAuth isn't live for it yet - SSE transport, not yet wired), but clicking it showed the
+GREEN "One-click connect... No setup needed" message anyway, directly under that same note saying the
+opposite. Root cause: the gallery's inline message (`mcp.html`'s `pickConnector()`) keyed the green
+one-click claim off `auth.type === 'oauth' && transport === 'http'` alone, which is true for Atlassian
+too - the fix above only corrected the catalog's `guided` field and the top-level badge (which already
+reads `guided`), not this second, independent check that was reading the raw oauth+http shape instead.
+
+Fixed exactly as the test agent proposed: `isOAuthHttp` now also requires `e.guided`, so an oauth+http
+connector that isn't actually wired for one-click (today, only Atlassian) correctly falls through to
+the same amber "needs setup" message as any other non-`guided` connector instead of contradicting its
+own badge and note. Verified the fix is load-bearing, not just locally consistent: temporarily
+reverted the one-line condition and confirmed the new test fails without it, then restored it and
+confirmed the test passes. New test:
+`tests/browser/test_atlassian_shows_needs_setup_not_a_false_one_click` (a real headless-Chromium
+click-through, in the same `browser` CI job as the suite's other connector-gallery test - this bug is
+pure client-side JS logic, not reachable by a server-rendered-template unit test). Full suite after
+the fix: 2840 passed, 3 skipped (the two browser tests now run instead of skipping, since Playwright
+was installed to verify this live rather than trusting the fix blindly).

@@ -26,6 +26,24 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Atlassian connector card self-contradiction fixed - pending PR, prepared 2026-10-01
+**System impact:** test-agent QA of the just-merged Integrations-discoverability PR found one real bug:
+Atlassian (Jira and Confluence) showed a green "One-click connect... No setup needed" message right
+under its own note saying one-click OAuth isn't live for it yet - a three-way contradiction with its
+correctly-amber "Requires provider setup" badge. Root cause: `mcp.html`'s inline setup message
+(`pickConnector()`) keyed its one-click claim off `auth.type === 'oauth' && transport === 'http'`
+alone, which is also true for Atlassian even though its catalog `guided` field is deliberately `false`
+(not yet wired - SSE transport). Fixed by requiring `guided` too, so a not-yet-wired oauth+http
+connector falls through to the same "needs setup" message as any other. Verified the fix is
+load-bearing by reverting it and confirming the new test fails, then restoring it and confirming the
+new test passes. Spec: `docs/specs/mcp-integrations-tab-for-solo.md`.
+**Surface:** `anthill/web/templates/mcp.html` only (one JS condition).
+**User-visible:** yes - the Jira and Confluence connector card no longer contradicts itself.
+**Footprint:** no migration, no schema change; 1 new Playwright test
+(`tests/browser/test_atlassian_shows_needs_setup_not_a_false_one_click`) - pure client-side JS logic,
+not reachable by a server-rendered-template unit test, so it lives in the `browser` CI job alongside
+the suite's other connector-gallery test.
+
 ### Integrations tab restores MCP connectors for Solo accounts - pending PR, prepared 2026-10-01
 **System impact:** founder report: "the mcp connectors... it was built in, now it seems gone." The
 backend (`/connectors/mcp` - Filesystem, Google Drive, Slack, GitHub, and the rest of the gallery, plus
