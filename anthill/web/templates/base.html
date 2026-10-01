@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', function () {
    element with data-confirm="Question?" shows this in-DOM confirm first; on Confirm the element's real
    action (form submit, link, or its own onclick) proceeds. window.anthillConfirm(msg) -> Promise<bool>
    is also exposed for the few in-script call sites. #}
-<div id="ah-confirm" hidden style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)">
+<div id="ah-confirm" style="display:none;position:fixed;inset:0;z-index:10000;align-items:center;justify-content:center;background:rgba(0,0,0,.45)">
   <div role="dialog" aria-modal="true" aria-labelledby="ah-confirm-msg" style="background:var(--bg,#fff);color:var(--text,#111);max-width:400px;width:calc(100% - 48px);border:1px solid var(--border,#e5e5e5);border-radius:12px;padding:20px;box-shadow:0 12px 48px rgba(0,0,0,.35)">
     <p id="ah-confirm-msg" style="margin:0 0 18px;font-size:15px;line-height:1.45"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -302,18 +302,20 @@ document.addEventListener('DOMContentLoaded', function () {
   var okB = document.getElementById('ah-confirm-ok');
   var caB = document.getElementById('ah-confirm-cancel');
   var pending = null;
-  function settle(v) { var p = pending; pending = null; ov.hidden = true; if (p) p(v); }
+  // Toggle display directly (never the `hidden` attribute): an inline display would override [hidden]
+  // and leave this full-screen overlay intercepting every click. Default display:none; shown as flex.
+  function settle(v) { var p = pending; pending = null; ov.style.display = 'none'; if (p) p(v); }
   function open(text, okLabel) {
     msg.textContent = text || 'Are you sure?';
     okB.textContent = okLabel || 'Confirm';
-    ov.hidden = false;
+    ov.style.display = 'flex';
     try { okB.focus(); } catch (e) {}
     return new Promise(function (res) { pending = res; });
   }
   okB.addEventListener('click', function () { settle(true); });
   caB.addEventListener('click', function () { settle(false); });
   ov.addEventListener('click', function (e) { if (e.target === ov) settle(false); });
-  document.addEventListener('keydown', function (e) { if (!ov.hidden && e.key === 'Escape') settle(false); });
+  document.addEventListener('keydown', function (e) { if (ov.style.display !== 'none' && e.key === 'Escape') settle(false); });
   // Exposed for in-script call sites: `anthillConfirm(msg).then(function(ok){ if(!ok)return; ... })`.
   window.anthillConfirm = open;
   // Delegated handler: first click on any clickable [data-confirm] (button / link / onclick element)
