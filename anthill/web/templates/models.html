@@ -95,47 +95,21 @@
   {% endif %}
 </div>
 
-<div class="card mt-4" id="installed">
-  <h3 style="margin-bottom:16px">Installed on this device</h3>
-  {% if available %}
-  <table>
-    <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
-    <tbody>
-    {% for m in available %}
-    <tr>
-      <td>
-        <code>{{ m.name }}</code>
-        {% if m.name == current_model %}<span class="badge badge-active">current</span>{% endif %}
-        {% if m.name in resident %}<span class="badge" title="Loaded in memory now">resident</span>{% endif %}
-      </td>
-      <td>{{ "%.1f GB"|format(m.size / 1073741824) }}</td>
-      <td class="text-sm text-muted">{{ m.modified_at[:10] if m.modified_at else '-' }}</td>
-      <td style="text-align:right">
-        {% if m.name == current_model or m.name == pulling %}
-        <span class="text-sm text-muted" title="Switch to another model before removing this one">in use</span>
-        {% else %}
-        {% if current_model and gold_count >= 3 %}
-        <form method="post" action="/models/benchmark" style="display:inline">
-          <input type="hidden" name="model_tag" value="{{ m.name }}">
-          <button type="submit" class="btn btn-sm"
-                  title="Score this model against your current one on your approved answers">Benchmark</button>
-        </form>
-        {% endif %}
-        <form method="post" action="/models/delete" style="display:inline"
-              onsubmit="return confirm('Remove {{ m.name }}? This deletes it from disk ({{ '%.1f GB'|format(m.size / 1073741824) }}). You can pull it again later.');">
-          <input type="hidden" name="model_tag" value="{{ m.name }}">
-          <button type="submit" class="btn btn-sm btn-danger">Remove</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="text-muted text-sm">Cannot reach Ollama. Check the server URL in <a href="/settings">Settings</a>.</p>
-  {% endif %}
+{# Benchmark a model against the current one. This is a model-management action, not the raw on-disk
+   storage list that was removed (founder 2026-10-01): a single picker, no sizes and no Remove. Uninstall
+   lives on each model in Settings' picker. #}
+{% if current_model and gold_count >= 3 and available %}
+<div class="card mt-4" id="benchmark">
+  <h3 style="margin-bottom:8px">Benchmark a model</h3>
+  <p class="set-note">Score another installed model against your current one ({{ current_model }}) on your {{ gold_count }} approved answers.</p>
+  <form method="post" action="/models/benchmark" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+    <select name="model_tag" required style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      {% for m in available %}{% if m.name != current_model and m.name != pulling %}<option value="{{ m.name }}">{{ m.name }}</option>{% endif %}{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm">Benchmark</button>
+  </form>
 </div>
+{% endif %}
 
 <script>
 async function fetchModelJSON(url, options) {

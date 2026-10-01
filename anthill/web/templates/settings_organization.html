@@ -246,7 +246,8 @@
           </button>
           {% if r.backend_handle %}
           <button type="button" class="btn btn-outline btn-sm"
-                  onclick="if (confirm('Tear down this reviewer\'s provisioned endpoint?')) _settingsFormPost('/settings/organization/council/teardown', {member_index: {{ loop.index0 }}})">
+                  data-confirm="Tear down this reviewer's provisioned endpoint?"
+                  onclick="_settingsFormPost('/settings/organization/council/teardown', {member_index: {{ loop.index0 }}})">
             Tear down
           </button>
           {% endif %}
@@ -376,9 +377,13 @@ function _settingsFormPost(url, data) {
     if (!btn) return;
     btn.addEventListener('click', function () {
       var status = row.getAttribute('data-status');
-      if ((status === 'provisioned' || status === 'provisioning') &&
-          !confirm('This reviewer is ' + status + '. Tear it down first (its own Tear down button) ' +
-                   'before removing it, or the save will be refused. Remove anyway?')) {
+      if (status === 'provisioned' || status === 'provisioning') {
+        anthillConfirm('This reviewer is ' + status + '. Tear it down first (its own Tear down button) ' +
+                       'before removing it, or the save will be refused. Remove anyway?').then(function (ok) {
+          if (!ok) return;
+          row.remove();
+          reindex();
+        });
         return;
       }
       row.remove();
@@ -610,7 +615,7 @@ function _settingsFormPost(url, data) {
     </form>
     {% if cfg.org_backend_handle %}
     <form method="post" action="/settings/organization/teardown"
-          onsubmit="return confirm('Tear down the provisioned endpoint? You can re-provision later.')">
+          data-confirm="Tear down the provisioned endpoint? You can re-provision later.">
       <button type="submit" class="btn btn-outline">Tear down</button>
     </form>
     {% endif %}
@@ -718,7 +723,10 @@ function _settingsFormPost(url, data) {
 
 <script>
 function _awsAction(url, confirmMsg) {
-  if (confirmMsg && !confirm(confirmMsg)) return;
+  if (confirmMsg) { anthillConfirm(confirmMsg).then(function (ok) { if (ok) _awsActionGo(url); }); return; }
+  _awsActionGo(url);
+}
+function _awsActionGo(url) {
   fetch(url, { method: 'POST' })
     .then(function (r) { return r.json().then(function (d) { return d; }, function () { return { ok: false, detail: 'Unexpected server response.' }; }); })
     .then(function (d) { toastAfter(d.detail || (d.ok ? 'Done.' : 'Something went wrong.'), d.ok ? 'success' : 'error'); location.reload(); })

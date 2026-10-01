@@ -140,7 +140,7 @@
     <td style="text-align:right">
       {% if m.role != 'owner' %}
       <form method="post" action="/teams/{{ team.id }}/members/{{ u.id }}/remove" style="display:inline">
-        <button class="btn btn-danger btn-sm" onclick="return confirm('Remove {{ u.email }} from {{ team.name }}?')">Remove</button>
+        <button class="btn btn-danger btn-sm" data-confirm="Remove {{ u.email }} from {{ team.name }}?">Remove</button>
       </form>
       {% endif %}
     </td>

@@ -223,17 +223,9 @@
   </div>
   {% endif %}
 
-  {# A visible card, not nested in Advanced below: founder QA (2026-09-30) found "uninstall a
-     model" too buried to discover on its own ("This device" tab, Advanced-adjacent) for a user who
-     just wants to reclaim disk space. Lives in Model (the tab Settings opens on) since it's a fact
-     about the models this decision downloaded, not a device setting like Appearance - as its own
-     always-visible card rather than inside Advanced, so it doesn't repeat the exact "buried two
-     levels deep" complaint that moved it out of Advanced in the first place (2026-09-26 -> 09-29). #}
-  <div class="card mb-2">
-    <div class="set-cardh"><h3>Model storage<button type="button" class="help" aria-label="What this is">?<span class="help-pop">Every model you've ever downloaded or tried stays on disk until you remove it - switching models doesn't free the old one's space automatically.</span></button></h3></div>
-    <p class="set-note">{% if model_storage_gb %}{{ model_storage_gb }} GB on this device - downloaded models and cache.{% else %}Downloaded models and cache on this device.{% endif %}</p>
-    <a href="/models#installed" class="btn btn-outline btn-sm" style="margin-top:8px">Manage</a>
-  </div>
+  {# The separate "Model storage" list was removed (founder ask, 2026-10-01): raw on-disk model
+     management doesn't belong in Anthill's UX. Uninstall lives on each model in the picker above
+     (the per-model Uninstall button), which is the one place models are managed. #}
 
   {# Advanced, model-scoped setup - lives here, not under This device: these are decisions about which
      model runs and where (founder ask, 2026-09-26). #}

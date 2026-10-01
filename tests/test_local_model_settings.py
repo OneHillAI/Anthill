@@ -73,39 +73,27 @@ def test_models_page_no_longer_duplicates_the_settings_catalog(tmp_path, monkeyp
     assert "Detected:" not in body
     assert 'name="model_tag"' in body  # the custom-tag pull form is still here
     assert "outside the curated catalog" in body
-    assert "Installed on this device" in body  # storage management is still here
+    # The raw on-disk "Installed on this device" storage list was removed (founder 2026-10-01): it
+    # exposes model storage that doesn't belong in Anthill's UX. Uninstall now lives on each model in
+    # the picker instead of a separate list.
+    assert "Installed on this device" not in body
 
 
-def test_solo_settings_links_to_local_model(tmp_path, monkeypatch):
-    # Local-model management is folded into the one Solo settings home (not its own rail item), so the
-    # Solo settings page links out to it.
+def test_solo_settings_has_no_separate_model_storage_link(tmp_path, monkeypatch):
+    # The separate "Model storage" card and its "Manage" (/models#installed) link were removed
+    # (founder 2026-10-01): uninstall now lives on each model in the picker, not a separate page.
     c, _, _ = _admin(tmp_path, monkeypatch)
     body = c.get("/personalize").text
-    # Anchored to the installed-models list (2026-09-29 fix), not the "Choose your local model"
-    # catalog - Model storage's "Manage" means free disk space, not re-pick your model.
-    assert 'href="/models#installed"' in body  # Solo settings -> manage local models
-    assert 'href="/settings"' in body  # ...and -> advanced inference / workspace
+    assert 'href="/models#installed"' not in body  # the storage "Manage" link is gone
+    assert 'href="/settings"' in body  # advanced inference / workspace link stays
 
 
-def test_model_storage_card_lives_in_the_model_tab_before_advanced(tmp_path, monkeypatch):
-    # Founder QA (2026-09-30): "uninstall a model" was too buried to discover on its own tab
-    # ("This device", nested near Advanced). Moved into Model - the tab Settings opens on - as its
-    # own always-visible card, positioned before the Advanced disclosure (not after, and not inside
-    # it - that's the exact "buried two levels deep" complaint that moved it out of Advanced
-    # originally, on 2026-09-26). This has moved twice already; pin the placement so a future pass
-    # doesn't casually re-bury it.
+def test_model_storage_card_removed_from_settings(tmp_path, monkeypatch):
+    # The separate "Model storage" card was removed (founder 2026-10-01); uninstall is per-model in
+    # the picker. Pin this so a future pass doesn't re-introduce a standalone raw-storage list.
     c, _, _ = _admin(tmp_path, monkeypatch)
     body = c.get("/personalize").text
-    model_panel = body.split('<div class="st-panel active" data-st="model">', 1)[1].split(
-        '<div class="st-panel" data-st="knowledge">', 1
-    )[0]
-    assert "Model storage" in model_panel
-    assert model_panel.index("Model storage") < model_panel.index(">Advanced<")
-
-    device_panel = body.split('<div class="st-panel" data-st="device">', 1)[1].split(
-        '<div class="st-panel" data-st="org">', 1
-    )[0]
-    assert "Model storage" not in device_panel
+    assert "Model storage" not in body  # no standalone storage card anywhere in Settings
 
 
 def test_selecting_a_not_installed_model_downloads_without_switching_yet(tmp_path, monkeypatch):
@@ -225,45 +213,6 @@ def test_delete_failure_is_surfaced(tmp_path, monkeypatch):
     )
     r = c.post("/models/delete", data={"model_tag": "llama3.1:8b"}, follow_redirects=False)
     assert "error=delete_failed" in r.headers["location"]
-
-
-def test_models_page_renders_remove_and_resident(tmp_path, monkeypatch):
-    # Renders the installed table with real rows: the non-current model gets a Remove control, the
-    # current one shows "in use", the loaded model is badged "resident", and sizes are shown.
-    c, app_mod, org_id = _admin(tmp_path, monkeypatch)
-    _set_current(app_mod, org_id, "qwen2.5:3b")
-
-    class _Resp:
-        def __init__(self, data):
-            self._d = data
-
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return self._d
-
-    def fake_get(url, **k):
-        if url.endswith("/api/tags"):
-            return _Resp(
-                {
-                    "models": [
-                        {"name": "qwen2.5:3b", "size": 3_006_477_000, "modified_at": "2026-07-01"},
-                        {"name": "llama3.1:8b", "size": 8_540_000_000, "modified_at": "2026-07-02"},
-                    ]
-                }
-            )
-        if url.endswith("/api/ps"):
-            return _Resp({"models": [{"name": "llama3.1:8b"}]})  # loaded in memory now
-        return _Resp({})
-
-    monkeypatch.setattr("anthill.web.app.httpx.get", fake_get)
-    body = c.get("/models").text
-    assert 'action="/models/delete"' in body  # a Remove control exists
-    assert 'value="llama3.1:8b"' in body  # ...for the non-current model
-    assert "8.0 GB" in body  # its size on disk (8_540_000_000 bytes)
-    assert "resident" in body  # the loaded model is badged
-    assert "in use" in body  # the current model offers no Remove
 
 
 def test_backend_delete_and_resident(monkeypatch):

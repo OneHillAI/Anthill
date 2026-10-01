@@ -279,5 +279,75 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <div id="toast" class="toast" style="display:none" onclick="this.style.display='none'"></div>
+
+{# Shared destructive-action confirm. The packaged desktop app's webview (Tauri 2 / wry, no dialog
+   plugin) does NOT implement native JS dialogs, so window.confirm() returns false and window.alert()
+   is a no-op - every confirm()-gated action silently did nothing (founder report 2026-10-01). Any
+   element with data-confirm="Question?" shows this in-DOM confirm first; on Confirm the element's real
+   action (form submit, link, or its own onclick) proceeds. window.anthillConfirm(msg) -> Promise<bool>
+   is also exposed for the few in-script call sites. #}
+<div id="ah-confirm" style="display:none;position:fixed;inset:0;z-index:10000;align-items:center;justify-content:center;background:rgba(0,0,0,.45)">
+  <div role="dialog" aria-modal="true" aria-labelledby="ah-confirm-msg" style="background:var(--bg,#fff);color:var(--text,#111);max-width:400px;width:calc(100% - 48px);border:1px solid var(--border,#e5e5e5);border-radius:12px;padding:20px;box-shadow:0 12px 48px rgba(0,0,0,.35)">
+    <p id="ah-confirm-msg" style="margin:0 0 18px;font-size:15px;line-height:1.45"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" id="ah-confirm-cancel" class="btn btn-outline btn-sm">Cancel</button>
+      <button type="button" id="ah-confirm-ok" class="btn btn-danger btn-sm">Confirm</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var ov = document.getElementById('ah-confirm');
+  var msg = document.getElementById('ah-confirm-msg');
+  var okB = document.getElementById('ah-confirm-ok');
+  var caB = document.getElementById('ah-confirm-cancel');
+  var pending = null;
+  // Toggle display directly (never the `hidden` attribute): an inline display would override [hidden]
+  // and leave this full-screen overlay intercepting every click. Default display:none; shown as flex.
+  function settle(v) { var p = pending; pending = null; ov.style.display = 'none'; if (p) p(v); }
+  function open(text, okLabel) {
+    msg.textContent = text || 'Are you sure?';
+    okB.textContent = okLabel || 'Confirm';
+    ov.style.display = 'flex';
+    try { okB.focus(); } catch (e) {}
+    return new Promise(function (res) { pending = res; });
+  }
+  okB.addEventListener('click', function () { settle(true); });
+  caB.addEventListener('click', function () { settle(false); });
+  ov.addEventListener('click', function (e) { if (e.target === ov) settle(false); });
+  document.addEventListener('keydown', function (e) { if (ov.style.display !== 'none' && e.key === 'Escape') settle(false); });
+  // Exposed for in-script call sites: `anthillConfirm(msg).then(function(ok){ if(!ok)return; ... })`.
+  window.anthillConfirm = open;
+  // Delegated handler: first click on any clickable [data-confirm] (button / link / onclick element)
+  // is intercepted and asks; on Confirm the element is re-clicked so its native action (navigate or
+  // its own onclick) runs the second time. A <form data-confirm> is handled by the submit listener
+  // below instead, so skip forms here.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest && e.target.closest('[data-confirm]');
+    if (!el || el.tagName === 'FORM') return;
+    if (el.__ahConfirmed) { el.__ahConfirmed = false; return; }  // second pass: let it through
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    open(el.getAttribute('data-confirm'), el.getAttribute('data-confirm-ok')).then(function (ok) {
+      if (!ok) return;
+      el.__ahConfirmed = true;
+      el.click();
+    });
+  }, true);
+  // A <form data-confirm="Question?"> asks before it submits (replaces an inline onsubmit confirm).
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f || !f.matches || !f.matches('form[data-confirm]')) return;
+    if (f.__ahConfirmed) { f.__ahConfirmed = false; return; }  // second pass: let it submit
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    open(f.getAttribute('data-confirm'), f.getAttribute('data-confirm-ok')).then(function (ok) {
+      if (!ok) return;
+      f.__ahConfirmed = true;
+      if (f.requestSubmit) f.requestSubmit(); else f.submit();
+    });
+  }, true);
+})();
+</script>
 </body>
 </html>

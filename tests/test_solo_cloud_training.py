@@ -260,20 +260,9 @@ def test_org_cloud_tabs_shows_no_bar_for_solo(tmp_path, monkeypatch):
     assert "settings-tabs" not in body
 
 
-def test_model_storage_lives_in_model_tab_before_advanced_not_this_device(tmp_path, monkeypatch):
-    # Moved again (founder QA, 2026-09-30): buried under "This device" was still too easy to miss
-    # for a user who just wants to free up disk space. Now a visible, always-shown card in Model -
-    # the tab Settings opens on - positioned before the Advanced disclosure (a sibling card, not
-    # nested inside it - nesting it is the exact "buried two levels deep" complaint that moved it
-    # out of Advanced the first time, on 2026-09-26). See also
-    # test_local_model_settings.py::test_model_storage_card_lives_in_the_model_tab_before_advanced.
+def test_model_storage_card_removed_from_settings(tmp_path, monkeypatch):
+    # The separate "Model storage" card was removed (founder 2026-10-01): raw on-disk model
+    # management doesn't belong in Anthill's UX. Uninstall now lives on each model in the picker.
     c, _app_mod = _client(tmp_path, monkeypatch)
     body = c.get("/personalize").text
-    model_start = body.index('<div class="st-panel active" data-st="model">')
-    device_start = body.index('<div class="st-panel" data-st="device">')
-    model_panel = body[model_start:device_start]
-    assert "Model storage" in model_panel
-    assert model_panel.index("Model storage") < model_panel.index(">Advanced<")
-    # and it's gone from This device
-    device_panel = body[device_start : device_start + 2000]
-    assert "Model storage" not in device_panel
+    assert "Model storage" not in body  # no standalone storage card in Settings

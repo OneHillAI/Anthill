@@ -42,7 +42,7 @@
     <form method="post" action="/chat/{{ c.id }}/pin">
       <button type="submit" class="rail-conv-del-btn" title="{{ 'Unpin' if c.pinned else 'Pin to top' }}" aria-label="{{ 'Unpin conversation' if c.pinned else 'Pin conversation' }}"><i data-lucide="{{ 'pin-off' if c.pinned else 'pin' }}">📌</i></button>
     </form>
-    <form method="post" action="/chat/{{ c.id }}/delete" onsubmit="return confirm('Delete this conversation?')">
+    <form method="post" action="/chat/{{ c.id }}/delete" data-confirm="Delete this conversation?">
       <button type="submit" class="rail-conv-del-btn" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2">🗑</i></button>
     </form>
   </div>

@@ -230,7 +230,7 @@
         <button type="button" class="btn btn-outline btn-sm" onclick="toggleQ('{{ task.id }}')">+ Queue{% if task.queued_list %} ({{ task.queued_list|length }}){% endif %}</button>
         <form method="post" action="/tasks/{{ task.id }}/cancel" style="margin:0">
           <button class="btn btn-danger btn-sm"
-                  onclick="return confirm('Cancel this task?')">✕</button>
+                  data-confirm="Cancel this task?">✕</button>
         </form>
         {% endif %}
       </div>

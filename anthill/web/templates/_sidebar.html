@@ -119,7 +119,7 @@
         <div class="rail-conv-actions">
           <form method="post" action="/chat/{{ c.id }}/pin" class="rail-conv-act"><button type="submit" class="rail-conv-del-btn" title="{{ 'Unpin' if c.pinned else 'Pin to top' }}" aria-label="{{ 'Unpin conversation' if c.pinned else 'Pin conversation' }}"><i data-lucide="{{ 'pin-off' if c.pinned else 'pin' }}">📌</i></button></form>
           <form method="post" action="/chat/{{ c.id }}/rename" class="rail-conv-act" onsubmit="var t=prompt('Rename conversation:', this.title.value); if(t===null) return false; this.title.value=t;"><input type="hidden" name="title" value="{{ c.title }}"><button type="submit" class="rail-conv-del-btn" title="Rename conversation" aria-label="Rename conversation"><i data-lucide="pencil">✏️</i></button></form>
-          <form method="post" action="/chat/{{ c.id }}/delete" class="rail-conv-act" onsubmit="return confirm('Delete this conversation?')"><button type="submit" class="rail-conv-del-btn danger" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2">🗑</i></button></form>
+          <form method="post" action="/chat/{{ c.id }}/delete" class="rail-conv-act" data-confirm="Delete this conversation?"><button type="submit" class="rail-conv-del-btn danger" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2">🗑</i></button></form>
         </div>
       </div>
       {% endmacro %}
@@ -127,7 +127,7 @@
       {% macro folder_group(f) %}
       {% set fconvs = unpinned | selectattr('folder_id', 'equalto', f.id) | list %}
       <details class="rail-folder" open>
-        <summary class="rail-conv-section rail-folder-summary"><span>📁 {{ f.name }}</span><form method="post" action="/folders/{{ f.id }}/delete" onsubmit="return confirm('Delete this folder? Its chats are kept, just unfiled.')"><button type="submit" class="rail-conv-del-btn danger" title="Delete folder" aria-label="Delete folder"><i data-lucide="trash-2">🗑</i></button></form></summary>
+        <summary class="rail-conv-section rail-folder-summary"><span>📁 {{ f.name }}</span><form method="post" action="/folders/{{ f.id }}/delete" data-confirm="Delete this folder? Its chats are kept, just unfiled."><button type="submit" class="rail-conv-del-btn danger" title="Delete folder" aria-label="Delete folder"><i data-lucide="trash-2">🗑</i></button></form></summary>
         {% for c in fconvs %}{{ conv_item(c, 'rail-conv-' ~ ('org' if c.plane == 'org' else 'solo'), '', ('org' if c.plane == 'org' else 'solo')) }}{% endfor %}
       </details>
       {% endmacro %}

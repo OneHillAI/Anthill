@@ -174,6 +174,8 @@
    is disclosed plainly rather than silently multiplying spend. Toggled live by ccCouncil() below. #}
 <p class="text-sm" id="cloud-council-disclosure" style="margin:6px 0 0;color:var(--warn,#b45309);display:none"></p>
 <p class="text-sm text-muted" style="margin:8px 0 0" id="mp-empty" hidden>No models from that region here. Try another region.</p>
+{# In-DOM feedback for an Uninstall (window.alert() is a no-op in the packaged Tauri shell). #}
+<p class="text-sm" style="margin:8px 0 0" id="mc-uninstall-msg" hidden></p>
 
 <script>
 // Council builder: the LEAD is the model you pick FIRST (selection order), not the topmost in the list.
@@ -202,13 +204,32 @@ var ccLocalSingle = {{ 'true' if below_floor else 'false' }};
 // Uninstalling from right inside this list (founder ask, 2026-09-30): fetch(), not a real <form>
 // submit - this button lives inside a <label> nested in the outer settings form (or chooser_form),
 // and a SECOND, nested <form> silently detaches everything after it from the real outer form. Reuses
-// the same /models/delete route the standalone Settings > Model storage > Manage page's "Remove"
-// button already posts to - no new endpoint. That route redirects (never JSON), so success/failure
-// is read off the final URL fetch() lands on after following it: /models?deleted=... vs ?error=....
+// the same /models/delete route - no new endpoint. That route redirects (never JSON), so success/
+// failure is read off the final URL fetch() lands on after following it: /models?deleted= vs ?error=.
+//
+// Confirmation is an INLINE tap-again, never window.confirm(): in the packaged Tauri (v2/wry) shell
+// there is no native JS dialog implementation, so window.confirm() returns false and window.alert()
+// is a no-op - every confirm()-gated action silently did nothing (founder report, 2026-10-01: "I
+// click uninstall and nothing happens"). First click arms the button ("Confirm?"); a second click
+// within 4s performs the delete; feedback is shown in-DOM, not via alert().
 function mcUninstall(btn, tag) {
-  if (!confirm('Remove ' + tag + '? This deletes it from disk. You can pull it again later.')) return;
+  if (btn.dataset.armed !== '1') {           // first click: arm, don't delete yet
+    btn.dataset.armed = '1';
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    btn.textContent = 'Confirm?';
+    btn.classList.add('armed');
+    clearTimeout(btn._disarm);
+    btn._disarm = setTimeout(function () {
+      btn.dataset.armed = '0';
+      btn.textContent = btn.dataset.label;
+      btn.classList.remove('armed');
+    }, 4000);
+    return;
+  }
+  clearTimeout(btn._disarm);                  // second click: do it
   var row = btn.closest('.mp-row');
   btn.disabled = true;
+  btn.textContent = 'Removing…';
   fetch('/models/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -216,14 +237,28 @@ function mcUninstall(btn, tag) {
   }).then(function (r) {
     if (r.url && r.url.indexOf('deleted=') >= 0) {
       row.remove();
+      mcUninstallMsg(tag + ' removed from this device.', false);
     } else {
-      btn.disabled = false;
-      alert('Could not remove that model - is the local engine running, or is it still in use?');
+      mcUninstallReset(btn);
+      mcUninstallMsg('Could not remove ' + tag + ' - is the local engine running, or is it still in use?', true);
     }
   }).catch(function () {
-    btn.disabled = false;
-    alert('Could not remove that model.');
+    mcUninstallReset(btn);
+    mcUninstallMsg('Could not remove ' + tag + '.', true);
   });
+}
+function mcUninstallReset(btn) {
+  btn.disabled = false;
+  btn.dataset.armed = '0';
+  btn.textContent = btn.dataset.label || 'Uninstall';
+  btn.classList.remove('armed');
+}
+function mcUninstallMsg(text, isError) {
+  var el = document.getElementById('mc-uninstall-msg');
+  if (!el) return;                            // in-DOM feedback (alert() is a no-op in the Tauri shell)
+  el.textContent = text;
+  el.hidden = false;
+  el.style.color = isError ? 'var(--danger,#A32D2D)' : 'var(--text-muted,#6b6b6b)';
 }
 function ccCouncil(cb) {
   if (cb && 'checked' in cb) {  // a real checkbox toggled -> maintain selection order
