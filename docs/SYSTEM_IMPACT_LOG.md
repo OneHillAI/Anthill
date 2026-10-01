@@ -26,6 +26,17 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Added a version number to Settings - pending PR, prepared 2026-10-01
+**System impact:** founder, 2026-10-01: "do i see a version of the app inside the app?" - no version
+string was visible anywhere in the running app (checked every template, the Tauri shell, any
+footer). Added a Version card to Settings -> This device, next to Appearance, showing
+`anthill.__version__` - the same value `pyproject.toml`'s build already derives from.
+**Surface:** `anthill/web/app.py` (`personalize_get` passes `app_version`),
+`anthill/web/templates/personalize.html`.
+**User-visible:** yes - a new Version line in Settings.
+**Footprint:** additive; no migration, no schema change. New test
+`tests/test_settings_version_display.py`. Full suite: 2831 passed, 5 skipped.
+
 ### Destructive confirmations work in the packaged desktop; model-storage list removed - pending PR, prepared 2026-10-01
 **System impact:** every destructive action gated by a native confirm silently did nothing in the packaged Tauri webview (no native JS dialogs); a shared in-DOM confirm (`data-confirm` / `window.anthillConfirm`) now gates them all, so uninstall, deletes, revokes and the rest work in the desktop app. The model picker's per-model Uninstall works, and the separate raw model-storage list is gone.
 **Surface:** `anthill/web/templates/base.html` (shared `#ah-confirm` dialog + delegated click/submit handler); `_council_builder.html` (per-model Uninstall); about 15 templates converted to `data-confirm` / `anthillConfirm`; `models.html` and `personalize.html` drop the storage list.

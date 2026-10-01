@@ -30,6 +30,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .. import __version__
 from ..mesh_auth import require_mesh
 from ..wiki.workspace import workspace_for
 from . import audit, metrics
@@ -5989,6 +5990,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "is_org_deployment": normalize_topology(getattr(cfg, "deployment_topology", "") or "")
             == "org",
             "org_setup_error": request.query_params.get("org_error", ""),
+            "app_version": __version__,
         },
     )
 
