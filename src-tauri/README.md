@@ -41,7 +41,7 @@ This replaces `webbrowser.open` with a native WKWebView (macOS) / WebView2 (Wind
 | `tauri.conf.json` | Window, `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
 | `src/lib.rs` | Sidecar boot: spawn -> read `PORT=` -> health-poll -> navigate + show. Has unit tests for the port parser. |
 | `src/main.rs` | Thin binary entry that calls `run()`. |
-| `splash/index.html` | "Starting Anthill" loading page shown before the backend is up (`frontendDist`). |
+| `splash/index.html` | "We're on our way!" loading page shown before the backend is up (`frontendDist`). |
 | `capabilities/default.json` | Permissions: shell execute, window show, webview navigate, updater. |
 | `binaries/` | Per-target-triple PyInstaller backend (gitignored; built in CI). See its README. |
 | `icons/` | Generated app icons (gitignored). See its README. |
