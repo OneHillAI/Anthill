@@ -43,6 +43,10 @@ def test_solo_settings_has_an_integrations_tab_linking_to_connectors(tmp_path, m
     body = c.get("/personalize").text
     assert 'data-st="integrations"' in body  # a real tab, not folded into Organisation
     assert 'href="/connectors/mcp"' in body  # links straight to the connector gallery
+    # UI/UX review, 2026-10-01: every other card header on this page explains its jargon inline -
+    # Integrations was the one exception, and "MCP" is exactly the term that needs it.
+    integrations_panel = body.split('data-st="integrations"', 2)[2]
+    assert 'class="help"' in integrations_panel and "Model Context Protocol" in integrations_panel
 
 
 def test_solo_account_can_actually_load_the_connectors_page(tmp_path, monkeypatch):

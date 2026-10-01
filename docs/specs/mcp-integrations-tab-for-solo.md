@@ -78,3 +78,29 @@ Settings sub-rail carries the matching link; `/connectors/mcp`'s back link point
 "Manage organisation"; the status pill reads "Not set up" with none configured and "N connected" once
 an approved `MCPServer` row exists. Full suite: 2819 passed, 8 skipped. `ruff check` / `ruff format
 --check` and the em/en-dash slop gate clean on all three touched files.
+
+## UI/UX review (2026-10-01)
+
+The UI/UX design session reviewed this tab plus `mcp.html` (the gallery it links to) live, as a Solo
+admin. One finding was in scope here and fixed: every other Settings card header on this page has a
+`?` help-pop explaining its jargon inline (9 of them, via `grep`) - Integrations was the one exception,
+and "MCP" is exactly the term that needed it. Added, matching the existing pattern exactly; locked in
+by a new assertion in `test_solo_settings_has_an_integrations_tab_linking_to_connectors`.
+
+Three further findings are about `mcp.html` itself - pre-existing, not introduced by this change, but
+now reaching a wider (and more likely non-technical) audience precisely because this fix makes the page
+easier to find. Out of scope for this PR; left for the founder to prioritize separately:
+
+1. The "MCP runtime is not installed here... `pip install -e \".[mcp]\"`" banner is developer-facing
+   language that could reach a non-technical Solo user if the packaged desktop app ever ships without
+   the `mcp` extra.
+2. "Expose Anthill over MCP (server)" (consumers, scoped tokens, review mode, access log) is a
+   different feature from what "Manage integrations" promises (connecting Slack/Drive/etc TO Anthill,
+   not exposing Anthill's own brain outward) and has zero visual separation from the connector gallery
+   above it - a user just wanting to connect Slack scrolls through org-brain-exposure config that does
+   not apply to them.
+3. Slack is badged "Connect now" (no warning) but actually requires the same out-of-band setup as
+   Google Drive's honestly-badged "Requires provider setup" - creating your own Slack bot/app at
+   api.slack.com and pasting its token, with "Open the setup guide" linking to a developer-facing raw
+   GitHub README. The badge's real distinction is "paste credentials you already have" vs. "OAuth
+   redirect," not "easy" vs. "hard," and Slack's own copy contradicts its badge.

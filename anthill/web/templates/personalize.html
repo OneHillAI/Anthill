@@ -391,7 +391,7 @@
 <!-- ── Integrations (admin) ────────────────────────────────────────────────── -->
 <div class="st-panel" data-st="integrations">
   <div class="card mb-2">
-    <div class="set-cardh"><h3>Integrations</h3><span class="pill-on{% if not integrations_connected %} pill-soon{% endif %}">{% if integrations_connected %}{{ integrations_connected }} connected{% else %}Not set up{% endif %}</span></div>
+    <div class="set-cardh"><h3>Integrations<button type="button" class="help" aria-label="What this is">?<span class="help-pop">MCP (Model Context Protocol) is the standard way agents reach outside tools and data - connect Slack, GitHub, Google Drive and more so your model can use them directly.</span></button></h3><span class="pill-on{% if not integrations_connected %} pill-soon{% endif %}">{% if integrations_connected %}{{ integrations_connected }} connected{% else %}Not set up{% endif %}</span></div>
     <p class="set-note">Connect Slack, GitHub, Google Drive, Notion and other tools over MCP so agents can use them - no organisation needed.</p>
     <a href="/connectors/mcp" class="btn btn-outline btn-sm core-cta"><i data-lucide="blocks"></i> Manage integrations</a>
   </div>
