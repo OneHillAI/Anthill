@@ -68,6 +68,22 @@ gallery's own badges/copy are now honest about what each connector actually need
 covered, which is why this regression shipped unnoticed; `tests/test_stdio_env.py`'s Slack test renamed
 and corrected (it had encoded the old, wrong "one-click" assumption as a hard assertion).
 
+### Chat sidebar: removed duplicate Rename/Delete header buttons, fixed overlapping row icons - pending PR, prepared 2026-10-01
+**System impact:** founder report on the desktop app (screenshot): the sidebar's per-conversation
+pin/rename/delete icons overlapped the conversation's title text and looked misaligned, and the open
+chat's own header duplicated Rename/Delete (already in the sidebar row, for every conversation, not
+just the open one). Removed the header's duplicate buttons. The sidebar icon group's sizing was
+padding-driven (`.rail-conv-del-btn { padding: 2px 5px }` around a 12px icon) with no
+`-webkit-appearance: none`, so the packaged desktop app's WKWebView could size the buttons wider than
+the 78px the row reserved for them, in practice. Buttons are now a fixed, `appearance:none` 24x24px
+each, and the reserved space is 92px - verified via rendered `getBoundingClientRect()` (not just a
+screenshot): 10px of clear margin between the truncated title and the icon group at every title length
+tested.
+**Surface:** `anthill/web/templates/chat.html`, `anthill/web/static/style.css` only; no route changed
+(sidebar already posted to the same rename/delete/pin endpoints the header buttons did).
+**User-visible:** yes - the open-chat header and the conversation list hover controls.
+**Footprint:** additive/cleanup; no regression risk (same two routes, now reached from one place).
+
 ### Model uninstall is now discoverable and inline - pending PR, prepared 2026-10-01
 **System impact:** founder QA: "this must be a solution for any user. They don't like a model. They
 need to be able to uninstall it. Otherwise, it uses gigabytes of space on the computer." The
@@ -102,7 +118,7 @@ not it's in the curated catalog.
 tests below); two existing placement tests updated (they asserted the location this change
 deliberately moves away from).
 
-### Desktop splash screen shows the Anthill mark instead of a generic orange square - pending PR, prepared 2026-09-30
+### Desktop splash screen shows the Anthill mark instead of a generic orange square - PR #3, merged 2026-09-30
 **System impact:** the desktop shell's first screen (`src-tauri/splash/index.html`, shown while the
 Python backend boots) was an unbranded 64x64 orange-gradient square with "Starting Anthill". Founder
 report: "when the app is opened, it shows an orange square for loading." Redrawn as inline SVG/CSS

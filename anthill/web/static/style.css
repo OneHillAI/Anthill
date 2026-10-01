@@ -246,16 +246,25 @@ dialog.modal::backdrop { background: transparent; }
    used to position itself independently at this same spot, which stacked all three exactly on top of
    each other (only the last-painted button was ever actually clickable). */
 .sidebar nav.chat-mode .rail-conv-row { position: relative; }
-.sidebar nav.chat-mode .rail-conv-row a.rail-conv { padding-right: 78px; }
+.sidebar nav.chat-mode .rail-conv-row a.rail-conv { padding-right: 92px; }
 .sidebar nav.chat-mode .rail-conv-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  display: none; align-items: center; gap: 4px; }
+  display: none; align-items: center; gap: 2px; }
 .sidebar nav.chat-mode .rail-conv-row:hover .rail-conv-actions { display: flex; }
-.sidebar nav.chat-mode .rail-conv-act { margin: 0; }
+.sidebar nav.chat-mode .rail-conv-act { margin: 0; flex: none; }
 .sidebar nav.chat-mode .rail-conv-del { margin: 0; display: none; }
 .sidebar nav.chat-mode .rail-conv-row:hover .rail-conv-del { display: block; }
-.sidebar nav.chat-mode .rail-conv-del-btn { background: none; border: 0; cursor: pointer; padding: 2px 5px;
-  font-size: 12px; line-height: 1; color: var(--sidebar-text); opacity: .65; border-radius: 4px;
-  display: inline-flex; align-items: center; }
+/* Fixed width/height (not padding-driven) so all three buttons are exactly the same size regardless
+   of their icon's own proportions, and -webkit-appearance: none so WKWebView (the packaged desktop
+   app) can't fall back to native pushbutton metrics for an element we've otherwise stripped bare -
+   that mismatch between the three buttons' actual rendered width and the 78px of space this row used
+   to reserve for them was why they crowded into the conversation title (founder report, 2026-10-01). */
+.sidebar nav.chat-mode .rail-conv-del-btn {
+  -webkit-appearance: none; appearance: none; box-sizing: border-box;
+  background: none; border: 0; cursor: pointer; padding: 0;
+  width: 24px; height: 24px; font-size: 12px; line-height: 1;
+  color: var(--sidebar-text); opacity: .65; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
 /* Pin/rename hover with the sidebar's own neutral interactive colour (matches a.rail-conv:hover) - the
    warm "danger" orange belongs to Delete alone (.rail-conv-del-btn.danger), not every action in the
    group (founder ask, 2026-09-30: sharing one hover colour across all three read as "weird", since a
@@ -274,7 +283,7 @@ dialog.modal::backdrop { background: transparent; }
 .sidebar nav.chat-mode .rail-folder-summary > span { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .sidebar nav.chat-mode .rail-folder-summary .rail-conv-del { position: static; transform: none; display: block; }
-.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del-btn { opacity: 0; padding: 1px 4px; flex: none; }
+.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del-btn { opacity: 0; }
 .sidebar nav.chat-mode .rail-folder-summary:hover .rail-conv-del-btn { opacity: .55; }
 .sidebar nav.chat-mode .rail-newfolder { margin: 5px 12px 6px; }
 .sidebar nav.chat-mode .rail-newfolder input { width: 100%; background: transparent;
