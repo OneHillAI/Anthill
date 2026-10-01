@@ -26,6 +26,20 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### PR validation CI hardened against PyPI read-timeouts - pending PR, prepared 2026-10-01
+**System impact:** the dependency-audit and SAST/license-audit jobs both install the `[ci]` extra
+(pulls in lancedb's large transitive wheels) with no retry or timeout tuning on `pip install`. Hit the
+identical `ReadTimeoutError` on `files.pythonhosted.org` on two consecutive, unrelated PRs (#6, #7) -
+not a problem with either PR's content, a pure CI infrastructure flake. A manual re-run of the stuck
+job also sat `in_progress` for 20+ minutes without responding to a cancellation request, confirming it
+can wedge rather than fail fast (no `timeout-minutes` set, so it falls back to GitHub's 6-hour default).
+Added `--retries 5 --timeout 60` to the three affected `pip install` calls and `timeout-minutes: 15` on
+both jobs as a backstop.
+**Surface:** `.github/workflows/pr-validation.yml` only.
+**User-visible:** no - CI reliability only; no behavior change for contributors beyond fewer spurious
+manual re-runs.
+**Footprint:** no migration, no schema change; `chore` lane (no spec/changelog-fragment requirement).
+
 ### Atlassian connector card self-contradiction fixed - pending PR, prepared 2026-10-01
 **System impact:** test-agent QA of the just-merged Integrations-discoverability PR found one real bug:
 Atlassian (Jira and Confluence) showed a green "One-click connect... No setup needed" message right
