@@ -337,15 +337,8 @@
           {% endfor %}
         </select>
       </form>
-      <form method="post" action="/chat/{{ active_conv.id }}/rename" style="margin:0"
-            onsubmit="var t=prompt('Rename conversation:', this.title.value); if(t===null) return false; this.title.value=t;">
-        <input type="hidden" name="title" value="{{ active_conv.title }}">
-        <button type="submit" class="btn btn-outline btn-sm"><i data-lucide="pencil">✏️</i> Rename</button>
-      </form>
-      <form method="post" action="/chat/{{ active_conv.id }}/delete"
-            style="margin:0" onsubmit="return confirm('Delete this conversation?')">
-        <button class="btn btn-outline btn-sm"><i data-lucide="trash-2">🗑</i> Delete</button>
-      </form>
+      {# Rename/Delete moved to the conversation's own row in the sidebar (pin/rename/delete icons) -
+         having them again here duplicated the action in two places. #}
       {% endif %}
     </div>
 
