@@ -37,6 +37,27 @@
   {% endif %}
 </div>
 
+{% elif active_wiki_tab == 'files' %}
+{# ── Files sub-tab: the immutable raw documents every upload is preserved as before ingest
+   (founder, 2026-10-01: "where are uploaded docs stored?" - previously filesystem-only). ────── #}
+<div class="card">
+  <h2 style="font-size:15px;margin:0 0 4px">Files</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them.</p>
+  {% if raw_files %}
+  <table class="text-sm" style="width:100%;border-collapse:collapse">
+    {% for f in raw_files %}
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name }}</a></td>
+      <td class="text-muted" style="padding:8px;white-space:nowrap">{{ f.size | filesizeformat }}</td>
+      <td class="text-muted" style="padding:8px 0 8px 8px;white-space:nowrap">{{ f.modified }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="text-muted text-sm" style="margin-top:8px">No files yet. Files you upload under <b>Pages</b> show up here.</p>
+  {% endif %}
+</div>
+
 {% else %}
 {# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}
 <div class="card mb-2" id="wiki-pages-card">

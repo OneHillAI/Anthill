@@ -111,3 +111,28 @@ Gaps 2-4 were verified live per above rather than by new automated tests, since 
 real local engine's actual process lifecycle - exactly the thing under test. `ensure_serving` itself
 already has unit coverage with injected boundaries (`tests/test_ollama_serving.py`); this spec adds
 no duplicate of that, only the wiring into the ingest paths.
+
+## Follow-up: a Files tab (where uploads are actually stored)
+
+Founder, immediately after the above: "where are uploaded docs stored?" Every upload was already
+preserved as an immutable raw copy under the workspace's `raw/` (`wiki/ingest.py`'s
+`preserve_raw_source`, which runs for every upload, not only oversized PDFs) - but nothing in the UI
+showed this. Filesystem only.
+
+**Fix:** a new **Files** tab (`?tab=files`) alongside Pages and Principles in the wiki's sub-tab
+bar (`_wiki_tabs.html`), listing that scope's raw files (name, size, modified date, newest first)
+via a new `_wiki_raw_files(ws)` helper, each linking to a new `GET /wiki/raw/{name}` download route.
+The route resolves `name` through `_wiki_raw_file_path`, rejecting anything that isn't a bare
+filename inside that scope's `raw/` (path traversal, a symlink escape) - the same guard shape
+already used for PDF-confirmation paths elsewhere in this file. Team access requires membership,
+same as viewing a page; personal always resolves to the caller's own workspace, so one user can
+never reach another's raw file by guessing its name.
+
+**Verification:** `tests/test_wiki_raw_files.py` (6 tests, FastAPI TestClient, no mocks beyond the
+usual fake chat backend) - the tab lists an uploaded file and shows the empty state before any
+upload; a download returns the exact original bytes with a `Content-Disposition: attachment`
+header; an unknown name and a `../` traversal attempt both 404; and a different org's member cannot
+reach another user's personal-scope raw file by name. Also live-verified in a real browser: uploaded
+a real file, confirmed it appeared on the Files tab with correct size/date, clicked through, and
+confirmed via `curl` with a real session cookie that the response body matched the original file
+byte-for-byte. Full suite: 2833 passed, 3 skipped + 22 browser.

@@ -7379,6 +7379,48 @@ def _pending_pdf_confirmation_path(ws, name: str):
     return candidate
 
 
+def _wiki_raw_files(ws) -> list[dict]:
+    """List the immutable raw source documents preserved under this workspace's raw/ (every
+    upload is copied here before ingest - see wiki/ingest.py's preserve_raw_source), newest first,
+    for the wiki's Files tab. An unreadable or not-yet-created raw/ just means no files yet."""
+    if not ws.raw.is_dir():
+        return []
+    out = []
+    for p in ws.raw.iterdir():
+        if p.is_symlink() or not p.is_file() or p.resolve().parent != ws.raw.resolve():
+            continue
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
+        out.append(
+            {
+                "name": p.name,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+    out.sort(key=lambda f: f["mtime"], reverse=True)
+    return out
+
+
+def _wiki_raw_file_path(ws, name: str) -> Path | None:
+    """Resolve a raw file's name to its path, refusing anything outside ws.raw (path traversal, a
+    symlink escape, or a name that isn't a bare filename)."""
+    if not name or Path(name).name != name:
+        return None
+    candidate = ws.raw / name
+    if (
+        not ws.raw.is_dir()
+        or candidate.is_symlink()
+        or not candidate.is_file()
+        or candidate.resolve().parent != ws.raw.resolve()
+    ):
+        return None
+    return candidate
+
+
 def _move_pdf_confirmation(source: Path, state: str) -> None:
     if not source.exists():
         return
@@ -7419,7 +7461,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         except Exception:
             pages.append({"slug": p.stem, "title": p.stem})
     tab = request.query_params.get("tab", "pages")
-    if tab not in ("pages", "principles"):
+    if tab not in ("pages", "principles", "files"):
         tab = "pages"
     return {
         "request": request,
@@ -7430,6 +7472,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "can_edit": _wiki_can_edit(db, user, scope, team_id),
         "principles_text": read_principles(ws),
         "pages": pages,
+        "raw_files": _wiki_raw_files(ws) if tab == "files" else [],
         "pdf_confirmations": (
             [p.name for p in _pending_pdf_confirmation_paths(ws)]
             if _wiki_can_edit(db, user, scope, team_id)
@@ -7631,6 +7674,39 @@ def wiki_page_view(
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
+
+
+@app.get("/wiki/raw/{name}")
+def wiki_raw_file(
+    name: str,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    """Download one of this scope's raw uploaded source documents (the immutable copy every
+    upload is preserved as before ingest - see the wiki's Files tab). Same scope/membership rules
+    as viewing a page."""
+    from fastapi.responses import FileResponse
+
+    db = _db()
+    org = _require_org(db, user)
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    target = _wiki_raw_file_path(ws, name)
+    if target is None:
+        raise HTTPException(status_code=404)
+    _audit_request(
+        request,
+        "wiki.raw_download",
+        f"name={name} scope={scope}",
+        org_id=org.id,
+        user_id=int(user["sub"]),
+    )
+    return FileResponse(str(target), filename=target.name)
 
 
 def _wiki_dest(scope, team_id):

@@ -26,6 +26,23 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Added a Files tab to the wiki - pending PR, prepared 2026-10-01
+**System impact:** founder, right after the upload fix above: "where are uploaded docs stored?"
+Every upload was already preserved as an immutable raw copy under the workspace's `raw/` (every
+upload, not just oversized PDFs - `wiki/ingest.py`'s `preserve_raw_source`), but nothing in the UI
+showed this; it was filesystem-only knowledge. Added a **Files** tab next to Pages and Principles in
+the wiki's sub-tab bar, listing a scope's raw files (name, size, date) via a new `_wiki_raw_files`
+helper, each linking to a new `GET /wiki/raw/{name}` download route with the same path-traversal and
+scope/membership guards already used elsewhere for user-supplied filenames in this file.
+**Surface:** `anthill/web/app.py` (`_wiki_ctx`, `_wiki_raw_files`, `_wiki_raw_file_path`, new route
+`wiki_raw_file`), `anthill/web/templates/wiki.html`, `anthill/web/templates/_wiki_tabs.html`.
+**User-visible:** yes - a new Files tab and the ability to download any document you've uploaded.
+**Footprint:** additive; no migration, no schema change, no new storage (reads the `raw/` directory
+every upload already wrote into). New test `tests/test_wiki_raw_files.py` (6 tests): listing, the
+empty state, byte-identical download, path-traversal and unknown-name 404s, and per-user scoping.
+Also live-verified in a real browser against a real uploaded file. Full suite: 2833 passed, 3
+skipped + 22 browser.
+
 ### Wiki upload: in-flight feedback, a real confirmation, self-healing, and a live model-status check - pending PR, prepared 2026-10-01
 **System impact:** founder report, repeated across three sessions: uploading a document gave no
 sign anything was happening, and once it finished (or failed) the message said nothing useful -
