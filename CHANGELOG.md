@@ -12,6 +12,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
      pillar:feature line above is a repo-required exception (see .github/workflows/pr-validation.yml).
      Preview: build_changelog.py --draft -->
 
+## [0.12.12] - 2026-10-01
+
+### Fixed
+
+- **Fixed the desktop app's auto-update signing key.** The previous updater signing key's password had been lost before it was ever used in a real release, which would have permanently broken auto-updates for anyone who installed v0.12.11. Rotated to a freshly generated key pair before anyone installed it, so auto-updates work correctly from this release onward.
+
+### Contributors
+
+Thanks to everyone who shipped this release - the humans directing the work and,
+disclosed alongside them, the agents that did it:
+
+- **awchristoph** (1 change), directing Claude Sonnet 5 (Claude Code)
+
 ## [0.12.11] - 2026-10-01
 
 ### Added
