@@ -260,13 +260,20 @@ def test_org_cloud_tabs_shows_no_bar_for_solo(tmp_path, monkeypatch):
     assert "settings-tabs" not in body
 
 
-def test_model_storage_lives_under_this_device_not_model_advanced(tmp_path, monkeypatch):
+def test_model_storage_lives_in_model_tab_before_advanced_not_this_device(tmp_path, monkeypatch):
+    # Moved again (founder QA, 2026-09-30): buried under "This device" was still too easy to miss
+    # for a user who just wants to free up disk space. Now a visible, always-shown card in Model -
+    # the tab Settings opens on - positioned before the Advanced disclosure (a sibling card, not
+    # nested inside it - nesting it is the exact "buried two levels deep" complaint that moved it
+    # out of Advanced the first time, on 2026-09-26). See also
+    # test_local_model_settings.py::test_model_storage_card_lives_in_the_model_tab_before_advanced.
     c, _app_mod = _client(tmp_path, monkeypatch)
     body = c.get("/personalize").text
-    device_start = body.index('<div class="st-panel" data-st="device">')
-    device_panel = body[device_start : device_start + 2000]
-    assert "Model storage" in device_panel
-    # and it's gone from the Model tab's Advanced disclosure
     model_start = body.index('<div class="st-panel active" data-st="model">')
+    device_start = body.index('<div class="st-panel" data-st="device">')
     model_panel = body[model_start:device_start]
-    assert "Model storage" not in model_panel
+    assert "Model storage" in model_panel
+    assert model_panel.index("Model storage") < model_panel.index(">Advanced<")
+    # and it's gone from This device
+    device_panel = body[device_start : device_start + 2000]
+    assert "Model storage" not in device_panel

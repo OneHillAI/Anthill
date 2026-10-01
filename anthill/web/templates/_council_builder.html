@@ -60,13 +60,51 @@
       <div class="mp-main">
         <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span>
           {% if m.recommended %}<span class="mp-badge rec">recommended</span>{% endif %}
-          {% if m.installed %}<span class="mp-badge inst">installed</span>{% endif %}
+          {% if m.installed %}<span class="mp-badge inst">installed</span>
+          {% if m.tag not in current_council_tags and not in_setup %}
+          {# Uninstall right where you're already looking at your models - founder ask, 2026-09-30,
+             after the standalone Settings > This device > Manage path proved too buried to find.
+             Never shown for a currently-active tag (lead or any council member): deleting your own
+             running model would both fail server-side and make no sense mid-selection. A <button>,
+             not a nested <form> - this row sits inside chooser_form / the outer settings form, and a
+             nested <form> silently detaches later content from its outer form (see mcUninstall). #}
+          <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.tag }}')">Uninstall</button>
+          {% endif %}
+          {% endif %}
         </div>
         <div class="mp-meta">{{ fam.origin }} &middot; {{ m.params_b|round(0)|int }}B{% if not m.installed %} &middot; ~{{ m.download_gb }} GB{% endif %}</div>
       </div>
       <div class="mp-fit">{% if m.offload %}<span class="fit warn">Runs, slower</span>{% elif m.tight %}<span class="fit warn">Runs, tight</span>{% else %}<span class="fit ok">Fits</span>{% endif %}</div>
     </label>
     {% endfor %}{% endfor %}
+    {# Installed but not in the curated catalog above: an older pull no longer curated (founder
+       question, 2026-09-30 - "why does mistral:7b not show up? 16GB should work" - not a fit
+       problem, the catalog is a deliberately small ~29-model curated list, not every model Ollama
+       can run), one grabbed via /models' "pull a model by tag", or a non-chat model like the
+       embedding model this app itself uses. Real row, real checkbox, same as any catalog entry -
+       founder pushback: "these are core models... why should they not be in the normal list?" A
+       single-model selection already accepts any tag with no catalog check (_apply_solo_compute);
+       only a MULTI-model council's memory-fit sum needs each member's params_b, which these don't
+       have, so it silently contributes 0 GB for one of these if picked into a 2-3 model council on
+       a >=24GB machine - the same gap a manually pulled custom single model already has today, not
+       a new one. "Fits" is shown unconditionally rather than computed: it's already downloaded and
+       has already been running on this exact machine, which is stronger evidence than the
+       catalog's own params_b-based estimate for everything else in this list. #}
+    {% for m in other_installed %}
+    <label class="mp-row council-row">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <div class="mp-main">
+        <div class="mp-name"><code>{{ m.tag }}</code> <span class="lead-badge mp-badge rec" hidden>Lead</span>
+          <span class="mp-badge inst">installed</span>
+          {% if m.tag not in current_council_tags and not in_setup %}
+          <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.tag }}')">Uninstall</button>
+          {% endif %}
+        </div>
+        <div class="mp-meta">{{ m.size_gb }} GB &middot; not in the curated list</div>
+      </div>
+      <div class="mp-fit"><span class="fit ok">Fits</span></div>
+    </label>
+    {% endfor %}
   </div>
   {% set ns2 = namespace(big=false) %}
   {% for fam in families %}{% for m in fam.models if not m.fits %}{% set ns2.big = true %}{% endfor %}{% endfor %}
@@ -161,6 +199,32 @@ var CC_RECOMMENDED_GB = {{ council_recommended_gb }};
 // refusal) - live radio-select pattern, so checking a 2nd local box snaps back instead of silently
 // failing on submit (the local-floor-banner above already explains why).
 var ccLocalSingle = {{ 'true' if below_floor else 'false' }};
+// Uninstalling from right inside this list (founder ask, 2026-09-30): fetch(), not a real <form>
+// submit - this button lives inside a <label> nested in the outer settings form (or chooser_form),
+// and a SECOND, nested <form> silently detaches everything after it from the real outer form. Reuses
+// the same /models/delete route the standalone Settings > Model storage > Manage page's "Remove"
+// button already posts to - no new endpoint. That route redirects (never JSON), so success/failure
+// is read off the final URL fetch() lands on after following it: /models?deleted=... vs ?error=....
+function mcUninstall(btn, tag) {
+  if (!confirm('Remove ' + tag + '? This deletes it from disk. You can pull it again later.')) return;
+  var row = btn.closest('.mp-row');
+  btn.disabled = true;
+  fetch('/models/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({model_tag: tag}),
+  }).then(function (r) {
+    if (r.url && r.url.indexOf('deleted=') >= 0) {
+      row.remove();
+    } else {
+      btn.disabled = false;
+      alert('Could not remove that model - is the local engine running, or is it still in use?');
+    }
+  }).catch(function () {
+    btn.disabled = false;
+    alert('Could not remove that model.');
+  });
+}
 function ccCouncil(cb) {
   if (cb && 'checked' in cb) {  // a real checkbox toggled -> maintain selection order
     var t = cb.value;

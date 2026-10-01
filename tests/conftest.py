@@ -61,6 +61,17 @@ def _no_live_ollama(monkeypatch):
         "anthill.inference.ollama.OllamaBackend.installed_models",
         lambda self: [],
     )
+    # installed_models_with_sizes() (which installed_models() above is now backed by, and which the
+    # model picker's "installed but not in the curated catalog" list - app.py's other_installed -
+    # calls directly) is deliberately NOT given the same class-level override here: unlike chat() etc.
+    # above, it already degrades to [] on its own whenever the httpx.Client.send block below fires (its
+    # try/except catches the resulting ConnectError same as any other unreachable-engine case), so a
+    # class-level stub would be redundant - and it would actively break a test that wants to verify
+    # THIS method's own response-parsing by mocking httpx.get (monkeypatch replaces a stubbed method
+    # entirely rather than wrapping it, so the httpx mock would never be reached). A test overriding
+    # only installed_models should keep in mind other_installed reads installed_models_with_sizes
+    # directly and needs its own override too - see tests/test_settings_model_picker.py for the
+    # pattern.
     monkeypatch.setattr("anthill.inference.ollama.OllamaBackend.chat", _unreachable)
     monkeypatch.setattr("anthill.inference.ollama.OllamaBackend.chat_with_tools", _unreachable)
     monkeypatch.setattr("anthill.inference.ollama.OllamaBackend.chat_with_confidence", _unreachable)

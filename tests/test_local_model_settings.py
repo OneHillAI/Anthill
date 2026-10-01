@@ -87,6 +87,27 @@ def test_solo_settings_links_to_local_model(tmp_path, monkeypatch):
     assert 'href="/settings"' in body  # ...and -> advanced inference / workspace
 
 
+def test_model_storage_card_lives_in_the_model_tab_before_advanced(tmp_path, monkeypatch):
+    # Founder QA (2026-09-30): "uninstall a model" was too buried to discover on its own tab
+    # ("This device", nested near Advanced). Moved into Model - the tab Settings opens on - as its
+    # own always-visible card, positioned before the Advanced disclosure (not after, and not inside
+    # it - that's the exact "buried two levels deep" complaint that moved it out of Advanced
+    # originally, on 2026-09-26). This has moved twice already; pin the placement so a future pass
+    # doesn't casually re-bury it.
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    body = c.get("/personalize").text
+    model_panel = body.split('<div class="st-panel active" data-st="model">', 1)[1].split(
+        '<div class="st-panel" data-st="knowledge">', 1
+    )[0]
+    assert "Model storage" in model_panel
+    assert model_panel.index("Model storage") < model_panel.index(">Advanced<")
+
+    device_panel = body.split('<div class="st-panel" data-st="device">', 1)[1].split(
+        '<div class="st-panel" data-st="org">', 1
+    )[0]
+    assert "Model storage" not in device_panel
+
+
 def test_selecting_a_not_installed_model_downloads_without_switching_yet(tmp_path, monkeypatch):
     # The bug: it used to flip the active model the instant you clicked, so chatting mid-download had
     # nothing to serve. Now a not-installed model downloads in the background and the CURRENT model
