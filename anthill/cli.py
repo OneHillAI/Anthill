@@ -94,7 +94,7 @@ def _ws(ctx: typer.Context) -> Workspace:
 
 @app.command()
 def init(ctx: typer.Context):
-    """Create a new wiki workspace (raw/ inbox/ wiki/ index.md log.md SCHEMA.md)."""
+    """Create a new wiki workspace (raw/ inbox/ wiki/ skills/ index.md log.md SCHEMA.md principles.md)."""
     ws = ctx.obj["workspace"]
     ws.init()
     console.print(f"[green]Initialized wiki at[/] {ws.root}")

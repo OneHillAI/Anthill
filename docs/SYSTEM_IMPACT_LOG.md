@@ -26,6 +26,17 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Outdated comments and docstrings cleaned up - pending PR, prepared 2026-10-01
+**System impact:** Cleaned up 7 drifted comments, docstrings, and cross-references across web templates,
+the CLI, and agent tools. Stale comments referred to retired features (manual agent toggle in Options),
+omitted newly-added tabs and surfaces (Integrations in Settings, Suggestions in Knowledge), missed
+generated workspace assets (`skills/` and `principles.md` in `cli init`), and mischaracterized email
+capabilities. Spec: `docs/specs/cleanup-outdated-comments.md` and OpenSpec `cleanup-outdated-comments`.
+**Surface:** `_sidebar.html`, `personalize.html`, `_knowledge_tabs.html`, `chat.html`, `anthill/cli.py`,
+`anthill/agent/tools.py`, `anthill/skills_gallery/SOURCES.md`, `tests/test_outdated_comments.py`.
+**User-visible:** no - internal accuracy / code clarity for agents and human contributors.
+**Footprint:** non-functional; no schema change, no migration; 7 new tests in `tests/test_outdated_comments.py`.
+
 ### PR validation CI hardened against PyPI read-timeouts - pending PR, prepared 2026-10-01
 **System impact:** the dependency-audit and SAST/license-audit jobs both install the `[ci]` extra
 (pulls in lancedb's large transitive wheels) with no retry or timeout tuning on `pip install`. Hit the
