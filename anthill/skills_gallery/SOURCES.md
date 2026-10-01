@@ -47,7 +47,7 @@ changed the files"), two mechanical changes were made, both disclosed here:
    supports) can match on it programmatically.
 2. `frontend-design/SKILL.md` had 5 em dash and en dash characters mechanically replaced with a plain
    hyphen, each in place, to satisfy this repo's own house-style lint (`.github/workflows/ci.yml`'s
-   "Slop gates", `docs/CODE_AND_DOCS_STANDARDS.md` 1.4 - no em/en dash in any tracked `.md` file). No
+   "Slop gates", `AGENTS.md` - no em/en dash in any tracked `.md` file). No
    words were added, removed, or reordered; only the punctuation mark changed.
 
 Every other instructional body is otherwise byte-for-byte the same as the upstream `SKILL.md`. The
