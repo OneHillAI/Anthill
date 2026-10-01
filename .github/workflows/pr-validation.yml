@@ -83,6 +83,7 @@ jobs:
     name: Dependency vulnerability audit
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -91,9 +92,12 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps and pip-audit
+        # --timeout/--retries: the [ci] extra pulls in lancedb's large transitive wheels, which has
+        # hit PyPI read-timeouts on a congested runner (see the security job's identical install
+        # below, where this exact failure mode recurred on consecutive unrelated PRs).
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[ci]" pip-audit
+          pip install --retries 5 --timeout 60 -e ".[ci]" pip-audit
 
       - name: Audit for known CVEs
         # --skip-editable skips the local anthill package itself (no PyPI entry to check).
@@ -112,6 +116,7 @@ jobs:
     name: SAST & license audit
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -124,7 +129,7 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          pip install bandit pip-licenses
+          pip install --retries 5 --timeout 60 bandit pip-licenses
 
       - name: SAST - bandit on changed Python files (HIGH+HIGH)
         # Scans only files changed in this PR to avoid pre-existing debt blocking contributors.
@@ -155,7 +160,11 @@ jobs:
         # poisoning the scan with UNKNOWN licenses unrelated to anthill's deps.
         run: |
           python3 -m venv /tmp/lic-venv
-          /tmp/lic-venv/bin/pip install -q -e ".[ci]" pip-licenses
+          # --retries/--timeout: this install (the [ci] extra pulls in lancedb's large transitive
+          # wheels) has hit PyPI read-timeouts on a congested runner on consecutive unrelated PRs
+          # (#6, #7) - pip's 15s default read timeout is too tight for a large download under any
+          # network pressure. The job's own timeout-minutes is the backstop if a hang recurs anyway.
+          /tmp/lic-venv/bin/pip install -q --retries 5 --timeout 60 -e ".[ci]" pip-licenses
           /tmp/lic-venv/bin/pip-licenses --format=json --with-license-file --output-file=licenses.json
           python3 - <<'PYEOF'
           import json, sys
