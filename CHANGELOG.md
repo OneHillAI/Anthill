@@ -7,14 +7,75 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
-
-- **Chat now nudges you when a single-model answer sounds uncertain.** When only one model answered (no council configured, or a council attempt that fell back to one), an answer that hedges ("I'm not entirely sure, but...", "it's possible that...") now ends with a short suggestion pointing at the existing "go deeper" follow-up. A council-produced answer is never suggested this way, and the suggestion is never cached, published, or saved to a wiki page - only shown.
-
 <!-- Do not hand-edit above this line for other PRs - add a fragment under changelog.d/ instead (see
      changelog.d/README.md); the release cut assembles them here via scripts/build_changelog.py. The
      pillar:feature line above is a repo-required exception (see .github/workflows/pr-validation.yml).
      Preview: build_changelog.py --draft -->
+
+## [0.12.11] - 2026-10-01
+
+### Added
+
+- **Chat now nudges you when a single-model answer sounds uncertain.** When only one model answered (no council configured, or a council attempt that fell back to one), an answer that hedges ("I'm not entirely sure, but...", "it's possible that...") now ends with a short suggestion pointing at the existing "go deeper" follow-up. A council-produced answer is never suggested this way, and the suggestion is never cached, published, or saved to a wiki page - only shown.
+
+### Fixed
+
+- **Cleaned up outdated comments and docstrings across the codebase.** Several template comments, CLI
+  docstrings, and agent tool headers had drifted out of date with recent features (such as
+  pin/rename conversation actions, the new Integrations settings tab, five Knowledge surfaces, and
+  retired agent overrides). Updated all 7 affected locations to accurately reflect the current
+  implementation.
+- **Fixed a leftover inconsistency on the Jira and Confluence connector card**: it previously showed a
+  green "no setup needed" message right next to its own note explaining that one-click setup isn't live
+  for it yet. It now correctly shows the same "needs setup first" guidance as any other not-yet-wired
+  connector.
+- **`/chat/download` no longer answers a raw validation error for empty content.** A missing or
+  empty `content` field used to trip FastAPI's own request validation (`422`) before the route's own
+  "nothing to export" check ever ran. Both now reach that check and get the same friendly `400`.
+- **The chat sidebar's pin/rename/delete icons no longer overlap the conversation title.** On the
+  desktop app, those three icons could crowd into a conversation's name instead of sitting cleanly
+  after it. They're now a consistent size and evenly spaced. Also removed the duplicate Rename/Delete
+  buttons from the open chat's own header - the sidebar's icons (which work for every conversation, not
+  just the open one) are now the only place to rename, delete, or pin a chat.
+- **The desktop app's loading screen is no longer an unbranded orange square.** Opening Anthill briefly
+  showed a generic orange placeholder with "Starting Anthill" while the backend came up. It's now the
+  Anthill hill mark with a small trail of ants running toward it and the caption "We're on our way!",
+  matching the app's actual green accent instead of an unrelated orange, and following your light/dark
+  setting instead of always rendering dark.
+- **Integrations (Slack, GitHub, Google Drive and other tools over MCP) is reachable again.** It now has
+  its own Settings tab, right alongside Model, Knowledge and the rest - no need to set up an
+  Organisation first. It was never actually removed, just impossible to find.
+
+  **The "Connect now" vs "Requires provider setup" badges on the Integrations gallery are honest now.**
+  Slack, GitHub and Discord actually need you to create a bot/app and paste its token first, so they're
+  labelled accordingly; Notion, Linear and Sentry turned out to be genuinely one-click and are now
+  labelled "Connect now" too. The "Expose Anthill over MCP (server)" section - a different feature from
+  connecting a tool in - is tucked under its own "Advanced" disclosure instead of sitting in the middle
+  of the connector gallery.
+- **Uninstalling a downloaded model is easier to find now.** You can now remove a model directly from
+  the model list itself - a red "Uninstall" button sits right next to its "installed" badge in
+  Settings' "Change where it runs" (never shown for the model you're currently running). The
+  standalone "Model storage" card also moved: it used to live under a secondary "This device" tab,
+  now it's a visible card in the main Model tab, the one Settings opens on. And any model you've
+  installed that isn't in the curated list - an older Mistral release, say - now shows up as a real,
+  selectable row right alongside the curated models instead of being invisible.
+- **Document upload on Knowledge now actually works on a fresh wiki.** The AI summariser's own
+  "## Related" cross-references always point at pages that don't exist yet on a new or sparse wiki -
+  a mechanical check was treating the model's own generated links as broken and silently queuing
+  every upload for review instead of publishing it, so the first document you ever add could never
+  land. Those links are now neutralised (kept as plain text, or the whole section dropped if it turns
+  out to be nothing but dangling links) instead of blocking the upload; a genuinely broken link you
+  type yourself is still caught. Also: the upload file picker was blocking Word, PowerPoint, Excel,
+  and HTML documents even though the server already supported them - it now accepts everything the
+  backend does.
+
+### Contributors
+
+Thanks to everyone who shipped this release - the humans directing the work and,
+disclosed alongside them, the agents that did it:
+
+- **awchristoph** (8 changes), directing Claude Sonnet 5 (Claude Code)
+- **Raul Amedey Ciria** (1 change), directing Gemini 3.8 Flash
 
 ## [0.12.10] - 2026-09-30
 
