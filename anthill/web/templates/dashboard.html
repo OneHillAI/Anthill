@@ -346,7 +346,15 @@
   function poll() {
     fetch('/local-model/status').then(function (r) { return r.json(); }).then(function (d) {
       setCouncilReady(!!d.ready);
-      if (d.ready) { banner.style.display = 'none'; return; }
+      if (d.ready) {
+        banner.style.display = 'none';
+        // Keep checking even once ready - the model can stop (crashed, quit, machine slept)
+        // after this point, and the pill must say so instead of claiming "Running" forever off
+        // one good check (founder, 2026-10-01: "how shall I know what is running?"). Slow
+        // cadence since nothing is usually happening.
+        setTimeout(poll, 30000);
+        return;
+      }
       banner.style.display = 'block';
       if (!d.ollama_up) {
         msg.textContent = 'Starting your local AI engine...';
@@ -366,7 +374,7 @@
         queuedMsg.style.display = 'none';
       }
       setTimeout(poll, 4000);
-    }).catch(function () { setTimeout(poll, 8000); });
+    }).catch(function () { setCouncilReady(false); setTimeout(poll, 8000); });
   }
   poll();
 })();

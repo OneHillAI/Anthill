@@ -26,6 +26,32 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Wiki upload: in-flight feedback, a real confirmation, and a live model-status check - pending PR, prepared 2026-10-01
+**System impact:** founder report, repeated across three sessions: uploading a document gave no
+sign anything was happening, and once it finished (or failed) the message said nothing useful -
+not which page it became, not which model read it, and on a genuine failure a rhetorical "is the
+model running?" instead of an answer. Fixed four compounding gaps: (1) the Upload button now shows
+"Uploading…" synchronously on submit instead of staying silent through a slow classic-form POST;
+(2) the success/queued banner now names the resulting page, links to it, and states whether your
+machine or your cloud/org model indexed it (`_compute_where_label`, shared with the Dashboard's
+council card so the two can't drift apart); (3) a genuine ingest failure now surfaces
+`OllamaBackend.health()`'s real diagnosis (e.g. "Ollama not reachable... is `ollama serve`
+running?") instead of a generic question - `health()` already existed, it was just never wired into
+this path; (4) the Dashboard's "Running"/"Preparing" pill used to poll exactly once and then stop,
+so it could claim "Running" forever after one early good check even if the model later stopped - it
+now keeps polling for as long as the page is open. Live-verified against a real local Ollama
+instance and the founder's own installed model (qwen3.5:9b): a real success, a real induced failure
+(pointed at an unreachable port, no mock), and 35+ seconds of continued Dashboard polling past the
+first ready response.
+**Surface:** `anthill/web/app.py` (`wiki_upload`, `confirm_pdf_upload`, `wiki_import_connector`,
+`_ingest_and_propose`, two new small helpers `_compute_where_label`/`_ingest_failure_reason`),
+`anthill/web/templates/wiki.html`, `anthill/web/templates/dashboard.html`.
+**User-visible:** yes - the Upload button's in-flight state, the upload confirmation banner's
+wording, the ingest-failure banner's wording, and the Dashboard model pill's long-run accuracy.
+**Footprint:** additive; no migration, no schema change. `_ingest_and_propose`'s return signature
+grew from `(applied, slug)` to `(applied, slug, title)` - both call sites updated in the same
+change. Full suite green (2825 passed, 5 skipped + 22 browser) before and after.
+
 ### Rotated the Tauri auto-updater's signing key before first release - pending PR, prepared 2026-10-01
 **System impact:** the desktop app's auto-update signing key (minisign key 433C4DC5, generated during
 the clean-slate launch prep) had its password lost - never captured anywhere the founder could
