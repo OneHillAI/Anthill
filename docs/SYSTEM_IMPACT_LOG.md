@@ -26,6 +26,22 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Rotated the Tauri auto-updater's signing key before first release - pending PR, prepared 2026-10-01
+**System impact:** the desktop app's auto-update signing key (minisign key 433C4DC5, generated during
+the clean-slate launch prep) had its password lost - never captured anywhere the founder could
+retrieve it, discovered when cutting v0.12.11's desktop build (`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+could not decrypt `TAURI_SIGNING_PRIVATE_KEY`). Since no real release had ever shipped with this key
+(v0.12.11's desktop build had not yet succeeded), rotating it was safe - no installed app depends on
+it. Generated a fresh key pair (3DE93D4EAF18A15E) with the founder choosing and saving the password
+himself this time, and updated `src-tauri/tauri.conf.json`'s embedded `pubkey` to match. Version
+bumped to 0.12.12 to carry this fix, rather than retagging the already-published v0.12.11.
+**Surface:** `src-tauri/tauri.conf.json` (one field) only; the key material itself lives in
+`~/anthill-signing/` and GitHub secrets, neither tracked in this repo.
+**User-visible:** yes, indirectly - without this, v0.12.11 would have installed successfully but been
+permanently unable to auto-update to any future version.
+**Footprint:** no migration, no schema change, no application code touched; a security-relevant config
+rotation.
+
 ### Outdated comments and docstrings cleaned up - pending PR, prepared 2026-10-01
 **System impact:** Cleaned up 7 drifted comments, docstrings, and cross-references across web templates,
 the CLI, and agent tools. Stale comments referred to retired features (manual agent toggle in Options),
