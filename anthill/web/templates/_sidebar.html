@@ -242,24 +242,25 @@
        "Organisation" card -> the org hub, admins only), so the rail below the cut ends at Settings.
        Integrations is admin-managed there; members reach it through an admin. #}
 
-    {# Help (Contribute / How it works / Setup / Take a tour) is no longer a rail group; it lives in the
-       sidebar footer below, so the main nav stays task-focused. #}
+    {# Help (Contribute / Take a tour) is no longer a rail group; it lives in the sidebar footer
+       below, so the main nav stays task-focused. #}
     {% if workspace_mode %}</details>{% endif %}
   </nav>
-  {# Footer: a compact account chip + Sign out, with Help/How-it-works/Setup/Take-a-tour/Enable-notifications
-     tucked into a "..." overflow so the footer is not a pile of links. #}
+  {# Footer: a compact account chip (name + org, or the app version for a Solo account - founder,
+     2026-10-02: show the version here instead of the always-true "Solo . private") + Sign out, with
+     Take a tour/Contribute/Enable-notifications tucked into a "..." overflow. How it works and Setup
+     used to live in this overflow too; removed as a second entry point once ASDD content started
+     moving to docs.anthill.run - they're still reachable from the Dashboard and other in-app links. #}
   <div class="sidebar-footer">
     <div class="footer-row">
       <a href="/profile" class="footer-account" title="Profile &amp; account">
         <span class="footer-av">{{ (nav_profile.name[0] if nav_profile and nav_profile.name else 'A') | upper }}</span>
-        <span class="footer-who">{% if nav_profile %}{{ nav_profile.name }}{% else %}Account{% endif %}<small>{% if nav_org %}{{ nav_org }}{% else %}Solo &middot; private{% endif %}</small></span>
+        <span class="footer-who">{% if nav_profile %}{{ nav_profile.name }}{% else %}Account{% endif %}<small>{% if nav_org %}{{ nav_org }}{% else %}v{{ app_version }}{% endif %}</small></span>
       </a>
       <button type="button" class="footer-help-btn" onclick="toggleHelpMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Help and more" title="Help &amp; more"><i data-lucide="more-horizontal">⋯</i></button>
     </div>
     {% if user %}<a href="/logout" class="footer-signout">Sign out</a>{% endif %}
     <div class="footer-help-menu" id="footer-help-menu" role="menu" hidden>
-      <a href="/docs/how-it-works" role="menuitem">How it works</a>
-      <a href="/docs/setup" role="menuitem">Setup</a>
       <a href="javascript:void(0)" onclick="window.anthillTour&&anthillTour.start()" role="menuitem">Take a tour</a>
       <a href="/contribute" role="menuitem">Contribute</a>
       <a href="javascript:void(0)" onclick="window.enableNotifications&&enableNotifications()" role="menuitem">Enable notifications</a>
@@ -279,7 +280,7 @@
       var btn = ev.currentTarget;
       if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
-    // Footer "..." overflow: Help / How it works / Setup / Take a tour / Enable notifications.
+    // Footer "..." overflow: Take a tour / Contribute / Enable notifications.
     function toggleHelpMenu(ev) {
       ev.stopPropagation();
       var m = document.getElementById('footer-help-menu');

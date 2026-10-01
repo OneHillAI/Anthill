@@ -170,6 +170,7 @@ def _nav_context(request: Request) -> dict:
         "workspace_mode": False,
         "back_href": "",
         "back_label": "",
+        "app_version": __version__,
     }
     # A "workspace" page (chat/tasks/agents) is where you do focused work; the rail folds the other
     # groups there so the work is the focus. Set from the path so it needs no per-template wiring.
@@ -5990,7 +5991,6 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "is_org_deployment": normalize_topology(getattr(cfg, "deployment_topology", "") or "")
             == "org",
             "org_setup_error": request.query_params.get("org_error", ""),
-            "app_version": __version__,
         },
     )
 
