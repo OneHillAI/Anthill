@@ -7,4 +7,4 @@ import os
 # setdefault: an operator who exports ARROW_DEFAULT_MEMORY_POOL keeps control.
 os.environ.setdefault("ARROW_DEFAULT_MEMORY_POOL", "system")
 
-__version__ = "0.12.12"
+__version__ = "1.0.0"

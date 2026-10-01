@@ -12,6 +12,55 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
      pillar:feature line above is a repo-required exception (see .github/workflows/pr-validation.yml).
      Preview: build_changelog.py --draft -->
 
+## [1.0.0] - 2026-10-01
+
+### Added
+
+- **You can now see and download the documents you've uploaded.** Every upload was already kept
+  as-is behind the scenes once your AI summarised it into a page, but nothing showed you those
+  original files or let you get one back - filesystem only. The wiki now has a **Files** tab, next to
+  Pages and Principles, listing every document you've uploaded to that scope with its size and date,
+  and a link to download the original.
+
+### Fixed
+
+- **Destructive actions now work in the desktop app.** The packaged desktop webview does not run native
+  confirmation dialogs, so buttons such as model Uninstall, delete conversation, remove user and revoke
+  token silently did nothing. They now use an in-app confirmation that works in the desktop app. The model
+  picker carries a working per-model Uninstall, and the separate raw model-storage list was removed:
+  uninstall lives on each model where you pick it.
+- **The Dashboard's model status no longer goes stale.** The "Running" / "Preparing" indicator was
+  only ever checked once per page load and then left untouched - if your local model stopped after
+  that one check (crashed, was quit, machine slept), the Dashboard could keep claiming "Running"
+  indefinitely. It now keeps checking for as long as the page is open, so it reflects what's actually
+  running, not just what was running when the page loaded.
+- **Uploading a document now works even if your local AI engine had stopped.** If the engine behind
+  your local model wasn't currently running - crashed, quit, or just never restarted after your
+  machine slept - uploading a document used to fail outright, and the only way to fix it was knowing
+  to go start the engine yourself. Anthill now tries to restart it automatically before reading your
+  document, the same way it already does before downloading a model; most of the time the upload now
+  just succeeds, with no error and no action needed from you. If it genuinely can't be started (no
+  local engine installed, or a misconfigured connection), you now get a plain "check your model
+  setup" message with a link to Settings, instead of a technical error asking you to answer your own
+  question.
+- **Uploading a document now tells you what happened to it.** The confirmation used to just say
+  "Document added to this wiki" - no page name, no link, no sense of which model actually read it.
+  It now names the page, links straight to it, and says whether your machine or your cloud/org model
+  did the indexing (e.g. `"Vacation Policy" added to this wiki - indexed by your machine. View the
+  page`).
+- **Uploading a document now shows it's actually working.** Adding a document to your wiki runs it
+  through your local AI to summarise, which can take up to a minute for anything non-trivial - but the
+  page gave no indication anything was happening until it finished, so a click could look like it did
+  nothing. The Upload button now reads "Uploading…" immediately, and a message explains what's
+  happening while you wait.
+
+### Contributors
+
+Thanks to everyone who shipped this release - the humans directing the work and,
+disclosed alongside them, the agents that did it:
+
+- **awchristoph** (3 changes), directing Claude Opus 4.8 (Claude Code)
+
 ## [0.12.12] - 2026-10-01
 
 ### Fixed
