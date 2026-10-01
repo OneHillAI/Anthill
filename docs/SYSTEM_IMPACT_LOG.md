@@ -26,6 +26,17 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Removed the redundant "Solo settings" card from /profile - pending PR, prepared 2026-10-02
+**System impact:** founder, with a screenshot of `/profile`: "remove the solo settings card. It's
+useless and pointless." It was a card at the bottom of the page whose only content was a sentence
+restating what Settings does and a button linking to `/personalize` - the exact destination the
+sidebar's own always-visible Settings link already points to, on every page including `/profile`
+itself. Removed the block.
+**Surface:** `anthill/web/templates/profile.html`.
+**User-visible:** yes - one less redundant card on the profile page.
+**Footprint:** cleanup; no migration, no schema change, no route removed (`/personalize` is still
+reachable, just no longer duplicated here). Full suite: 2833 passed, 3 skipped + 22 browser.
+
 ### Added a version number to Settings and the sidebar footer - pending PR, prepared 2026-10-02
 **System impact:** founder, 2026-10-01: "do i see a version of the app inside the app?" - no version
 string was visible anywhere in the running app (checked every template, the Tauri shell, any

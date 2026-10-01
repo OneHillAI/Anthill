@@ -59,6 +59,22 @@ opened the footer's account chip and confirmed it read "Personal / v1.0.0", and 
 DOM that the open help menu contained exactly Take a tour / Contribute / Enable notifications - no
 How it works, no Setup. Full suite: 2833 passed, 3 skipped (non-browser) + 22 browser.
 
-**Not done here:** migrating `docs/how-it-works.md` and `docs/setup.md`'s actual content onto
-docs.anthill.run is a different repo/surface, handed to "Regenerate the README brand banner" as a
-peer-session request rather than attempted in this PR.
+**Docs.anthill.run follow-up (resolved, no action needed):** handed the "move this content to
+docs.anthill.run" question to a sibling session rather than attempted here - it turned out to
+already be done. The site's rewrite (solo-vs-org "Get started" fork, the same "How it works"
+architecture/chat/knowledge/governance content) shipped before the go-public squash; the squash
+collapsed PR history into one commit but kept the file content, which independent verification
+confirmed is live on both docs.anthill.run and the canonical repo's current `main`. The in-app pages
+stay as the secondary/convenience copy.
+
+## Follow-up: removed the redundant "Solo settings" card from /profile
+
+Founder, with a screenshot of `/profile`: remove the "Solo settings" card - "it's useless and
+pointless." It was a `<div class="card">` at the bottom of `profile.html` whose only content was a
+sentence restating what Settings does and a button linking to `/personalize` - the exact same
+destination the sidebar's own always-visible Settings link already points to, on every page
+including this one. Removed the block entirely; nothing else referenced it, and
+`tests/test_profile_nav.py::test_profile_hub_renders`'s `assert "/personalize" in page` still passes
+unchanged, since that link now comes solely from the sidebar (as it already did in parallel before).
+Live-verified in a real browser: `/profile` now ends cleanly after the password-change form. Full
+suite: 2833 passed, 3 skipped + 22 browser.
