@@ -348,7 +348,12 @@ def test_large_pdf_upload_requires_explicit_confirmation(tmp_path, monkeypatch):
     assert "saved=added" in response.headers["location"]
     assert backend.calls
     assert len(list(workspace.raw.glob("*.pdf"))) == 1
-    assert len(offloads) == 2
+    # 2 offloads per request (_ensure_backend_ready, then ingest itself) - both requests reach
+    # ingest_file: the first raises PdfConfirmationRequired from inside it, the second succeeds.
+    from anthill.wiki.ingest import ingest as ingest_fn
+
+    assert len(offloads) == 4
+    assert offloads.count(ingest_fn) == 2
 
 
 def test_upload_requires_auth(tmp_path, monkeypatch):

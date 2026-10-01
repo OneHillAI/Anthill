@@ -1678,13 +1678,32 @@ def _compute_where_label(cfg) -> str:
     return ("your cloud" if is_cloud else "your machine") if solo else "the org model"
 
 
+def _ensure_backend_ready(backend) -> None:
+    """If `backend` is a local Ollama backend, make sure it is actually serving before an ingest
+    call that needs it - so an engine that crashed, was quit, or never restarted after the machine
+    slept self-heals instead of failing the user's upload outright (founder, 2026-10-01: "there's a
+    problem: it can't be uploaded... we don't need to release a fix if we didn't fix the problem" -
+    a better error message is not a fix). No-op for any other backend kind. Never raises and never
+    retries itself beyond what `ensure_serving` already does (one spawn attempt, polled up to 12s)
+    - a failed restart just leaves the ingest call that follows to fail with its own real error,
+    handled by the caller exactly as before this existed.
+    """
+    from ..inference.ollama import OllamaBackend, ensure_serving
+
+    if not isinstance(backend, OllamaBackend):
+        return
+    try:
+        ensure_serving(backend.base_url)
+    except Exception:
+        pass
+
+
 def _ingest_failure_reason(backend) -> str:
-    """Best-effort live diagnosis for the generic `except Exception` below a failed document
-    ingest - e.g. Ollama having stopped since the model was last pulled, which otherwise surfaces
-    only as a bare "something went wrong" with no way for the user to tell what to check (founder,
-    2026-10-01: "how shall I know what is running?"). `health()` is specific to a local Ollama
-    backend; other backend kinds have no such check, and this must never itself raise - a
-    diagnostic that crashes the error path would replace one bug with a worse one.
+    """Best-effort live diagnosis for the audit log below a failed document ingest (not shown to
+    the user - founder, 2026-10-01: "I don't care if we give the user the real reason. What should
+    the user do with that?" - a technical reason without an action is not help). `health()` is
+    specific to a local Ollama backend; other backend kinds have no such check, and this must never
+    itself raise - a diagnostic that crashes the error path would replace one bug with a worse one.
     """
     health = getattr(backend, "health", None)
     if not callable(health):
@@ -7705,6 +7724,7 @@ async def _ingest_and_propose(
         proposal["title"] = title
         proposal["page_md"] = page_md
 
+    await run_in_threadpool(_ensure_backend_ready, backend)
     await run_in_threadpool(
         ingest_file,
         ws,
@@ -7860,7 +7880,7 @@ async def wiki_upload(
         code = "pdfretry" if e.transient else "pdflimit"
         return RedirectResponse(dest + f"?error={code}", status_code=302)
     except Exception as e:
-        reason = _ingest_failure_reason(backend)
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.upload",
@@ -7869,10 +7889,7 @@ async def wiki_upload(
             org_id=org.id,
             user_id=uid,
         )
-        url = dest + "?error=ingest"
-        if reason:
-            url += "&reason=" + quote(reason)
-        return RedirectResponse(url, status_code=302)
+        return RedirectResponse(dest + "?error=ingest", status_code=302)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -7974,6 +7991,7 @@ async def confirm_pdf_upload(
     try:
         cfg = _cfg(db, org)
         backend = _backend_from_cfg(cfg)
+        await run_in_threadpool(_ensure_backend_ready, backend)
         await run_in_threadpool(
             ingest_file,
             ws,
@@ -8004,7 +8022,7 @@ async def confirm_pdf_upload(
         return RedirectResponse(dest + "?error=pdfconfirm", status_code=302)
     except Exception as exc:
         _restore()
-        reason = _ingest_failure_reason(backend)
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.upload.confirm",
@@ -8013,10 +8031,7 @@ async def confirm_pdf_upload(
             org_id=org.id,
             user_id=uid,
         )
-        url = dest + "?error=ingest"
-        if reason:
-            url += "&reason=" + quote(reason)
-        return RedirectResponse(url, status_code=302)
+        return RedirectResponse(dest + "?error=ingest", status_code=302)
 
     _audit_request(
         request,
@@ -8127,7 +8142,7 @@ async def wiki_import_connector(
             cfg,
         )
     except Exception as e:
-        reason = _ingest_failure_reason(backend)
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
             request,
             "wiki.import_connector",
@@ -8136,10 +8151,7 @@ async def wiki_import_connector(
             org_id=org.id,
             user_id=uid,
         )
-        url = dest + "?error=ingest"
-        if reason:
-            url += "&reason=" + quote(reason)
-        return RedirectResponse(url, status_code=302)
+        return RedirectResponse(dest + "?error=ingest", status_code=302)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

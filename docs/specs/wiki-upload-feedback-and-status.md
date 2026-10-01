@@ -46,15 +46,28 @@ three upload paths (`wiki_upload`, `confirm_pdf_upload`, `wiki_import_connector`
 added to this wiki - indexed by your machine. View the page →`, linking straight to the real page.
 The review-queue case similarly names the document and links to `/wiki/review`.
 
-**3. Real diagnosis instead of a rhetorical question.** A new `_ingest_failure_reason(backend)`
-helper calls the backend's `health()` method (already existed on `OllamaBackend`, just never
-surfaced here - a live `GET /api/tags` check, not reachability by assumption) when a document
-fails to ingest, and threads the specific result through as `?reason=`. `wiki.html`'s `error=ingest`
-banner shows that reason verbatim (e.g. `` Ollama not reachable at http://localhost:19999. Is
-`ollama serve` running? ``) instead of the old generic "is the model running?" - answering the
-question instead of asking the user to answer it themselves. `health()` is duck-typed
-(`getattr(backend, "health", None)`) and the helper never raises, since a diagnostic that crashes
-the error path would replace one bug with a worse one.
+**3. The local engine self-heals instead of just failing.** First pass here surfaced
+`OllamaBackend.health()`'s live diagnosis (e.g. "Ollama not reachable... is `ollama serve`
+running?") in the error banner instead of the old rhetorical question. The founder correctly
+rejected that: "I don't care if we give the user the real reason. What should the user do with
+that? ... there's a problem: it can't be uploaded, so what's the problem? We don't need to release
+a fix if we didn't fix the problem." A technical reason a non-technical end user cannot act on is
+not a fix - the document still fails to upload either way. The actual fix: a new
+`_ensure_backend_ready(backend)` helper calls the existing `ensure_serving()` (already used
+elsewhere in this codebase to auto-start the local engine before a model pull) before every ingest
+attempt. Anthill bundles/manages its own local Ollama-protocol runtime
+(`find_ollama_bin()` prefers the bundled binary, then a first-run download, then PATH) - a crashed,
+quit, or not-yet-started local engine is Anthill's own dependency to restart, not something an end
+user should ever need to know exists, let alone operate from a terminal. `_ensure_backend_ready` is
+called before ingest in all three upload paths (`_ingest_and_propose`, `confirm_pdf_upload`) and in
+the scheduler's queued-upload retry (`_process_one_queued_upload`) - so the common real-world cause
+(the engine isn't currently running, for any reason) resolves itself with no user action and no
+error shown at all. `_ingest_failure_reason(backend)` (the `health()` call from the rejected first
+pass) is kept, but now only for the audit log - still useful for us to diagnose a genuine residual
+failure, never shown to the user. The user-facing `error=ingest` banner, for the now much rarer case
+where self-heal itself can't recover (no local engine installed anywhere, or a misconfigured URL),
+is plain and actionable instead of technical: "Couldn't reach your AI to read that document. Check
+your model setup, then try again." - linking to Settings rather than naming Ollama at all.
 
 **4. The Dashboard pill stops going stale.** `dashboard.html`'s poll loop used to `return` without
 rescheduling once it saw `ready: true`, so one good check early in a session could leave "Running"
@@ -65,24 +78,36 @@ reflects a live check, not a memory of one.
 
 ## Verification
 
-Live-verified end-to-end against a real browser, a real local Ollama instance, and the founder's
-own installed model (`qwen3.5:9b`) - no mocks:
+Live-verified end-to-end against a real browser and the founder's own installed model
+(`qwen3.5:9b`) - no mocks:
 
-- **Success path:** uploaded a real file via the File API (native OS file dialogs aren't
-  scriptable here); banner read exactly `"Anthill Upload Live Check" added to this wiki - indexed
-  by your machine. View the page →`; the link resolved to the real, model-written page.
-- **Failure path:** pointed the test org's `ollama_url` at an unreachable port (no mock, no
-  stubbed exception - a real failed connection) and re-uploaded; banner read exactly `Ollama not
-  reachable at http://localhost:19999. Is \`ollama serve\` running? Try again.` instead of the old
-  generic question.
+- **Success path (model already up):** uploaded a real file via the File API (native OS file
+  dialogs aren't scriptable here) against the real, already-running local Ollama instance; banner
+  read exactly `"Anthill Upload Live Check" added to this wiki - indexed by your machine. View the
+  page →`; the link resolved to the real, model-written page.
+- **Self-heal path (model genuinely down - the real fix):** pointed a test org's `ollama_url` at
+  port 19999, confirmed via `lsof` that nothing was listening there, and set `OLLAMA_HOST` so that
+  if anything spawned `ollama serve` it would bind to that same isolated port rather than the
+  machine's real instance. Uploaded a real file. Confirmed via `ps`/`lsof` mid-request that a
+  genuine second `ollama serve` process came up bound to port 19999 (PID distinct from the real,
+  already-running instance, which was never touched and stayed reachable throughout, re-confirmed
+  via `curl` afterward) - then the upload completed successfully end to end: `"Anthill Upload Live
+  Check" added to this wiki - indexed by your machine. View the page →`, with the real model
+  actually reading and summarising the file against the self-started instance. The spawned
+  test-only instance was killed immediately after.
 - **Dashboard staleness:** loaded the Dashboard against the real, healthy Ollama instance, confirmed
   the pill read "Running", then watched network traffic for 35+ seconds and confirmed
   `/local-model/status` kept being polled past the first `ready: true` response (previously it
   would have stopped after exactly one call).
-- Full suite: 2825 passed, 5 skipped (non-browser) + 22 passed (browser/Playwright), including the
-  existing `tests/browser/test_wiki_upload_progress.py`. `ruff check` / `ruff format` clean.
+- Full suite: 2827 passed, 3 skipped (non-browser, unrelated environment-dependent skips) + 22
+  passed (browser/Playwright), including the existing
+  `tests/browser/test_wiki_upload_progress.py`. `ruff check` / `ruff format` clean.
+  `tests/test_document_upload.py::test_large_pdf_upload_requires_explicit_confirmation` was updated
+  to expect the extra `_ensure_backend_ready` offload per ingest attempt.
 
 New test `tests/browser/test_wiki_upload_progress.py::test_upload_submit_shows_in_progress_feedback`
 covers gap 1 (the synchronous `onsubmit` DOM effect, both the no-file no-op and the real-file case).
-Gaps 2-4 were verified live per above rather than by a new automated test, since they depend on a
-real local model's actual reachability - exactly the thing under test.
+Gaps 2-4 were verified live per above rather than by new automated tests, since they depend on a
+real local engine's actual process lifecycle - exactly the thing under test. `ensure_serving` itself
+already has unit coverage with injected boundaries (`tests/test_ollama_serving.py`); this spec adds
+no duplicate of that, only the wiring into the ingest paths.

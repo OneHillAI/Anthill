@@ -26,31 +26,46 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
-### Wiki upload: in-flight feedback, a real confirmation, and a live model-status check - pending PR, prepared 2026-10-01
+### Wiki upload: in-flight feedback, a real confirmation, self-healing, and a live model-status check - pending PR, prepared 2026-10-01
 **System impact:** founder report, repeated across three sessions: uploading a document gave no
 sign anything was happening, and once it finished (or failed) the message said nothing useful -
 not which page it became, not which model read it, and on a genuine failure a rhetorical "is the
-model running?" instead of an answer. Fixed four compounding gaps: (1) the Upload button now shows
-"Uploading…" synchronously on submit instead of staying silent through a slow classic-form POST;
-(2) the success/queued banner now names the resulting page, links to it, and states whether your
-machine or your cloud/org model indexed it (`_compute_where_label`, shared with the Dashboard's
-council card so the two can't drift apart); (3) a genuine ingest failure now surfaces
-`OllamaBackend.health()`'s real diagnosis (e.g. "Ollama not reachable... is `ollama serve`
-running?") instead of a generic question - `health()` already existed, it was just never wired into
-this path; (4) the Dashboard's "Running"/"Preparing" pill used to poll exactly once and then stop,
-so it could claim "Running" forever after one early good check even if the model later stopped - it
-now keeps polling for as long as the page is open. Live-verified against a real local Ollama
-instance and the founder's own installed model (qwen3.5:9b): a real success, a real induced failure
-(pointed at an unreachable port, no mock), and 35+ seconds of continued Dashboard polling past the
-first ready response.
+model running?" instead of an answer. First pass fixed the feedback and confirmation gaps but
+answered the failure case with `OllamaBackend.health()`'s technical diagnosis in the banner; the
+founder correctly rejected that too: "I don't care if we give the user the real reason. What should
+the user do with that? ... there's a problem: it can't be uploaded, so what's the problem? We don't
+need to release a fix if we didn't fix the problem." Second pass fixed the actual problem instead of
+describing it: a new `_ensure_backend_ready` helper calls the existing `ensure_serving()` (already
+used elsewhere to auto-start the local engine before a model pull) before every ingest attempt, so a
+crashed, quit, or not-yet-started local engine restarts itself before the document is even read -
+Anthill bundles/manages this engine, so recovering it is Anthill's job, not something an end user
+should need to know exists. `health()`'s diagnosis is kept for the audit log only, never shown to
+the user; the residual (self-heal genuinely can't recover) banner is now plain and actionable
+("Couldn't reach your AI... check your model setup") rather than technical. Combined with the first
+pass's fixes: (1) the Upload button shows "Uploading…" synchronously instead of staying silent
+through a slow classic-form POST; (2) the success/queued banner names the resulting page, links to
+it, and states whether your machine or your cloud/org model indexed it (`_compute_where_label`,
+shared with the Dashboard's council card so the two can't drift apart); (3) the Dashboard's
+"Running"/"Preparing" pill used to poll exactly once and then stop, so it could claim "Running"
+forever after one early good check even if the model later stopped - it now keeps polling for as
+long as the page is open. Live-verified: a real success against the real running Ollama instance; a
+real self-heal (confirmed via `ps`/`lsof` that a genuine second `ollama serve` process came up on an
+isolated test port while the machine's real instance, on its own port, was never touched) with the
+upload completing afterward with no error shown; and 35+ seconds of continued Dashboard polling past
+the first ready response.
 **Surface:** `anthill/web/app.py` (`wiki_upload`, `confirm_pdf_upload`, `wiki_import_connector`,
-`_ingest_and_propose`, two new small helpers `_compute_where_label`/`_ingest_failure_reason`),
-`anthill/web/templates/wiki.html`, `anthill/web/templates/dashboard.html`.
+`_ingest_and_propose`, three new small helpers `_compute_where_label`/`_ingest_failure_reason`/
+`_ensure_backend_ready`), `anthill/web/scheduler.py` (`_process_one_queued_upload`, same self-heal
+before its own ingest attempt), `anthill/web/templates/wiki.html`,
+`anthill/web/templates/dashboard.html`.
 **User-visible:** yes - the Upload button's in-flight state, the upload confirmation banner's
-wording, the ingest-failure banner's wording, and the Dashboard model pill's long-run accuracy.
+wording, an upload now succeeding in cases that used to fail outright, the ingest-failure banner's
+wording for the residual case, and the Dashboard model pill's long-run accuracy.
 **Footprint:** additive; no migration, no schema change. `_ingest_and_propose`'s return signature
 grew from `(applied, slug)` to `(applied, slug, title)` - both call sites updated in the same
-change. Full suite green (2825 passed, 5 skipped + 22 browser) before and after.
+change. One pre-existing test (`test_large_pdf_upload_requires_explicit_confirmation`) updated to
+expect the extra offloaded call per ingest attempt. Full suite green (2827 passed, 3 skipped + 22
+browser) before and after.
 
 ### Rotated the Tauri auto-updater's signing key before first release - pending PR, prepared 2026-10-01
 **System impact:** the desktop app's auto-update signing key (minisign key 433C4DC5, generated during
