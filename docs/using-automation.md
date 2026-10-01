@@ -2,26 +2,27 @@
 
 ## Tasks
 
-**Tasks** are work Anthill does on a schedule or on demand - a daily digest, a weekly report -
-described in plain words. They keep your local time zone, including through daylight saving, and
-you can run one immediately or let it run on its own schedule.
+A **task** is work Anthill does on a schedule or on demand. You describe it in plain words, like a
+daily digest or a weekly report. Tasks keep your local time zone, including through daylight
+saving. Run one immediately, or let it run on its own schedule.
 
 ## Agents
 
-**Agents** are a named worker with a standing job ("an employee with a role") that runs toward it
-on its own, using your wiki, memory, and skills, and reports back. Anything consequential - sending
-an email, writing to a shared wiki - is held for your approval first; it's never done silently.
+An **agent** is a named worker with a standing job, like an employee with a role. It runs toward
+that job on its own, using your wiki, memory, and skills, and reports back. Anything consequential
+is held for your approval first. Sending an email, or writing to a shared wiki: none of it happens
+silently.
 
-Results are automatically double-checked before you see them, and anything that doesn't hold up is
-flagged for your review rather than presented as fact.
+Results are checked automatically before you see them. Anything that doesn't hold up is flagged for
+your review, not presented as fact.
 
 ## Skills
 
-A skill is a reusable instruction set for something you do repeatedly - Anthill can propose one on
-its own after an agent does a good job, or you can write one directly. Skills are scoped to you, a
-project, or the whole org, and an agent picks the right one automatically when a task matches.
+A skill is a reusable instruction set for something you do repeatedly. Anthill can propose one on
+its own, after an agent does a good job. Or you can write one directly. Skills are scoped to you, a
+project, or the whole org. An agent picks the right one automatically when a task matches.
 
 ## Staying informed
 
-A notification bell in the sidebar collects what needs you - a finished task, an agent paused for
-approval, a project invite - so nothing depends on you remembering to check.
+A notification bell in the sidebar collects what needs you: a finished task, an agent paused for
+approval, a project invite. Nothing depends on you remembering to check.
