@@ -119,11 +119,11 @@
 
 {# Scope tabs, one workflow per tab so each stays a single decision instead of a grab-bag: Model (where
    it runs, incl. any inference provider, the council, and its own Advanced), Knowledge (where it
-   lives, wiki/memory/sources), Personality (how it talks to you), Privacy, This device (last - just
-   appearance, genuinely device-local, nothing about which model runs), and Organisation (admins). One
-   form - Save submits every field regardless of the open tab. Order and grouping per founder direction,
-   2026-09-26: This device had become a dumping ground for model-related Advanced settings that belong
-   with the model decision itself, not the device. #}
+   lives, wiki/memory/sources), Personality (how it talks to you), Privacy, This device (appearance,
+   genuinely device-local, nothing about which model runs), Integrations (MCP connectors, admin-only),
+   and Organisation (admins). One form - Save submits every field regardless of the open tab. Order and
+   grouping per founder direction, 2026-09-26: This device had become a dumping ground for model-related
+   Advanced settings that belong with the model decision itself, not the device. #}
 <div class="settings-tabs" id="set-tabs">
   <a href="#" data-st="model" class="active" onclick="setST('model');return false">Model</a>
   <a href="#" data-st="knowledge" onclick="setST('knowledge');return false">Knowledge</a>
