@@ -109,3 +109,28 @@ def test_connector_gallery_guided_add(live):
             assert page.locator("#ga-setup .alert-warn").is_visible()
         finally:
             browser.close()
+
+
+def test_atlassian_shows_needs_setup_not_a_false_one_click(live):
+    # Test-agent QA bug, 2026-10-01: Atlassian is oauth+http in the catalog (the shape every OTHER
+    # one-click connector has), but its own note says one-click OAuth isn't live for it yet (SSE
+    # transport, not yet wired) - guided is deliberately False to reflect that. The gallery's inline
+    # message used to key off oauth+http alone, so Atlassian showed a green "One-click connect... No
+    # setup needed" message directly contradicting its own amber badge and its own note underneath -
+    # a three-way self-contradiction on one card. Fixed by requiring guided too; this locks it in.
+    base, token = live
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome" if os.environ.get("CI") else None)
+        try:
+            ctx = browser.new_context(service_workers="block")
+            ctx.add_cookies([{"name": "session_token", "value": token, "url": base}])
+            page = ctx.new_page()
+            page.goto(f"{base}/connectors/mcp", wait_until="domcontentloaded")
+            page.wait_for_selector(".connector-grid")
+
+            page.locator(".connector-tile", has_text="Jira and Confluence").first.click()
+            page.wait_for_selector("#guided-add", state="visible")
+            assert page.locator("#ga-setup .alert-warn").is_visible()  # needs-setup, not one-click
+            assert page.locator("#ga-setup .alert-ok").count() == 0  # never the green claim
+        finally:
+            browser.close()
