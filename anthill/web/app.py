@@ -30,6 +30,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .. import __version__
 from ..mesh_auth import require_mesh
 from ..wiki.workspace import workspace_for
 from . import audit, metrics
@@ -169,6 +170,7 @@ def _nav_context(request: Request) -> dict:
         "workspace_mode": False,
         "back_href": "",
         "back_label": "",
+        "app_version": __version__,
     }
     # A "workspace" page (chat/tasks/agents) is where you do focused work; the rail folds the other
     # groups there so the work is the focus. Set from the path so it needs no per-template wiring.

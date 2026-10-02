@@ -147,7 +147,9 @@ def test_connected_endpoint_actually_routes_a_solo_turn(tmp_path, monkeypatch):
 
 def test_connected_solo_account_keeps_solo_nav_label(tmp_path, monkeypatch):
     # nav_org is narrowed to genuine org topology, so a connected Solo account never sprouts an org
-    # label - the footer still reads "Solo".
+    # label - the footer still reads the app version (Solo's non-org branch), not an org name.
+    from anthill import __version__
+
     c, _ = _client(tmp_path, monkeypatch)
     _stub_validate(monkeypatch, ok=True)
     c.post(
@@ -157,7 +159,7 @@ def test_connected_solo_account_keeps_solo_nav_label(tmp_path, monkeypatch):
     )
     body = c.get("/personalize").text
     assert 'class="brand-org"' not in body  # no org name banner in the sidebar
-    assert "Solo &middot; private" in body  # the footer still reads Solo
+    assert f"v{__version__}" in body  # the footer still reads the version, not an org name
 
 
 def test_org_topology_is_sent_to_the_admin_page(tmp_path, monkeypatch):
