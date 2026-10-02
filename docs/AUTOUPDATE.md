@@ -33,8 +33,8 @@ no-ops, so nothing here breaks the standard dmg release.
    cargo tauri signer generate -w anthill-updater.key
    ```
    This writes `anthill-updater.key` (private) and prints the **public** key.
-2. Paste the printed public key into `src-tauri/tauri.conf.json` ->
-   `plugins.updater.pubkey` (replacing the `REPLACE_WITH_TAURI_MINISIGN_PUBLIC_KEY` placeholder).
+2. Paste the printed public key into `src-tauri/tauri.conf.json` -> `plugins.updater.pubkey`
+   (replacing the key that is there now).
 3. Add two repository secrets (Settings -> Secrets and variables -> Actions):
    - `TAURI_SIGNING_PRIVATE_KEY` = the full contents of `anthill-updater.key`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = the password you chose
@@ -42,14 +42,18 @@ no-ops, so nothing here breaks the standard dmg release.
    private key in CI are a matched pair; rotating the key means re-issuing both and shipping a build
    with the new public key before old installs can verify new updates.
 
-## The pre-launch gate (why it activates "at launch")
+The key has been rotated once, in v0.12.12 (public key id `3DE93D4EAF18A15E`). An install built before
+v0.12.12 carries the old key, cannot verify updates, and needs one manual download of the current
+release. Every install from v0.12.12 on updates itself.
 
-The updater fetches release assets from `github.com/OneHillAI/Anthill`. While that repo is **private**,
-those URLs require authentication, and a shipped app cannot safely carry a token. So auto-update reaches
-arbitrary installs only once the repo (or at least its releases) is **public** - which is the launch
-step. Pre-launch you can still validate the whole pipeline on a machine that is authenticated to the
-repo. If updates are ever needed for outside installs before launch, host `latest.json` + the signed
-artifacts on a public channel and point `plugins.updater.endpoints` there instead.
+## Why the releases must be public
+
+The updater fetches release assets from `github.com/OneHillAI/Anthill`. A shipped app cannot safely
+carry a token, so those URLs must be reachable without authentication. The repo and its releases have
+been public since the launch, so every install can reach `latest.json` and the signed artifacts. If
+the repo ever goes private again, auto-update stops for outside installs. In that case host
+`latest.json` and the signed artifacts on a public channel and point `plugins.updater.endpoints`
+there instead.
 
 ## Releasing
 

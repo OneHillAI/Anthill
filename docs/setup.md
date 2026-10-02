@@ -37,3 +37,5 @@
 
 ## Running this for real, not just trying it out
 <p>Put the dashboard behind a reverse proxy with a real TLS certificate, rather than exposing it directly. Back up your secrets file too; Anthill tells you where it lives on first run, and losing it makes stored credentials unrecoverable. The official Mac release is already signed and notarized, so it opens without a security warning.</p>
+
+<p>To check which version you are running, open <strong>Settings</strong> and go to the <strong>This device</strong> tab. The <strong>Version</strong> line is there.</p>
