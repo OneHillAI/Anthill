@@ -23,6 +23,24 @@ elif [ "$rec" = "request-changes" ]; then
   state="failure"; desc="Review recommends changes."
 fi
 
+# A review that did not happen must not read like one. The runtime records its mode in the artifact:
+# "dry-run" (no model runtime wired), "adapter-template" (adapter chosen, no endpoint) or "degraded" (the
+# model answered with unusable output); only a "live" review earns "Advisory review complete". The state
+# stays success on purpose: an unwired runtime must never BLOCK a merge (fork and Dependabot PRs get no
+# secrets, so they dry-run by design), but the description now says plainly that no AI review ran. Until
+# this, every dry-run PR showed the same green line as a real review and nobody could tell the
+# difference. A failure (a security block, request-changes) keeps its failure either way.
+mode="$(jq -r '.mode // "live"' "$REVIEW")"
+if [ "$state" = "success" ] && [ "$mode" != "live" ]; then
+  case "$mode" in
+    dry-run)          why="the model runtime is not connected" ;;
+    adapter-template) why="no model endpoint is wired" ;;
+    degraded)         why="the model returned unusable output" ;;
+    *)                why="mode: ${mode}" ;;
+  esac
+  desc="NO AI REVIEW RAN (${why}). A human must review this PR."
+fi
+
 # Owner override: an owner's own PR carrying the `owner-override` label does not have its merge blocked
 # by the review. The review still posts (post-review.sh); this only turns the gating status green, with a
 # description naming the override so the bypass is on the record. Author + labels are read live; the

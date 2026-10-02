@@ -13,6 +13,11 @@ name: ASDD runtime check
 
 on:
   workflow_dispatch:
+  # Daily, so a missing, expired or emptied key/variable is noticed within a day instead of when a review
+  # quietly stops being real. (Without this the check ran only when .asdd.yml or these scripts changed, so
+  # the review settings sat empty for days and every review was a placeholder.)
+  schedule:
+    - cron: "17 5 * * *"
   pull_request:
     branches: [main]
     paths:

@@ -82,7 +82,9 @@ adv_raw="$("$ASDD_MODEL_CMD" < "$adv_prompt" || true)"
 valid() { printf '%s' "$1" | jq -e '.schema=="asdd/review/v0.1"' >/dev/null 2>&1; }
 if ! valid "$main_raw" || ! valid "$adv_raw"; then
   echo "generic adapter: a runtime call returned invalid review JSON; failing closed to a comment" >&2
-  template "live" "The review runtime returned invalid output; a human should review manually."
+  # mode "degraded", not "live": the model was reached but produced no usable review, and the status and
+  # comment must say so instead of looking like a real review that found nothing.
+  template "degraded" "The review runtime returned invalid output; a human should review manually."
   exit 0
 fi
 
