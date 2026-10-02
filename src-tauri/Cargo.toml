@@ -30,6 +30,11 @@ serde_json = "1"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
 
+# Lets the capability/ACL regression test (src/lib.rs, `acl_tests`) drive the real capabilities
+# through Tauri's mock runtime. Dev-only: never part of a shipped build.
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

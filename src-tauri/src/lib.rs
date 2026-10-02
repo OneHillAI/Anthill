@@ -19,7 +19,7 @@
 
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -40,6 +40,14 @@ struct BackendState {
 }
 
 struct Backend(Mutex<BackendState>);
+
+/// The app's compile-time context: `tauri.conf.json`, the embedded assets and the capabilities/ACL.
+/// Expanded in exactly ONE place: `generate_context!()` embeds Info.plist under a fixed symbol name,
+/// so expanding it twice in one crate is a duplicate-symbol error. `run()` and the ACL tests both
+/// build from this, which is also what lets the tests exercise the same capabilities that ship.
+fn app_context<R: Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -84,7 +92,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(app_context())
         .expect("error while building the Anthill desktop shell")
         // Own the sidecar's lifetime: tauri-plugin-shell does NOT reap sidecar children when the app
         // exits, so without this the backend survives every quit/relaunch as an orphaned
@@ -148,8 +156,8 @@ async fn check_and_apply_update(app: &AppHandle) -> tauri_plugin_updater::Result
 /// profile itself), read the `PORT=<n>` it prints, and wait until it accepts connections. Returns the
 /// port and the child handle (kept so a later switch can stop it). A background task then drains the
 /// sidecar's output for its lifetime so a full stdout pipe can never block it.
-async fn spawn_backend(
-    app: &AppHandle,
+async fn spawn_backend<R: Runtime>(
+    app: &AppHandle<R>,
     profile: Option<&str>,
 ) -> Result<(u16, CommandChild), Box<dyn std::error::Error>> {
     let mut cmd = app
@@ -204,9 +212,9 @@ async fn spawn_backend(
 }
 
 /// Point the main window at the backend on `port` and reveal it.
-fn show_on(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+fn show_on<R: Runtime>(app: &AppHandle<R>, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("http://127.0.0.1:{port}/");
-    let window: WebviewWindow = app.get_webview_window("main").ok_or("no `main` window")?;
+    let window: WebviewWindow<R> = app.get_webview_window("main").ok_or("no `main` window")?;
     window.navigate(tauri::Url::parse(&url)?)?;
     window.show()?;
     Ok(())
@@ -249,7 +257,7 @@ fn stop_backend(app: &AppHandle) {
 /// the window never lands on a dead page. If the new backend fails to start, the current profile is
 /// left running and the error is returned to the caller.
 #[tauri::command]
-async fn open_profile(app: AppHandle, id: String) -> Result<(), String> {
+async fn open_profile<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     {
         let backend = app.state::<Backend>();
         let state = backend.0.lock().unwrap();
@@ -319,6 +327,190 @@ async fn wait_until_up(port: u16) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     } else {
         Err("backend did not start responding to HTTP requests within the health timeout".into())
+    }
+}
+
+/// The window shows the backend over `http://127.0.0.1:<port>`, which Tauri treats as a REMOTE origin:
+/// for remote origins it rejects any command that no capability explicitly grants ("Command
+/// open_profile not allowed by ACL" - founder report, 2026-10-02: creating/opening a second profile
+/// failed in the packaged app). An app command can only be granted once `build.rs` declares it in an
+/// app manifest (that is what generates the `allow-open-profile` permission), so these tests drive the
+/// REAL embedded capabilities through Tauri's mock runtime, from the same kind of origin the shipped
+/// window uses - something no browser or Python test can reproduce.
+///
+/// Unix-only because the stand-in sidecar is a shell script. Needs `python3` for the end-to-end test.
+#[cfg(all(test, unix))]
+mod acl_tests {
+    use super::{open_profile, Backend, BackendState};
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
+    use tauri::Manager;
+
+    /// Serializes these tests: each one swaps the sidecar file Tauri resolves, a single shared path.
+    static SIDECAR_SLOT: Mutex<()> = Mutex::new(());
+
+    /// A sidecar that dies at once, so a test that merely wants to know "was the command dispatched?"
+    /// can never start a real backend (on a developer machine that file could be a real build).
+    const DIES_AT_ONCE: &str = "#!/bin/sh\nexit 1\n";
+
+    /// A sidecar that behaves like the real one where it matters to the shell: print `PORT=<n>`, then
+    /// answer HTTP on that port until killed.
+    const SERVES_HTTP: &str = "#!/bin/sh\n\
+        PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind((\"127.0.0.1\", 0)); print(s.getsockname()[1])')\n\
+        echo \"PORT=$PORT\"\n\
+        exec python3 -m http.server \"$PORT\" --bind 127.0.0.1 >/dev/null 2>&1\n";
+
+    /// Puts `script` where Tauri looks for the `anthill-server` sidecar and puts back whatever was
+    /// there (tauri-build copies the real or placeholder sidecar there) when dropped, even on panic.
+    struct SidecarStandIn {
+        path: PathBuf,
+        original: Option<(Vec<u8>, std::fs::Permissions)>,
+        _slot: MutexGuard<'static, ()>,
+    }
+
+    impl SidecarStandIn {
+        fn install(script: &str) -> Self {
+            let slot = SIDECAR_SLOT
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            // Resolve the path exactly as tauri-plugin-shell does for `sidecar("anthill-server")`: next to
+            // the executable, except that a test binary lives in `deps/`, so it goes one level up.
+            let exe = tauri::utils::platform::current_exe().unwrap();
+            let exe_dir = exe.parent().unwrap();
+            let base_dir = if exe_dir.ends_with("deps") {
+                exe_dir.parent().unwrap()
+            } else {
+                exe_dir
+            };
+            let path = base_dir.join("anthill-server");
+            let original = std::fs::read(&path)
+                .ok()
+                .zip(std::fs::metadata(&path).ok().map(|m| m.permissions()));
+            let _ = std::fs::remove_file(&path);
+            std::fs::write(&path, script).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            SidecarStandIn {
+                path,
+                original,
+                _slot: slot,
+            }
+        }
+    }
+
+    impl Drop for SidecarStandIn {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            if let Some((bytes, permissions)) = self.original.take() {
+                let _ = std::fs::write(&self.path, bytes);
+                let _ = std::fs::set_permissions(&self.path, permissions);
+            }
+        }
+    }
+
+    /// Invoke `open_profile` as if the page at `origin_url` had called it, with `sidecar_script` as the
+    /// backend, then stop any backend the command started (the shell plugin never reaps sidecars).
+    /// Returns the command's result (`Err` carries an ACL rejection or whatever `open_profile` itself
+    /// returned) and which profile the shell recorded as showing.
+    fn invoke_open_profile_from(
+        origin_url: &str,
+        sidecar_script: &str,
+    ) -> (Result<(), String>, Option<String>) {
+        let _sidecar = SidecarStandIn::install(sidecar_script);
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .manage(Backend(Mutex::new(BackendState::default())))
+            .invoke_handler(tauri::generate_handler![open_profile])
+            .build(super::app_context())
+            .expect("build the app with the real capabilities");
+        // The capability targets the window label `main` (as in tauri.conf.json); the mock app does not
+        // create config windows on its own.
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("create the `main` window");
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "open_profile".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: origin_url.parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "id": "work-test" })),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        );
+        let (child, profile) = {
+            let state = app.state::<Backend>();
+            let mut state = state.0.lock().unwrap();
+            (state.child.take(), state.profile.clone())
+        };
+        if let Some(child) = child {
+            let _ = child.kill();
+        }
+        let result = match response {
+            Ok(_) => Ok(()),
+            Err(value) => Err(value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string())),
+        };
+        (result, profile)
+    }
+
+    fn rejected_by_acl(error: &str) -> bool {
+        error.contains("not allowed")
+    }
+
+    #[test]
+    fn open_profile_is_allowed_from_the_local_backend_origin() {
+        // The sidebar switcher lives on every page, including the root the window is first pointed at.
+        for origin in [
+            "http://127.0.0.1:52744/",
+            "http://127.0.0.1:52744/profiles",
+            "http://localhost:8123/profiles",
+        ] {
+            // The stand-in sidecar dies at once, so the command is dispatched and then fails to start
+            // a backend: all that matters here is that the ACL did not stop it first.
+            let (result, _) = invoke_open_profile_from(origin, DIES_AT_ONCE);
+            let error = result.expect_err("the stand-in sidecar exits immediately");
+            assert!(
+                !rejected_by_acl(&error),
+                "open_profile was rejected by the ACL from {origin}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn open_profile_is_still_refused_to_any_other_origin() {
+        for origin in [
+            "https://example.com/profiles",
+            "http://192.168.1.20:8000/profiles",
+        ] {
+            let (result, _) = invoke_open_profile_from(origin, DIES_AT_ONCE);
+            let error = result.expect_err("an unlisted origin must not reach open_profile");
+            assert!(
+                rejected_by_acl(&error),
+                "open_profile must not be reachable from {origin}, got: {error:?}"
+            );
+        }
+    }
+
+    /// Once the ACL lets it through, the real `open_profile` has to actually work: start the chosen
+    /// profile's backend, read its `PORT=` line, wait for it to answer HTTP, record which profile is
+    /// showing, and re-point the window. This code path had never run in the packaged app (every call
+    /// died at the ACL), so a stand-in sidecar proves the rest of the chain too, instead of just
+    /// moving the failure one layer deeper.
+    #[test]
+    fn open_profile_starts_the_chosen_profiles_backend_once_allowed() {
+        let (result, profile) =
+            invoke_open_profile_from("http://127.0.0.1:52744/profiles", SERVES_HTTP);
+        assert_eq!(
+            result,
+            Ok(()),
+            "open_profile should have started the backend"
+        );
+        assert_eq!(profile.as_deref(), Some("work-test"));
     }
 }
 
