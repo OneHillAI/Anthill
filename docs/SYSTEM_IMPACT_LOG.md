@@ -26,6 +26,40 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Removed the redundant "Solo settings" card from /profile - pending PR, prepared 2026-10-02
+**System impact:** founder, with a screenshot of `/profile`: "remove the solo settings card. It's
+useless and pointless." It was a card at the bottom of the page whose only content was a sentence
+restating what Settings does and a button linking to `/personalize` - the exact destination the
+sidebar's own always-visible Settings link already points to, on every page including `/profile`
+itself. Removed the block.
+**Surface:** `anthill/web/templates/profile.html`.
+**User-visible:** yes - one less redundant card on the profile page.
+**Footprint:** cleanup; no migration, no schema change, no route removed (`/personalize` is still
+reachable, just no longer duplicated here). Full suite: 2833 passed, 3 skipped + 22 browser.
+
+### Added a version number to Settings and the sidebar footer - pending PR, prepared 2026-10-02
+**System impact:** founder, 2026-10-01: "do i see a version of the app inside the app?" - no version
+string was visible anywhere in the running app (checked every template, the Tauri shell, any
+footer). Added a Version card to Settings -> This device, next to Appearance, showing
+`anthill.__version__` - the same value `pyproject.toml`'s build already derives from. Follow-up,
+2026-10-02: the sidebar footer's account chip always read the hardcoded "Solo &middot; private" for
+a non-org account, regardless of anything the account had actually done - replaced with the live
+version number instead (moved `app_version` into the `_nav_context` processor so it's available on
+every page, not just Settings). Also removed "How it works" and "Setup" from that footer's "..."
+overflow menu as a redundant second entry point - both stay reachable from the Dashboard - as part
+of moving that content's primary home to docs.anthill.run (handed to a sibling session, not done
+here).
+**Surface:** `anthill/web/app.py` (`_nav_context` now sets `app_version` globally; removed from
+`personalize_get`'s own context as redundant), `anthill/web/templates/personalize.html`,
+`anthill/web/templates/_sidebar.html`.
+**User-visible:** yes - a new Version line in Settings, the sidebar footer now shows the version
+instead of a static label, and two links removed from its help menu.
+**Footprint:** additive/cleanup; no migration, no schema change. New test
+`tests/test_settings_version_display.py`; two existing tests
+(`test_connected_solo_account_keeps_solo_nav_label`, `test_help_links_moved_from_rail_to_footer`)
+updated for the changed footer text/links. Full suite: 2833 passed, 3 skipped (non-browser) + 22
+browser.
+
 ### Destructive confirmations work in the packaged desktop; model-storage list removed - pending PR, prepared 2026-10-01
 **System impact:** every destructive action gated by a native confirm silently did nothing in the packaged Tauri webview (no native JS dialogs); a shared in-DOM confirm (`data-confirm` / `window.anthillConfirm`) now gates them all, so uninstall, deletes, revokes and the rest work in the desktop app. The model picker's per-model Uninstall works, and the separate raw model-storage list is gone.
 **Surface:** `anthill/web/templates/base.html` (shared `#ah-confirm` dialog + delegated click/submit handler); `_council_builder.html` (per-model Uninstall); about 15 templates converted to `data-confirm` / `anthillConfirm`; `models.html` and `personalize.html` drop the storage list.

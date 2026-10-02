@@ -350,8 +350,9 @@ def test_knowledge_surfaces_are_one_rail_entry(tmp_path, monkeypatch):
 
 
 def test_help_links_moved_from_rail_to_footer(tmp_path, monkeypatch):
-    # Help (Contribute / How it works / Setup / Take a tour) is no longer a rail group; it lives in the
-    # sidebar footer, so the main nav stays task-focused.
+    # Help (Contribute / Take a tour) is no longer a rail group; it lives in the sidebar footer, so
+    # the main nav stays task-focused. How it works and Setup used to live in this footer menu too;
+    # removed (2026-10-02) as a redundant second entry point - still reachable from the Dashboard.
     client, ids = _app(tmp_path, monkeypatch)
     _auth(client, ids["admin"], ids["org"], "admin")
     r = client.get("/settings")
@@ -359,8 +360,9 @@ def test_help_links_moved_from_rail_to_footer(tmp_path, monkeypatch):
     footer = r.text.split('class="sidebar-footer"', 1)[1]
     assert ">Help<" not in nav  # the Help nav-group label is gone from the rail...
     assert 'href="/contribute"' not in nav  # ...and so are its links
-    for link in ('href="/contribute"', 'href="/docs/how-it-works"', 'href="/docs/setup"'):
-        assert link in footer, link  # they now live in the footer Help menu
+    assert 'href="/contribute"' in footer  # it now lives in the footer Help menu
+    for link in ('href="/docs/how-it-works"', 'href="/docs/setup"'):
+        assert link not in footer, link  # no longer a second entry point in the footer menu
 
 
 def test_projects_is_in_the_lower_group_with_settings(tmp_path, monkeypatch):
@@ -398,8 +400,8 @@ def test_settings_shows_sub_items_in_the_rail(tmp_path, monkeypatch):
 
 
 def test_footer_is_a_chip_plus_help_overflow(tmp_path, monkeypatch):
-    # The footer is a compact account chip + Sign out, with Help/How-it-works/Setup/Take-a-tour tucked into
-    # a "..." overflow menu - not a flat pile of links.
+    # The footer is a compact account chip + Sign out, with Take a tour/Contribute/Enable
+    # notifications tucked into a "..." overflow menu - not a flat pile of links.
     client, ids = _app(tmp_path, monkeypatch)
     _auth(client, ids["admin"], ids["org"], "admin")
     footer = client.get("/settings").text.split('class="sidebar-footer"', 1)[1]
