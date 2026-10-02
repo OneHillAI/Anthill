@@ -16,18 +16,21 @@ runtime: generic
 #
 # HARD RULE: no Chinese-origin models in any role (DeepSeek, GLM, Kimi, MiniMax, Qwen are OUT), regardless
 # of hosting, code-behaviour and poisoned-weights risk. The governance agents run non-Chinese open weights
-# (US and EU origin, Meta / OpenAI / Mistral / Google), EU-hosted on Berget (Sweden), OpenAI-compatible at
-# https://api.berget.ai/v1, the same provider and model choices as the asdd-run fleet. This is a swap
-# from the earlier MiniMax assignments, which the rule now forbids. The agents that see code stay EU-hosted.
-# This block RECORDS the roster; the operator wires each model per run, and the CI review gate reads its
-# model from the ASDD_MODEL_URL / ASDD_MODEL variables + the ASDD_RUNTIME_TOKEN secret (owner-managed).
+# (US origin: Google and OpenAI), EU-hosted on Infercom (Munich), OpenAI-compatible at
+# https://api.infercom.ai/v1. Only Infercom's EU tier counts: its Llama 3.3 70B is hosted outside the EU,
+# so it is not used. Berget (Sweden) was the provider until 2026-10-02, when its public model list no
+# longer offered the roster's gpt-oss-120b, Llama 3.3 70B or Mistral Medium 3.5. The agents that see code
+# stay EU-hosted. Model ids are the provider's raw ids (no vendor prefix).
+# This block RECORDS the roster. Today the CI review gate and the post-merge documentation agent both call
+# the ONE model named by the ASDD_MODEL variable at ASDD_MODEL_URL, with the ASDD_RUNTIME_TOKEN secret
+# (owner-managed); the per-role ids below are read by the runtime check, not yet by those two workflows.
 models:
   developer: "anthropic:claude-opus-4-8"   # BYO (or the dev_council below); the contributor's own key, NOT provisioned
-  test_author: "meta-llama/Llama-3.3-70B-Instruct"   # US-origin open, EU-hosted; MUST differ from developer
-  test_runner: "meta-llama/Llama-3.3-70B-Instruct"   # US-origin open, EU-hosted; MUST differ from developer
-  reviewer: "openai/gpt-oss-120b"        # independent merge-reviewer; OpenAI open, EU-sovereign (diffs stay in the EU)
-  documentation: "mistralai/Mistral-Medium-3.5-128B"   # post-merge doc / impact-log sync; Mistral (EU) open, EU-hosted
-  interaction: "google/gemma-4-31B-it"   # member / public interaction surface; Google open, EU-hosted
+  test_author: "gpt-oss-120b"     # OpenAI open, EU-hosted; MUST differ from developer, and differs from the reviewer
+  test_runner: "gpt-oss-120b"     # OpenAI open, EU-hosted; MUST differ from developer, and differs from the reviewer
+  reviewer: "gemma-4-31B-it"      # independent merge-reviewer; Google open, EU-hosted (diffs stay in the EU)
+  documentation: "gemma-4-31B-it" # post-merge doc / impact-log sync; the same model docsync runs on ASDD_MODEL
+  interaction: "gemma-4-31B-it"   # member / public interaction surface; Google open, EU-hosted
 
 # The developer council (OPTIONAL frontier produce loop). 2 to 5 diverse models propose, cross-critique,
 # a lead synthesises one result, and the test agents verify it. Runs on runware (frontier); the LAST
@@ -35,7 +38,7 @@ models:
 # also the Claude Code BYO-developer interface, an operator that arbitrates its own council is an echo
 # chamber. Its full transcripts are captured to the private operate repo as the distillation corpus.
 # Wire via the per-member ASDD_MODEL_URL__COUNCIL_<i> / ASDD_RUNTIME_TOKEN__COUNCIL_<i> env (runware),
-# kept separate from the shared Berget vars the operate roster uses (the resolver reads per-member first).
+# kept separate from the shared Infercom vars the operate roster uses (the resolver reads per-member first).
 dev_council:
   models:
     - "anthropic-claude-opus-4-8"   # proposer

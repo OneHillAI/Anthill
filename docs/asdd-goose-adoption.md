@@ -56,8 +56,8 @@ The recipes take their model per run. Set them from the `.asdd.yml` roster, keep
 
 ```
 goose run --recipe recipes/tester.yaml        --model minimax:minimax-m2.7   # independent tests
-goose run --recipe recipes/documentation.yaml --model <open: gpt-oss-120b / qwen>
-goose run --recipe recipes/interaction.yaml   --model <open: gpt-oss-120b / qwen>
+goose run --recipe recipes/documentation.yaml --model <open: gemma-4-31B-it>
+goose run --recipe recipes/interaction.yaml   --model <open: gemma-4-31B-it>
 # developer.yaml is OPTIONAL (BYO) - the maintainer's own Opus, distinct from the tester
 ```
 
@@ -98,14 +98,16 @@ Not Goose. Wire Infercom to the CI review gate via `.github/workflows/pr-review.
 name are non-sensitive, so they are repo **Variables**; only the API key is a **Secret**:
 
 - `ASDD_MODEL_URL` (Variable) - the **full** chat-completions URL,
-  `https://api.infercom.ai/v1/chat/completions`. The adapter (`runtime/openai-compat.sh`) POSTs to it
-  as-is, so a bare `/v1` base fails closed to a template review instead of a live one.
-- `ASDD_MODEL` (Variable) - the reviewer model name the endpoint expects, `gpt-oss-120b` (the raw name,
-  not the `infercom:` prefixed roster id in `.asdd.yml`).
+  `https://api.infercom.ai/v1/chat/completions`. The adapter (`runtime/openai-compat.sh`) appends
+  `/chat/completions` to a bare `/v1` base and prints a notice, so either form works. Set the full URL to
+  silence the notice.
+- `ASDD_MODEL` (Variable) - the model name the endpoint expects, `gemma-4-31B-it` (the raw name, the same
+  id the roster in `.asdd.yml` uses for the reviewer). The review gate and the documentation agent both use
+  this one model.
 - `ASDD_RUNTIME_TOKEN` (Secret) - the Infercom API key, the only sensitive value.
 
 Owner action. This moves the live CI review off the OpenRouter test model onto the roster's reviewer,
-EU-sovereign gpt-oss-120b.
+EU-sovereign gemma-4-31B-it.
 
 ## 9. Feedback loop (to the framework)
 
