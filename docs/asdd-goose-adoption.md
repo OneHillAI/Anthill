@@ -17,8 +17,8 @@ product in `OneHillAI/ASDD`). Goose = operate (the local agent loop); the CI gat
 enforcement); they compose, they are not either/or.
 
 Prerequisites already in place:
-- The model roster in `.asdd.yml` (developer = Opus 4.8 **BYO**, tester = MiniMax M2.7, reviewer =
-  DeepSeek V3.1; see `docs/specs/asdd-model-roster.md`).
+- The model roster in `.asdd.yml` (developer = Opus 4.8 **BYO**, tester = gpt-oss-120b, reviewer =
+  Gemma 4 31B; see `docs/specs/asdd-model-roster.md`).
 - Provider decided: **Infercom** (EU-sovereign, open models).
 - The ASDD-with-Goose product is Goose-valid: the recipes run on Goose builtins plus the `asdd-gates`
   MCP extension.
@@ -55,7 +55,7 @@ recipes are provider-neutral, so switching later is a one-line change.
 The recipes take their model per run. Set them from the `.asdd.yml` roster, keeping **developer != tester**:
 
 ```
-goose run --recipe recipes/tester.yaml        --model minimax:minimax-m2.7   # independent tests
+goose run --recipe recipes/tester.yaml        --model <open: gpt-oss-120b>   # independent tests
 goose run --recipe recipes/documentation.yaml --model <open: gemma-4-31B-it>
 goose run --recipe recipes/interaction.yaml   --model <open: gemma-4-31B-it>
 # developer.yaml is OPTIONAL (BYO) - the maintainer's own Opus, distinct from the tester
@@ -78,7 +78,7 @@ Recommended for Anthill (dogfood):
 Run a recipe on a real Anthill PR to prove execution, beyond `goose recipe validate`:
 
 ```
-goose run --recipe recipes/tester.yaml --model minimax:minimax-m2.7 --params pr=<n>
+goose run --recipe recipes/tester.yaml --model <open: gpt-oss-120b> --params pr=<n>
 ```
 
 Confirm it reads the diff, runs the suite on a model distinct from the developer's, and reports.
@@ -87,7 +87,7 @@ Confirm it reads the diff, runs the suite on a model distinct from the developer
 
 - **interaction** agent: connect Anthill's chat / Slack surface - answers from the wiki, routes ideas
   into the governed intake as validated specs.
-- **tester** agent: independent tests on MiniMax (the project's tester differs from the BYO developer).
+- **tester** agent: independent tests on gpt-oss-120b (the project's tester differs from the BYO developer).
 - **documentation** agent: keeps docs / `SYSTEM_IMPACT_LOG` / the wiki in sync as governed PRs.
 - **developer**: stays BYO (the maintainer's own agent) - never project-provisioned, never self-merges.
 
