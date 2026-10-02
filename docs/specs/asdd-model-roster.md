@@ -77,8 +77,11 @@ Out of scope).
   multi-model council (2 to 5 models: Opus and Gemini 3.1 Pro propose, GPT-5.6 synthesises as lead) that
   proposes, cross-critiques, and verifies against the change's acceptance criteria on models distinct from
   the council, always returning one result.
-- The council SHALL run on runware (frontier), wired via the per-member `ASDD_MODEL_URL__COUNCIL_<i>` /
-  `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` env, kept separate from the shared Infercom vars.
+- The council SHALL run on runware (frontier), wired once for the whole council via
+  `ASDD_MODEL_URL__COUNCIL` / `ASDD_RUNTIME_TOKEN__COUNCIL`, kept separate from the shared Infercom vars.
+  A per-member `ASDD_MODEL_URL__COUNCIL_<i>` / `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` pair is an optional
+  override for that member. Per member the lookup is `__COUNCIL_<i>`, then `__COUNCIL`, then the shared
+  pair, so a council on one provider with one key is set up once, not once per member.
 - The lead SHALL NOT be Opus while Opus is also the Claude Code interface (an operator arbitrating its own
   council is an echo chamber); GPT-5.6 is the independent arbiter.
 - The council's full-fidelity transcript SHALL be captured to the private operate repo as the distillation

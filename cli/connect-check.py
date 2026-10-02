@@ -47,8 +47,9 @@ def resolve_role(role, config):
 
 
 def council_members(config):
-    """The developer council members (dev_council.models) with the per-member or shared endpoint/key. []
-    if the council is not configured. Tolerates block- and flow-style lists."""
+    """The developer council members (dev_council.models) with their endpoint/key: per-member
+    (__COUNCIL_<i>), else the one council-wide pair (__COUNCIL), else the shared pair. [] if the council
+    is not configured. Tolerates block- and flow-style lists."""
     models = []
     inblk = False
     try:
@@ -71,8 +72,16 @@ def council_members(config):
         return []
     out = []
     for i, m in enumerate(models, 1):
-        url = os.environ.get(f"ASDD_MODEL_URL__COUNCIL_{i}") or os.environ.get("ASDD_MODEL_URL", "")
-        token = os.environ.get(f"ASDD_RUNTIME_TOKEN__COUNCIL_{i}") or os.environ.get("ASDD_RUNTIME_TOKEN", "")
+        url = (
+            os.environ.get(f"ASDD_MODEL_URL__COUNCIL_{i}")
+            or os.environ.get("ASDD_MODEL_URL__COUNCIL")
+            or os.environ.get("ASDD_MODEL_URL", "")
+        )
+        token = (
+            os.environ.get(f"ASDD_RUNTIME_TOKEN__COUNCIL_{i}")
+            or os.environ.get("ASDD_RUNTIME_TOKEN__COUNCIL")
+            or os.environ.get("ASDD_RUNTIME_TOKEN", "")
+        )
         out.append((f"council[{i}]", m, url, token))
     return out
 
@@ -174,7 +183,7 @@ def main():
         return 0
     print(f"{live}/{total} agent(s) connected. The rest DRY-RUN and do no real work (a review comes back a")
     print("placeholder, not a real review). Connect a model runtime: set ASDD_MODEL_URL (variable) and")
-    print("ASDD_RUNTIME_TOKEN (secret), or the per-role/__COUNCIL_<i> variants, then re-run this check.")
+    print("ASDD_RUNTIME_TOKEN (secret), or the per-role/__COUNCIL (council-wide) / __COUNCIL_<i> variants, then re-run this check.")
     return 1
 
 
