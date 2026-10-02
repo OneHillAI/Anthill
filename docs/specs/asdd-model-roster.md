@@ -18,6 +18,22 @@ Relates to: `.asdd.yml`, [`.github/asdd/`](../../.github/asdd), OneHillAI/ASDD `
 > from Infercom (whose catalog is Chinese-model-heavy) to Berget (Sweden). (b) The optional developer council is added (R4): the developer role may be a frontier
 > multi-model council on runware, with its transcripts captured privately as a distillation corpus.
 
+> Amendment (2026-10-02): provider and ids. The provider is Infercom (Munich, EU tier) again, not Berget.
+> On 2026-10-02 Berget's public model list did not offer gpt-oss-120b, Llama 3.3 70B or Mistral Medium 3.5
+> (nor does Infercom's list offer Mistral Medium 3.5), so the roster could not run there. Infercom's EU tier
+> offers gpt-oss-120b and Gemma 4 31B. The roster becomes: reviewer = gemma-4-31B-it; documentation =
+> gemma-4-31B-it (the docsync workflow runs on the same single ASDD_MODEL); test_author = test_runner =
+> gpt-oss-120b (Infercom's Llama 3.3 70B is in its non-EU tier); interaction = gemma-4-31B-it. Ids are the
+> provider's raw ids, with no vendor prefix. The 2026-07-28 reason to leave Infercom, a catalogue heavy in
+> Chinese-origin models, is met by the model rule, not the provider rule: no Chinese-origin model is used in
+> any role. The founder chose Infercom on 2026-10-02 and, after a 35-case bake-off of the review pipeline
+> (real merged PRs, injected defects, harmless controls), Gemma 4 31B as the review and documentation model.
+> All candidates caught the injected defects. gpt-oss-120b recommended request-changes on 17 of 18 merged
+> PRs and on every harmless control, Gemma 4 31B on 3 of 18 and none, at about EUR 0.004 per review. None of
+> the candidates named the one real UI defect in the sample, which CI's browser job caught. The review gate
+> and docsync call the single model named by ASDD_MODEL; reading the per-role ids in those workflows is
+> still follow-up.
+
 ## 1. Introduction
 
 The ASDD handoff (ASDD PR #21) fixed the operator model: in ASDD the **developer agent is bring-your-own**
@@ -37,11 +53,10 @@ Out of scope).
   `reviewer`, `documentation`, and `interaction`, per the standard's `.asdd.example.yml` schema (read by
   `scripts/check-models.sh`).
 - THE roster SHALL be: developer = Opus 4.8 (**BYO**, or the council in R4); test_author = test_runner =
-  meta-llama/Llama-3.3-70B-Instruct; reviewer = openai/gpt-oss-120b; documentation =
-  mistralai/Mistral-Medium-3.5-128B; interaction = google/gemma-4-31B-it. All provisioned agents are
-  non-Chinese open weights (Meta, OpenAI, Mistral, Google), EU-hosted on Berget (the asdd-run provider), so
-  the fleet is both sovereign and free of the banned Chinese-origin models. Opus differs from every
-  provisioned model, so heterogeneity holds.
+  gpt-oss-120b; reviewer = gemma-4-31B-it; documentation = gemma-4-31B-it; interaction = gemma-4-31B-it.
+  All provisioned agents are non-Chinese open weights (Google, OpenAI), EU-hosted on Infercom (Munich, EU
+  tier), so the fleet is both sovereign and free of the banned Chinese-origin models. Opus differs from
+  every provisioned model, so heterogeneity holds.
 - THE roster SHALL NOT use any Chinese-origin model in any role (the hard rule in the 2026-07-28 amendment).
 
 ### R2 - Reflect bring-your-own developer
@@ -50,9 +65,12 @@ Out of scope).
 
 ### R3 - Satisfy `developer != every test model`
 - THE roster SHALL make `models.developer` differ from both `models.test_author` and `models.test_runner`
-  (Opus != Llama), so `scripts/check-models.sh --strict` passes, and the reviewer SHALL differ from the
-  developer for independence. When the developer is the council (R4), EVERY council model SHALL differ from
-  the test models (Opus, Gemini, GPT-5.6 all differ from Llama).
+  (Opus != gpt-oss-120b), so `scripts/check-models.sh --strict` passes, and the reviewer SHALL differ from
+  the developer for independence. When the developer is the council (R4), EVERY council model SHALL differ
+  from the test models and the reviewer (Opus, Gemini, GPT-5.6 differ from gpt-oss-120b and Gemma by name).
+  Known limits: GPT-5.6 and gpt-oss-120b are both OpenAI models (test roles), and Gemini 3.1 Pro and
+  Gemma 4 31B are both Google models (reviewer). Lineage independence is not met for those pairs. It is
+  accepted until the roster's provider offers an EU-hosted open model outside the council's three vendors.
 
 ### R4 - The optional developer council
 - THE `.asdd.yml` MAY declare a `dev_council` block. When present, the developer role is a frontier
@@ -60,7 +78,7 @@ Out of scope).
   proposes, cross-critiques, and verifies against the change's acceptance criteria on models distinct from
   the council, always returning one result.
 - The council SHALL run on runware (frontier), wired via the per-member `ASDD_MODEL_URL__COUNCIL_<i>` /
-  `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` env, kept separate from the shared Berget vars.
+  `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` env, kept separate from the shared Infercom vars.
 - The lead SHALL NOT be Opus while Opus is also the Claude Code interface (an operator arbitrating its own
   council is an echo chamber); GPT-5.6 is the independent arbiter.
 - The council's full-fidelity transcript SHALL be captured to the private operate repo as the distillation
@@ -83,9 +101,9 @@ credentials stay owner-managed secrets.
 ## 5. Out of scope (provider-gated or another workstream)
 
 - **Repointing the live review gate** to the reviewer model - a repo variable/secret change. Provider =
-  **Berget** (EU-sovereign, OpenAI-compatible at `https://api.berget.ai/v1`; the asdd-run provider,
-  non-Chinese models). Needs Berget's endpoint + key set as the repo
-  `ASDD_MODEL_URL` var + `ASDD_RUNTIME_TOKEN` secret (owner).
+  **Infercom** (EU-sovereign, Munich, OpenAI-compatible at `https://api.infercom.ai/v1`; EU tier only).
+  Needs Infercom's endpoint, `ASDD_MODEL` = `gemma-4-31B-it`, and the key set as the repo `ASDD_MODEL_URL` and
+  `ASDD_MODEL` variables and the `ASDD_RUNTIME_TOKEN` secret (owner).
 - **Consuming the roster in the pipeline** (the review gate reading `models.reviewer` instead of a single
   `ASDD_MODEL`; a model-based tester agent) - a follow-up once the provider is live.
 - **"ASDD with Goose"** (Decision 3: Goose recipes + MCP extension + installer) - the framework/Goose

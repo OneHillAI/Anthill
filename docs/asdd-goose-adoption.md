@@ -17,8 +17,8 @@ product in `OneHillAI/ASDD`). Goose = operate (the local agent loop); the CI gat
 enforcement); they compose, they are not either/or.
 
 Prerequisites already in place:
-- The model roster in `.asdd.yml` (developer = Opus 4.8 **BYO**, tester = MiniMax M2.7, reviewer =
-  DeepSeek V3.1; see `docs/specs/asdd-model-roster.md`).
+- The model roster in `.asdd.yml` (developer = Opus 4.8 **BYO**, tester = gpt-oss-120b, reviewer =
+  Gemma 4 31B; see `docs/specs/asdd-model-roster.md`).
 - Provider decided: **Infercom** (EU-sovereign, open models).
 - The ASDD-with-Goose product is Goose-valid: the recipes run on Goose builtins plus the `asdd-gates`
   MCP extension.
@@ -55,9 +55,9 @@ recipes are provider-neutral, so switching later is a one-line change.
 The recipes take their model per run. Set them from the `.asdd.yml` roster, keeping **developer != tester**:
 
 ```
-goose run --recipe recipes/tester.yaml        --model minimax:minimax-m2.7   # independent tests
-goose run --recipe recipes/documentation.yaml --model <open: gpt-oss-120b / qwen>
-goose run --recipe recipes/interaction.yaml   --model <open: gpt-oss-120b / qwen>
+goose run --recipe recipes/tester.yaml        --model <open: gpt-oss-120b>   # independent tests
+goose run --recipe recipes/documentation.yaml --model <open: gemma-4-31B-it>
+goose run --recipe recipes/interaction.yaml   --model <open: gemma-4-31B-it>
 # developer.yaml is OPTIONAL (BYO) - the maintainer's own Opus, distinct from the tester
 ```
 
@@ -78,7 +78,7 @@ Recommended for Anthill (dogfood):
 Run a recipe on a real Anthill PR to prove execution, beyond `goose recipe validate`:
 
 ```
-goose run --recipe recipes/tester.yaml --model minimax:minimax-m2.7 --params pr=<n>
+goose run --recipe recipes/tester.yaml --model <open: gpt-oss-120b> --params pr=<n>
 ```
 
 Confirm it reads the diff, runs the suite on a model distinct from the developer's, and reports.
@@ -87,7 +87,7 @@ Confirm it reads the diff, runs the suite on a model distinct from the developer
 
 - **interaction** agent: connect Anthill's chat / Slack surface - answers from the wiki, routes ideas
   into the governed intake as validated specs.
-- **tester** agent: independent tests on MiniMax (the project's tester differs from the BYO developer).
+- **tester** agent: independent tests on gpt-oss-120b (the project's tester differs from the BYO developer).
 - **documentation** agent: keeps docs / `SYSTEM_IMPACT_LOG` / the wiki in sync as governed PRs.
 - **developer**: stays BYO (the maintainer's own agent) - never project-provisioned, never self-merges.
 
@@ -98,14 +98,16 @@ Not Goose. Wire Infercom to the CI review gate via `.github/workflows/pr-review.
 name are non-sensitive, so they are repo **Variables**; only the API key is a **Secret**:
 
 - `ASDD_MODEL_URL` (Variable) - the **full** chat-completions URL,
-  `https://api.infercom.ai/v1/chat/completions`. The adapter (`runtime/openai-compat.sh`) POSTs to it
-  as-is, so a bare `/v1` base fails closed to a template review instead of a live one.
-- `ASDD_MODEL` (Variable) - the reviewer model name the endpoint expects, `gpt-oss-120b` (the raw name,
-  not the `infercom:` prefixed roster id in `.asdd.yml`).
+  `https://api.infercom.ai/v1/chat/completions`. The adapter (`runtime/openai-compat.sh`) appends
+  `/chat/completions` to a bare `/v1` base and prints a notice, so either form works. Set the full URL to
+  silence the notice.
+- `ASDD_MODEL` (Variable) - the model name the endpoint expects, `gemma-4-31B-it` (the raw name, the same
+  id the roster in `.asdd.yml` uses for the reviewer). The review gate and the documentation agent both use
+  this one model.
 - `ASDD_RUNTIME_TOKEN` (Secret) - the Infercom API key, the only sensitive value.
 
 Owner action. This moves the live CI review off the OpenRouter test model onto the roster's reviewer,
-EU-sovereign gpt-oss-120b.
+EU-sovereign gemma-4-31B-it.
 
 ## 9. Feedback loop (to the framework)
 
