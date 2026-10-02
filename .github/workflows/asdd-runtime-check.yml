@@ -36,10 +36,7 @@ jobs:
       ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
       ASDD_MODEL: ${{ vars.ASDD_MODEL }}
       ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
-      # Developer council: runware (frontier), separate from the Infercom vars. ONE pair for the whole
-      # council (__COUNCIL), set once; the per-member __COUNCIL_<i> pairs are optional overrides.
-      ASDD_MODEL_URL__COUNCIL: ${{ vars.ASDD_MODEL_URL__COUNCIL }}
-      ASDD_RUNTIME_TOKEN__COUNCIL: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL }}
+      # Developer council: runware (frontier), per-member so it never collides with the Infercom vars.
       ASDD_MODEL_URL__COUNCIL_1: ${{ vars.ASDD_MODEL_URL__COUNCIL_1 }}
       ASDD_MODEL_URL__COUNCIL_2: ${{ vars.ASDD_MODEL_URL__COUNCIL_2 }}
       ASDD_MODEL_URL__COUNCIL_3: ${{ vars.ASDD_MODEL_URL__COUNCIL_3 }}

@@ -6,9 +6,8 @@
 # OpenSpec change) is trusted; it records the council's process to the ledger like every other agent.
 #
 # Wire the models the same way as the rest of the fleet: a shared ASDD_MODEL_URL + ASDD_RUNTIME_TOKEN with
-# the model NAMES in dev_council.models, one council-wide ASDD_MODEL_URL__COUNCIL /
-# ASDD_RUNTIME_TOKEN__COUNCIL pair, or per-member ASDD_MODEL_URL__COUNCIL_<i> /
-# ASDD_RUNTIME_TOKEN__COUNCIL_<i> overrides. Not wired => a labelled dry run (the prompts still assemble).
+# the model NAMES in dev_council.models, or the per-member ASDD_MODEL_URL__COUNCIL_<i> /
+# ASDD_RUNTIME_TOKEN__COUNCIL_<i>. Not wired => a labelled dry run (the prompts still assemble).
 #
 # Usage: dev-council.sh <openspec-change-id> [extra dev-council args, e.g. --transcript FILE --test-cmd CMD]
 set -euo pipefail

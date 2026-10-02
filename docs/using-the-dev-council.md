@@ -39,8 +39,7 @@ Non-trivial change where more than one strong model's perspective earns its keep
 
 Local and private, never committed:
 
-- `~/anthill-keys/runware.env`  the council (runware; one `ASDD_..._COUNCIL` pair for all members, or
-  per-member `ASDD_..._COUNCIL_i` overrides).
+- `~/anthill-keys/runware.env`  the council (runware; per-member `ASDD_..._COUNCIL_i`).
 - `~/anthill-keys/berget.env`   the Berget governance and verify models (shared `ASDD_MODEL_URL` /
   `ASDD_RUNTIME_TOKEN`).
 

@@ -22,10 +22,7 @@ Config (.asdd.yml):
 
 Bring the models two ways (whichever the operator already has):
   - one multi-model provider: shared ASDD_MODEL_URL + ASDD_RUNTIME_TOKEN, the model NAMES above distinguish.
-  - one provider for the whole council, apart from the shared pair: ASDD_MODEL_URL__COUNCIL +
-    ASDD_RUNTIME_TOKEN__COUNCIL (set once; every member uses it).
   - per-member: ASDD_MODEL_URL__COUNCIL_<i> + ASDD_RUNTIME_TOKEN__COUNCIL_<i> (i = 1..N, by position).
-  Precedence per member: __COUNCIL_<i>, then __COUNCIL, then the shared pair.
 
 Recording (STANDARD 1.3): every run records its proposals, critiques, disagreements, synthesis rationale
 and verify result to the audit ledger (role developer, action dev-council.*), so `asdd audit corpus` and
@@ -174,16 +171,8 @@ def resolve_members(models):
     members = []
     for i, model in enumerate(models, start=1):
         suffix = f"__COUNCIL_{i}"
-        url = (
-            os.environ.get("ASDD_MODEL_URL" + suffix)
-            or os.environ.get("ASDD_MODEL_URL__COUNCIL")
-            or os.environ.get("ASDD_MODEL_URL", "")
-        )
-        token = (
-            os.environ.get("ASDD_RUNTIME_TOKEN" + suffix)
-            or os.environ.get("ASDD_RUNTIME_TOKEN__COUNCIL")
-            or os.environ.get("ASDD_RUNTIME_TOKEN", "")
-        )
+        url = os.environ.get("ASDD_MODEL_URL" + suffix) or os.environ.get("ASDD_MODEL_URL", "")
+        token = os.environ.get("ASDD_RUNTIME_TOKEN" + suffix) or os.environ.get("ASDD_RUNTIME_TOKEN", "")
         members.append({"idx": i, "model": model, "url": url.strip(), "token": token.strip(),
                         "is_lead": i == len(models)})
     return members
@@ -371,8 +360,8 @@ def main():
             f"Change: {a.change or '(none given)'}. Rounds: {n_crit} critique, {n_refine} refine.",
             "Sequence: propose -> cross-critique -> synthesise -> verify (test-author + test-runner, "
             "distinct models) -> refine on failure. Always one result.",
-            "Wire the models (shared ASDD_MODEL_URL + ASDD_RUNTIME_TOKEN, the council-wide __COUNCIL pair, or the "
-            "per-member __COUNCIL_<i> variants) to activate it.",
+            "Wire the models (shared ASDD_MODEL_URL + ASDD_RUNTIME_TOKEN, or the per-member __COUNCIL_<i> "
+            "variants) to activate it.",
         ]
         out = "\n".join(report)
         (open(a.out, "w").write(out + "\n") if a.out else print(out))
