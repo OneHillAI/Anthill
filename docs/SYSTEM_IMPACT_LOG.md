@@ -26,6 +26,21 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### The test agents: a post-merge test runner and an on-demand test author - pending PR, prepared 2026-10-02
+**System impact:** the roster named `test_author` and `test_runner` (gpt-oss-120b) but nothing ran them. Now the
+test runner runs after every push to `main` on the merged commit, on the roster's model, and posts a pass or
+fail report on the merged PR, with the model, counts and failing cases. It never runs on an open PR (it has a
+shell and the key; `cli/operate-guard.py` enforces it and a hand-started run must name a commit on `main`). A
+run that did not happen says "NO TEST AGENT RAN", one that started and left no result says so with the key
+redacted, and every run leaves one audit record via `cli/operate-run.py`. The test author is runnable on demand
+while a change is built. The kit's template passed the wrong recipe parameter and looked for a heading the
+recipe never prints; this version fixes both. Not "set up" until it has reported on a real merge (spec section 4).
+**Surface:** `.github/workflows/asdd-test.yml`, `.github/asdd/operate/test.sh`, `recipes/test-author.yaml`,
+`recipes/test-runner.yaml` (replace `recipes/tester.yaml`), `cli/operate-run.py`, `tests/test_asdd_test_agent.py`,
+`docs/specs/asdd-test-agent.md`; docs naming the old recipe updated.
+**User-visible:** no (CI only): a new comment on each merged PR.
+**Footprint:** additive; one extra CI job per merge to `main` (about the suite's runtime plus a few model calls); no change to required checks.
+
 ### Opening another profile works in the packaged desktop - pending PR, prepared 2026-10-02
 **System impact:** founder, with a screenshot of the Profiles page: creating a second profile worked
 but Open failed with "Command open_profile not allowed by ACL". The window shows the backend over
