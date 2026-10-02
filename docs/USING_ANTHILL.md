@@ -19,9 +19,9 @@ Everyone starts with a **Solo** space. It's just you, nothing to set up. You can
 Solo asks you to think about that until you do. Converting to an organization is one-way. Once
 you've set one up, there's no path back to a plain Solo account.
 
-- **Solo** is your private space, with your own wiki and your own model. Choose **Local** (runs on
-  your machine, works offline) or **Cloud** (your own connected server, for a bigger model) under
-  **Solo settings**.
+- **Solo** is your private space, with your own wiki and your own model. Choose **Your machine**
+  (runs locally, works offline) or **Your cloud** (your own connected server, for a bigger model)
+  under **Settings**, on the **Model** tab, in the **Where your AI runs** card.
 - **Projects** group a set of chats, tasks, and agents around their own wiki. Use one to keep a
   topic or client separate from everything else. On a Solo account a project is yours alone. Inside
   an organization, the same kind of project becomes a shared space you invite members into. It's
@@ -54,3 +54,8 @@ private and works offline. Nothing reaches a shared project or org wiki without 
 you turn on cloud escalation for a hard question, only that question is sent, and only after
 personal information is stripped out. Every escalation is logged. Your knowledge and skills are
 stored in open formats, so nothing is locked into Anthill.
+
+## Which version am I running?
+
+Open **Settings** and go to the **This device** tab: the **Version** line is there. On a Solo account
+the same number is shown at the bottom of the sidebar.
