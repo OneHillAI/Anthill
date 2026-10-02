@@ -7,15 +7,16 @@ Not just the biggest name: an efficient model can beat a larger one. Each one is
 **runs but slower**, or **too big**, based on your machine's memory. The list refreshes on demand,
 never automatically, and works fine offline once you've picked one.
 
-Managing what's already installed lives on a separate **Models** page. Pull a model outside the
-curated list by its Ollama or Hugging Face tag, or uninstall one. You can also uninstall a model
-straight from the model list under **Settings**, on the **Model** tab: the red **Uninstall** button
-sits next to the model's *installed* badge. Click it, then click **Confirm?** within a few seconds.
-Uninstalling frees the disk space the model used. A model that is in use, as the lead or as a council
-member, has no Uninstall button. Once you have at least a few
-answers you trust, approved or saved as a snippet, you can **benchmark** any installed model
-against your current one there. It's scored on how closely it matches those approved answers, so
-the choice is grounded in your own data, not a leaderboard. The score is advisory. You still decide.
+A separate **Models** page has two jobs. You can pull a model outside the curated list by its Ollama
+or Hugging Face tag. And once you have at least a few answers you trust, approved or saved as a
+snippet, you can **benchmark** any installed model against your current one there. It's scored on how
+closely it matches those approved answers, so the choice is grounded in your own data, not a
+leaderboard. The score is advisory. You still decide.
+
+To uninstall a model, use the model list under **Settings**, on the **Model** tab. The red
+**Uninstall** button sits next to the model's *installed* badge. Click it, then click **Confirm?**
+within a few seconds. Uninstalling frees the disk space the model used. A model that is in use, as the
+lead or as a council member, has no Uninstall button.
 
 ## Running a council
 
