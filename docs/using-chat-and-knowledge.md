@@ -1,0 +1,59 @@
+# Chat & your knowledge base
+
+## Chat
+
+Ask a question and Anthill answers from your own wiki, with citations, not from the open internet.
+It remembers the conversation. It also judges on its own how hard to think. A simple question gets
+a fast answer. A multi-step one runs deeper automatically. Ask in plain words for more, like "go
+deeper" or "check the web". Or ask it to do research and get back a cited report from several
+sources.
+
+Ask it to *make* something, like "draft an onboarding email" or "give me this as a spreadsheet",
+and it proposes the result for you to confirm before anything is created. Ask for something
+recurring, like "every morning, summarize my inbox", and it proposes a scheduled task instead.
+
+You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
+
+## Your knowledge base (the wiki)
+
+Upload a document or paste text and Anthill turns it into a structured page: a title, a summary,
+key facts, and links to related pages. Anthill keeps the wiki itself tidy in the background,
+fixing broken links and flagging duplicates. The wiki has three tabs:
+
+- **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages.
+- **Principles**. Your own (or your org's) writing rules and house style. Applied automatically
+  whenever Anthill answers or drafts something in that scope.
+- **Files**. Every original document you've uploaded, with its size and date, and a link to
+  download it back. The page Anthill wrote from it is a summary, not a replacement.
+
+Sharing knowledge beyond your own space, into a project or org wiki, always goes through
+**review** first. You see exactly what would be written before it's approved.
+
+## Snippets
+
+A snippet is a piece of a chat answer you deliberately keep, rather than waiting for Anthill to
+decide it's worth a page on its own. Select the text, or tap the save icon on a message, and it
+becomes a wiki page immediately. It comes with a short note on why it's relevant to the question
+that produced it. It also becomes one of your own approved ("gold") examples, which is what
+personal training draws on. Saving a snippet guarantees it's kept, rather than hoping a good answer
+gets noticed on its own.
+
+A snippet only trains the *shared* team or org model once it's corroborated. Either another person
+independently saves matching content, or an admin approves it through the wiki review queue. You
+can edit, tag, filter, or delete any snippet. You can also push one to the wiki manually at any
+time.
+
+## Memory
+
+Anthill quietly distills durable facts and preferences from your chats, tasks, and agent runs. No
+marking anything is required. Each memory links back to where it came from, so you can always see
+why Anthill remembers something.
+
+You're always in control. Search, edit, or delete any memory. Add one directly. Pause the whole
+auto-learning pipeline whenever you want; memories already learned keep working even while paused.
+Mark anything **keep personal** so it's never shared, even if it comes up for someone else too.
+That's reversible any time.
+
+When the same fact surfaces for two or more people, it's promoted automatically to the shared
+project or org level and marked **shared by N**. An admin can also promote one by hand. Any memory
+can be turned into a full wiki page proposal when it deserves more than a one-line fact.

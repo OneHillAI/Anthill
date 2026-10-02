@@ -1,14 +1,14 @@
 # Anthill
 
-Anthill is your own private AI: a chat that answers from a knowledge base you own, running on an
-open model on infrastructure you control. Nothing leaves your machine unless you say so.
+Anthill is your own private AI. It answers from a knowledge base you own. It runs on an open model,
+on infrastructure you control. Nothing leaves your machine unless you say so.
 
 ## What you get
 
 - **Chat** that answers from your own documents, not the open internet, with sources cited.
-- **A wiki** that grows as you work - upload a document, ask a question, save an answer.
+- **A wiki** that grows as you work. Upload a document, ask a question, save an answer.
 - **Tasks and agents** that do recurring work for you and report back.
-- **Your own model**, running locally or on your own cloud - never rented, never training someone
+- **Your own model**, running locally or on your own cloud. Never rented. Never training someone
   else's product on your data.
 
 ## Get started

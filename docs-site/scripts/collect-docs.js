@@ -24,6 +24,10 @@ const FILES = [
   ["docs/how-it-works.md", "how-it-works.md"],
   ["docs/setup.md", "setup.md"],
   ["docs/USING_ANTHILL.md", "USING_ANTHILL.md"],
+  ["docs/using-chat-and-knowledge.md", "using-chat-and-knowledge.md"],
+  ["docs/using-automation.md", "using-automation.md"],
+  ["docs/using-models-and-compute.md", "using-models-and-compute.md"],
+  ["docs/using-connectors-and-personalization.md", "using-connectors-and-personalization.md"],
 ];
 
 fs.rmSync(DEST, { recursive: true, force: true });

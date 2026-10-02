@@ -26,6 +26,31 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### docs.anthill.run now documents every real capability, not just the basics - pending PR, prepared 2026-10-02
+**System impact:** founder request, framed as a product-owner/CS review: the docs site's one "Using
+Anthill" page (from the earlier rewrite, PR #836) covered chat, the wiki, tasks, agents, skills,
+memory, and model choice, but left real, shipped capabilities completely undocumented - profiles
+(multi-account), snippets, running a council, cloud compute, inference-provider escalation, training
+your own model, MCP connectors (both directions - connecting tools in, and exposing Anthill's own
+wiki out), and personalization. Investigated each directly against the current templates/routes
+(not assumption) before writing anything, to avoid documenting behavior that doesn't exist. Split
+"Using Anthill" into a five-page category instead of growing the single page back into a wall:
+**Your workspace** (Solo/Projects/Organizations, profiles, privacy - the existing page, expanded
+with real detail on what an organization's shared wiki/model/training actually means and that
+converting to one is one-way), **Chat & your knowledge base** (chat, the wiki's new Files tab,
+snippets, memory), **Automating work** (tasks, agents, skills, notifications), **Models & compute**
+(model picking/benchmarking, council, your own cloud, inference-provider escalation, training/tuning
+with its bronze/silver/gold tiers), and **Connectors & personalization** (MCP both directions,
+personalization settings).
+**Surface:** `docs-site/scripts/collect-docs.js` (whitelist grows to 8 pages), `docs-site/sidebars.js`
+(Using Anthill becomes a 5-item category); `docs/USING_ANTHILL.md` rewritten; four new pages -
+`docs/using-chat-and-knowledge.md`, `docs/using-automation.md`, `docs/using-models-and-compute.md`,
+`docs/using-connectors-and-personalization.md`.
+**User-visible:** yes: docs.anthill.run's "Using Anthill" nav item becomes an expandable category
+with five pages; several real capabilities (profiles, snippets, council, cloud compute, inference
+escalation, training, connectors, personalization) are documented for the first time.
+**Footprint:** docs-site config + content only; no application code path changes.
+
 ### Removed the redundant "Solo settings" card from /profile - pending PR, prepared 2026-10-02
 **System impact:** founder, with a screenshot of `/profile`: "remove the solo settings card. It's
 useless and pointless." It was a card at the bottom of the page whose only content was a sentence
