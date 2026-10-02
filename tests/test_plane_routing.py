@@ -499,9 +499,7 @@ def test_chat_list_splits_when_org_backend_available(tmp_path, monkeypatch):
     conv = _latest_conv(app_mod)
     page = client.get(f"/chat/{conv.id}").text
     assert "rail-conv-section" in page  # the home section headers render
-    assert (
-        "Personal" in page
-    )  # the Personal home header (the three homes: Personal/Project/Organization)
+    assert "Unfiled" in page  # the Unfiled home header (the homes: Unfiled/Project/Organization)
     # both new-chat actions, gated on availability (matched by their hidden plane inputs)
     assert 'name="plane" value="solo"' in page and 'name="plane" value="org"' in page
     assert "plane-dot-solo" in page  # the Solo conversation carries the distinct marker
@@ -509,7 +507,7 @@ def test_chat_list_splits_when_org_backend_available(tmp_path, monkeypatch):
 
 def test_team_chat_gets_its_own_project_home(tmp_path, monkeypatch):
     # No homeless chats: a team-plane chat appears under its project's heading (the team name), never
-    # mislabelled as a Personal (solo) chat. team chats alone are enough to surface the home headings.
+    # mislabelled as an Unfiled (solo) chat. team chats alone are enough to surface the home headings.
     client, app_mod, org_id = _app(tmp_path, monkeypatch)
     s = app_mod._SessionFactory()
     uid = s.query(db_mod.User).filter(db_mod.User.email == "u@acme.com").first().id
@@ -525,9 +523,11 @@ def test_team_chat_gets_its_own_project_home(tmp_path, monkeypatch):
     s.commit()
     conv = _latest_conv(app_mod)
     page = client.get(f"/chat/{conv.id}").text
-    assert 'rail-conv-section">Platform<' in page  # the project heading is the team name
+    assert (
+        'rail-project-summary"><span>Platform</span>' in page
+    )  # the project heading is the team name
     assert "plane-dot-team" in page  # the team chat carries the distinct team marker
-    # grouped as its project, not Personal: the row title suffix is " (Platform)", not " (Personal)"
+    # grouped as its project, not Unfiled: the row title suffix is " (Platform)", not " (Unfiled)"
     assert "Team sync (Platform)" in page
 
 

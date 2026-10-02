@@ -813,6 +813,21 @@ def _mig_0004_task_run_occurrence_fk(conn: Connection) -> None:
     conn.execute(text("ALTER TABLE task_runs__migration_4 RENAME TO task_runs"))
 
 
+def _mig_0005_retire_chat_folders(conn: Connection) -> None:
+    """Retire standalone chat folders: the project is now the one way to group chats.
+
+    The ``Folder`` model and ``conversations.folder_id`` were removed from the ORM, so a chat is either
+    Unfiled or in a project. Clear any stale ``folder_id`` so no row points at a folder nothing can show.
+    The physical ``folders`` table and the (now NULL) ``folder_id`` column deliberately stay on an
+    EXISTING database: ``folder_id`` is a foreign key to ``folders``, SQLite cannot drop a column that is
+    part of a foreign key, and with enforcement on (``PRAGMA foreign_keys=ON``) dropping the parent table
+    would make every later write to ``conversations`` fail. A fresh database never creates either.
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("conversations")}
+    if "folder_id" in cols:
+        conn.execute(text("UPDATE conversations SET folder_id = NULL WHERE folder_id IS NOT NULL"))
+
+
 def _json_list(value) -> list[str]:
     try:
         parsed = json.loads(value or "[]")
@@ -838,6 +853,11 @@ MIGRATIONS: list[tuple[int, str, MigrationFn]] = [
     ),
     (3, "backfill the durable scheduled-task occurrence ledger", _mig_0003_task_occurrence_ledger),
     (4, "add the task-run occurrence foreign key", _mig_0004_task_run_occurrence_fk),
+    (
+        5,
+        "retire chat folders: clear conversations.folder_id (the unused folders table stays)",
+        _mig_0005_retire_chat_folders,
+    ),
 ]
 
 
