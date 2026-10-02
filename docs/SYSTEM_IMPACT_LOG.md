@@ -26,6 +26,19 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### The runtime check reaches the developer council from one council pair - pending PR, prepared 2026-10-02
+**System impact:** the `ASDD runtime check` could only reach the developer council through per-member repo
+settings (`ASDD_MODEL_URL__COUNCIL_1..3`, `ASDD_RUNTIME_TOKEN__COUNCIL_1..3`). With those empty each member fell
+back to the Infercom pair, returned 404 and the check showed 5/8, although the council's one provider (Runware)
+and one key were set. The workflow's env now fills each member's names from that member's own setting if set,
+else from the single council pair (`ASDD_MODEL_URL__COUNCIL` + `ASDD_RUNTIME_TOKEN__COUNCIL`), so the provider
+and key are entered once. The scripts' per-member lookup, the local `runware.env` and `scripts/council.sh` are
+unchanged, and a member never falls back to the shared Infercom pair. Spec: `docs/specs/asdd-model-roster.md` R4.
+**Surface:** `.github/workflows/asdd-runtime-check.yml` (a protected path; env only), `docs/specs/asdd-model-roster.md`,
+`tests/test_asdd_runtime_check_council.py`.
+**User-visible:** no (CI only).
+**Footprint:** additive; no change to which checks are required or to the council scripts. 4 tests (3 red without the change).
+
 ### Opening another profile works in the packaged desktop - pending PR, prepared 2026-10-02
 **System impact:** founder, with a screenshot of the Profiles page: creating a second profile worked
 but Open failed with "Command open_profile not allowed by ACL". The window shows the backend over
