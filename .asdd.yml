@@ -47,6 +47,10 @@ dev_council:
   max_critique_rounds: 1
   max_refine_rounds: 1
   max_tokens: 8000
+  # GPT-5.6 and Gemini 3.1 Pro think before they answer, and at the default effort the lead spent all 8000
+  # tokens thinking and returned nothing (2026-10-03, beta lane change). Low effort fixed that on the same
+  # input. See docs/specs/asdd-model-roster.md R4.
+  reasoning_effort: low
 
 # Humans approve and merge. New adopters MUST start advisory (STANDARD 5.3).
 merge_posture: advisory
