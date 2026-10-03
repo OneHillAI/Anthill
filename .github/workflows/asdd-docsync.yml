@@ -14,6 +14,12 @@ name: ASDD docsync
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      change_ref:
+        description: "Commit (SHA) on main to propose docs for; default is the branch head"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -21,18 +27,47 @@ permissions:
   issues: write
 
 concurrency:
-  group: asdd-docsync-${{ github.sha }}
+  group: asdd-docsync-${{ inputs.change_ref || github.sha }}
   cancel-in-progress: false
+
+env:
+  CHANGE_REF: ${{ inputs.change_ref || github.sha }}
 
 jobs:
   docsync:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out main (need history for the change diff)
+      - name: Check out the commit (need history for the change diff)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ env.CHANGE_REF }}
           fetch-depth: 50
           persist-credentials: false
+
+      # The agent has a shell, so it only ever runs on merged, trusted code. A push to main satisfies that by
+      # construction; a hand-started run must name a commit that is on main.
+      - name: Refuse any commit that is not on main
+        run: |
+          git fetch --no-tags --depth=1000 origin main
+          git merge-base --is-ancestor "$CHANGE_REF" FETCH_HEAD \
+            || { echo "::error::${CHANGE_REF} is not on main; the documentation agent only runs on merged code."; exit 1; }
+
+      # The merged PR's number, title, merge date and description come from GitHub, not from the model. The
+      # agent never sees a token: this step runs before the agent's env is set.
+      - name: Read the merged PR's facts from GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .asdd-work
+          pr="$(gh api "repos/$REPO/commits/$CHANGE_REF/pulls" -H "Accept: application/vnd.github.groot-preview+json" --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "${pr:-}" ] && [ "$pr" != "null" ]; then
+            gh api "repos/$REPO/pulls/$pr" --jq '{number: .number, title: .title, merged_at: .merged_at}' > .asdd-work/pr.json
+            gh api "repos/$REPO/pulls/$pr" --jq '.body // ""' > .asdd-work/pr-body.md
+          else
+            echo "no PR for this commit; the runner falls back to the commit's own title and date"
+          fi
 
       - name: Install Goose (best-effort; docsync dry-runs if absent)
         run: |
@@ -44,13 +79,17 @@ jobs:
           ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
           ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
           ASDD_MODEL: ${{ vars.ASDD_MODEL }}
-        run: bash .github/asdd/operate/docsync.sh "${{ github.sha }}" docsync-report.md
+          # This role's own provider, if it has one (cli/resolve-model.sh prefers these); unset means the
+          # shared pair above, so a single-provider deployment is unaffected.
+          ASDD_RUNTIME_TOKEN__DOCUMENTATION: ${{ secrets.ASDD_RUNTIME_TOKEN__DOCUMENTATION }}
+          ASDD_MODEL_URL__DOCUMENTATION: ${{ vars.ASDD_MODEL_URL__DOCUMENTATION }}
+        run: bash .github/asdd/operate/docsync.sh "$CHANGE_REF" docsync-report.md
 
       - name: Post the proposal on the merged PR (or the commit)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ env.CHANGE_REF }}
         run: |
           set -euo pipefail
           [ -s docsync-report.md ] || { echo "no report; nothing to post"; exit 0; }
