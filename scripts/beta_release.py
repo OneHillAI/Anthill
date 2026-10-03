@@ -19,9 +19,9 @@ Subcommands (used by .github/workflows/desktop-beta.yml and desktop-promote.yml)
   promotable --beta v1.1.0-rc.2 --tags "$(git tag -l)"
              Print the stable version a beta would ship as (1.1.0). The beta tag must exist and be a beta, and
              the stable tag for that version must not exist yet.
-  tester-pass <comments.json> --sha SHA
-             The test agent's newest report for that exact commit must be PASS, posted by github-actions[bot]
-             (a human comment cannot stand in for it) and never edited after posting.
+  tester-pass <statuses.json> --sha SHA
+             The test agent's newest recorded verdict on that exact commit (the `asdd/test` commit status, set
+             by the workflow's bot) must be success.
   version-only <diff-file>
              The diff (git diff -U0 beta release -- FILE) may change nothing but a version line.
   beta-built <assets.json>
@@ -154,18 +154,13 @@ def ci_green(check_runs, required=REQUIRED_CHECKS):
 
 
 def is_owner(actor, config_text):
-    """True when `actor` is listed under `release_owners:` in .asdd.yml (case-insensitive)."""
-    owners, inside = [], False
-    for line in config_text.splitlines():
-        if re.match(r"^release_owners:\s*(#.*)?$", line):
-            inside = True
-            continue
-        if inside:
-            m = re.match(r"^\s+-\s*[\"']?([^\"'#\s]+)[\"']?\s*(#.*)?$", line)
-            if m:
-                owners.append(m.group(1).lower())
-            elif line.strip() and not line.lstrip().startswith("#"):
-                break
+    """True when `actor` is listed under `release_owners:` in .asdd.yml (case-insensitive). Needs PyYAML (the
+    Promote workflow installs a pinned copy); nobody listed, or nothing configured, means nobody can promote."""
+    import yaml
+
+    data = yaml.safe_load(config_text) or {}
+    listed = data.get("release_owners") if isinstance(data, dict) else None
+    owners = [str(o).strip().lower() for o in (listed or []) if o]
     if not owners:
         raise Refused("no release_owners are configured in .asdd.yml, so nobody can promote")
     if actor.strip().lower() not in owners:
@@ -189,28 +184,23 @@ def promotable(beta_tag, tags):
     return ".".join(map(str, base))
 
 
-def tester_passed(comments, sha, author="github-actions[bot]"):
-    """The newest test-agent report for exactly this commit, from the bot and never edited, must say PASS."""
-    header = f"## Test agent - result for `{sha}`"
-    reports = []
-    for c in comments:
-        body = c.get("body") or ""
-        login = (c.get("user") or {}).get("login", "")
-        if body.startswith(header) and login == author:
-            created = c.get("created_at") or ""
-            edited = bool(c.get("updated_at")) and c.get("updated_at") != created
-            reports.append((created, c.get("id") or 0, body, edited))
-    if not reports:
+def tester_passed(statuses, sha, context="asdd/test", creator="github-actions[bot]"):
+    """The test agent's newest recorded verdict on this exact commit must be success. The agent records it as the
+    `asdd/test` commit status from its own workflow (a structured signal, not text scraped from a comment)."""
+    mine = [
+        s
+        for s in statuses
+        if s.get("context") == context and (s.get("creator") or {}).get("login") == creator
+    ]
+    if not mine:
         raise Refused(
-            f"the test agent has not reported on {sha[:12]}; wait for its report on that commit"
+            f"the test agent has not recorded a verdict on {sha[:12]}; run 'ASDD test' on that commit and wait for it"
         )
-    _, _, body, edited = max(reports)
-    if edited:
+    newest = max(mine, key=lambda s: (s.get("created_at") or "", s.get("id") or 0))
+    if newest.get("state") != "success":
         raise Refused(
-            f"the newest test-agent report on {sha[:12]} was edited after it was posted; re-run the test agent"
+            f"the test agent's newest verdict on {sha[:12]} is '{newest.get('state')}', not success"
         )
-    if "**PASS**" not in body:
-        raise Refused(f"the test agent's newest report on {sha[:12]} is not a PASS")
     return True
 
 

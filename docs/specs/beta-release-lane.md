@@ -56,8 +56,9 @@ cannot be promoted.
 
 R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner (`release_owners`
 in `.asdd.yml`, itself a protected path so changing the list needs the code owner's review) as the person who
-starts it, a PASS from the test agent on the beta commit (the bot's own report for that exact commit, found on the
-merged PR or on the commit, and never edited after it was posted), green required checks on the commit it releases,
+starts it, a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow records,
+which must be `success` and set by the workflow's bot; a structured signal, not text read from a comment), green
+required checks on the commit it releases,
 the changelog assembled for that version, and no existing stable tag for it. It then pushes the stable tag so
 that today's two release workflows run unchanged. Promote defaults to a dry run, which runs every check and
 creates nothing.
@@ -80,8 +81,8 @@ at a time so two betas can never interleave a feed update.
   the release-files-only rule, that the two stable workflows ignore a beta tag, that Cut Beta is hand-started
   and main-only and publishes only a pre-release with the beta identity, and that the live feed, the live app
   identity and the live app's data folder are unchanged.
-- `tests/test_beta_promote.py` passes: who may promote, which beta is promotable, that the test agent's PASS must be
-  the bot's own report for that commit, and that Promote checks everything before it creates anything, defaults
+- `tests/test_beta_promote.py` passes: who may promote, which beta is promotable, that the test agent's verdict
+  must be the bot's own `asdd/test` status on that commit, and that Promote checks everything before it creates anything, defaults
   to a dry run, is hand-started from main, and only its second job (behind the approval) mints the bot token
   and creates the tag.
 - The Rust unit test for the data-folder name passes (`cargo test --lib`).

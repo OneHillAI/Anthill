@@ -77,86 +77,77 @@ def test_an_already_released_version_is_refused():
         br.promotable("v1.1.0-rc.1", ["v1.0.0", "v1.1.0-rc.1", "v1.1.0"])
 
 
-# --- the test agent's PASS ---------------------------------------------------------------------------
+# --- the test agent's verdict (a structured commit status) -------------------------------------------
 
 
-def _report(verdict, *, sha=SHA, who=BOT, at="2026-10-03T10:00:00Z", cid=1):
-    return {
-        "id": cid,
-        "created_at": at,
-        "user": who,
-        "body": f"## Test agent - result for `{sha}`\n\n**{verdict}** (agent-reported; run on `m`)\n",
-    }
+def _status(state, *, context="asdd/test", who=BOT, at="2026-10-03T10:00:00Z", sid=1):
+    return {"id": sid, "context": context, "state": state, "created_at": at, "creator": who}
 
 
-def test_a_pass_from_the_bot_for_that_commit_is_accepted():
-    assert br.tester_passed([_report("PASS")], SHA)
+def test_a_success_status_from_the_bot_for_that_commit_is_accepted():
+    assert br.tester_passed([_status("success")], SHA)
 
 
-@pytest.mark.parametrize("verdict", ["FAIL", "NO VERDICT (the agent wrote an unusable result)"])
-def test_a_fail_or_no_verdict_is_refused(verdict):
+@pytest.mark.parametrize("state", ["failure", "error", "pending"])
+def test_a_status_that_is_not_success_is_refused(state):
     with pytest.raises(br.Refused):
-        br.tester_passed([_report(verdict)], SHA)
+        br.tester_passed([_status(state)], SHA)
 
 
-def test_no_report_for_the_commit_is_refused():
+def test_no_verdict_recorded_is_refused():
     with pytest.raises(br.Refused):
         br.tester_passed([], SHA)
     with pytest.raises(br.Refused):
-        br.tester_passed([_report("PASS", sha="b" * 40)], SHA)  # a report for a different commit
+        br.tester_passed(
+            [_status("success", context="ci/other")], SHA
+        )  # a different check does not count
+
+
+def test_a_human_cannot_set_the_verdict():
     with pytest.raises(br.Refused):
-        br.tester_passed([{"body": "a human comment", "user": BOT}], SHA)
+        br.tester_passed([_status("success", who={"login": "welsbach"})], SHA)
 
 
-def test_a_human_cannot_fake_the_pass():
-    forged = _report("PASS", who={"login": "welsbach"})
-    with pytest.raises(br.Refused):
-        br.tester_passed([forged], SHA)
-
-
-def _real_report(verdict):
-    """The report exactly as the test agent's own renderer writes it (the same code the post-merge workflow runs)."""
-    spec = importlib.util.spec_from_file_location(
-        "test_report_contract", ROOT / ".github/asdd/operate/test-report.py"
-    )
-    renderer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(renderer)
-    body = renderer.render(
-        {"verdict": verdict, "payload": {"tested": "make test", "passed": 3, "failed": 0}}, SHA, "m"
-    )
-    return {"id": 1, "created_at": "2026-10-03T10:00:00Z", "user": BOT, "body": body}
-
-
-def test_promote_reads_exactly_what_the_test_agent_writes():
-    """Contract between the two: if the agent's report format ever changes, Promote's PASS check must change
-    with it, and this test fails first (a text match is fragile only when the two sides can drift unnoticed)."""
-    assert br.tester_passed([_real_report("pass")], SHA)
-    for verdict in ("fail", "", "maybe"):
-        with pytest.raises(br.Refused):
-            br.tester_passed([_real_report(verdict)], SHA)
-
-
-def test_a_report_edited_after_posting_is_refused():
-    """A PASS pasted over a FAIL (or any later edit) must not count; the agent posts new comments, never edits."""
-    edited = {**_report("PASS"), "updated_at": "2026-10-03T12:00:00Z"}
-    with pytest.raises(br.Refused):
-        br.tester_passed([edited], SHA)
-    untouched = {**_report("PASS"), "updated_at": "2026-10-03T10:00:00Z"}  # same as created_at
-    assert br.tester_passed([untouched], SHA)
-
-
-def test_the_newest_report_wins():
+def test_the_newest_verdict_wins():
     older_fail_newer_pass = [
-        _report("FAIL", at="2026-10-03T09:00:00Z", cid=1),
-        _report("PASS", at="2026-10-03T11:00:00Z", cid=2),
+        _status("failure", at="2026-10-03T09:00:00Z", sid=1),
+        _status("success", at="2026-10-03T11:00:00Z", sid=2),
     ]
     assert br.tester_passed(older_fail_newer_pass, SHA)
     older_pass_newer_fail = [
-        _report("PASS", at="2026-10-03T09:00:00Z", cid=1),
-        _report("FAIL", at="2026-10-03T11:00:00Z", cid=2),
+        _status("success", at="2026-10-03T09:00:00Z", sid=1),
+        _status("failure", at="2026-10-03T11:00:00Z", sid=2),
     ]
     with pytest.raises(br.Refused):
         br.tester_passed(older_pass_newer_fail, SHA)
+    same_time = [_status("failure", sid=1), _status("success", sid=2)]  # the run id breaks a tie
+    assert br.tester_passed(same_time, SHA)
+
+
+def test_the_test_workflow_records_the_verdict_promote_reads():
+    """The writer and the reader agree on one structured signal: the test workflow sets the `asdd/test` status
+    from the agent's own result file, and Promote reads that same status."""
+    text = (ROOT / ".github/workflows/asdd-test.yml").read_text()
+    assert re.search(r"(?m)^\s+statuses: write", text)
+    assert '-f context="asdd/test"' in text
+    assert "test-report.py --verdict" in text
+    assert (
+        "steps.onmain.outcome == 'success'" in text
+    )  # only ever for a commit that passed the on-main check
+    promote = (ROOT / ".github/workflows/desktop-promote.yml").read_text()
+    assert "/statuses" in promote and "tester-pass" in promote
+
+
+def test_the_verdict_renderer_maps_the_agents_result_to_the_status():
+    spec = importlib.util.spec_from_file_location(
+        "test_report_verdict", ROOT / ".github/asdd/operate/test-report.py"
+    )
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    assert renderer.verdict({"verdict": "pass"}) == "pass"
+    assert renderer.verdict({"verdict": " FAIL "}) == "fail"
+    for junk in ({}, {"verdict": ""}, {"verdict": "maybe"}, {"verdict": ["pass"]}):
+        assert renderer.verdict(junk) == "none"
 
 
 def test_the_cli_exit_codes(tmp_path):
@@ -284,8 +275,9 @@ def test_every_check_runs_in_the_verify_job_before_anything_is_created(wf, wf_te
         assert check in text, check
     assert "refs/heads/main" in text
     assert (
-        "commits/${BETA_SHA}/comments" in text
-    )  # the report may be a commit comment, not only a PR comment
+        "commits/${BETA_SHA}/statuses" in text
+    )  # a structured status, not text scraped from a comment
+    assert "/comments" not in text
     assert "git/refs" not in text and "app-token" not in str(
         verify
     )  # verify creates nothing, mints no token

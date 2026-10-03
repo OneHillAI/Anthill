@@ -12,7 +12,7 @@
 #     promoted only as tested;
 #   - a release that is not ready: changelog assembled, versions bumped (scripts/check-release.sh);
 #   - a commit whose required checks (lint, the four test runs) are not green;
-#   - a beta the test agent has not reported PASS on (a report posted by the bot, for that exact commit).
+#   - a beta the test agent has not passed (its `asdd/test` commit status on that exact commit must be success).
 # Then the second job waits for approval in the `production` environment before it creates the tag.
 #
 # It defaults to a DRY RUN: pressing Run without changing anything runs every check and creates nothing.
@@ -63,6 +63,13 @@ jobs:
           if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
             echo "::error::Promote Beta only runs from main (this run is on ${GITHUB_REF})."; exit 1
           fi
+
+      # PyYAML reads the owner list; pinned, and this job holds no secrets.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Install PyYAML (pinned)
+        run: pip install --quiet pyyaml==6.0.2
 
       # Mechanical, not a convention: only a person listed in .asdd.yml (read from main) can start this.
       - name: Only a release owner may promote
@@ -124,19 +131,16 @@ jobs:
             --jq '.check_runs' | jq -s 'add' > "$RUNNER_TEMP/check-runs.json"
           python3 scripts/beta_release.py ci-green "$RUNNER_TEMP/check-runs.json"
 
-      - name: The test agent reported PASS on the beta commit
+      # The test agent records its verdict as the `asdd/test` commit status (a structured signal, set by its own
+      # workflow). A beta commit that predates that needs `ASDD test` run on it by hand once.
+      - name: The test agent passed the beta commit
         env:
           BETA_SHA: ${{ steps.resolve.outputs.beta_sha }}
         run: |
           set -euo pipefail
-          # The report is a comment on the merged PR, or a comment on the commit itself when it had no PR.
-          {
-            for n in $(gh api "repos/${GITHUB_REPOSITORY}/commits/${BETA_SHA}/pulls" --jq '.[].number'); do
-              gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${n}/comments"
-            done
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${BETA_SHA}/comments"
-          } | jq -s 'add // []' > "$RUNNER_TEMP/comments.json"
-          python3 scripts/beta_release.py tester-pass "$RUNNER_TEMP/comments.json" --sha "$BETA_SHA"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${BETA_SHA}/statuses?per_page=100" \
+            | jq -s 'add // []' > "$RUNNER_TEMP/statuses.json"
+          python3 scripts/beta_release.py tester-pass "$RUNNER_TEMP/statuses.json" --sha "$BETA_SHA"
 
       - name: Summary
         env:
@@ -147,7 +151,7 @@ jobs:
             echo "### Promote ${BETA}: every check passed"
             echo
             echo "- Would release **v${VERSION}** from main at \`${{ steps.resolve.outputs.release_sha }}\`"
-            echo "- Beta commit \`${{ steps.resolve.outputs.beta_sha }}\` has a test agent PASS; only release files changed since"
+            echo "- Beta commit \`${{ steps.resolve.outputs.beta_sha }}\` passed the test agent; only release files changed since"
             if [ "$DRY_RUN" = "true" ]; then
               echo "- **Dry run: nothing was created.** Run again with dry run unticked to promote (it then waits for approval)."
             fi

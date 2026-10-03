@@ -18,7 +18,10 @@ reaches the live app.
    creates nothing. Then run it for real.
 3. **Install "Anthill Beta"** from the beta's release page (a pre-release). It sits next to the live app, keeps
    its own data folder, and updates itself to each new beta.
-4. **Test it.** The test agent reports PASS or FAIL on the commit after it merges; try the beta by hand too.
+4. **Test it.** After a commit merges, the test agent reports PASS or FAIL on the merged PR and records its verdict on
+   the commit itself (a status called `asdd/test`); Promote reads that status. If a beta's commit has none (it
+   merged before the agent recorded one), run **ASDD test** on that commit by hand and wait for it. Try the beta
+   by hand too.
 5. **Cut the release.** Merge a release-cut PR as today: assemble the changelog (`scripts/build_changelog.py`) and
    bump the version. Only release files may change after the beta (see below).
 6. **Promote.** Actions, **Promote Beta**, Run workflow, with the beta's tag (for example `v1.1.0-rc.2`). It starts

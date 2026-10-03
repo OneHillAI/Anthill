@@ -33,11 +33,12 @@ anyone who is not a release owner (`release_owners` in `.asdd.yml`), a beta that
 already released version, and a beta that is out of date: if anything other than release files (changelog, version
 bumps, assembled fragments) changed on `main` since the beta commit, the beta must be re-cut and re-tested, so a beta
 ships only as tested. It also needs the release ready (changelog assembled), green checks on the commit it releases,
-and the test agent's own PASS on the beta commit (a human comment cannot fake it). All of that runs with no secrets and
+and a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow now records, a
+structured signal the bot sets, not text read from a comment). All of that runs with no secrets and
 creates nothing; only a second job, behind the `production` approval, mints the bot token and creates the tag. It
 defaults to a dry run. `docs/releasing.md` explains the whole path, including what to do when a change turns out
 wrong. Not proven until a real promotion (spec section 5).
-**Surface:** `.github/workflows/desktop-promote.yml` (a protected path), `scripts/beta_release.py`, `.asdd.yml`
+**Surface:** `.github/workflows/desktop-promote.yml` and `asdd-test.yml` (protected paths), `.github/asdd/operate/test-report.py`, `scripts/beta_release.py`, `.asdd.yml`
 (`release_owners`), `tests/test_beta_promote.py`, `docs/releasing.md`, `docs/specs/beta-release-lane.md`,
 `docs/AUTOUPDATE.md`.
 **User-visible:** no: release process only; nothing changes for the live app until a promotion.
