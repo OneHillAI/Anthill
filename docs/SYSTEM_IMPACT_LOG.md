@@ -41,6 +41,24 @@ recipe never prints; this version fixes both. Not "set up" until it has reported
 **User-visible:** no (CI only): a new comment on each merged PR.
 **Footprint:** additive; one extra CI job per merge to `main` (about the suite's runtime plus a few model calls); no change to required checks.
 
+### ASDD checks say what actually happened - pending PR, prepared 2026-10-02
+**System impact:** founder saw two red ASDD checks and traced it to the gate having run as a placeholder for
+days with nothing to show it: until 2026-10-02 the three review settings (`ASDD_MODEL`, `ASDD_MODEL_URL`,
+`ASDD_RUNTIME_TOKEN`) were empty, so 23 of 25 reviews since 30 September were dry-runs, and `set-status.sh`
+gave a dry-run the same green "Advisory review complete" as a real review. Now a review whose mode is not
+`live` says `NO AI REVIEW RAN (<reason>). A human must review this PR.` (state still success: an unwired
+runtime never blocks a merge, and fork and Dependabot PRs get no key by design), and the advisory comment
+says so for every non-live mode. A model answering with unusable output is recorded as `degraded` instead of
+`live`. The documentation agent had the same kind of problem: `docsync.sh` handed Goose `OPENAI_BASE_PATH=v1`
+for the base URL, got a 404, swallowed it, and posted "wire the model" though the model was wired; it now
+normalizes the URL like the review adapter does and reports the real failure (exit code, endpoint, output
+tail, key redacted). `ASDD runtime check` now also runs daily so an empty or expired key is noticed within a day.
+**Surface:** `.github/asdd/set-status.sh`, `post-review.sh`, `runtime/generic.sh`, `operate/docsync.sh`,
+`.github/workflows/asdd-runtime-check.yml` (a protected path), `tests/test_asdd_honest_status.py`,
+`docs/specs/asdd-honest-review-status.md`.
+**User-visible:** no (CI only): the `asdd/review` status text and the review and docsync comments read differently.
+**Footprint:** additive; no change to which checks are required or to when a PR can merge. 16 tests (12 red against the old scripts).
+
 ### The runtime check reaches the developer council from one council pair - pending PR, prepared 2026-10-02
 **System impact:** the `ASDD runtime check` could only reach the developer council through per-member repo
 settings (`ASDD_MODEL_URL__COUNCIL_1..3`, `ASDD_RUNTIME_TOKEN__COUNCIL_1..3`). With those empty each member fell
