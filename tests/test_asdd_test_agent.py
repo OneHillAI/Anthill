@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _FILES = [
     ".github/asdd/operate/test.sh",
+    ".github/asdd/operate/test-report.py",
     "cli/audit.py",
     "cli/operate-guard.py",
     "cli/operate-run.py",
@@ -251,3 +252,55 @@ def test_the_workflow_only_runs_on_main_and_never_on_pull_requests():
     assert "push:" in on and "branches: [main]" in on
     assert "pull_request" not in on  # the tester has a shell and the key: merged code only
     assert "git merge-base --is-ancestor" in text  # a hand-started run must name a commit on main
+
+
+# --- the report renderer on its own (test-report.py) ----------------------------------------------
+
+
+def _report_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "test_report", ROOT / ".github/asdd/operate/test-report.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_report_renders_pass_and_fail_and_never_calls_garbage_a_pass():
+    mod = _report_module()
+    ok = mod.render(
+        {"verdict": "pass", "payload": {"tested": "pytest", "passed": 5, "failed": 0}}, "abc", "m"
+    )
+    assert "**PASS**" in ok and "Passed: 5 / Failed: 0" in ok
+    bad = mod.render({"verdict": "fail", "payload": {"failing": ["t1", "t2"]}}, "abc", "m")
+    assert "**FAIL**" in bad and "`t1`" in bad and "`t2`" in bad
+    for junk in ({}, {"verdict": ""}, {"verdict": "PASS!!"}, {"verdict": ["pass"]}):
+        assert "NO VERDICT" in mod.render(junk, "abc", "m")
+
+
+def test_report_caps_what_model_output_can_put_in_a_pr_comment():
+    mod = _report_module()
+    text = mod.render(
+        {
+            "verdict": "fail",
+            "reasoning": "x" * 5000,
+            "payload": {"tested": "y" * 5000, "failing": [f"case{i}" for i in range(100)]},
+        },
+        "abc",
+        "m",
+    )
+    assert len(text) < 3000
+    assert text.count("`case") == 20  # at most 20 failing cases are listed
+
+
+def test_report_survives_a_missing_or_corrupt_result_file(tmp_path):
+    mod = _report_module()
+    assert mod.load(tmp_path / "nope.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert mod.load(bad) == {}
+    listy = tmp_path / "list.json"
+    listy.write_text("[1, 2]")
+    assert mod.load(listy) == {}

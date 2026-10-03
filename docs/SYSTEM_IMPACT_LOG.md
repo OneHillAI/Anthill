@@ -35,7 +35,7 @@ run that did not happen says "NO TEST AGENT RAN", one that started and left no r
 redacted, and every run leaves one audit record via `cli/operate-run.py`. The test author is runnable on demand
 while a change is built. The kit's template passed the wrong recipe parameter and looked for a heading the
 recipe never prints; this version fixes both. Not "set up" until it has reported on a real merge (spec section 4).
-**Surface:** `.github/workflows/asdd-test.yml`, `.github/asdd/operate/test.sh`, `recipes/test-author.yaml`,
+**Surface:** `.github/workflows/asdd-test.yml`, `.github/asdd/operate/test.sh`, `.github/asdd/operate/test-report.py`, `recipes/test-author.yaml`,
 `recipes/test-runner.yaml` (replace `recipes/tester.yaml`), `cli/operate-run.py`, `tests/test_asdd_test_agent.py`,
 `docs/specs/asdd-test-agent.md`; docs naming the old recipe updated.
 **User-visible:** no (CI only): a new comment on each merged PR.

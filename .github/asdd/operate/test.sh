@@ -91,39 +91,10 @@ log="$(python3 cli/operate-run.py --role test-runner --recipe "$RECIPE" --provid
   --instructed-by asdd-test --param pr="$CHANGE_REF" 2>&1)" || rc=$?
 RECORDED=1   # operate-run wrote the record
 
-# Build the report from the agent's structured result. The result is model output, so only known fields are
-# read, each is length-capped, and nothing in it is executed.
+# Build the report from the agent's structured result (rendered by test-report.py: the result is model
+# output, so only known fields are read, each length-capped, and nothing in it is executed).
 if [ -f "$RESULT" ]; then
-  python3 - "$RESULT" "$CHANGE_REF" "$MODEL" > "$OUT" <<'PY'
-import json, sys
-
-path, ref, model = sys.argv[1:4]
-
-
-def clip(v, n=300):
-    return " ".join(str(v).split())[:n]
-
-
-try:
-    r = json.load(open(path, encoding="utf-8"))
-    r = r if isinstance(r, dict) else {}
-except (OSError, ValueError):
-    r = {}
-p = r.get("payload") if isinstance(r.get("payload"), dict) else {}
-verdict = str(r.get("verdict", "")).strip().lower()
-head = {"pass": "PASS", "fail": "FAIL"}.get(verdict, "NO VERDICT (the agent wrote an unusable result)")
-print(f"## Test agent - result for `{ref}`\n")
-print(f"**{head}** (agent-reported; run on `{model}`, the test_runner role)\n")
-if p.get("tested"):
-    print(f"- Tested: {clip(p['tested'])}")
-if "passed" in p or "failed" in p:
-    print(f"- Passed: {clip(p.get('passed', '?'), 20)} / Failed: {clip(p.get('failed', '?'), 20)}")
-cases = p.get("failing") if isinstance(p.get("failing"), list) else []
-if cases:
-    print("- Failing cases: " + ", ".join(f"`{clip(c, 120)}`" for c in cases[:20]))
-if r.get("reasoning"):
-    print(f"- Reasoning: {clip(r['reasoning'])}")
-PY
+  python3 .github/asdd/operate/test-report.py "$RESULT" "$CHANGE_REF" "$MODEL" > "$OUT"
 else
   detail="$(printf '%s\n' "$log" | tail -n 8)"
   detail="${detail//"$TOKEN"/[redacted]}"

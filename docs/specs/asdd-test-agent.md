@@ -49,7 +49,7 @@ parameter is `pr`, and looked for a "## Test result" heading the recipe never pr
 
 ## 3. Acceptance criteria
 
-- `tests/test_asdd_test_agent.py` passes (13 tests). 9 of them fail against the kit's template as shipped.
+- `tests/test_asdd_test_agent.py` passes (16 tests). 9 of the runner tests fail against the kit's template as shipped; 3 more test the report renderer on its own.
 - A PASS, a FAIL (with failing cases), an unusable verdict, a run with no result (key redacted), an unwired
   runner and a missing Goose each produce the report described above.
 - Goose receives the roster's model, `--params pr=<ref>`, and host plus `v1/chat/completions` for all three
