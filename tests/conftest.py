@@ -25,10 +25,21 @@ often under ``pytest -n`` where CPU contention widens the race:
   event, which used to kick off a genuine ~1.2GB download mid test-suite. Stubbed to a no-op directly
   (like ``installed_models`` above) rather than relying on the transport block.
 
+- Any attempt to run the real ``ollama`` executable (``ollama pull`` / ``ollama serve``) - see
+  ``ollama_spawn_guard`` below. The pull/serve helpers in the app run in daemon threads that can outlive the
+  test that started them; once that test's patches are undone such a thread reaches the developer's real
+  Ollama and, with it running, really downloads a model (observed: a ~2.4 GB vision model on a dev Mac,
+  2026-10-03). CI has no Ollama, so this never shows there. Refused at the process-spawn seam for the whole
+  session, and the run fails if anything tried.
+
 A test that needs a working model or specific installed models overrides the relevant method with its
 own ``monkeypatch`` (applied after this autouse fixture, so it wins); FastAPI ``TestClient`` traffic
 (base_url ``http://testserver``) is untouched.
 """
+
+import os
+import subprocess
+import threading
 
 import httpx
 import pytest
@@ -50,6 +61,51 @@ async def _blocked_asend(self, request, *args, **kwargs):
     if _OLLAMA_PORT in str(request.url):
         raise httpx.ConnectError("hermetic tests: no local Ollama (see tests/conftest.py)")
     return await _real_asend(self, request, *args, **kwargs)
+
+
+_OLLAMA_SPAWN_ATTEMPTS: list[str] = []
+_RealPopen = subprocess.Popen
+
+
+def _runs_ollama(args) -> bool:
+    """True when ``args`` (a Popen argv, or a shell command string) starts the ``ollama`` executable."""
+    if isinstance(args, (list, tuple)):
+        first = args[0] if args else ""
+    else:
+        first = os.fsdecode(args).split(None, 1)[0] if os.fsdecode(args).strip() else ""
+    return os.path.basename(os.fsdecode(first)).lower().startswith("ollama")
+
+
+class _NoOllamaPopen(_RealPopen):
+    """Popen that refuses to start the real ``ollama`` (and records who asked); anything else is untouched.
+    ``subprocess.run`` / ``check_output`` build a Popen, so this one seam covers all of them."""
+
+    def __init__(self, args, *a, **kw):
+        if _runs_ollama(args):
+            shown = args if isinstance(args, str) else list(args)
+            _OLLAMA_SPAWN_ATTEMPTS.append(
+                f"{shown} while running {os.environ.get('PYTEST_CURRENT_TEST', '?')} "
+                f"({threading.current_thread().name})"
+            )
+            # OSError: the app's own launch/pull code treats it as "could not start" and carries on.
+            raise OSError("hermetic tests: refusing to run the real ollama (see tests/conftest.py)")
+        super().__init__(args, *a, **kw)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ollama_spawn_guard():
+    """No test may run the real ``ollama``. Installed once for the whole session and never undone: a
+    background pull/serve thread started by one test can wake up long after that test's patches were
+    reverted, and that late wake-up is what really pulled a model. Yields the list of attempts so the
+    guard's own tests can check it; any attempt left in it at the end fails the run."""
+    subprocess.Popen = _NoOllamaPopen
+    yield _OLLAMA_SPAWN_ATTEMPTS
+    assert not _OLLAMA_SPAWN_ATTEMPTS, (
+        "tests tried to run the real `ollama` (refused). A test started a background model pull or "
+        "server start without stubbing it - monkeypatch app._start_model_pull and "
+        "app._maybe_autopull_vision as tests/test_setup_model_council.py does. A leftover thread may "
+        "belong to an earlier test than the one named:\n  " + "\n  ".join(_OLLAMA_SPAWN_ATTEMPTS)
+    )
 
 
 @pytest.fixture(autouse=True)
