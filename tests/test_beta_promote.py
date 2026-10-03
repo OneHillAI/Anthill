@@ -114,6 +114,28 @@ def test_a_human_cannot_fake_the_pass():
         br.tester_passed([forged], SHA)
 
 
+def _real_report(verdict):
+    """The report exactly as the test agent's own renderer writes it (the same code the post-merge workflow runs)."""
+    spec = importlib.util.spec_from_file_location(
+        "test_report_contract", ROOT / ".github/asdd/operate/test-report.py"
+    )
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    body = renderer.render(
+        {"verdict": verdict, "payload": {"tested": "make test", "passed": 3, "failed": 0}}, SHA, "m"
+    )
+    return {"id": 1, "created_at": "2026-10-03T10:00:00Z", "user": BOT, "body": body}
+
+
+def test_promote_reads_exactly_what_the_test_agent_writes():
+    """Contract between the two: if the agent's report format ever changes, Promote's PASS check must change
+    with it, and this test fails first (a text match is fragile only when the two sides can drift unnoticed)."""
+    assert br.tester_passed([_real_report("pass")], SHA)
+    for verdict in ("fail", "", "maybe"):
+        with pytest.raises(br.Refused):
+            br.tester_passed([_real_report(verdict)], SHA)
+
+
 def test_a_report_edited_after_posting_is_refused():
     """A PASS pasted over a FAIL (or any later edit) must not count; the agent posts new comments, never edits."""
     edited = {**_report("PASS"), "updated_at": "2026-10-03T12:00:00Z"}
