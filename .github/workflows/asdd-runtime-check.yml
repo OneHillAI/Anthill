@@ -41,13 +41,17 @@ jobs:
       ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
       ASDD_MODEL: ${{ vars.ASDD_MODEL }}
       ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
-      # Developer council: runware (frontier), per-member so it never collides with the Infercom vars.
-      ASDD_MODEL_URL__COUNCIL_1: ${{ vars.ASDD_MODEL_URL__COUNCIL_1 }}
-      ASDD_MODEL_URL__COUNCIL_2: ${{ vars.ASDD_MODEL_URL__COUNCIL_2 }}
-      ASDD_MODEL_URL__COUNCIL_3: ${{ vars.ASDD_MODEL_URL__COUNCIL_3 }}
-      ASDD_RUNTIME_TOKEN__COUNCIL_1: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_1 }}
-      ASDD_RUNTIME_TOKEN__COUNCIL_2: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_2 }}
-      ASDD_RUNTIME_TOKEN__COUNCIL_3: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_3 }}
+      # Developer council: runware (frontier), separate from the Infercom vars. The scripts read the council
+      # per member (ASDD_MODEL_URL__COUNCIL_<i> / ASDD_RUNTIME_TOKEN__COUNCIL_<i>, the same names as the local
+      # runware.env). Here each member takes its own repo setting if one is set, else the single council pair
+      # (ASDD_MODEL_URL__COUNCIL / ASDD_RUNTIME_TOKEN__COUNCIL), so the council's one provider and key are
+      # entered once. Only this workflow's env does the fallback; the lookup in the scripts is unchanged.
+      ASDD_MODEL_URL__COUNCIL_1: ${{ vars.ASDD_MODEL_URL__COUNCIL_1 || vars.ASDD_MODEL_URL__COUNCIL }}
+      ASDD_MODEL_URL__COUNCIL_2: ${{ vars.ASDD_MODEL_URL__COUNCIL_2 || vars.ASDD_MODEL_URL__COUNCIL }}
+      ASDD_MODEL_URL__COUNCIL_3: ${{ vars.ASDD_MODEL_URL__COUNCIL_3 || vars.ASDD_MODEL_URL__COUNCIL }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_1: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_1 || secrets.ASDD_RUNTIME_TOKEN__COUNCIL }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_2: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_2 || secrets.ASDD_RUNTIME_TOKEN__COUNCIL }}
+      ASDD_RUNTIME_TOKEN__COUNCIL_3: ${{ secrets.ASDD_RUNTIME_TOKEN__COUNCIL_3 || secrets.ASDD_RUNTIME_TOKEN__COUNCIL }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
