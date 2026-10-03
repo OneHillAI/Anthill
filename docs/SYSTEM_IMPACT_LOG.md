@@ -74,6 +74,30 @@ and used (spec section 5).
 `openspec/changes/beta-release-lane/`.
 **User-visible:** no: nothing changes for the live app; the beta is a separate app for testers.
 **Footprint:** additive; one tag-filter change on the stable workflows (stable tags still fire them) and one small change to how the data folder is named (the live app's folder is the same).
+### PR #58 - Chat folders are gone: a project is the one way to group chats - merged 2026-10-03
+**System impact:** a chat is now grouped one way only, by project. The standalone folder (a bare "+ New folder"
+box, your own chats only) is removed, so a project created from the Projects page no longer goes missing in the
+chat. A chat moves into a project from the **Project** menu at the top of the chat, before its first prompt or
+after it already has history (the messages are untouched), and "No project" returns it to Unfiled, never deleting
+it. The sidebar shows Pinned, one group per project (visible while empty, with a + that starts a chat in it) and
+Unfiled (the old "Personal" heading). A project chat runs on the model the team plane gets: the organization's
+cloud model once an org backend has ever been configured (`planes.is_org_mode`), the local model on a Solo
+install. So in an org install, moving a chat that has history asks first (a confirmation on the chat page, and
+nothing moves until it is confirmed); a Solo install stays local and asks nothing. Moving is owner-scoped and
+membership-scoped, and an Organization chat keeps its plane. Memory extracted from the chat stays personal.
+Spec: `docs/specs/consolidate-folders-into-projects.md`.
+**Surface:** `POST /chat/{id}/project` (replaces `/folders/*` and `/chat/{id}/folder`; audit events
+`chat.project_attach` and `chat.project_detach`; the confirmation is `?confirm_project=<id>` on the chat page),
+`anthill/web/templates/_sidebar.html`, `chat.html` and `teams.html` (`/teams?new=1` opens the create form),
+`anthill/web/static/style.css`, `anthill/web/db.py` (the `Folder` model and `conversations.folder_id` are removed),
+`anthill/web/migrate.py` (migration 5), `tests/test_chat_projects.py` (15 tests) and
+`tests/browser/test_chat_projects_browser.py` (replace `tests/test_chat_folders.py`).
+**User-visible:** yes - no more folders; a Project menu in the chat; project groups and Unfiled in the sidebar; a
+confirmation when moving a chat with history in an org install.
+**Footprint:** reductive, plus a migration. Migration 5 clears `conversations.folder_id` on existing databases. The
+unused `folders` table and the NULL `folder_id` column stay there (SQLite cannot drop a foreign-key column and the
+app runs with `foreign_keys=ON`, so dropping the table would break every chat write); new databases never create
+either. Dropping them needs a rebuild of `conversations` (follow-up).
 
 ### The test agents: a post-merge test runner and an on-demand test author - pending PR, prepared 2026-10-02
 **System impact:** the roster named `test_author` and `test_runner` (gpt-oss-120b) but nothing ran them. Now the
