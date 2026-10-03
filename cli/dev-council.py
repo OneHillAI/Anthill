@@ -327,6 +327,12 @@ def _cut_off(reply):
     return bool(getattr(reply, "truncated", False))
 
 
+def _miss(transcript, member, step, reply="", why=""):
+    """Record a member that gave no answer at a step, so the result can name it instead of it silently dropping out."""
+    transcript["failures"].append({"model": member["model"], "step": step,
+                                   "why": why or getattr(reply, "why", "") or "no output"})
+
+
 def _audit_verdict(lead_failed, verified, passed):
     """The ledger verdict. Only a lead-synthesised, verified, passing result is a plain pass."""
     if lead_failed:
@@ -341,6 +347,9 @@ def result_header(transcript, verdict):
     council synthesis (a lead that produced nothing, no verification, text cut off at the token cap)."""
     verified = verdict.get("verified", True)
     bits = [f"{len(transcript['members'])} models"]
+    silent = list(dict.fromkeys(f["model"] for f in transcript["failures"]))
+    if silent:
+        bits.append("NO ANSWER FROM " + ", ".join(silent))
     if transcript["lead_failed"]:
         bits.append("LEAD FAILED, one proposal and not a synthesis")
     if not verified:
@@ -349,7 +358,7 @@ def result_header(transcript, verdict):
         bits.append("verify passed" if verdict.get("pass") else "verify FAILED")
     if transcript["refined"]:
         bits.append("refined once")
-    notes = []
+    notes = [f"{f['model']} gave no answer at {f['step']} ({f['why']})." for f in transcript["failures"]]
     if transcript["lead_failed"]:
         notes.append(f"The lead ({transcript['members'][-1]}) returned no synthesis "
                      f"({transcript['lead_failure']}). The synthesis step fell back to the proposal from "
@@ -447,19 +456,24 @@ def main():
     transcript = {"change": a.change, "members": [m["model"] for m in members],
                   "proposals": [], "critiques": [], "synthesis": "", "verify": {}, "refined": False,
                   "lead_failed": False, "lead_failure": "", "fallback_proposal": "",
-                  "synthesis_truncated": False}
+                  "synthesis_truncated": False, "failures": []}
 
     # 1. PROPOSE
     user = f"OpenSpec change acceptance criteria and context:\n\n{criteria}\n\nDraft your implementation."
     for m in proposers:
         if not (m["url"] and m["token"]):
+            _miss(transcript, m, "propose", why="not wired")
             continue
         text = call_model(m, PROPOSE_SYS, user, max_tokens, effort=effort)
         if text:
             transcript["proposals"].append({"model": m["model"], "text": text, "truncated": _cut_off(text)})
+        else:
+            _miss(transcript, m, "propose", text)
     if not transcript["proposals"]:
         record(root, "dev-council.run", "error", "every proposer failed to draft", {"proposals": 0})
-        msg = "ASDD developer council - no proposer produced a draft (runtime errors). A human should implement this."
+        reasons = "; ".join(f"{f['model']}: {f['why']}" for f in transcript["failures"])
+        msg = ("ASDD developer council - no proposer produced a draft (runtime errors). "
+               f"A human should implement this. Reasons: {reasons}.")
         (open(a.out, "w").write(msg + "\n") if a.out else print(msg))
         return 0
 
@@ -470,10 +484,13 @@ def main():
         cu = f"Acceptance criteria:\n{criteria}\n\nProposals:\n{others}\n\nCritique each ONLY against the criteria."
         for m in proposers:
             if not (m["url"] and m["token"]):
+                _miss(transcript, m, "critique", why="not wired")
                 continue
             c = call_model(m, CRITIQUE_SYS, cu, max_tokens, effort=effort)
             if c:
                 transcript["critiques"].append({"model": m["model"], "text": c, "truncated": _cut_off(c)})
+            else:
+                _miss(transcript, m, "critique", c)
 
     # 3. SYNTHESISE (the lead)
     props = "\n\n".join(f"[{i+1}]\n{p['text']}" for i, p in enumerate(transcript["proposals"]))
@@ -516,7 +533,8 @@ def main():
            f"for {a.change}; verify {outcome}{'; refined once' if transcript['refined'] else ''}",
            {"members": len(members), "proposals": len(transcript["proposals"]),
             "critiques": len(transcript["critiques"]), "refined": transcript["refined"],
-            "lead_failed": lead_failed, "verified": verified, "verify_pass": passed,
+            "lead_failed": lead_failed, "failed_calls": len(transcript["failures"]),
+            "verified": verified, "verify_pass": passed,
             "truncated_proposals": sum(1 for p in transcript["proposals"] if p.get("truncated")),
             "synthesis_truncated": transcript["synthesis_truncated"],
             "synthesis_digest": digest(synthesis)})

@@ -301,3 +301,63 @@ def test_no_reasoning_effort_is_sent_by_default(tmp_path, monkeypatch, config):
     calls = []
     _run_council(tmp_path, monkeypatch, lead="the synthesis", calls=calls)
     assert calls and all(not kw.get("effort") for _system, kw in calls)
+
+
+# --- a member that never answered --------------------------------------------------------------------
+
+
+def test_a_member_that_gave_no_answer_is_named_not_counted_as_present(tmp_path, monkeypatch):
+    silent = dc._reply("", why="HTTP 401")
+    text, transcript, records = _run_council(
+        tmp_path,
+        monkeypatch,
+        lead="the synthesis",
+        proposals={"m-a": "draft from a", "m-b": silent},
+        test_cmd=OK_CMD,
+    )
+    assert "NO ANSWER FROM m-b" in text.splitlines()[0]
+    assert "m-b gave no answer at propose (HTTP 401)" in text
+    steps = [(f["model"], f["step"]) for f in transcript["failures"]]
+    assert ("m-b", "propose") in steps and ("m-b", "critique") not in steps  # m-b still critiques
+    assert _run_record(records)["payload"]["failed_calls"] == len(transcript["failures"])
+
+
+def test_a_run_where_every_member_answers_names_nobody(tmp_path, monkeypatch):
+    text, transcript, records = _run_council(tmp_path, monkeypatch, lead="s", test_cmd=OK_CMD)
+    assert transcript["failures"] == [] and "NO ANSWER" not in text
+    assert _run_record(records)["payload"]["failed_calls"] == 0
+
+
+def test_when_every_proposer_fails_the_message_says_why(tmp_path, monkeypatch, capsys):
+    down = dc._reply("", why="HTTP 503")
+    _run_council_no_out(tmp_path, monkeypatch, proposals={"m-a": down, "m-b": down})
+    printed = capsys.readouterr().out
+    assert "no proposer produced a draft" in printed
+    assert "m-a: HTTP 503" in printed and "m-b: HTTP 503" in printed
+
+
+def _run_council_no_out(tmp_path, monkeypatch, proposals):
+    """main() with no --out, so the all-failed message goes to stdout."""
+    for name in ("ASDD_MODEL_URL", "ASDD_RUNTIME_TOKEN"):
+        monkeypatch.setenv(name, "x")
+    for i in (1, 2, 3):
+        monkeypatch.delenv(f"ASDD_MODEL_URL__COUNCIL_{i}", raising=False)
+        monkeypatch.delenv(f"ASDD_RUNTIME_TOKEN__COUNCIL_{i}", raising=False)
+    monkeypatch.setattr(dc, "call_model", lambda member, *a, **kw: proposals[member["model"]])
+    monkeypatch.setattr(dc, "record", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dev-council", "--change", "demo", "--root", str(tmp_path), "--models", "m-a,m-b,m-lead"],
+    )
+    assert dc.main() == 0
+
+
+# --- the repo's own council config -------------------------------------------------------------------
+
+
+def test_the_repo_council_runs_the_reasoning_models_at_low_effort():
+    """GPT-5.6 spent the whole 8000-token budget thinking and answered nothing at the default effort."""
+    council = dc.load_config(ROOT)["dev_council"]
+    assert council["reasoning_effort"] == "low"
+    assert len(dc.as_model_list(council["models"])) == 3
