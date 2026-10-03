@@ -28,6 +28,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  statuses: write   # to record the test agent's verdict on the commit (Promote Beta reads it)
 
 concurrency:
   group: asdd-test-${{ inputs.change_ref || github.sha }}
@@ -52,6 +53,7 @@ jobs:
       # The tester has a shell and the model key, so it only ever runs on merged, trusted code. A push to
       # main satisfies that by construction; a hand-started run must name a commit that is on main.
       - name: Refuse any commit that is not on main
+        id: onmain
         run: |
           git fetch --no-tags --depth=1000 origin main
           git merge-base --is-ancestor "$CHANGE_REF" FETCH_HEAD \
@@ -103,3 +105,22 @@ jobs:
             printf '%s%s' "$body" "$footer" | gh api "repos/$REPO/commits/$CHANGE_REF/comments" -f body=@- >/dev/null
             echo "posted as a commit comment (no associated PR)"
           fi
+
+      # The structured verdict, recorded as a commit status (the mechanism CI already uses), so Promote Beta
+      # reads a signal instead of parsing the report text. It is recorded even when the agent did not run (then
+      # the state is "error"), but only for a commit that passed the on-main check above.
+      - name: Record the verdict as a commit status
+        if: ${{ always() && steps.onmain.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          verdict="$(python3 .github/asdd/operate/test-report.py --verdict .asdd-work/operate-result.json 2>/dev/null || echo none)"
+          case "$verdict" in
+            pass) state=success; desc="Test agent: PASS" ;;
+            fail) state=failure; desc="Test agent: FAIL" ;;
+            *)    state=error;   desc="Test agent: no verdict (it did not run, or left no usable result)" ;;
+          esac
+          gh api "repos/$REPO/statuses/$CHANGE_REF" -f state="$state" -f context="asdd/test" -f description="$desc" >/dev/null
+          echo "recorded asdd/test=$state on $CHANGE_REF"

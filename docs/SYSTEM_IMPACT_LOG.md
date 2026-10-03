@@ -40,6 +40,41 @@ correct update on a real merge (spec section 4).
 **User-visible:** no (CI only): the post-merge docs comment reads differently.
 **Footprint:** refactor of the docs runner; no change to required checks. 20 tests; the old docs-agent tests in `tests/test_asdd_honest_status.py` moved here.
 
+### Promote Beta: ship one tested beta to the live app, behind an approval - pending PR, prepared 2026-10-03
+**System impact:** the second half of the beta lane. **Promote Beta** (started by hand, from `main`) ships one beta to
+the live app by creating the stable tag `vX.Y.Z`, which starts today's two release workflows unchanged. It refuses
+anyone who is not a release owner (`.github/release-owners.txt`), a beta that is not a published pre-release, an
+already released version, and a beta that is out of date: if anything other than release files (changelog, version
+bumps, assembled fragments) changed on `main` since the beta commit, the beta must be re-cut and re-tested, so a beta
+ships only as tested. It also needs the release ready (changelog assembled), green checks on the commit it releases,
+and a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow now records, a
+structured signal the bot sets, not text read from a comment). All of that runs with no secrets and
+creates nothing; only a second job, behind the `production` approval, mints the bot token and creates the tag. It
+defaults to a dry run. `docs/releasing.md` explains the whole path, including what to do when a change turns out
+wrong. Not proven until a real promotion (spec section 5).
+**Surface:** `.github/workflows/desktop-promote.yml` and `asdd-test.yml` (protected paths), `.github/asdd/operate/test-report.py`, `scripts/beta_release.py`, `.github/release-owners.txt`,
+`tests/test_beta_promote.py`, `docs/releasing.md`, `docs/specs/beta-release-lane.md`,
+`docs/AUTOUPDATE.md`.
+**User-visible:** no: release process only; nothing changes for the live app until a promotion.
+**Footprint:** additive; the founder creates the `production` environment once. 39 tests.
+
+### Cut Beta: a release candidate lane before anything reaches the live app - pending PR, prepared 2026-10-03
+**System impact:** the repo is public and every installed app follows the newest release, so a stable tag went
+live for everyone at once. A new **Cut Beta** workflow (started by hand, from `main`, only on a commit whose
+required checks are green) builds a signed, notarized "Anthill Beta" release candidate `X.Y.Z-rc.N` and publishes
+it as a pre-release plus a rolling `beta-channel` feed; the live feed and the stable download are untouched. The
+beta app has its own name, bundle id, feed and data folder (the backend now names its data folder after the app,
+unchanged for the live app), so it installs next to the live app and cannot touch its data. The two stable release
+workflows now fire only on a stable tag, so a beta tag can never publish live. A second PR adds Promote, which ships
+one tested beta behind the founder's approval and refuses if code merged since. Not set up until a beta has been cut
+and used (spec section 5).
+**Surface:** `.github/workflows/desktop-beta.yml`, `.github/workflows/release.yml`, `.github/workflows/desktop-release.yml`
+(all protected paths), `scripts/beta_release.py`, `src-tauri/tauri.beta.conf.json`, `src-tauri/src/lib.rs`,
+`anthill/desktop.py`, `tests/test_beta_release_lane.py`, `docs/specs/beta-release-lane.md`,
+`openspec/changes/beta-release-lane/`.
+**User-visible:** no: nothing changes for the live app; the beta is a separate app for testers.
+**Footprint:** additive; one tag-filter change on the stable workflows (stable tags still fire them) and one small change to how the data folder is named (the live app's folder is the same).
+
 ### The test agents: a post-merge test runner and an on-demand test author - pending PR, prepared 2026-10-02
 **System impact:** the roster named `test_author` and `test_runner` (gpt-oss-120b) but nothing ran them. Now the
 test runner runs after every push to `main` on the merged commit, on the roster's model, and posts a pass or

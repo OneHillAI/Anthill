@@ -45,8 +45,13 @@ def data_dir() -> Path:
     %LOCALAPPDATA%/Anthill on Windows, and ~/.local/share/Anthill on Linux. appauthor=False
     keeps the Windows path a single Anthill directory (no doubled author folder) and has no
     effect on macOS or Linux. The macOS-path invariant is locked by tests/test_portability.py.
+
+    The beta app ("Anthill Beta") sets ``ANTHILL_APP_NAME`` (the Tauri shell passes its product name) so
+    it keeps its OWN data home and can never open the live app's database or keys. Unset, or empty, it is
+    "Anthill", so the live app and every existing install are unchanged.
     """
-    base = Path(user_data_dir("Anthill", appauthor=False))
+    name = os.environ.get("ANTHILL_APP_NAME", "").strip() or "Anthill"
+    base = Path(user_data_dir(name, appauthor=False))
     base.mkdir(parents=True, exist_ok=True)
     return base
 

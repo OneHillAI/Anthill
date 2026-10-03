@@ -1,0 +1,11 @@
+{
+  "productName": "Anthill Beta",
+  "identifier": "org.onehill.anthill.beta",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/OneHillAI/Anthill/releases/download/beta-channel/latest.json"
+      ]
+    }
+  }
+}

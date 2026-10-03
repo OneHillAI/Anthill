@@ -15,7 +15,10 @@ name: Release
 #   AC_API_KEY_ID / AC_API_ISSUER_ID / AC_API_KEY_B64 - App Store Connect API key (notarization)
 on:
   push:
-    tags: ["v*"]
+    # Stable versions only (vX.Y.Z). A beta tag (vX.Y.Z-rc.N) must NEVER start a live release: betas are
+    # cut by the "Cut Beta" workflow, and a stable release is made only by "Promote". GitHub tag filters
+    # match the whole tag name, so the -rc.N suffix keeps a beta out.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
 
 permissions:
@@ -47,6 +50,15 @@ jobs:
       # Gate: the tagged version must be changelogged and match pyproject. Fails fast (before
       # the build) so an undocumented version is never published. Tag pushes only;
       # workflow_dispatch on a branch skips it.
+
+      # Belt and braces for the tag filter above: only a plain stable tag (vX.Y.Z) may publish a LIVE release,
+      # whatever GitHub's filter matching does. A beta tag (vX.Y.Z-rc.N) stops here.
+      - name: Refuse anything but a stable version tag
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$GITHUB_REF_NAME' is not a stable version tag (vX.Y.Z); only a stable tag may publish a live release."; exit 1
+          fi
       - name: Verify the version is changelogged
         if: startsWith(github.ref, 'refs/tags/')
         run: bash scripts/check-release.sh --release "${{ github.ref_name }}"
