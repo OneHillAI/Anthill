@@ -50,7 +50,13 @@ have its status recorded by running `ASDD test` on it by hand.
 
 R8. THE kit's template for the post-merge test runner passed the recipe `change_ref` where the recipe's
 parameter is `pr`, and looked for a "## Test result" heading the recipe never prints. This runner passes
-`pr` and reads the result file; the same fixes belong upstream in `OneHillAI/ASDD`.
+`pr` and reads the result file; the same fixes are now upstream (`OneHillAI/ASDD` #25).
+
+R10. THE operate runners and the recipes they run SHALL agree, and a test SHALL derive that from the files
+themselves rather than from values written into the test: the parameter keys a runner passes are exactly the keys
+its recipe declares, every `{{ placeholder }}` the recipe uses is declared, a runner that reads a result file reads
+the one the recipe tells the agent to write, and a runner that runs a recipe is registered in the test so a new one
+cannot skip the check (`tests/test_operate_runner_contract.py`).
 
 ## 3. Acceptance criteria
 
@@ -59,6 +65,8 @@ parameter is `pr`, and looked for a "## Test result" heading the recipe never pr
   runner and a missing Goose each produce the report described above.
 - Goose receives the roster's model, `--params pr=<ref>`, and host plus `v1/chat/completions` for all three
   URL spellings; a per-role endpoint and key win over the shared pair.
+- `tests/test_operate_runner_contract.py` passes (7 tests) for every runner, and fails if a runner passes a parameter its
+  recipe does not declare (checked by reintroducing the kit's `change_ref` mistake).
 - The workflow triggers only on `push` to `main` and `workflow_dispatch`, never `pull_request`, and refuses
   a commit that is not an ancestor of `main`.
 
