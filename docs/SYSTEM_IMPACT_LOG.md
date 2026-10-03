@@ -26,6 +26,20 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### The documentation agent proposes paste-ready docs and checks them - pending PR, prepared 2026-10-03
+**System impact:** the docs agent was live after every merge but wrong: its free-form diffs put the impact-log
+entry above the title, invented counts and labels, and left a human hand-copying fragments. It now returns
+structured data and a script lays it out, with the heading built from the real PR number, title and merge date
+and the whole proposal checked against the project's rules (template fields, allowed footprint labels, a
+changelog fragment only when product code changed, doc edits only where the sentence really is in the file,
+numbers that are not in the PR flagged). It uses the roster's `documentation` model, leaves one audit record per
+run and still only advises: no bot opens a PR without the founder's yes. Not set up until it has produced a
+correct update on a real merge (spec section 4).
+**Surface:** `recipes/documentation.yaml`, `.github/asdd/operate/docsync.sh`, `.github/asdd/operate/docsync-render.py`,
+`.github/workflows/asdd-docsync.yml` (a protected path), `tests/test_asdd_docsync.py`, `docs/specs/asdd-docs-agent.md`.
+**User-visible:** no (CI only): the post-merge docs comment reads differently.
+**Footprint:** refactor of the docs runner; no change to required checks. 20 tests; the old docs-agent tests in `tests/test_asdd_honest_status.py` moved here.
+
 ### Promote Beta: ship one tested beta to the live app, behind an approval - pending PR, prepared 2026-10-03
 **System impact:** the second half of the beta lane. **Promote Beta** (started by hand, from `main`) ships one beta to
 the live app by creating the stable tag `vX.Y.Z`, which starts today's two release workflows unchanged. It refuses
@@ -92,7 +106,7 @@ tail, key redacted). `ASDD runtime check` now also runs daily so an empty or exp
 `.github/workflows/asdd-runtime-check.yml` (a protected path), `tests/test_asdd_honest_status.py`,
 `docs/specs/asdd-honest-review-status.md`.
 **User-visible:** no (CI only): the `asdd/review` status text and the review and docsync comments read differently.
-**Footprint:** additive; no change to which checks are required or to when a PR can merge. 16 tests (12 red against the old scripts).
+**Footprint:** additive; no change to which checks are required or to when a PR can merge. 10 tests here (7 red against the old scripts); the docs-agent tests moved to `tests/test_asdd_docsync.py`.
 
 ### The runtime check reaches the developer council from one council pair - pending PR, prepared 2026-10-02
 **System impact:** the `ASDD runtime check` could only reach the developer council through per-member repo
