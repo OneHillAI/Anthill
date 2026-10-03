@@ -58,9 +58,10 @@ up within a day.
 
 ## 3. Acceptance criteria
 
-- `tests/test_asdd_honest_status.py` passes, and 12 of its 16 tests fail against the previous scripts
-  (the other 4 pin behaviour that must not change: a live review's text, a real failure, a proposal
-  passing through, a live comment carrying no warning).
+- `tests/test_asdd_honest_status.py` passes (10 tests; the docs-agent requirements R5 and R6 are now pinned by
+  `tests/test_asdd_docsync.py`), and 7 of its 10 tests fail against the previous scripts
+  (the other 3 pin behaviour that must not change: a live review's text, a real failure, a live comment
+  carrying no warning).
 - For each of `dry-run`, `adapter-template`, `degraded`: status state `success`, description starts
   `NO AI REVIEW RAN`, and the posted comment names the mode and says no AI review ran.
 - For a live review: the description is still `Advisory review complete; a human approves and merges.`

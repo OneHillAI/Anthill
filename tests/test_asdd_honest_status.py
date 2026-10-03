@@ -1,14 +1,13 @@
 """A review that did not happen must not read like one, and a docs agent that failed must say so.
 
-Pins four behaviours of the ASDD scripts, all with `gh`/`goose`/the model command stubbed (no network):
+Pins three behaviours of the ASDD scripts, all with `gh`/`goose`/the model command stubbed (no network):
 
 - set-status.sh: a non-live review (dry-run, adapter-template, degraded) is never described as an
   "Advisory review complete"; the state stays success (an unwired runtime must not block a merge) and
   real failures keep their failure.
 - post-review.sh: the comment says plainly when no AI review ran.
 - generic.sh: a model that returns unusable output is recorded as mode "degraded", not "live".
-- docsync.sh: both spellings of ASDD_MODEL_URL (base and full) reach Goose as host + the full
-  chat-completions path, and a Goose failure produces an honest report with the key redacted.
+- the documentation agent's runner is pinned in tests/test_asdd_docsync.py.
 """
 
 import json
@@ -165,83 +164,3 @@ def test_unusable_model_output_is_recorded_as_degraded_not_live(tmp_path):
     review = json.loads(out.read_text())
     assert review["mode"] == "degraded"
     assert review["recommendation"] == "comment"
-
-
-# --- docsync.sh ------------------------------------------------------------------------------------
-
-_GOOSE_OK = """echo "HOST=$OPENAI_HOST"
-echo "PATH=$OPENAI_BASE_PATH"
-echo "## Proposed doc updates"
-echo "- update docs"
-"""
-
-
-def _docsync(
-    tmp_path: Path, url: str, goose: str, token: str = "sekret-token-123"
-) -> tuple[int, str]:
-    _stub(tmp_path, "goose", goose)
-    out = tmp_path / "docsync-report.md"
-    r = subprocess.run(
-        ["bash", str(ASDD / "operate/docsync.sh"), "abc123", str(out)],
-        env=_env(tmp_path, ASDD_MODEL_URL=url, ASDD_MODEL="m", ASDD_RUNTIME_TOKEN=token),
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-    )
-    return r.returncode, out.read_text()
-
-
-def _goose_sees(tmp_path: Path, url: str) -> tuple[str, str]:
-    """What OPENAI_HOST / OPENAI_BASE_PATH Goose gets for `url` (the stub reports its own env)."""
-    stub = 'echo "HOST=$OPENAI_HOST PATH=$OPENAI_BASE_PATH"\n'
-    rc, report = _docsync(tmp_path, url, stub)
-    assert rc == 0
-    # No proposal section, so docsync reports the run; the env line is inside the quoted tail.
-    host = report.split("HOST=")[1].split(" ")[0]
-    path = report.split("PATH=")[1].split("\n")[0]
-    return host, path
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://api.infercom.ai/v1",  # the base form that used to give Goose BASE_PATH=v1 -> 404
-        "https://api.infercom.ai/v1/",
-        "https://api.infercom.ai/v1/chat/completions",
-    ],
-)
-def test_goose_always_gets_the_full_chat_completions_path(tmp_path, url):
-    host, path = _goose_sees(tmp_path, url)
-    assert host == "https://api.infercom.ai"
-    assert path == "v1/chat/completions"
-
-
-def test_a_proposal_is_passed_through(tmp_path):
-    rc, report = _docsync(tmp_path, "https://api.infercom.ai/v1", _GOOSE_OK)
-    assert rc == 0
-    assert report.startswith("## Documentation agent - proposed doc updates for `abc123`")
-    assert "- update docs" in report
-
-
-def test_a_goose_failure_is_reported_honestly_with_the_key_redacted(tmp_path):
-    token = "sekret-token-123"
-    rc, report = _docsync(
-        tmp_path,
-        "https://api.infercom.ai/v1",
-        f'echo "401 Unauthorized for key {token}" >&2\nexit 3\n',
-        token=token,
-    )
-    assert rc == 0  # advisory: the workflow still posts the report
-    assert "did not run to completion" in report
-    assert "exit code 3" in report
-    assert "[redacted]" in report
-    assert token not in report
-    assert "Wire the model" not in report  # it IS wired; do not tell a human to wire it
-
-
-def test_an_empty_run_is_not_called_a_dry_run(tmp_path):
-    rc, report = _docsync(tmp_path, "https://api.infercom.ai/v1", "exit 0\n")
-    assert rc == 0
-    assert "did not run to completion" in report
-    assert "no proposal section" in report
-    assert "Wire the model" not in report
