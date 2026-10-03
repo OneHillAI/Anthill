@@ -55,7 +55,6 @@ from .db import (
     ContributionProposal,
     Conversation,
     DiscordApp,
-    Folder,
     MCPAccessLog,
     MCPConsumer,
     MCPServer,
@@ -11221,7 +11220,9 @@ def chat_history(request: Request, q: str = "", page: int = 1, user: dict = Depe
 
 
 @app.get("/chat/{conv_id}", response_class=HTMLResponse)
-def chat_conv(request: Request, conv_id: int, user: dict = Depends(_require_user)):
+def chat_conv(
+    request: Request, conv_id: int, confirm_project: int = 0, user: dict = Depends(_require_user)
+):
     from .plane_routing import shares_org_model
 
     db = _db()
@@ -11241,12 +11242,6 @@ def chat_conv(request: Request, conv_id: int, user: dict = Depends(_require_user
         .filter(Conversation.user_id == int(user["sub"]))
         .order_by(Conversation.pinned.desc(), Conversation.updated_at.desc())
         .limit(30)
-        .all()
-    )
-    folders = (
-        db.query(Folder)
-        .filter(Folder.user_id == int(user["sub"]))
-        .order_by(Folder.name.asc())
         .all()
     )
     from .. import planes
@@ -11271,6 +11266,12 @@ def chat_conv(request: Request, conv_id: int, user: dict = Depends(_require_user
         .order_by(Team.created_at)
         .all()
     )
+    # A move that needs an explicit yes (see set_conversation_project) lands here as
+    # ?confirm_project=<id>. Only honoured for a project the caller belongs to and a chat that really
+    # needs it, so a hand-typed id never shows a prompt that would do nothing.
+    confirm_target = next((t for t in my_teams if t.id == confirm_project), None)
+    if confirm_target is not None and not _project_move_needs_confirm(db, conv, cfg):
+        confirm_target = None
     return templates.TemplateResponse(
         request,
         "chat.html",
@@ -11279,7 +11280,7 @@ def chat_conv(request: Request, conv_id: int, user: dict = Depends(_require_user
             "user": user,
             "org": org,
             "conversations": convs,
-            "folders": folders,
+            "confirm_project": confirm_target,
             "active_conv": conv,
             "messages": conv.messages,
             "org_plane_available": planes.org_available(cfg),
@@ -11433,61 +11434,78 @@ def _back_to_local(request: Request, fallback: str = "/chat") -> RedirectRespons
     return RedirectResponse(dest, status_code=302)
 
 
-@app.post("/folders/new")
-async def create_folder(
-    request: Request, name: str = Form(""), user: dict = Depends(_require_user)
-):
-    """Create a chat folder owned by the current user."""
-    name = (name or "").strip()[:80]
-    if name:
-        db = _db()
-        org = _require_org(db, user)
-        db.add(Folder(org_id=org.id, user_id=int(user["sub"]), name=name))
-        db.commit()
-    return _back_to_local(request)
+def _project_move_needs_confirm(db, conv, cfg) -> bool:
+    """True when moving ``conv`` into a project needs the user's explicit yes first.
 
+    A project chat runs on the same model the routing rule gives the team plane
+    (``plane_routing.plane_inference``): on the organization's cloud model whenever an org backend has
+    ever been configured (``planes.is_org_mode``), on the local model otherwise. So moving a chat that
+    already has history into a project of an org install sends that history to the org model as context
+    from the next message on (and gives the chat the project's wiki), and the user must agree first. A Solo install stays local (nothing leaves
+    the device), a chat with no messages has nothing to send, and a chat already in a project is
+    already on that model, so none of those ask."""
+    from .. import planes
 
-@app.post("/folders/{folder_id}/delete")
-async def delete_folder(folder_id: int, request: Request, user: dict = Depends(_require_user)):
-    """Delete a folder. Its conversations are unfiled (folder_id -> NULL), never deleted."""
-    db = _db()
-    folder = (
-        db.query(Folder).filter(Folder.id == folder_id, Folder.user_id == int(user["sub"])).first()
+    if conv.plane == "team" or not planes.is_org_mode(cfg):
+        return False
+    return (
+        db.query(ChatMessage.id).filter(ChatMessage.conversation_id == conv.id).first() is not None
     )
-    if folder:
-        db.query(Conversation).filter(
-            Conversation.folder_id == folder_id, Conversation.user_id == int(user["sub"])
-        ).update({"folder_id": None})
-        db.delete(folder)
-        db.commit()
-    return _back_to_local(request)
 
 
-@app.post("/chat/{conv_id}/folder")
-async def set_conversation_folder(
-    conv_id: int, request: Request, folder_id: str = Form(""), user: dict = Depends(_require_user)
+@app.post("/chat/{conv_id}/project")
+async def set_conversation_project(
+    conv_id: int,
+    request: Request,
+    team_id: str = Form(""),
+    confirm: str = Form(""),
+    user: dict = Depends(_require_user),
 ):
-    """Move a conversation into one of the user's folders, or unfile it (empty value). Owner-scoped:
-    a chat that is not the caller's is untouched, and only a folder the caller owns is accepted."""
+    """Attach a chat to one of the caller's projects, or detach it (empty value) so it is Unfiled.
+
+    Works before the chat's first prompt and after it has history (the messages stay exactly as they
+    are; only the chat's plane and project change, so later turns ground in the project's wiki). Owner-
+    scoped: another user's chat is untouched, only a project the caller belongs to is accepted (a stray
+    id is ignored, never trusted), and an Organization chat keeps its plane. In an org install a chat
+    that already has history needs ``confirm=1`` first (``_project_move_needs_confirm``); without it the
+    caller is sent back to the chat to confirm. Both directions are audited."""
     db = _db()
+    uid = int(user["sub"])
     conv = (
         db.query(Conversation)
-        .filter(Conversation.id == conv_id, Conversation.user_id == int(user["sub"]))
+        .filter(Conversation.id == conv_id, Conversation.user_id == uid)
         .first()
     )
-    if conv:
-        target = None
-        fid = (folder_id or "").strip()
-        if fid.isdigit() and int(fid) > 0:
-            owned = (
-                db.query(Folder)
-                .filter(Folder.id == int(fid), Folder.user_id == int(user["sub"]))
-                .first()
-            )
-            target = owned.id if owned else None
-        conv.folder_id = target
-        db.commit()
-    return _back_to_local(request, f"/chat/{conv_id}")
+    if not conv:
+        return RedirectResponse("/chat", status_code=302)
+    dest = f"/chat/{conv_id}"
+    if conv.plane == "org":
+        return RedirectResponse(dest, status_code=302)
+    raw = (team_id or "").strip()
+    before = conv.team_id or 0
+    if raw.isdigit() and int(raw) > 0:
+        target = int(raw)
+        if _team_role(db, uid, target) is None or (conv.plane == "team" and conv.team_id == target):
+            return RedirectResponse(dest, status_code=302)
+        org = _require_org(db, user)
+        if confirm != "1" and _project_move_needs_confirm(db, conv, _cfg(db, org)):
+            return RedirectResponse(f"{dest}?confirm_project={target}", status_code=302)
+        conv.plane, conv.team_id = "team", target
+        event = "chat.project_attach"
+    else:
+        if conv.plane != "team":
+            return RedirectResponse(dest, status_code=302)
+        conv.plane, conv.team_id = "solo", None
+        event = "chat.project_detach"
+    db.commit()
+    _audit_request(
+        request,
+        event,
+        f"conv={conv.id} from_team={before} to_team={conv.team_id or 0}",
+        org_id=conv.org_id,
+        user_id=uid,
+    )
+    return RedirectResponse(dest, status_code=302)
 
 
 # ── chat image attachments ──────────────────────────────────────────────────────

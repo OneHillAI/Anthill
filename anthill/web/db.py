@@ -956,17 +956,6 @@ class TrainingRun(Base):
     finished_at = Column(DateTime, nullable=True)
 
 
-class Folder(Base):
-    """A user-created folder for grouping their own conversations (chat organisation)."""
-
-    __tablename__ = "folders"
-    id = Column(Integer, primary_key=True)
-    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    name = Column(String(80), nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-
 class Conversation(Base):
     """A chat session (browser UI or API)."""
 
@@ -985,9 +974,6 @@ class Conversation(Base):
     # Slack thread key ("<channel>:<root_ts>" for a channel thread, "dm:<channel>" for a DM). One
     # conversation per Slack thread, so follow-ups in the thread carry context. "" for normal chats.
     slack_thread = Column(String(80), nullable=False, default="", index=True)
-    folder_id = Column(
-        Integer, ForeignKey("folders.id"), nullable=True
-    )  # user's chat folder, or None
     messages = relationship(
         "ChatMessage",
         back_populates="conversation",
@@ -1338,7 +1324,6 @@ _HOT_INDEXES: dict[str, str] = {
     "ix_chat_messages_conversation": "chat_messages(conversation_id)",
     "ix_memory_items_org_user": "memory_items(org_id, user_id)",
     "ix_snippets_org_user": "snippets(org_id, user_id)",
-    "ix_folders_org_user": "folders(org_id, user_id)",
     # tasks + agents name their owner `created_by`, not `user_id`
     "ix_scheduled_tasks_org_creator": "scheduled_tasks(org_id, created_by)",
     "ix_agents_org_creator": "agents(org_id, created_by)",

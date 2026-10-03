@@ -46,6 +46,8 @@
           class="btn btn-primary btn-sm">+ New project</button>
 </div>
 
+{# The chat rail's "+ New project" and the chat header's link arrive as /teams?new=1: open the form. #}
+<script>if (/(^|[?&])new=1(&|$)/.test(location.search)) document.addEventListener('DOMContentLoaded', function () { var f = document.getElementById('new-team'); if (f) f.style.display = 'block'; });</script>
 <div id="new-team" style="display:none" class="card mb-2">
   <h3 style="margin-bottom:14px">Create a project</h3>
   <form method="post" action="/teams" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">

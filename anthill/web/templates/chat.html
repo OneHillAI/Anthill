@@ -328,19 +328,43 @@
         <i data-lucide="wand-2">🪄</i> Turn into a skill
       </button>
       {% endif %}
-      {# Move this chat into one of the user's folders (or unfile it). Create folders from the sidebar. #}
-      <form method="post" action="/chat/{{ active_conv.id }}/folder" style="margin:0">
-        <select name="folder_id" class="btn btn-outline btn-sm" onchange="this.form.submit()" title="Folder" aria-label="Move to folder">
-          <option value="" {% if not active_conv.folder_id %}selected{% endif %}>No folder</option>
-          {% for f in folders | default([]) %}
-          <option value="{{ f.id }}" {% if active_conv.folder_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+      {# Attach this chat to a project, now or later: before its first prompt, or after it already has
+         messages (they stay as they are). "No project" leaves it Unfiled. An Organization chat keeps its
+         plane, so it gets no control. Create a project from the Projects page (+ New project). #}
+      {% if active_conv.plane != 'org' %}
+      <form method="post" action="/chat/{{ active_conv.id }}/project" style="margin:0;display:flex;align-items:center;gap:6px">
+        <label for="chat-project-select" class="text-sm text-muted">Project</label>
+        <select id="chat-project-select" name="team_id" class="btn btn-outline btn-sm" onchange="this.form.submit()" title="Put this chat in a project" aria-label="Project for this chat">
+          <option value="" {% if not active_conv.team_id %}selected{% endif %}>No project (Unfiled)</option>
+          {% for t in my_teams | default([]) %}
+          <option value="{{ t.id }}" {% if active_conv.team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
           {% endfor %}
         </select>
+        {% if not my_teams %}<a href="/teams?new=1" class="text-sm" style="white-space:nowrap" title="A project groups chats with their own wiki and memory">Create a project</a>{% endif %}
       </form>
+      {% endif %}
       {# Rename/Delete moved to the conversation's own row in the sidebar (pin/rename/delete icons) -
          having them again here duplicated the action in two places. #}
       {% endif %}
     </div>
+
+    {% if confirm_project %}
+    {# Moving a chat that has history into a project that runs on the organization's cloud model needs a
+       yes first: from the next message on, the earlier messages go to that model as context. #}
+    <div id="project-move-confirm" class="chat-fallback-note" role="alert" style="margin:0;padding:10px 14px;font-size:13px;
+         background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+      <strong>Move this chat into {{ confirm_project.name }}?</strong>
+      That project runs on your organization's cloud model, so from the next message on this chat's earlier
+      messages go to that model as context, and answers can draw on the project's wiki. The chat stays
+      yours: other project members do not see it.
+      <form method="post" action="/chat/{{ active_conv.id }}/project" style="display:inline;margin-left:8px">
+        <input type="hidden" name="team_id" value="{{ confirm_project.id }}">
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit" class="btn btn-primary btn-sm">Move and continue</button>
+      </form>
+      <a href="/chat/{{ active_conv.id }}" class="btn btn-outline btn-sm">Cancel</a>
+    </div>
+    {% endif %}
 
     {% if planner_fallback %}
     <div class="chat-fallback-note" style="margin:0;padding:6px 14px;font-size:12px;

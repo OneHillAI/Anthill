@@ -14,6 +14,22 @@ recurring, like "every morning, summarize my inbox", and it proposes a scheduled
 
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
 
+### Group chats with a project
+
+A project is the one way to group chats. Chats in no project sit under **Unfiled** in the sidebar.
+Each project has its own group there, even before it has a chat, and a **+** that starts a new chat
+inside it. Create a project from **Projects** in the sidebar, or with **+ New project** at the bottom of the
+chat list.
+
+To put a chat in a project, use the **Project** menu at the top of the chat. You can do it before the
+first message or after the chat already has history. The messages stay as they are. Choose **No project**
+to take it out again. The chat goes back to Unfiled and is never deleted.
+
+A project on a Solo install runs on your own machine, like any other chat. If your organization's cloud
+model serves the project, Anthill asks before it moves a chat that already has messages into it, because
+from the next message on those earlier messages are sent to that model. A chat in a project stays yours:
+other members of the project do not see it.
+
 ## Your knowledge base (the wiki)
 
 Upload a document or paste text and Anthill turns it into a structured page: a title, a summary,

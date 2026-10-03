@@ -146,7 +146,7 @@ def test_occurrence_backfill_upgrades_pre_timezone_schema(tmp_path):
 
     create_tables(eng)
 
-    assert _uv(eng) == 4
+    assert _uv(eng) == migrate.MIGRATIONS[-1][0]  # the head, whatever it is
     assert {
         "timezone",
         "schedule_anchor",
@@ -996,7 +996,7 @@ def test_task_run_fk_and_task_first_occurrence_index_upgrade_legacy_schema(tmp_p
 
     create_tables(eng)
 
-    assert _uv(eng) == 4
+    assert _uv(eng) == migrate.MIGRATIONS[-1][0]  # the head, whatever it is
     assert {column.name for column in TaskRun.__table__.columns} == {
         column["name"] for column in inspect(eng).get_columns("task_runs")
     }
@@ -1114,8 +1114,8 @@ def test_production_migrations_apply_in_order_and_backfill_schema_and_data(tmp_p
         migrate._set_user_version(conn, 2)
     applied = run_migrations(eng, fresh=False, before_change=lambda _names: None)
 
-    assert applied == [3, 4]
-    assert _uv(eng) == 4
+    assert applied == [m[0] for m in migrate.MIGRATIONS if m[0] > 2]
+    assert _uv(eng) == migrate.MIGRATIONS[-1][0]  # the head, whatever it is
     session = sessionmaker(bind=eng)()
     occurrence = session.query(TaskOccurrence).filter_by(task_id=task_id).one()
     assert occurrence.kind == "scheduled"

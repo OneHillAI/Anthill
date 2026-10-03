@@ -205,7 +205,7 @@ h1,h2,h3,h4 { font-family: var(--font-sans); font-weight: 600; letter-spacing: -
 .sidebar nav.chat-mode .rail-conv-row.rail-hidden,
 .sidebar nav.chat-mode .rail-conv-row.rail-collapsed,
 .sidebar nav.chat-mode .rail-conv-section.rail-hidden,
-.sidebar nav.chat-mode details.rail-folder.rail-hidden { display: none; }
+.sidebar nav.chat-mode details.rail-project.rail-hidden { display: none; }
 
 /* Modal dialog (Tasks / Agents create forms). */
 .modal { position: fixed; inset: 0; top: 0; right: 0; bottom: 0; left: 0;
@@ -272,26 +272,26 @@ dialog.modal::backdrop { background: transparent; }
 .sidebar nav.chat-mode .rail-conv-del-btn:hover { opacity: 1; color: var(--sidebar-active); background: var(--sidebar-hover); }
 .sidebar nav.chat-mode .rail-conv-del-btn.danger:hover { color: #E0795B; background: rgba(0,0,0,.25); }
 .sidebar nav.chat-mode .rail-conv-del-btn i { width: 12px; height: 12px; }
-/* Personal Folders (#414): the folder NAME is the prominent element (a real title, not an uppercase
-   micro-label), its delete control is subtle and hover-only, and "+ New folder" is a quiet secondary
-   input - so folders read as personal chat organisation, not a shared/team thing. */
-.sidebar nav.chat-mode .rail-folder { margin: 1px 0; }
-.sidebar nav.chat-mode .rail-folder-summary { display: flex; align-items: center;
+/* Projects in the rail: the project NAME is the prominent element (a real title, not an uppercase
+   micro-label). Its "+" (new chat in this project) is quiet until hovered, and a project shows even
+   while it has no chats, so one you just created is visible at once. */
+.sidebar nav.chat-mode .rail-project { margin: 1px 0; }
+.sidebar nav.chat-mode .rail-project-summary { display: flex; align-items: center;
   justify-content: space-between; gap: 8px; padding: 5px 12px 4px 16px; font-size: 13px; font-weight: 600;
   text-transform: none; letter-spacing: 0; opacity: .92; list-style: none; cursor: pointer; }
-.sidebar nav.chat-mode .rail-folder-summary::-webkit-details-marker { display: none; }
-.sidebar nav.chat-mode .rail-folder-summary > span { min-width: 0; overflow: hidden;
+.sidebar nav.chat-mode .rail-project-summary::-webkit-details-marker { display: none; }
+.sidebar nav.chat-mode .rail-project-summary > span { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del { position: static; transform: none; display: block; }
-.sidebar nav.chat-mode .rail-folder-summary .rail-conv-del-btn { opacity: 0; }
-.sidebar nav.chat-mode .rail-folder-summary:hover .rail-conv-del-btn { opacity: .55; }
-.sidebar nav.chat-mode .rail-newfolder { margin: 5px 12px 6px; }
-.sidebar nav.chat-mode .rail-newfolder input { width: 100%; background: transparent;
-  color: var(--sidebar-text); border: 1px dashed var(--sidebar-border); border-radius: 6px;
-  padding: 5px 9px; font-size: 11.5px; }
-.sidebar nav.chat-mode .rail-newfolder input::placeholder { color: var(--sidebar-text); opacity: .5; }
-.sidebar nav.chat-mode .rail-newfolder input:focus { border-style: solid; border-color: var(--accent);
-  outline: none; }
+.sidebar nav.chat-mode .rail-project-summary form { margin: 0; display: block; }
+.sidebar nav.chat-mode .rail-project-summary .rail-conv-del-btn { opacity: .5; }
+.sidebar nav.chat-mode .rail-project-summary:hover .rail-conv-del-btn,
+.sidebar nav.chat-mode .rail-project-summary .rail-conv-del-btn:focus-visible { opacity: 1; }
+.sidebar nav.chat-mode .rail-newproject { display: flex; align-items: center; gap: 6px;
+  margin: 5px 12px 6px; padding: 5px 9px; font-size: 11.5px; color: var(--sidebar-text); opacity: .75;
+  border: 1px dashed var(--sidebar-border); border-radius: 6px; text-decoration: none; }
+.sidebar nav.chat-mode .rail-newproject:hover { opacity: 1; border-style: solid;
+  border-color: var(--accent); }
+.sidebar nav.chat-mode .rail-newproject i { width: 12px; height: 12px; }
 /* Org-plane offline banner above the composer: an Org chat whose backend is unreachable. */
 .plane-banner { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px;
   background: rgba(200,120,30,.12); border: 1px solid rgba(200,120,30,.4); color: var(--text); }

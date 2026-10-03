@@ -93,21 +93,19 @@
     <div class="nav-group">
       <a href="/chat" class="{% if '/chat' in request.url.path %}active{% endif %}"><i data-lucide="message-circle">💬</i>Chat</a>
       {% if chat_mode and conversations is defined %}
-      {# Pinned chats sit at the top; folders group the rest; chats in no folder ("unfiled") keep the
-         plane split. #}
-      {% set folders = folders | default([]) %}
+      {# Pinned chats sit at the top; each project groups its own chats; a chat in no project is
+         "Unfiled" (docs/specs/consolidate-folders-into-projects.md). #}
       {% set pinned_convs = conversations | selectattr('pinned') | list %}
       {% set unpinned = conversations | rejectattr('pinned') | list %}
-      {% set unfiled = unpinned | selectattr('folder_id', 'none') | list %}
-      {# The three homes (docs/specs/no-homeless-chats.md): Personal = solo, a Project = team,
-         Organization = org - the plane column, named, so every chat has a visible home and none is
-         homeless. Split unfiled chats by home; a team chat is never mislabelled Personal. #}
-      {% set org_convs = unfiled | selectattr('plane', 'equalto', 'org') | list %}
-      {% set team_convs = unfiled | selectattr('plane', 'equalto', 'team') | list %}
-      {% set personal_convs = unfiled | rejectattr('plane', 'equalto', 'org') | rejectattr('plane', 'equalto', 'team') | list %}
-      {# Show the home headings only when more than the Personal home is in play (an Org backend is
-         connected, or Org/Project chats exist); a Personal-only user keeps the simple single list. #}
-      {% set show_homes = org_plane_available or org_convs or team_convs %}
+      {# The homes (docs/specs/no-homeless-chats.md): Unfiled = the solo plane (private, local), a
+         Project = the team plane, Organization = the org plane - the plane column, named, so every chat
+         has a visible home and none is homeless. A team chat is never mislabelled Unfiled. #}
+      {% set org_convs = unpinned | selectattr('plane', 'equalto', 'org') | list %}
+      {% set team_convs = unpinned | selectattr('plane', 'equalto', 'team') | list %}
+      {% set unfiled_convs = unpinned | rejectattr('plane', 'equalto', 'org') | rejectattr('plane', 'equalto', 'team') | list %}
+      {# Show the home headings only when more than the Unfiled home is in play (an Org backend is
+         connected, the user has a project, or Org/Project chats exist); otherwise keep one simple list. #}
+      {% set show_homes = org_plane_available or org_convs or team_convs or nav_teams %}
       {# Each rail conversation is a row: the link + pin/rename/delete controls that appear on hover, so a
          conversation can be pinned, renamed, or deleted right from the list (not only the open one). #}
       {% macro conv_item(c, cls, suffix, dot) %}
@@ -123,18 +121,18 @@
         </div>
       </div>
       {% endmacro %}
-      {# A folder is a collapsible group of the user's chats; deleting it only unfiles its chats. #}
-      {% macro folder_group(f) %}
-      {% set fconvs = unpinned | selectattr('folder_id', 'equalto', f.id) | list %}
-      <details class="rail-folder" open>
-        <summary class="rail-conv-section rail-folder-summary"><span>📁 {{ f.name }}</span><form method="post" action="/folders/{{ f.id }}/delete" data-confirm="Delete this folder? Its chats are kept, just unfiled."><button type="submit" class="rail-conv-del-btn danger" title="Delete folder" aria-label="Delete folder"><i data-lucide="trash-2">🗑</i></button></form></summary>
-        {% for c in fconvs %}{{ conv_item(c, 'rail-conv-' ~ ('org' if c.plane == 'org' else 'solo'), '', ('org' if c.plane == 'org' else 'solo')) }}{% endfor %}
+      {# A project is a collapsible group of the chats in it. It shows even while empty, so a project you
+         just created is visible at once; "+" starts a new chat inside it. #}
+      {% macro project_group(t, tconvs) %}
+      <details class="rail-project" open>
+        <summary class="rail-conv-section rail-project-summary"><span>{{ t.name }}</span><form method="post" action="/chat/new"><input type="hidden" name="team_id" value="{{ t.id }}"><button type="submit" class="rail-conv-del-btn" title="New chat in {{ t.name }}" aria-label="New chat in {{ t.name }}"><i data-lucide="plus">+</i></button></form></summary>
+        {% for c in tconvs %}{{ conv_item(c, 'rail-conv-team', ' (' ~ t.name ~ ')', 'team') }}{% endfor %}
       </details>
       {% endmacro %}
       <div class="rail-convs">
         {# Search / sort the rail's chats without leaving the page (client-side): filter by title, flip
            Recent<->A-Z, and click any section heading to collapse it. Only shown when there are chats. #}
-        {% if pinned_convs or unpinned or folders %}
+        {% if pinned_convs or unpinned or nav_teams %}
         <div class="rail-convtools">
           <input id="railSearch" class="rail-convsearch" type="text" placeholder="Search chats" aria-label="Search chats" autocomplete="off">
           <button id="railSort" type="button" class="rail-convsort" title="Sort chats" aria-label="Sort chats">Recent</button>
@@ -155,25 +153,19 @@
         <div class="rail-conv-section">Pinned</div>
         {% for c in pinned_convs %}{{ conv_item(c, 'rail-conv-' ~ dot_of.get(c.plane, 'solo'), '', dot_of.get(c.plane, 'solo')) }}{% endfor %}
         {% endif %}
-        {# Personal: the user's private, always-local home. Standalone (unfiled) chats sit right under the
-           heading so a new one is easy to find; a user's personal Folders group the rest, below (#414). #}
-        <div class="rail-conv-section">Personal</div>
-        {% for c in personal_convs %}{{ conv_item(c, 'rail-conv-solo', ' (Personal)', 'solo') }}{% endfor %}
-        {% for f in folders %}{{ folder_group(f) }}{% endfor %}
-        {# Projects: each team's shared chats under the project name, so a team chat has its own home. #}
-        {% for t in nav_teams %}
-        {% set tconvs = team_convs | selectattr('team_id', 'equalto', t.id) | list %}
-        {% if tconvs %}
-        <div class="rail-conv-section">{{ t.name }}</div>
-        {% for c in tconvs %}{{ conv_item(c, 'rail-conv-team', ' (' ~ t.name ~ ')', 'team') }}{% endfor %}
-        {% endif %}
-        {% endfor %}
+        {# Projects: one group per project you belong to, with its own chats, even while it is empty. #}
+        {% for t in nav_teams %}{{ project_group(t, team_convs | selectattr('team_id', 'equalto', t.id) | list) }}{% endfor %}
         {# A team chat whose project is not in this list (e.g. you left the team) still gets a home. #}
         {% set known_team_ids = nav_teams | map(attribute='id') | list %}
         {% set orphan_team = team_convs | rejectattr('team_id', 'in', known_team_ids) | list %}
         {% if orphan_team %}
         <div class="rail-conv-section">Projects</div>
         {% for c in orphan_team %}{{ conv_item(c, 'rail-conv-team', ' (Project)', 'team') }}{% endfor %}
+        {% endif %}
+        {# Unfiled: the user's private, always-local chats that are in no project. #}
+        {% if unfiled_convs %}
+        <div class="rail-conv-section">Unfiled</div>
+        {% for c in unfiled_convs %}{{ conv_item(c, 'rail-conv-solo', ' (Unfiled)', 'solo') }}{% endfor %}
         {% endif %}
         {# Organization: the org-wide space (org cloud model + org wiki). #}
         {% if org_convs %}
@@ -186,12 +178,9 @@
         <div class="rail-conv-section">Pinned</div>
         {% for c in pinned_convs %}{{ conv_item(c, '', '', '') }}{% endfor %}
         {% endif %}
-        {% for c in unfiled %}{{ conv_item(c, '', '', '') }}{% endfor %}
-        {% for f in folders %}{{ folder_group(f) }}{% endfor %}
+        {% for c in unpinned %}{{ conv_item(c, '', '', '') }}{% endfor %}
         {% endif %}
-        {% if pinned_convs or unpinned or folders %}
-        <form method="post" action="/folders/new" class="rail-newfolder"><input type="text" name="name" placeholder="+ New folder for your chats" maxlength="80" aria-label="New personal folder name" title="Group your own chats into a folder. Personal to you - not a team or project."></form>
-        {% endif %}
+        <a href="/teams?new=1" class="rail-newproject" title="A project groups chats with their own wiki and memory. Create one from the Projects page."><i data-lucide="folder-plus">+</i> New project</a>
         {# The rail holds only the most recent chats; everything stays reachable + searchable here. #}
         <a href="/chat/history" class="rail-seeall{% if request.url.path == '/chat/history' %} active{% endif %}" title="Search and browse all your chats"><i data-lucide="search">🔎</i>Search / see all chats</a>
       </div>
@@ -333,7 +322,7 @@
         var a = r.querySelector('.rail-conv');
         return (a ? a.textContent : '').trim().toLowerCase();
       }
-      // Top-level (non-folder) section headings, in document order; folders are their own <details>.
+      // Top-level (non-project) section headings, in document order; projects are their own <details>.
       function flatSections() {
         return Array.prototype.filter.call(wrap.children, function (el) {
           return el.classList && el.classList.contains('rail-conv-section');
@@ -348,7 +337,7 @@
         return out;
       }
 
-      // SEARCH: hide non-matching rows, then hide any heading / folder left with nothing visible.
+      // SEARCH: hide non-matching rows, then hide any heading / project left with nothing visible.
       var box = document.getElementById('railSearch');
       function applySearch() {
         var q = (box && box.value || '').trim().toLowerCase();
@@ -359,14 +348,14 @@
           var vis = rs.some(function (r) { return !r.classList.contains('rail-hidden'); });
           sec.classList.toggle('rail-hidden', !vis);
         });
-        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-folder'), function (d) {
+        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-project'), function (d) {
           var vis = d.querySelector('.rail-conv-row:not(.rail-hidden)');
           d.classList.toggle('rail-hidden', !!q && !vis);
         });
       }
       if (box) box.addEventListener('input', applySearch);
 
-      // COLLAPSE: click a top-level heading to fold its rows (folders already fold natively).
+      // COLLAPSE: click a top-level heading to fold its rows (projects already fold natively).
       flatSections().forEach(function (sec) {
         var chev = document.createElement('span');
         chev.className = 'rail-cgchev';
@@ -378,7 +367,7 @@
         });
       });
 
-      // SORT: Recent (original order) <-> A-Z, within each heading run and each folder.
+      // SORT: Recent (original order) <-> A-Z, within each heading run and each project.
       function cmp(a, b) {
         return azSort ? titleOf(a).localeCompare(titleOf(b)) : (a.dataset.ord - b.dataset.ord);
       }
@@ -394,7 +383,7 @@
         azSort = !azSort;
         sortBtn.textContent = azSort ? 'A-Z' : 'Recent';
         flatSections().forEach(function (sec) { reorder(rowsAfter(sec), sec, null); });
-        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-folder'), function (d) {
+        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-project'), function (d) {
           reorder(Array.prototype.slice.call(d.querySelectorAll('.rail-conv-row')), null, d);
         });
         applySearch();  // keep any active filter applied after the reshuffle
