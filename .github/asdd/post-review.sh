@@ -28,7 +28,13 @@ LENSES="$(jq -r '
 ' "$REVIEW")"
 
 NOTE=""
-[ "$MODE" = "dry-run" ] && NOTE=$'\n> Dry-run: no agent runtime is wired yet, so this is a placeholder. The lenses become live once a runtime is connected.\n'
+case "$MODE" in
+  live) ;;
+  dry-run) NOTE=$'\n> **No AI review ran (dry-run).** No agent runtime is wired, so this is a placeholder. The lenses become live once a runtime is connected.\n' ;;
+  adapter-template) NOTE=$'\n> **No AI review ran.** The runtime adapter is selected but no model endpoint is wired, so this is a placeholder.\n' ;;
+  degraded) NOTE=$'\n> **No usable AI review.** The model was reached but its answer could not be used, so a human must review this PR.\n' ;;
+  *) NOTE=$'\n> **No AI review ran** (mode: '"${MODE}"$'). A human must review this PR.\n' ;;
+esac
 
 BODY="$(cat <<MD
 **ASDD review - advisory** (recommendation: \`${REC}\`)
