@@ -5,7 +5,7 @@
 # and publish it: the live feed and the stable download move only because of that tag.
 #
 # What it refuses (all of it before anything is created):
-#   - anyone who is not a release owner (.asdd.yml `release_owners`), and anything but main;
+#   - anyone who is not a release owner (.github/release-owners.txt), and anything but main;
 #   - a beta that is not a published pre-release tag, or a version that is already released;
 #   - a beta that is out of date: if ANY file other than the release files (changelog, version bumps, assembled
 #     fragments) changed on main since the beta commit, the beta must be re-cut and re-tested. A beta is
@@ -64,18 +64,11 @@ jobs:
             echo "::error::Promote Beta only runs from main (this run is on ${GITHUB_REF})."; exit 1
           fi
 
-      # PyYAML reads the owner list; pinned, and this job holds no secrets.
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.11"
-      - name: Install PyYAML (pinned)
-        run: pip install --quiet pyyaml==6.0.2
-
-      # Mechanical, not a convention: only a person listed in .asdd.yml (read from main) can start this.
+      # Mechanical, not a convention: only a person listed in .github/release-owners.txt (read from main) can start this.
       - name: Only a release owner may promote
         env:
           ACTOR: ${{ github.triggering_actor }}
-        run: python3 scripts/beta_release.py is-owner --actor "$ACTOR" --config .asdd.yml
+        run: python3 scripts/beta_release.py is-owner --actor "$ACTOR" --config .github/release-owners.txt
 
       - name: Resolve the beta and the commit that would be released
         id: resolve
@@ -111,8 +104,9 @@ jobs:
         run: |
           set -euo pipefail
           for f in pyproject.toml anthill/__init__.py; do
-            git diff -U0 "$BETA_SHA" "$RELEASE_SHA" -- "$f" > "$RUNNER_TEMP/version-diff.txt"
-            python3 scripts/beta_release.py version-only "$RUNNER_TEMP/version-diff.txt"
+            git show "${BETA_SHA}:${f}" > "$RUNNER_TEMP/old-file.txt"
+            git show "${RELEASE_SHA}:${f}" > "$RUNNER_TEMP/new-file.txt"
+            python3 scripts/beta_release.py version-only "$RUNNER_TEMP/old-file.txt" "$RUNNER_TEMP/new-file.txt"
           done
 
       - name: The release is ready to cut

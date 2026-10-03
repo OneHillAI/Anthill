@@ -54,8 +54,8 @@ their version line (they could otherwise carry a dependency or code change under
 release must hold what Cut Beta publishes (the update manifest and a signed updater bundle), so a hand-made tag
 cannot be promoted.
 
-R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner (`release_owners`
-in `.asdd.yml`, itself a protected path so changing the list needs the code owner's review) as the person who
+R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner (listed
+in `.github/release-owners.txt`, under `.github/` so changing the list needs the code owner's review) as the person who
 starts it, a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow records,
 which must be `success` and set by the workflow's bot; a structured signal, not text read from a comment), green
 required checks on the commit it releases,

@@ -62,7 +62,7 @@ deleted automatically. Cut the next beta; delete the orphan by hand if you like.
 ## One-time setup
 
 In GitHub: Settings, Environments, New environment `production`, and add yourself as a required reviewer. That is
-the second click. The release owners who may start Promote are listed under `release_owners` in `.asdd.yml`.
+the second click. The release owners who may start Promote are listed in `.github/release-owners.txt` (one login per line).
 The signing and notarization secrets the stable release already uses are used by the beta too.
 
 ## Good to know

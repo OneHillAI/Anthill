@@ -14,7 +14,7 @@ Subcommands (used by .github/workflows/desktop-beta.yml and desktop-promote.yml)
              in the CHECKOUT (never committed), so the beta app is built, updates and displays as the rc.
   ci-green   <check-runs.json> [--required lint,test (3.10),...]
              Every required check must have a completed, successful run on the commit. Exit 0 or 1.
-  is-owner   --actor LOGIN [--config .asdd.yml]
+  is-owner   --actor LOGIN [--config .github/release-owners.txt]
              The person starting Promote must be one of `release_owners` in .asdd.yml (empty or missing: nobody).
   promotable --beta v1.1.0-rc.2 --tags "$(git tag -l)"
              Print the stable version a beta would ship as (1.1.0). The beta tag must exist and be a beta, and
@@ -22,7 +22,7 @@ Subcommands (used by .github/workflows/desktop-beta.yml and desktop-promote.yml)
   tester-pass <statuses.json> --sha SHA
              The test agent's newest recorded verdict on that exact commit (the `asdd/test` commit status, set
              by the workflow's bot) must be success.
-  version-only <diff-file>
+  version-only <old-file> <new-file>
              The diff (git diff -U0 beta release -- FILE) may change nothing but a version line.
   beta-built <assets.json>
              The beta release must hold latest.json and a signed .app.tar.gz (what Cut Beta publishes).
@@ -153,19 +153,19 @@ def ci_green(check_runs, required=REQUIRED_CHECKS):
     return True
 
 
-def is_owner(actor, config_text):
-    """True when `actor` is listed under `release_owners:` in .asdd.yml (case-insensitive). Needs PyYAML (the
-    Promote workflow installs a pinned copy); nobody listed, or nothing configured, means nobody can promote."""
-    import yaml
-
-    data = yaml.safe_load(config_text) or {}
-    listed = data.get("release_owners") if isinstance(data, dict) else None
-    owners = [str(o).strip().lower() for o in (listed or []) if o]
+def is_owner(actor, owners_text):
+    """True when `actor` is listed in the release-owners file (one login per line, `#` starts a comment,
+    case-insensitive). An empty or missing list means nobody can promote."""
+    owners = []
+    for line in owners_text.splitlines():
+        login = line.split("#", 1)[0].strip().lower()
+        if login:
+            owners.append(login)
     if not owners:
-        raise Refused("no release_owners are configured in .asdd.yml, so nobody can promote")
+        raise Refused("no release owners are listed, so nobody can promote")
     if actor.strip().lower() not in owners:
         raise Refused(
-            f"'{actor}' is not a release owner; only a person listed under release_owners can promote"
+            f"'{actor}' is not a release owner; only a person listed in .github/release-owners.txt can promote"
         )
     return True
 
@@ -204,35 +204,36 @@ def tester_passed(statuses, sha, context="asdd/test", creator="github-actions[bo
     return True
 
 
-def version_only(diff_text):
-    """A unified diff (git diff -U0) may change nothing but a version line. Used for the release files that
-    could otherwise smuggle in a dependency or code change under a version bump."""
-    bad = []
-    for line in diff_text.splitlines():
-        if line.startswith(
-            (
-                "+++",
-                "---",
-                "@@",
-                "diff ",
-                "index ",
-                "new file",
-                "deleted file",
-                "old mode",
-                "new mode",
-            )
-        ):
-            continue
-        if line[:1] in "+-":
-            content = line[1:].strip()
-            if not any(r.match(content) for r in VERSION_LINE_RES):
-                bad.append(line[:80])
-    if bad:
-        raise Refused(
-            "only the version line may change in this file between the beta and the release; also changed: "
-            + "; ".join(bad[:5])
-        )
-    return True
+def _blank_first_version_line(text, pattern):
+    """The file's lines with its first version line replaced by a placeholder, and whether one was found."""
+    out, found = [], False
+    for line in text.splitlines():
+        if not found and pattern.match(line.strip()):
+            out.append("<version line>")
+            found = True
+        else:
+            out.append(line)
+    return out, found
+
+
+def version_only(old_text, new_text):
+    """The two versions of a file (the beta commit's and the release commit's) may differ only in their first
+    version line. Compared as whole files with that line blanked, so there is no diff to mis-read: any other
+    difference, however it is written, makes the two unequal and is refused."""
+    for pattern in VERSION_LINE_RES:
+        old, found_old = _blank_first_version_line(old_text, pattern)
+        new, found_new = _blank_first_version_line(new_text, pattern)
+        if found_old and found_new:
+            if old != new:
+                changed = [n for o, n in zip(old, new, strict=False) if o != n][:3] or [
+                    "(lines added or removed)"
+                ]
+                raise Refused(
+                    "only the version line may change in this file between the beta and the release; "
+                    "also changed: " + "; ".join(x[:80] for x in changed)
+                )
+            return True
+    raise Refused("could not find the version line in both versions of this file")
 
 
 def beta_built(assets):
@@ -283,7 +284,7 @@ def main(argv=None):
     g.add_argument("--required", default=",".join(REQUIRED_CHECKS))
     o = sub.add_parser("is-owner")
     o.add_argument("--actor", required=True)
-    o.add_argument("--config", default=".asdd.yml")
+    o.add_argument("--config", default=".github/release-owners.txt")
     pr_ = sub.add_parser("promotable")
     pr_.add_argument("--beta", required=True)
     pr_.add_argument("--tags", default="")
@@ -291,7 +292,8 @@ def main(argv=None):
     t_.add_argument("file")
     t_.add_argument("--sha", required=True)
     v_ = sub.add_parser("version-only")
-    v_.add_argument("file")
+    v_.add_argument("old")
+    v_.add_argument("new")
     b_ = sub.add_parser("beta-built")
     b_.add_argument("file")
     r = sub.add_parser("release-files-only")
@@ -316,7 +318,9 @@ def main(argv=None):
         elif a.cmd == "tester-pass":
             tester_passed(json.loads(Path(a.file).read_text(encoding="utf-8")), a.sha)
         elif a.cmd == "version-only":
-            version_only(Path(a.file).read_text(encoding="utf-8"))
+            version_only(
+                Path(a.old).read_text(encoding="utf-8"), Path(a.new).read_text(encoding="utf-8")
+            )
         elif a.cmd == "beta-built":
             beta_built(json.loads(Path(a.file).read_text(encoding="utf-8")))
         else:

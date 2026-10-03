@@ -2,7 +2,7 @@
 
 Pins, with no network and no release:
 
-- who may promote (`release_owners` in .asdd.yml) and which beta is promotable;
+- who may promote (`.github/release-owners.txt`) and which beta is promotable;
 - that the test agent's PASS must be the bot's own report for that exact commit (a human comment cannot stand in);
 - that the workflow checks everything before it creates anything, defaults to a dry run, is hand-started from
   main only, and that only the second job, behind the `production` approval, mints the bot token and creates
@@ -31,28 +31,27 @@ BOT = {"login": "github-actions[bot]"}
 # --- who may promote ---------------------------------------------------------------------------------
 
 
-def test_the_real_config_lists_a_release_owner():
-    text = (ROOT / ".asdd.yml").read_text()
+def test_the_real_owner_file_lists_a_release_owner():
+    text = (ROOT / ".github/release-owners.txt").read_text()
     assert br.is_owner("welsbach", text)
     assert br.is_owner("WelsBach", text)  # logins are case-insensitive
     with pytest.raises(br.Refused):
         br.is_owner("someone-else", text)
 
 
-@pytest.mark.parametrize(
-    "config", ["", "other: 1\n", "release_owners:\nnext: 1\n", "release_owners: []\n"]
-)
-def test_no_configured_owner_means_nobody_can_promote(config):
+@pytest.mark.parametrize("owners", ["", "\n\n", "# only a comment\n", "   # indented comment\n"])
+def test_no_listed_owner_means_nobody_can_promote(owners):
     with pytest.raises(br.Refused):
-        br.is_owner("welsbach", config)
+        br.is_owner("welsbach", owners)
 
 
-def test_owners_are_read_from_a_quoted_or_bare_list_and_stop_at_the_next_key():
-    text = 'release_owners:\n  - "alice"\n  - bob  # a comment\n  - \'carol\'\nreview_override_owners:\n  - "dave"\n'
+def test_owners_are_one_login_per_line_with_comments_ignored():
+    text = "# who may promote\nalice\n  bob  # a comment\n\nCarol\n"
     for ok in ("alice", "bob", "carol"):
         assert br.is_owner(ok, text)
-    with pytest.raises(br.Refused):
-        br.is_owner("dave", text)  # an owner of a different list
+    for no in ("dave", "# who may promote", "a comment", "ali"):
+        with pytest.raises(br.Refused):
+            br.is_owner(no, text)
 
 
 # --- which beta is promotable ------------------------------------------------------------------------
@@ -151,8 +150,8 @@ def test_the_verdict_renderer_maps_the_agents_result_to_the_status():
 
 
 def test_the_cli_exit_codes(tmp_path):
-    cfg = tmp_path / "asdd.yml"
-    cfg.write_text('release_owners:\n  - "alice"\n')
+    cfg = tmp_path / "release-owners.txt"
+    cfg.write_text("alice\n")
     assert br.main(["is-owner", "--actor", "alice", "--config", str(cfg)]) == 0
     assert br.main(["is-owner", "--actor", "bob", "--config", str(cfg)]) == 1
     assert br.main(["promotable", "--beta", "v1.1.0-rc.1", "--tags", "v1.0.0\nv1.1.0-rc.1"]) == 0
@@ -162,37 +161,57 @@ def test_the_cli_exit_codes(tmp_path):
 # --- only a version bump in the files that could carry behaviour ------------------------------------------
 
 
-def _diff(*lines):
-    return "\n".join(
-        [
-            "diff --git a/pyproject.toml b/pyproject.toml",
-            "--- a/pyproject.toml",
-            "+++ b/pyproject.toml",
-            "@@ -7 +7 @@",
-            *lines,
-        ]
-    )
+PYPROJECT = '[project]\nname = "anthill"\nversion = "{v}"\ndependencies = [\n    "markitdown[pdf]>=0.1.6,<0.2",\n]\n'
 
 
 def test_a_version_bump_alone_is_allowed():
-    assert br.version_only(_diff('-version = "1.0.0"', '+version = "1.1.0"'))
-    assert br.version_only(_diff('-__version__ = "1.0.0"', '+__version__ = "1.1.0"'))
-    assert br.version_only("")  # no change at all
+    assert br.version_only(PYPROJECT.format(v="1.0.0"), PYPROJECT.format(v="1.1.0"))
+    assert br.version_only('__version__ = "1.0.0"\n', '__version__ = "1.1.0"\n')
+    assert br.version_only(
+        PYPROJECT.format(v="1.0.0"), PYPROJECT.format(v="1.0.0")
+    )  # no change at all
 
 
 @pytest.mark.parametrize(
-    "smuggled",
+    "smuggle",
     [
-        '+    "evil-package>=1",',
-        '+dependencies = ["x"]',
-        "+import os",
-        '-    "markitdown[pdf]>=0.1.6,<0.2",',
-        '+version_hack = "1.1.0"',
+        lambda s: s.replace("]\n", '    "evil-package>=1",\n]\n'),  # a new dependency
+        lambda s: s + 'dependencies = ["x"]\n',
+        lambda s: s + "import os\n",
+        lambda s: s.replace('    "markitdown[pdf]>=0.1.6,<0.2",\n', ""),  # a removed dependency
+        lambda s: s.replace('name = "anthill"', 'name = "anthill"\nversion_hack = "1.1.0"'),
+        # lines that look like diff headers: the old diff reader skipped these, a whole-file compare cannot
+        lambda s: s + "+++ hidden\n",
+        lambda s: s + "--- hidden\n",
+        lambda s: s.replace('    "markitdown[pdf]>=0.1.6,<0.2",', "-- x"),
     ],
 )
-def test_anything_besides_the_version_line_is_refused(smuggled):
+def test_anything_besides_the_version_line_is_refused(smuggle):
+    new = smuggle(PYPROJECT.format(v="1.1.0"))
     with pytest.raises(br.Refused):
-        br.version_only(_diff('-version = "1.0.0"', '+version = "1.1.0"', smuggled))
+        br.version_only(PYPROJECT.format(v="1.0.0"), new)
+
+
+def test_only_the_first_version_line_is_exempt():
+    """A second version-looking line (a dependency table, say) is real content and cannot be swapped quietly."""
+    old = PYPROJECT.format(v="1.0.0") + '[tool.x]\nversion = "2"\n'
+    new = PYPROJECT.format(v="1.1.0") + '[tool.x]\nversion = "3"\n'
+    with pytest.raises(br.Refused):
+        br.version_only(old, new)
+
+
+def test_a_file_without_a_version_line_is_refused():
+    with pytest.raises(br.Refused):
+        br.version_only("nothing here\n", "nothing here\n")
+
+
+def test_the_version_check_cli_compares_two_files(tmp_path):
+    old, new, bad = tmp_path / "old", tmp_path / "new", tmp_path / "bad"
+    old.write_text(PYPROJECT.format(v="1.0.0"))
+    new.write_text(PYPROJECT.format(v="1.1.0"))
+    bad.write_text(PYPROJECT.format(v="1.1.0") + "import os\n")
+    assert br.main(["version-only", str(old), str(new)]) == 0
+    assert br.main(["version-only", str(old), str(bad)]) == 1
 
 
 def test_the_release_files_no_longer_include_files_a_release_cut_never_commits():
@@ -323,10 +342,9 @@ def test_the_stable_tag_it_creates_starts_the_stable_workflows():
 # --- the owner list is in a protected file ----------------------------------------------------------
 
 
-def test_the_release_owner_list_lives_in_a_protected_file():
-    """Whoever can edit release_owners can decide who promotes, so .asdd.yml must need the code owner's review
-    (the merge ruleset enforces CODEOWNERS), and merge-eligibility must treat it as protected."""
-    config = (ROOT / ".asdd.yml").read_text()
-    protected = re.search(r"(?ms)^protected_paths:\n(.*?)(?=^\S)", config).group(1)
-    assert '".asdd.yml"' in protected
-    assert re.search(r"(?m)^/\.asdd\.yml\s+@\S+", (ROOT / ".github/CODEOWNERS").read_text())
+def test_the_release_owner_list_lives_under_a_code_owner_protected_folder():
+    """Whoever can edit the owner file decides who promotes, so it must sit under a CODEOWNERS entry (the
+    merge ruleset enforces code owner review) and need no YAML parser or extra dependency to read."""
+    assert (ROOT / ".github/release-owners.txt").is_file()
+    assert re.search(r"(?m)^/\.github/\s+@\S+", (ROOT / ".github/CODEOWNERS").read_text())
+    assert "pyyaml" not in (ROOT / ".github/workflows/desktop-promote.yml").read_text().lower()

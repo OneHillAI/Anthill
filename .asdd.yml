@@ -68,12 +68,6 @@ max_open_prs_per_author: 20
 review_override_owners:
   - "welsbach"
 
-# Who may start "Promote Beta" (ship a tested beta to the LIVE app). The workflow also waits for approval in the
-# `production` environment, and refuses unless a test agent PASS exists for the beta's commit. Empty or missing
-# => nobody can promote. See docs/specs/beta-release-lane.md.
-release_owners:
-  - "welsbach"
-
 # Spec-driven by default: a non-trivial PR (any lane but `chore`) must be based on a spec - it references
 # an existing docs/specs/*.md or adds one it implements. Intake fails a spec-less change; the live `spec`
 # lens says what to add. false/unset disables the check. See docs/specs/mandatory-spec-gate.md.
@@ -96,7 +90,6 @@ protected_paths:
   - "anthill/lifecycle/evaluate.py"
   - "anthill/cloud/aws.py"
   - "docs/OKGF.md"
-  - ".asdd.yml"                 # holds release_owners (who may promote) and the roster: changes need a named human
 
 # Agent identities operating on this repo (commit author login or email substring). An agent commit
 # from one of these MUST carry the `Agent:` trailer (STANDARD 1.2). Empty => nothing enforced yet.
