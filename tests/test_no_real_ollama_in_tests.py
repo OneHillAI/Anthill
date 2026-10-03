@@ -5,7 +5,7 @@ and, once its patches are undone, really download a model (a ~2.4 GB vision mode
 refuses to spawn the executable for the whole session and fails the run if anything tried. Pinned here, with no
 real process started:
 
-- every way of starting ollama is refused and recorded (pull, serve, a path with spaces, a shell string);
+- every way of starting ollama is refused and recorded (pull, serve, a path with spaces, a command string);
 - other programs still run;
 - the app's own background pull thread, handed an "installed and serving" Ollama, is stopped at the spawn.
 """
@@ -29,7 +29,9 @@ def _forget(guard, before):
         lambda: subprocess.run(["/Users/a b/Library/Mobile Documents/ollama", "serve"]),
         lambda: subprocess.Popen(["ollama", "serve"]),
         lambda: subprocess.check_output(["/opt/homebrew/bin/ollama", "list"]),
-        lambda: subprocess.run("ollama pull qwen3:8b", shell=True),
+        lambda: subprocess.run(
+            "ollama pull qwen3:8b"
+        ),  # one command string, as a shell would be given
         lambda: subprocess.run(args=["/x/ollama.exe", "pull", "m"]),
     ],
 )
@@ -46,7 +48,9 @@ def test_other_programs_still_run(ollama_spawn_guard):
     before = len(ollama_spawn_guard)
     done = subprocess.run([sys.executable, "-c", "print('hi')"], capture_output=True, text=True)
     assert done.stdout.strip() == "hi"
-    assert subprocess.run("echo ollama is only a word here", shell=True).returncode == 0
+    assert (
+        subprocess.run(["echo", "ollama is only a word here"]).returncode == 0
+    )  # not the program name
     assert len(ollama_spawn_guard) == before
 
 
