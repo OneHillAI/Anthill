@@ -437,3 +437,20 @@ def test_the_apps_secrets_live_in_the_data_folder_not_the_keychain():
             ):
                 offenders.append(str(path.relative_to(ROOT)))
     assert not offenders, f"keychain use found: {offenders}; revisit the beta's isolation (spec R3)"
+
+
+# --- no pipe-to-shell installs in the new release workflows -----------------------------------------
+
+
+@pytest.mark.parametrize("workflow", ["desktop-beta.yml"])
+def test_the_new_release_workflows_never_pipe_a_download_into_a_shell(workflow):
+    """The security scan blocks a download piped straight into a shell on any line a PR adds, and it is a real
+    supply-chain risk in a workflow that holds signing keys. Tools come from commit-pinned actions instead."""
+    text = (ROOT / ".github/workflows" / workflow).read_text()
+    code = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+    offenders = [
+        ln.strip() for ln in code if re.search(r"(curl|wget)[^\n|]*\|\s*(sudo\s+)?(ba)?sh\b", ln)
+    ]
+    assert not offenders, offenders
+    uv = next((ln for ln in code if "setup-uv" in ln), "")
+    assert re.search(r"@[0-9a-f]{40}\b", uv), "uv must come from a commit-pinned action"
