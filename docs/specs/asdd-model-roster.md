@@ -78,7 +78,11 @@ Out of scope).
   proposes, cross-critiques, and verifies against the change's acceptance criteria on models distinct from
   the council, always returning one result.
 - The council SHALL run on runware (frontier), wired via the per-member `ASDD_MODEL_URL__COUNCIL_<i>` /
-  `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` env, kept separate from the shared Infercom vars.
+  `ASDD_RUNTIME_TOKEN__COUNCIL_<i>` env, kept separate from the shared Infercom vars. The scripts read
+  only these per-member names (the local `~/anthill-keys/runware.env` uses them). In CI, the runtime check
+  fills each member's names from that member's own repo setting if set, else from the single council pair
+  `ASDD_MODEL_URL__COUNCIL` / `ASDD_RUNTIME_TOKEN__COUNCIL`, so one provider and one key are entered once,
+  not once per member. Only the workflow's env does this fallback; the lookup in the scripts is unchanged.
 - The lead SHALL NOT be Opus while Opus is also the Claude Code interface (an operator arbitrating its own
   council is an echo chamber); GPT-5.6 is the independent arbiter.
 - The council's full-fidelity transcript SHALL be captured to the private operate repo as the distillation
