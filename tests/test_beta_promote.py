@@ -326,3 +326,15 @@ def test_the_stable_tag_it_creates_starts_the_stable_workflows():
     for name in ("release.yml", "desktop-release.yml"):
         text = (ROOT / ".github/workflows" / name).read_text()
         assert re.search(r'tags: \["v\[0-9\]\+\.\[0-9\]\+\.\[0-9\]\+"\]', text), name
+
+
+# --- the owner list is in a protected file ----------------------------------------------------------
+
+
+def test_the_release_owner_list_lives_in_a_protected_file():
+    """Whoever can edit release_owners can decide who promotes, so .asdd.yml must need the code owner's review
+    (the merge ruleset enforces CODEOWNERS), and merge-eligibility must treat it as protected."""
+    config = (ROOT / ".asdd.yml").read_text()
+    protected = re.search(r"(?ms)^protected_paths:\n(.*?)(?=^\S)", config).group(1)
+    assert '".asdd.yml"' in protected
+    assert re.search(r"(?m)^/\.asdd\.yml\s+@\S+", (ROOT / ".github/CODEOWNERS").read_text())

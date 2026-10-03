@@ -55,7 +55,8 @@ release must hold what Cut Beta publishes (the update manifest and a signed upda
 cannot be promoted.
 
 R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner (`release_owners`
-in `.asdd.yml`) as the person who starts it, a PASS from the test agent on the beta commit (the bot's own report for that exact commit, found on the
+in `.asdd.yml`, itself a protected path so changing the list needs the code owner's review) as the person who
+starts it, a PASS from the test agent on the beta commit (the bot's own report for that exact commit, found on the
 merged PR or on the commit, and never edited after it was posted), green required checks on the commit it releases,
 the changelog assembled for that version, and no existing stable tag for it. It then pushes the stable tag so
 that today's two release workflows run unchanged. Promote defaults to a dry run, which runs every check and
