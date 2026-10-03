@@ -1,0 +1,105 @@
+# ASDD operate - test agent (post-merge regression run).
+#
+# Runs the test-runner agent after a change lands on main and posts its pass/fail on the merged PR. It
+# triggers on push to main, so the input is TRUSTED (a human already reviewed and merged): that is why a
+# tool-using agent (the test-runner has a shell, it runs the suite) is acceptable here and a single
+# workflow is fine. The tester must NOT run automatically on untrusted pre-merge PR content: running a
+# stranger's code with the model key in reach needs an egress-free, secret-isolated sandbox this repo does
+# not have. The runner calls cli/operate-guard.py to enforce that rule mechanically.
+#
+# It reports; it never merges and never edits code. Advisory: it posts a comment for a human to act on.
+# Adapted from the ASDD kit's template (cli/templates/operate/asdd-test.yml): it also installs the project's
+# test dependencies (the agent cannot run the suite without them) and can be started by hand for a chosen
+# commit, which is how the agent is proven on a real merged change.
+
+name: ASDD test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      change_ref:
+        description: "Commit (SHA) on main to run the test agent against; default is the branch head"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: asdd-test-${{ inputs.change_ref || github.sha }}
+  cancel-in-progress: false
+
+env:
+  CHANGE_REF: ${{ inputs.change_ref || github.sha }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The agent re-runs the whole suite; cap it so a hung run cannot hold a runner.
+    timeout-minutes: 30
+    steps:
+      - name: Check out the commit under test (need history for the change diff)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.CHANGE_REF }}
+          fetch-depth: 50
+          persist-credentials: false
+
+      # The tester has a shell and the model key, so it only ever runs on merged, trusted code. A push to
+      # main satisfies that by construction; a hand-started run must name a commit that is on main.
+      - name: Refuse any commit that is not on main
+        run: |
+          git fetch --no-tags --depth=1000 origin main
+          git merge-base --is-ancestor "$CHANGE_REF" FETCH_HEAD \
+            || { echo "::error::${CHANGE_REF} is not on main; the test agent only runs on merged code."; exit 1; }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      # The agent runs the project's own suite (AGENTS.md: `make test`, i.e. pytest). It cannot do that
+      # without the project's test dependencies, so install them first, with no model key in this step.
+      - name: Install the project's test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci]"
+
+      - name: Install Goose (best-effort; the run reports "no test agent ran" if absent)
+        run: |
+          curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash || echo "goose install failed; the run will say so"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # An operate agent in CI needs BOTH the shared provider pair and its own role's pair in the env, or the
+      # per-role override is silently inert. This is the test_runner role's suffix; unset secrets and vars
+      # evaluate to empty, so a single-provider deployment simply falls back to the shared pair.
+      - name: Run the test agent (trusted post-merge input)
+        env:
+          ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
+          ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
+          ASDD_MODEL: ${{ vars.ASDD_MODEL }}
+          ASDD_RUNTIME_TOKEN__TEST_RUNNER: ${{ secrets.ASDD_RUNTIME_TOKEN__TEST_RUNNER }}
+          ASDD_MODEL_URL__TEST_RUNNER: ${{ vars.ASDD_MODEL_URL__TEST_RUNNER }}
+        run: bash .github/asdd/operate/test.sh "$CHANGE_REF" test-report.md
+
+      - name: Post the result on the merged PR (or the commit)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [ -s test-report.md ] || { echo "no report; nothing to post"; exit 0; }
+          body="$(cat test-report.md)"
+          footer=$'\n\n<sub>Reported by the ASDD test agent (advisory, post-merge). A human acts on it. Nothing merges automatically.</sub>'
+          # find the PR this commit merged, if any
+          pr="$(gh api "repos/$REPO/commits/$CHANGE_REF/pulls" -H "Accept: application/vnd.github.groot-preview+json" --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "${pr:-}" ] && [ "$pr" != "null" ]; then
+            printf '%s%s' "$body" "$footer" | gh pr comment "$pr" --repo "$REPO" --body-file -
+            echo "posted on PR #$pr"
+          else
+            printf '%s%s' "$body" "$footer" | gh api "repos/$REPO/commits/$CHANGE_REF/comments" -f body=@- >/dev/null
+            echo "posted as a commit comment (no associated PR)"
+          fi

@@ -3,7 +3,7 @@
 # The developer is BRING-YOUR-OWN (standards/spec-driven.md OP.1): a deployment does not run a standing
 # developer. A contributor connects their own coding agent, or the maintainer connects theirs. Use this
 # recipe only if you choose to operate a developer via Goose. The recipes a DEPLOYMENT runs are
-# tester.yaml, documentation.yaml, and interaction.yaml (the governance + support agents).
+# test-author.yaml, test-runner.yaml, documentation.yaml, and interaction.yaml (the governance + support agents).
 #
 # Run:  goose run --recipe recipes/developer.yaml --model <developer-model> --params instructed_by=<h> --params lane=<lane>
 # Its model MUST differ from the tester's (developer != tester). Validated with `goose recipe validate`.

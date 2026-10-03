@@ -55,7 +55,8 @@ recipes are provider-neutral, so switching later is a one-line change.
 The recipes take their model per run. Set them from the `.asdd.yml` roster, keeping **developer != tester**:
 
 ```
-goose run --recipe recipes/tester.yaml        --model <open: gpt-oss-120b>   # independent tests
+goose run --recipe recipes/test-runner.yaml   --model <open: gpt-oss-120b>   # independent test run
+goose run --recipe recipes/test-author.yaml   --model <open: gpt-oss-120b>   # independent test authoring
 goose run --recipe recipes/documentation.yaml --model <open: gemma-4-31B-it>
 goose run --recipe recipes/interaction.yaml   --model <open: gemma-4-31B-it>
 # developer.yaml is OPTIONAL (BYO) - the maintainer's own Opus, distinct from the tester
@@ -78,7 +79,7 @@ Recommended for Anthill (dogfood):
 Run a recipe on a real Anthill PR to prove execution, beyond `goose recipe validate`:
 
 ```
-goose run --recipe recipes/tester.yaml --model <open: gpt-oss-120b> --params pr=<n>
+goose run --recipe recipes/test-runner.yaml --model <open: gpt-oss-120b> --params pr=<n>
 ```
 
 Confirm it reads the diff, runs the suite on a model distinct from the developer's, and reports.

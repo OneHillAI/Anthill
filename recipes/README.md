@@ -8,7 +8,8 @@ The recipes that turn a blank [Goose](https://block.github.io/goose/) agent into
 
 The **developer is bring-your-own** ([`standards/spec-driven.md`](../standards/spec-driven.md) OP.1): a deployment does not run a standing developer. A contributor connects their own coding agent, or the maintainer connects theirs. So the recipes a **deployment runs** are the governance + support agents:
 
-- `tester.yaml` - runs and extends the test suite, on a **different model** from the developer. This is what satisfies `developer != tester` - the project independently tests the bring-your-own developer's work.
+- `test-author.yaml` - develops and extends the test suite from the spec, on a **different model** from the developer. Run on demand while a change is built.
+- `test-runner.yaml` - runs the suite and reports pass/fail, on a **different model** from the developer. Together they satisfy `developer != test_author, test_runner` - the project independently tests the bring-your-own developer's work. In CI the runner runs only after a merge to main (`.github/workflows/asdd-test.yml`), never on an open PR.
 - `documentation.yaml` - keeps docs / impact log / knowledge base in sync as a governed PR.
 - `interaction.yaml` - the outer membrane: connects a chat/web surface, answers from the project's knowledge, and routes ideas into the governed intake as a validated spec (see [`agents/interaction.md`](../agents/interaction.md), [`agents/intake.md`](../agents/intake.md)). Use this for **trusted, members-only** channels.
 - `interaction-public.yaml` - the **execution-free** variant for an **untrusted public** surface (a public Discord/Slack channel, the web widget): no shell, so an injection in an anonymous message cannot exfiltrate the model key. Answers from read-only knowledge and routes via `spec_check` only. See `agents/interaction.md`, "Public (untrusted) surfaces".
@@ -25,7 +26,7 @@ The developer and tester agents **MUST run different models** (ideally different
 
 ```
 developer.yaml:  goose_model = <model A>
-tester.yaml:     goose_model = <model B>   # B != A
+test-runner.yaml: goose_model = <model B>   # B != A (test-author likewise)
 ```
 
 A conforming setup refuses to run when they match. (Reference check: a `validate` step in `init` compares the two before first run.)
@@ -36,7 +37,7 @@ A conforming setup refuses to run when they match. (Reference check: a `validate
 2. The recipes run out of the box on **Goose builtins** - each uses the bundled `developer` extension (shell + file editing: runs tests, reads diffs, drives `git`/`gh`) plus the `asdd-gates` MCP extension (the deterministic gates). **No external MCP is required for a minimal run.** Optionally add your own extensions - a GitHub MCP, an OKGF knowledge MCP, or (for the interaction agent) a Slack/Discord/web binding - by editing the recipe or with `goose run --with-extension "<cmd>"`.
 3. Run each **deployment** recipe with its model, keeping the tester's model distinct from whatever builds the code (`developer != tester`):
    ```
-   goose run --recipe recipes/tester.yaml        --model <tester-model>  --params pr=<PR>
+   goose run --recipe recipes/test-runner.yaml   --model <tester-model>  --params pr=<PR>
    goose run --recipe recipes/documentation.yaml --model <doc-model>     --params instructed_by=<h> --params change_ref=<PR>
    goose run --recipe recipes/interaction.yaml   --model <public-model>  --params platform=<slack|web>
    ```
