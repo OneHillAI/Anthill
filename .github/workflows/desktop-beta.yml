@@ -1,63 +1,99 @@
-name: Desktop release (Tauri auto-update)
-
-# Builds the Tauri desktop shell and its SIGNED auto-update artifacts, attaching them - plus the
-# updater manifest latest.json - to the GitHub Release for tag vX.Y.Z. Every installed Anthill.app
-# checks that release on launch and self-installs the update (anthill/../src-tauri/src/lib.rs).
+# Cut Beta: build a signed, notarized "Anthill Beta" release candidate on demand, from main.
 #
-# DORMANT until signing is set up: every build step is gated on TAURI_SIGNING_PRIVATE_KEY. Without
-# that secret the job no-ops, so this never breaks the standard dmg release (release.yml) and ships
-# no unsigned auto-update. One-time owner setup (see engineering-plans/TAURI_AUTOUPDATE.md):
-#   1. cargo install tauri-cli --version '^2' --locked
-#      cargo tauri signer generate -w anthill-updater.key   (choose a password)
-#   2. paste the printed PUBLIC key into src-tauri/tauri.conf.json -> plugins.updater.pubkey
-#   3. add repo secrets: TAURI_SIGNING_PRIVATE_KEY = contents of anthill-updater.key,
-#      TAURI_SIGNING_PRIVATE_KEY_PASSWORD = the password you chose.
-# The updater only reaches installs once the repo's releases are public (at launch).
+# A beta is a snapshot of main at one commit (it contains every PR merged up to then), published as a GitHub
+# PRE-RELEASE (v<X.Y.Z>-rc.<N>). GitHub's "latest" release ignores pre-releases, so the live app's update
+# feed (releases/latest) never sees a beta. Beta apps follow a separate rolling feed, the "beta-channel"
+# pre-release, and have their own name, bundle id and data folder (src-tauri/tauri.beta.conf.json), so they
+# install next to the live app and cannot touch its data.
+#
+# Nothing here publishes a stable release. A stable release is made only by the Promote workflow, after the
+# founder's approval, from a beta that was tested as is. See docs/specs/beta-release-lane.md.
+#
+# It is started by hand: Actions, "Cut Beta", Run workflow. Use dry_run first: it builds and signs without
+# creating a tag or a release, which proves the build before anything is published.
+#
+# The macOS steps are copied from desktop-release.yml on purpose (the stable path is left untouched); fold
+# them into one reusable workflow only after the first stable release has gone through the new lane.
+
+name: Cut Beta
 
 on:
-  push:
-    # Stable versions only (vX.Y.Z). A beta tag (vX.Y.Z-rc.N) must NEVER start a live release: betas are
-    # cut by the "Cut Beta" workflow, and a stable release is made only by "Promote". GitHub tag filters
-    # match the whole tag name, so the -rc.N suffix keeps a beta out.
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Beta version, X.Y.Z-rc.N (for example 1.1.0-rc.1). Its base must be higher than the current release; N is one more than the last beta."
+        required: true
+        type: string
+      dry_run:
+        description: "Build and sign only; create no tag, release or feed (use this first)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: cut-beta
+  cancel-in-progress: false
+
 jobs:
-  desktop:
-    # Cost: GitHub-hosted macOS bills at 10x. Set the MACOS_RUNNER repo variable to a self-hosted label
-    # (e.g. your always-on Mac Mini) to build for free; defaults to GitHub's macos-14 (Apple Silicon).
+  beta:
+    # Cost: GitHub-hosted macOS bills at 10x. Set the MACOS_RUNNER repo variable to a self-hosted label to
+    # build for free; defaults to GitHub's macos-14 (Apple Silicon). A beta is on demand, so this is rare.
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-14' }}
-    timeout-minutes: 60
-    # GitHub forbids the `secrets` context in a job/step `if:`, so the signing key is hoisted to env
-    # and the build steps gate on env.SIGN_KEY (empty -> the job no-ops). Same pattern as release.yml.
+    timeout-minutes: 90
     env:
       SIGN_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       AC_API_KEY_B64: ${{ secrets.AC_API_KEY_B64 }} # App Store Connect API key (for notarization)
+      VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-
-      # Belt and braces for the tag filter above: only a plain stable tag (vX.Y.Z) may publish a LIVE release,
-      # whatever GitHub's filter matching does. A beta tag (vX.Y.Z-rc.N) stops here.
-      - name: Refuse anything but a stable version tag
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+      # A beta is only ever cut from main, so what is tested is what is on main.
+      - name: Refuse anything but main
         run: |
-          if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::'$GITHUB_REF_NAME' is not a stable version tag (vX.Y.Z); only a stable tag may publish a live release."; exit 1
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Cut Beta only runs from main (this run is on ${GITHUB_REF})."; exit 1
           fi
-      - name: Auto-update signing not configured - skipping
+
+      - name: Signing not configured - skipping
         if: ${{ env.SIGN_KEY == '' }}
         run: |
-          echo "TAURI_SIGNING_PRIVATE_KEY is not set; the desktop auto-update build is dormant."
-          echo "See engineering-plans/TAURI_AUTOUPDATE.md for the one-time signing setup."
+          echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set; a beta cannot be signed, so none is built."; exit 1
 
-      # Gate: the tagged version must be changelogged and match pyproject (same as the dmg release).
-      - name: Verify the version is changelogged
-        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
-        run: bash scripts/check-release.sh --release "${{ github.ref_name }}"
+      # The version rules (X.Y.Z-rc.N, base above the current release, N exactly one more than the last beta)
+      # live in scripts/beta_release.py, where they are tested.
+      - name: Check the version
+        run: |
+          STABLE="$(python3 scripts/beta_release.py stable-version)"
+          python3 scripts/beta_release.py check --version "$VERSION" --stable "$STABLE" --tags "$(git tag -l)"
+
+      # Do not build a commit whose required checks are not green.
+      - name: Require green CI on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
+            --jq '.check_runs' | jq -s 'add' > "$RUNNER_TEMP/check-runs.json"
+          python3 scripts/beta_release.py ci-green "$RUNNER_TEMP/check-runs.json"
+
+      # What is in this beta: the changes waiting for the next release (read-only, from the fragments).
+      - name: Draft the beta notes
+        id: notes
+        run: |
+          {
+            echo "Beta ${VERSION}: a release candidate cut from main at ${GITHUB_SHA}. It contains every change merged up to that commit."
+            echo
+            echo "Changes since the last stable release:"
+            echo
+            python3 scripts/build_changelog.py --draft || echo "(no pending changelog fragments)"
+          } > "$RUNNER_TEMP/beta-notes.md"
+          { echo "body<<NOTES_EOF"; cat "$RUNNER_TEMP/beta-notes.md"; echo "NOTES_EOF"; } >> "$GITHUB_OUTPUT"
+
 
       - uses: actions/setup-python@v5
         if: ${{ env.SIGN_KEY != '' }}
@@ -79,25 +115,10 @@ jobs:
         with:
           node-version: "20"
 
-      # Keep the desktop app version in lockstep with the release tag - the updater compares the
-      # installed app's version against latest.json, so a stale tauri.conf.json version breaks it.
-      - name: Sync the Tauri app version to the tag
-        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          python3 - "${GITHUB_REF_NAME#v}" <<'PY'
-          import re, sys
-          v = sys.argv[1]
-          # tauri.conf.json: replace the top-level "version": "x" (regex, preserves formatting).
-          p = "src-tauri/tauri.conf.json"
-          s = open(p, encoding="utf-8").read()
-          s = re.sub(r'("version"\s*:\s*)"[^"]+"', rf'\g<1>"{v}"', s, count=1)
-          open(p, "w", encoding="utf-8").write(s)
-          # Cargo.toml: the [package] version line.
-          c = "src-tauri/Cargo.toml"
-          t = open(c, encoding="utf-8").read()
-          t = re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', t, count=1)
-          open(c, "w", encoding="utf-8").write(t)
-          PY
+      # The beta builds, updates and displays as the rc. Patched in the checkout only, never committed.
+      - name: Set the beta version in the checkout
+        run: python3 scripts/beta_release.py apply --version "$VERSION"
+
 
       # Build the backend sidecar (one-file PyInstaller binary) the Tauri app bundles as externalBin.
       - name: Build the anthill-server sidecar
@@ -106,11 +127,13 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           bash scripts/build-sidecar.sh
 
+
       # Prebuilt CLI (npm ships compiled binaries) instead of `cargo install tauri-cli`, which
       # recompiled the CLI from source every run (~10 min). tauriScript below calls `tauri`.
       - name: Install the Tauri CLI
         if: ${{ env.SIGN_KEY != '' }}
         run: npm install -g @tauri-apps/cli@^2
+
 
       # Tauri embeds the app/window icons at build time (tauri::generate_context!), and src-tauri/icons
       # is gitignored, so generate the full icon set first. Use the 1024 master (tauri icon wants
@@ -118,6 +141,7 @@ jobs:
       - name: Generate app icons
         if: ${{ env.SIGN_KEY != '' }}
         run: tauri icon assets/anthill-icon-1024.png
+
 
       # Decode the App Store Connect API key (.p8) so tauri-action can NOTARIZE the app with it (same
       # key release.yml uses). APPLE_API_KEY_PATH in the build env points at it.
@@ -127,20 +151,15 @@ jobs:
           echo "$AC_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/ac_api_key.p8"
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/ac_api_key.p8" >> "$GITHUB_ENV"
 
-      # Build + sign the desktop app + updater artifacts + latest.json. On a TAG push it also publishes
-      # them to that release (tagName set). On a manual workflow_dispatch tagName is empty, so it is a
-      # build-only DRY RUN: it proves the Rust shell compiles and the signing works without creating a
-      # junk release - the safe first validation for a shell that has never compiled.
-      - name: Build + publish desktop app and update artifacts
-        if: ${{ env.SIGN_KEY != '' }}
+      # Build + sign + notarize the "Anthill Beta" app and its updater artifacts, with the beta identity
+      # overlay. With dry_run, tagName is empty: build only, nothing is created. Otherwise it publishes a
+      # PRE-RELEASE for v<version> (never "latest").
+      - name: Build + publish the beta app and update artifacts
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple Developer ID: sign + notarize the .app/.dmg so they open with no Gatekeeper warning
-          # (same certs/key as release.yml). tauri-action imports APPLE_CERTIFICATE into a keychain;
-          # the App Store Connect API key (APPLE_API_*) notarizes. Empty secrets -> unsigned build.
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERT_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
@@ -148,12 +167,17 @@ jobs:
           APPLE_API_KEY: ${{ secrets.AC_API_KEY_ID }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         with:
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Anthill {0}', github.ref_name) || '' }}
+          tagName: ${{ inputs.dry_run == false && format('v{0}', inputs.version) || '' }}
+          # Pin the tag to the commit that was built, not to whatever main is when the release is created.
+          commitish: ${{ github.sha }}
+          releaseName: ${{ inputs.dry_run == false && format('Anthill Beta {0}', inputs.version) || '' }}
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
-          prerelease: false
+          prerelease: true
           tauriScript: tauri
           projectPath: .
+          args: --config src-tauri/tauri.beta.conf.json
+
 
       # Self-check the SIGNED sidecar before we trust the build. The dead-on-launch class of bug
       # (macOS hardened-runtime library validation rejecting the sidecar's embedded, differently-
@@ -216,41 +240,36 @@ jobs:
           fi
           kill "$PID" 2>/dev/null || true
 
-      # tauri-action notarizes + staples the .app, but NOT the .dmg wrapper it builds - so the
-      # downloaded dmg is signed-but-unnotarized and Gatekeeper warns on OPEN (macOS Sequoia/Tahoe
-      # removed the old right-click bypass), even though the app inside is fine. Notarize + staple
-      # the dmg here (the ticket embeds in the file, so it survives the copy), then publish it under
-      # BOTH the versioned name (overwriting tauri-action's unstapled upload) and the stable
-      # download URL:  https://github.com/OneHillAI/Anthill/releases/latest/download/Anthill.dmg
-      # (tauri-action's Anthill_<version>_<arch>.dmg changes every release, so a fixed link needs the
-      # stable copy). gh --clobber only replaces these assets; the notes stay untouched. Tag pushes
-      # only (a workflow_dispatch dry run has no release to attach to).
-      - name: Notarize + staple the dmg, publish stable + versioned names
-        if: ${{ env.SIGN_KEY != '' && startsWith(github.ref, 'refs/tags/') }}
+      # tauri-action notarizes the .app but not the .dmg it wraps it in, so notarize + staple the dmg (as the
+      # stable workflow does), then publish it on the beta release and on the rolling beta-channel feed under
+      # a fixed name. The stable Anthill.dmg download link is NOT touched.
+      - name: Notarize + staple the dmg and publish the beta feed
+        if: ${{ inputs.dry_run == false }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
         run: |
           set -euo pipefail
+          TAG="v${VERSION}"
           DMG=$(find src-tauri/target -path '*/bundle/dmg/*.dmg' | head -1)
           if [ -z "$DMG" ]; then echo "No dmg found under src-tauri/target"; exit 1; fi
-          echo "Built dmg: $DMG"
-          # APPLE_API_KEY_PATH is exported to $GITHUB_ENV by the earlier "Prepare Apple notarization
-          # key" step (only when the AC key secret is set). Notarize the dmg with the same key that
-          # notarized the app; without it, warn loudly rather than ship a silently-unnotarized dmg.
           if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
-            echo "Notarizing the dmg (a few minutes)..."
             xcrun notarytool submit "$DMG" \
               --key "$APPLE_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" --wait
             xcrun stapler staple "$DMG"
             xcrun stapler validate "$DMG"
-            echo "OK: dmg notarized + stapled"
           else
-            echo "::warning::App Store Connect key absent - dmg NOT notarized (Gatekeeper warns on open)."
+            echo "::warning::App Store Connect key absent - the beta dmg is NOT notarized."
           fi
-          cp "$DMG" "$RUNNER_TEMP/Anthill.dmg"
-          # Replace tauri-action's unstapled versioned dmg with the stapled one, then publish the
-          # permanent stable-named download.
-          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
-          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Anthill.dmg" --clobber
+          cp "$DMG" "$RUNNER_TEMP/Anthill-Beta.dmg"
+          gh release upload "$TAG" "$DMG" --clobber
+          # The rolling feed the beta app follows: latest.json (it points at this beta's own assets).
+          gh release view beta-channel >/dev/null 2>&1 || gh release create beta-channel --prerelease \
+            --target main --title "Anthill Beta feed" \
+            --notes "The update feed that Anthill Beta apps follow. Not a release to download: see the versioned beta releases."
+          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP" --clobber
+          gh release upload beta-channel "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/Anthill-Beta.dmg" --clobber
+          # Make sure neither is ever "latest": the live app's feed is the newest NON-pre-release.
+          gh release edit "$TAG" --prerelease --latest=false
+          gh release edit beta-channel --prerelease --latest=false

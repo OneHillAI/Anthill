@@ -26,6 +26,23 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Cut Beta: a release candidate lane before anything reaches the live app - pending PR, prepared 2026-10-03
+**System impact:** the repo is public and every installed app follows the newest release, so a stable tag went
+live for everyone at once. A new **Cut Beta** workflow (started by hand, from `main`, only on a commit whose
+required checks are green) builds a signed, notarized "Anthill Beta" release candidate `X.Y.Z-rc.N` and publishes
+it as a pre-release plus a rolling `beta-channel` feed; the live feed and the stable download are untouched. The
+beta app has its own name, bundle id, feed and data folder (the backend now names its data folder after the app,
+unchanged for the live app), so it installs next to the live app and cannot touch its data. The two stable release
+workflows now fire only on a stable tag, so a beta tag can never publish live. A second PR adds Promote, which ships
+one tested beta behind the founder's approval and refuses if code merged since. Not set up until a beta has been cut
+and used (spec section 5).
+**Surface:** `.github/workflows/desktop-beta.yml`, `.github/workflows/release.yml`, `.github/workflows/desktop-release.yml`
+(all protected paths), `scripts/beta_release.py`, `src-tauri/tauri.beta.conf.json`, `src-tauri/src/lib.rs`,
+`anthill/desktop.py`, `tests/test_beta_release_lane.py`, `docs/specs/beta-release-lane.md`,
+`openspec/changes/beta-release-lane/`.
+**User-visible:** no: nothing changes for the live app; the beta is a separate app for testers.
+**Footprint:** additive; one tag-filter change on the stable workflows (stable tags still fire them) and one small change to how the data folder is named (the live app's folder is the same).
+
 ### The test agents: a post-merge test runner and an on-demand test author - pending PR, prepared 2026-10-02
 **System impact:** the roster named `test_author` and `test_runner` (gpt-oss-120b) but nothing ran them. Now the
 test runner runs after every push to `main` on the merged commit, on the roster's model, and posts a pass or
