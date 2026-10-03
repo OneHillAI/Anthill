@@ -99,9 +99,11 @@ jobs:
         if: ${{ env.SIGN_KEY != '' }}
         with:
           python-version: "3.11"
+      # uv comes from a commit-pinned action, not from a script piped straight into a shell: that is a
+      # supply-chain risk, and the security scan blocks it on any line a PR adds.
       - name: Install uv
         if: ${{ env.SIGN_KEY != '' }}
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - uses: dtolnay/rust-toolchain@stable
         if: ${{ env.SIGN_KEY != '' }}
       # Cache the Rust build (registry + src-tauri/target) so re-runs reuse compiled deps - the first
