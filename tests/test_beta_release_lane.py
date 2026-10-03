@@ -448,3 +448,39 @@ def test_the_new_release_workflows_never_pipe_a_download_into_a_shell(workflow):
     assert not offenders, offenders
     uv = next((ln for ln in code if "setup-uv" in ln), "")
     assert re.search(r"@[0-9a-f]{40}\b", uv), "uv must come from a commit-pinned action"
+
+
+# --- the beta is built exactly like the stable release ----------------------------------------------
+
+SHARED_STEPS = (
+    "Build the anthill-server sidecar",
+    "Install the Tauri CLI",
+    "Generate app icons",
+    "Prepare Apple notarization key",
+    "Self-check the signed sidecar boots",
+)
+
+
+def _steps(workflow):
+    import yaml
+
+    doc = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+    return {s["name"]: s for s in next(iter(doc["jobs"].values()))["steps"] if s.get("name")}
+
+
+def test_the_beta_build_steps_stay_identical_to_the_stable_ones():
+    """The macOS steps are copied on purpose (the stable path is left untouched). That makes drift the risk: a
+    beta tested with different tools or signing than the stable release proves less than it should. So the
+    copied steps are pinned equal to the stable workflow's, and this test fails when either changes alone."""
+    stable, beta = _steps("desktop-release.yml"), _steps("desktop-beta.yml")
+    for name in SHARED_STEPS:
+        assert name in stable and name in beta, name
+        assert beta[name].get("run") == stable[name].get("run"), (
+            f"'{name}' has drifted from the stable workflow"
+        )
+        assert beta[name].get("if") == stable[name].get("if"), f"'{name}' condition has drifted"
+    stable_env = set(stable["Build + publish desktop app and update artifacts"]["env"])
+    beta_env = set(beta["Build + publish the beta app and update artifacts"]["env"])
+    assert beta_env == stable_env, (
+        "the beta build's signing and notarization environment has drifted"
+    )
