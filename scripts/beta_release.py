@@ -14,6 +14,18 @@ Subcommands (used by .github/workflows/desktop-beta.yml and desktop-promote.yml)
              in the CHECKOUT (never committed), so the beta app is built, updates and displays as the rc.
   ci-green   <check-runs.json> [--required lint,test (3.10),...]
              Every required check must have a completed, successful run on the commit. Exit 0 or 1.
+  is-owner   --actor LOGIN [--config .asdd.yml]
+             The person starting Promote must be one of `release_owners` in .asdd.yml (empty or missing: nobody).
+  promotable --beta v1.1.0-rc.2 --tags "$(git tag -l)"
+             Print the stable version a beta would ship as (1.1.0). The beta tag must exist and be a beta, and
+             the stable tag for that version must not exist yet.
+  tester-pass <comments.json> --sha SHA
+             The test agent's newest report for that exact commit must be PASS, posted by github-actions[bot]
+             (a human comment cannot stand in for it) and never edited after posting.
+  version-only <diff-file>
+             The diff (git diff -U0 beta release -- FILE) may change nothing but a version line.
+  beta-built <assets.json>
+             The beta release must hold latest.json and a signed .app.tar.gz (what Cut Beta publishes).
   release-files-only <changed-paths-file>
              Every path changed between the beta commit and the release commit must be a release file
              (changelog, version bumps, assembled fragments). Exit 0 or 1, listing the offenders.
@@ -39,11 +51,14 @@ RELEASE_FILES = (
     "CHANGELOG.md",
     "pyproject.toml",
     "anthill/__init__.py",
-    "src-tauri/tauri.conf.json",
-    "src-tauri/Cargo.toml",
-    "src-tauri/Cargo.lock",
 )
 RELEASE_PREFIXES = ("changelog.d/",)
+# These two can carry real behaviour (dependencies, code), so a release cut may change only their version line.
+VERSION_ONLY_FILES = ("pyproject.toml", "anthill/__init__.py")
+VERSION_LINE_RES = (
+    re.compile(r'^version\s*=\s*"[^"]+"\s*$'),
+    re.compile(r'^__version__\s*=\s*"[^"]+"\s*$'),
+)
 
 
 class Refused(Exception):
@@ -138,6 +153,115 @@ def ci_green(check_runs, required=REQUIRED_CHECKS):
     return True
 
 
+def is_owner(actor, config_text):
+    """True when `actor` is listed under `release_owners:` in .asdd.yml (case-insensitive)."""
+    owners, inside = [], False
+    for line in config_text.splitlines():
+        if re.match(r"^release_owners:\s*(#.*)?$", line):
+            inside = True
+            continue
+        if inside:
+            m = re.match(r"^\s+-\s*[\"']?([^\"'#\s]+)[\"']?\s*(#.*)?$", line)
+            if m:
+                owners.append(m.group(1).lower())
+            elif line.strip() and not line.lstrip().startswith("#"):
+                break
+    if not owners:
+        raise Refused("no release_owners are configured in .asdd.yml, so nobody can promote")
+    if actor.strip().lower() not in owners:
+        raise Refused(
+            f"'{actor}' is not a release owner; only a person listed under release_owners can promote"
+        )
+    return True
+
+
+def promotable(beta_tag, tags):
+    """The stable version a beta ships as; refuses a missing or non-beta tag, or an already released version."""
+    tag = beta_tag.strip()
+    if not tag.startswith("v"):
+        raise Refused(f"'{beta_tag}' is not a tag; use the beta's tag, for example v1.1.0-rc.2")
+    base, _ = parse_rc(tag[1:])
+    if tag not in {t.strip() for t in tags}:
+        raise Refused(f"the tag {tag} does not exist")
+    stable = "v" + ".".join(map(str, base))
+    if stable in {t.strip() for t in tags}:
+        raise Refused(f"{stable} is already released")
+    return ".".join(map(str, base))
+
+
+def tester_passed(comments, sha, author="github-actions[bot]"):
+    """The newest test-agent report for exactly this commit, from the bot and never edited, must say PASS."""
+    header = f"## Test agent - result for `{sha}`"
+    reports = []
+    for c in comments:
+        body = c.get("body") or ""
+        login = (c.get("user") or {}).get("login", "")
+        if body.startswith(header) and login == author:
+            created = c.get("created_at") or ""
+            edited = bool(c.get("updated_at")) and c.get("updated_at") != created
+            reports.append((created, c.get("id") or 0, body, edited))
+    if not reports:
+        raise Refused(
+            f"the test agent has not reported on {sha[:12]}; wait for its report on that commit"
+        )
+    _, _, body, edited = max(reports)
+    if edited:
+        raise Refused(
+            f"the newest test-agent report on {sha[:12]} was edited after it was posted; re-run the test agent"
+        )
+    if "**PASS**" not in body:
+        raise Refused(f"the test agent's newest report on {sha[:12]} is not a PASS")
+    return True
+
+
+def version_only(diff_text):
+    """A unified diff (git diff -U0) may change nothing but a version line. Used for the release files that
+    could otherwise smuggle in a dependency or code change under a version bump."""
+    bad = []
+    for line in diff_text.splitlines():
+        if line.startswith(
+            (
+                "+++",
+                "---",
+                "@@",
+                "diff ",
+                "index ",
+                "new file",
+                "deleted file",
+                "old mode",
+                "new mode",
+            )
+        ):
+            continue
+        if line[:1] in "+-":
+            content = line[1:].strip()
+            if not any(r.match(content) for r in VERSION_LINE_RES):
+                bad.append(line[:80])
+    if bad:
+        raise Refused(
+            "only the version line may change in this file between the beta and the release; also changed: "
+            + "; ".join(bad[:5])
+        )
+    return True
+
+
+def beta_built(assets):
+    """The beta release must hold what Cut Beta publishes: the update manifest and the signed updater bundle.
+    A hand-made tag, or a run that failed before building, cannot be promoted."""
+    names = {a.get("name", "") if isinstance(a, dict) else str(a) for a in assets}
+    problems = []
+    if "latest.json" not in names:
+        problems.append("no latest.json (the update manifest)")
+    bundles = sorted(n for n in names if n.endswith(".app.tar.gz"))
+    if not bundles:
+        problems.append("no updater bundle (.app.tar.gz)")
+    elif not any(b + ".sig" in names for b in bundles):
+        problems.append("the updater bundle has no signature (.sig)")
+    if problems:
+        raise Refused("this release was not built by Cut Beta: " + "; ".join(problems))
+    return True
+
+
 def release_files_only(paths):
     bad = []
     for p in (x.strip() for x in paths if x.strip()):
@@ -167,6 +291,19 @@ def main(argv=None):
     g = sub.add_parser("ci-green")
     g.add_argument("file")
     g.add_argument("--required", default=",".join(REQUIRED_CHECKS))
+    o = sub.add_parser("is-owner")
+    o.add_argument("--actor", required=True)
+    o.add_argument("--config", default=".asdd.yml")
+    pr_ = sub.add_parser("promotable")
+    pr_.add_argument("--beta", required=True)
+    pr_.add_argument("--tags", default="")
+    t_ = sub.add_parser("tester-pass")
+    t_.add_argument("file")
+    t_.add_argument("--sha", required=True)
+    v_ = sub.add_parser("version-only")
+    v_.add_argument("file")
+    b_ = sub.add_parser("beta-built")
+    b_.add_argument("file")
     r = sub.add_parser("release-files-only")
     r.add_argument("file")
     a = ap.parse_args(argv)
@@ -182,6 +319,16 @@ def main(argv=None):
                 json.loads(Path(a.file).read_text(encoding="utf-8")),
                 tuple(x for x in a.required.split(",") if x),
             )
+        elif a.cmd == "is-owner":
+            is_owner(a.actor, Path(a.config).read_text(encoding="utf-8"))
+        elif a.cmd == "promotable":
+            print(promotable(a.beta, a.tags.splitlines() or a.tags.split()))
+        elif a.cmd == "tester-pass":
+            tester_passed(json.loads(Path(a.file).read_text(encoding="utf-8")), a.sha)
+        elif a.cmd == "version-only":
+            version_only(Path(a.file).read_text(encoding="utf-8"))
+        elif a.cmd == "beta-built":
+            beta_built(json.loads(Path(a.file).read_text(encoding="utf-8")))
         else:
             release_files_only(Path(a.file).read_text(encoding="utf-8").splitlines())
     except Refused as e:

@@ -68,6 +68,12 @@ max_open_prs_per_author: 20
 review_override_owners:
   - "welsbach"
 
+# Who may start "Promote Beta" (ship a tested beta to the LIVE app). The workflow also waits for approval in the
+# `production` environment, and refuses unless a test agent PASS exists for the beta's commit. Empty or missing
+# => nobody can promote. See docs/specs/beta-release-lane.md.
+release_owners:
+  - "welsbach"
+
 # Spec-driven by default: a non-trivial PR (any lane but `chore`) must be based on a spec - it references
 # an existing docs/specs/*.md or adds one it implements. Intake fails a spec-less change; the live `spec`
 # lens says what to add. false/unset disables the check. See docs/specs/mandatory-spec-gate.md.
