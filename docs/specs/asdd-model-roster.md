@@ -34,6 +34,11 @@ Relates to: `.asdd.yml`, [`.github/asdd/`](../../.github/asdd), OneHillAI/ASDD `
 > and docsync call the single model named by ASDD_MODEL; reading the per-role ids in those workflows is
 > still follow-up.
 
+> Amendment (2026-10-03): the council's result must say what actually happened (R4). On two real runs the
+> lead, a reasoning model, spent its whole token budget on hidden reasoning and returned nothing; the script
+> handed back proposal 1 as the "synthesis" under a "verify passed" header although no test runner was wired,
+> and wrote it to the knowledge lens as a verified exemplar.
+
 ## 1. Introduction
 
 The ASDD handoff (ASDD PR #21) fixed the operator model: in ASDD the **developer agent is bring-your-own**
@@ -87,6 +92,18 @@ Out of scope).
   council is an echo chamber); GPT-5.6 is the independent arbiter.
 - The council's full-fidelity transcript SHALL be captured to the private operate repo as the distillation
   corpus; the content-safe ledger records the audit trail separately (digests, never the drafted code).
+- The council's result SHALL say what happened. When the lead returns no synthesis, the result header, the
+  transcript (`lead_failed`, the fallback proposal's model) and the audit record (verdict `error`,
+  `lead_failed`) SHALL say so and name the proposal used instead. When nothing verified the result, the
+  header SHALL say NOT VERIFIED and the audit verdict SHALL be `unverified`, never `pass`. A proposal or
+  synthesis stopped at the token cap (finish_reason `length`) SHALL be flagged `truncated` in the transcript
+  and named in the header. A fallback proposal, an unverified result or a cut-off synthesis SHALL NOT be
+  written to the knowledge lens as a council-synthesis exemplar.
+- THE `dev_council` block MAY set `reasoning_effort`, sent on every council call. A reasoning model can spend
+  the whole `max_tokens` on hidden reasoning and answer nothing: measured 2026-10-03 on Runware, GPT-5.6 on
+  the beta-release-lane change used 8000 of 8000 tokens on reasoning and returned no content, while with
+  `reasoning_effort: low` it used 766 and returned the full draft. A call that ends that way is not retried
+  at the same budget.
 
 ## 3. Design
 
