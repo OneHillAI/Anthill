@@ -164,6 +164,8 @@ def test_selecting_a_non_catalog_installed_model_as_lead_saves_with_no_catalog_c
         lambda self: [{"name": "mistral:7b", "size_bytes": 4_400_000_000}],
     )
     c, app_mod = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_mod, "_start_model_pull", lambda oid, tag, **k: None)
+    monkeypatch.setattr(app_mod, "_maybe_autopull_vision", lambda oid: None)
     from anthill.web.db import OrgSettings
 
     r = c.post(
