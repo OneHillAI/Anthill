@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Render the test agent's structured result as the markdown report the workflow posts.
 
-Usage: test-report.py <result.json> <change_ref> <model>
+Usage: test-report.py <result.json> <change_ref> <model>      (the markdown report, on stdout)
+       test-report.py --verdict <result.json>                 (pass, fail or none, for the commit status)
 
 The result file is MODEL OUTPUT, so only known fields are read, each is length-capped, and nothing in it is
 executed. A verdict other than pass or fail reads "NO VERDICT", never a pass. Called by test.sh.
@@ -22,6 +23,12 @@ def load(path):
     except (OSError, ValueError):
         return {}
     return obj if isinstance(obj, dict) else {}
+
+
+def verdict(result):
+    """pass, fail, or none (no usable verdict). The structured signal the workflow records as a commit status."""
+    v = str(result.get("verdict", "")).strip().lower()
+    return v if v in ("pass", "fail") else "none"
 
 
 def render(result, ref, model):
@@ -51,6 +58,9 @@ def render(result, ref, model):
 
 
 def main(argv):
+    if len(argv) == 3 and argv[1] == "--verdict":
+        sys.stdout.write(verdict(load(argv[2])) + "\n")
+        return 0
     if len(argv) != 4:
         sys.stderr.write("usage: test-report.py <result.json> <change_ref> <model>\n")
         return 2

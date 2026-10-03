@@ -1,0 +1,189 @@
+# Promote Beta: ship ONE tested beta to the live app. Nothing else can.
+#
+# A beta (Cut Beta) is a snapshot of main. Promote turns one of them into the stable release by creating the
+# stable tag vX.Y.Z; today's two release workflows (Release and Desktop release) then run unchanged on that tag
+# and publish it: the live feed and the stable download move only because of that tag.
+#
+# What it refuses (all of it before anything is created):
+#   - anyone who is not a release owner (.github/release-owners.txt), and anything but main;
+#   - a beta that is not a published pre-release tag, or a version that is already released;
+#   - a beta that is out of date: if ANY file other than the release files (changelog, version bumps, assembled
+#     fragments) changed on main since the beta commit, the beta must be re-cut and re-tested. A beta is
+#     promoted only as tested;
+#   - a release that is not ready: changelog assembled, versions bumped (scripts/check-release.sh);
+#   - a commit whose required checks (lint, the four test runs) are not green;
+#   - a beta the test agent has not passed (its `asdd/test` commit status on that exact commit must be success).
+# Then the second job waits for approval in the `production` environment before it creates the tag.
+#
+# It defaults to a DRY RUN: pressing Run without changing anything runs every check and creates nothing.
+# One-time setup (founder): Settings, Environments, New environment "production", Required reviewers: yourself.
+# Without it the owner check and the dry-run default still apply, but there is no second click.
+# See docs/specs/beta-release-lane.md and docs/releasing.md.
+
+name: Promote Beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: "The beta to ship, as its tag (for example v1.1.0-rc.2)"
+        required: true
+        type: string
+      dry_run:
+        description: "Run every check and create nothing (leave ticked until the checks pass)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-beta
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      beta_sha: ${{ steps.resolve.outputs.beta_sha }}
+      release_sha: ${{ steps.resolve.outputs.release_sha }}
+    env:
+      BETA: ${{ inputs.beta }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse anything but main
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Promote Beta only runs from main (this run is on ${GITHUB_REF})."; exit 1
+          fi
+
+      # Mechanical, not a convention: only a person listed in .github/release-owners.txt (read from main) can start this.
+      - name: Only a release owner may promote
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: python3 scripts/beta_release.py is-owner --actor "$ACTOR" --config .github/release-owners.txt
+
+      - name: Resolve the beta and the commit that would be released
+        id: resolve
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 scripts/beta_release.py promotable --beta "$BETA" --tags "$(git tag -l)")"
+          BETA_SHA="$(git rev-list -n 1 "$BETA")"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$BETA_SHA" "$RELEASE_SHA" \
+            || { echo "::error::${BETA} is not on main."; exit 1; }
+          IS_PRE="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${BETA}" --jq '.prerelease')"
+          [ "$IS_PRE" = "true" ] || { echo "::error::${BETA} is not a published pre-release."; exit 1; }
+          # It must really have been built by Cut Beta (manifest + signed updater bundle), not be a hand-made tag.
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${BETA}" --jq '.assets' > "$RUNNER_TEMP/assets.json"
+          python3 scripts/beta_release.py beta-built "$RUNNER_TEMP/assets.json"
+          { echo "version=${VERSION}"; echo "beta_sha=${BETA_SHA}"; echo "release_sha=${RELEASE_SHA}"; } >> "$GITHUB_OUTPUT"
+          echo "Promoting ${BETA} (commit ${BETA_SHA:0:12}) as v${VERSION}, to be released from main at ${RELEASE_SHA:0:12}"
+
+      # A beta is promoted only as tested: nothing but release files may differ since the beta commit.
+      - name: Nothing but release files changed since the beta
+        env:
+          BETA_SHA: ${{ steps.resolve.outputs.beta_sha }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.release_sha }}
+        run: |
+          git diff --name-only "$BETA_SHA" "$RELEASE_SHA" > "$RUNNER_TEMP/changed.txt"
+          python3 scripts/beta_release.py release-files-only "$RUNNER_TEMP/changed.txt"
+
+      # The two release files that could carry real behaviour may change only their version line.
+      - name: Only the version line changed in the release files
+        env:
+          BETA_SHA: ${{ steps.resolve.outputs.beta_sha }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          for f in pyproject.toml anthill/__init__.py; do
+            git show "${BETA_SHA}:${f}" > "$RUNNER_TEMP/old-file.txt"
+            git show "${RELEASE_SHA}:${f}" > "$RUNNER_TEMP/new-file.txt"
+            python3 scripts/beta_release.py version-only "$RUNNER_TEMP/old-file.txt" "$RUNNER_TEMP/new-file.txt"
+          done
+
+      - name: The release is ready to cut
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          bash scripts/check-release.sh --release "v${VERSION}"
+          [ "$(python3 scripts/beta_release.py stable-version)" = "$VERSION" ] \
+            || { echo "::error::anthill/__init__.py is not at ${VERSION}; bump it in the release-cut change."; exit 1; }
+
+      - name: Required checks are green on the commit to be released
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.release_sha }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/check-runs?per_page=100" \
+            --jq '.check_runs' | jq -s 'add' > "$RUNNER_TEMP/check-runs.json"
+          python3 scripts/beta_release.py ci-green "$RUNNER_TEMP/check-runs.json"
+
+      # The test agent records its verdict as the `asdd/test` commit status (a structured signal, set by its own
+      # workflow). A beta commit that predates that needs `ASDD test` run on it by hand once.
+      - name: The test agent passed the beta commit
+        env:
+          BETA_SHA: ${{ steps.resolve.outputs.beta_sha }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${BETA_SHA}/statuses?per_page=100" \
+            | jq -s 'add // []' > "$RUNNER_TEMP/statuses.json"
+          python3 scripts/beta_release.py tester-pass "$RUNNER_TEMP/statuses.json" --sha "$BETA_SHA"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### Promote ${BETA}: every check passed"
+            echo
+            echo "- Would release **v${VERSION}** from main at \`${{ steps.resolve.outputs.release_sha }}\`"
+            echo "- Beta commit \`${{ steps.resolve.outputs.beta_sha }}\` passed the test agent; only release files changed since"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "- **Dry run: nothing was created.** Run again with dry run unticked to promote (it then waits for approval)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    needs: verify
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    # The second click: the job waits here until a required reviewer approves (set up under Environments).
+    environment: production
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      RELEASE_SHA: ${{ needs.verify.outputs.release_sha }}
+    steps:
+      # Main must be exactly what was checked; if it moved while waiting for approval, run Promote again.
+      - name: Main has not moved since the checks
+        run: |
+          NOW="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
+          [ "$NOW" = "$RELEASE_SHA" ] \
+            || { echo "::error::main moved from ${RELEASE_SHA:0:12} to ${NOW:0:12} since the checks; run Promote again."; exit 1; }
+
+      # A tag pushed with the default workflow token does not start other workflows; the bot App's token does,
+      # which is what makes today's Release and Desktop release workflows run on the new stable tag.
+      - name: Mint the bot token
+        id: apptoken
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
+          private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}
+
+      - name: Create the stable tag
+        env:
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/v${VERSION}" -f sha="$RELEASE_SHA"
+          {
+            echo "### Promoted: v${VERSION} is being released"
+            echo
+            echo "The stable tag \`v${VERSION}\` now points at \`${RELEASE_SHA}\`. The **Release** and **Desktop release** workflows are running on it; the live app updates when they finish."
+          } >> "$GITHUB_STEP_SUMMARY"

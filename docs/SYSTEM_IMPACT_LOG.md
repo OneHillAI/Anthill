@@ -26,6 +26,24 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Promote Beta: ship one tested beta to the live app, behind an approval - pending PR, prepared 2026-10-03
+**System impact:** the second half of the beta lane. **Promote Beta** (started by hand, from `main`) ships one beta to
+the live app by creating the stable tag `vX.Y.Z`, which starts today's two release workflows unchanged. It refuses
+anyone who is not a release owner (`.github/release-owners.txt`), a beta that is not a published pre-release, an
+already released version, and a beta that is out of date: if anything other than release files (changelog, version
+bumps, assembled fragments) changed on `main` since the beta commit, the beta must be re-cut and re-tested, so a beta
+ships only as tested. It also needs the release ready (changelog assembled), green checks on the commit it releases,
+and a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow now records, a
+structured signal the bot sets, not text read from a comment). All of that runs with no secrets and
+creates nothing; only a second job, behind the `production` approval, mints the bot token and creates the tag. It
+defaults to a dry run. `docs/releasing.md` explains the whole path, including what to do when a change turns out
+wrong. Not proven until a real promotion (spec section 5).
+**Surface:** `.github/workflows/desktop-promote.yml` and `asdd-test.yml` (protected paths), `.github/asdd/operate/test-report.py`, `scripts/beta_release.py`, `.github/release-owners.txt`,
+`tests/test_beta_promote.py`, `docs/releasing.md`, `docs/specs/beta-release-lane.md`,
+`docs/AUTOUPDATE.md`.
+**User-visible:** no: release process only; nothing changes for the live app until a promotion.
+**Footprint:** additive; the founder creates the `production` environment once. 39 tests.
+
 ### Cut Beta: a release candidate lane before anything reaches the live app - pending PR, prepared 2026-10-03
 **System impact:** the repo is public and every installed app follows the newest release, so a stable tag went
 live for everyone at once. A new **Cut Beta** workflow (started by hand, from `main`, only on a commit whose

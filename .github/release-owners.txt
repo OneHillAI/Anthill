@@ -1,0 +1,4 @@
+# Who may start "Promote Beta" (ship a tested beta to the LIVE app), one GitHub login per line.
+# Read from main by the Promote workflow. An empty list means nobody can promote.
+# This file is under .github/, so changing it needs the code owner (CODEOWNERS).
+welsbach

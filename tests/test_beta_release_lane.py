@@ -182,13 +182,7 @@ def test_ci_green_uses_the_latest_run_of_each_check():
 
 def test_only_release_files_may_change_between_the_beta_and_the_release():
     assert br.release_files_only(
-        [
-            "CHANGELOG.md",
-            "pyproject.toml",
-            "anthill/__init__.py",
-            "changelog.d/57.added.md",
-            "src-tauri/Cargo.toml",
-        ]
+        ["CHANGELOG.md", "pyproject.toml", "anthill/__init__.py", "changelog.d/57.added.md"]
     )
     for bad in (
         "anthill/web/app.py",

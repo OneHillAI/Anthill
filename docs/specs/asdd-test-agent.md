@@ -43,6 +43,11 @@ R6. EVERY run, including one that never starts the agent, SHALL leave exactly on
 R7. THE test author (`recipes/test-author.yaml`) SHALL be runnable on demand while a change is built, with
 the roster's `test_author` model, through `cli/operate-run.py`. It is not an automatic CI job.
 
+R9. AFTER every run on a commit on `main`, THE workflow SHALL record the agent's verdict as the commit status
+`asdd/test` (success for PASS, failure for FAIL, error when the agent did not run or left no usable verdict), so a
+later step (Promote Beta) can read a structured signal instead of the report text. A commit that predates this can
+have its status recorded by running `ASDD test` on it by hand.
+
 R8. THE kit's template for the post-merge test runner passed the recipe `change_ref` where the recipe's
 parameter is `pr`, and looked for a "## Test result" heading the recipe never prints. This runner passes
 `pr` and reads the result file; the same fixes belong upstream in `OneHillAI/ASDD`.

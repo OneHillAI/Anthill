@@ -10,4 +10,6 @@
 - [x] The two stable release workflows fire only on a stable tag.
 - [x] Tests: `tests/test_beta_release_lane.py` and the Rust unit test.
 - [ ] Proof: Cut Beta dry run, then a real beta installed next to the live app (after merge).
-- [ ] Promote workflow, its tests and the release docs (second PR).
+- [x] Promote workflow (`.github/workflows/desktop-promote.yml`), its tests and the release docs `docs/releasing.md`
+  (second PR).
+- [ ] Proof: Promote dry run on a real beta, then a real promotion (after both PRs merge).

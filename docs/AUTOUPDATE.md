@@ -18,7 +18,8 @@ the download open without a Gatekeeper warning); the two signings are independen
 3. The release CI (`.github/workflows/desktop-release.yml`) builds the sidecar, builds + signs the
    Tauri app, and uploads the update artifacts plus `latest.json` to the GitHub Release for the tag.
 
-So updates flow through releases: you still cut `vX.Y.Z`; the difference is each installed app applies
+So updates flow through releases: you still cut `vX.Y.Z` (see [`releasing.md`](releasing.md) for the beta lane that
+runs first); the difference is each installed app applies
 it automatically instead of someone re-downloading the dmg.
 
 ## One-time owner setup (required before auto-update works)

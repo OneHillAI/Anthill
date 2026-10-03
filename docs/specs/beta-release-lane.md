@@ -1,10 +1,11 @@
 # Spec: the beta release lane (Cut Beta, then Promote)
 
-Status: R1 to R5 implemented in the first PR; R6 to R8 (Promote) in the second. Not yet proven on a real beta.
+Status: R1 to R5 and R10 implemented in the first PR; R6 to R9 (Promote) in the second. Not yet proven on a real
+beta or a real promotion.
 Lane: `pillar:platform`
 Relates to: `.github/workflows/desktop-beta.yml`, `.github/workflows/desktop-release.yml`,
-`.github/workflows/release.yml`, `scripts/beta_release.py`, `src-tauri/tauri.beta.conf.json`,
-`docs/AUTOUPDATE.md`
+`.github/workflows/release.yml`, `.github/workflows/desktop-promote.yml`, `scripts/beta_release.py`,
+`src-tauri/tauri.beta.conf.json`, `docs/releasing.md`, `docs/AUTOUPDATE.md`
 
 ## 1. Problem
 
@@ -48,12 +49,19 @@ build is proven before anything is published.
 
 R6. (Promote) A beta SHALL be promoted only as tested. If any other change has merged to `main` since the beta
 commit, other than release files (the changelog, version bumps, assembled changelog fragments), the beta is out
-of date and a new beta must be cut and tested. Promote SHALL refuse otherwise.
+of date and a new beta must be cut and tested. Promote SHALL refuse otherwise. Of the release files, `pyproject.toml` and `anthill/__init__.py` may change only
+their version line (they could otherwise carry a dependency or code change under a version bump), and the beta's
+release must hold what Cut Beta publishes (the update manifest and a signed updater bundle), so a hand-made tag
+cannot be promoted.
 
-R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner as the person
-who starts it, a PASS from the test agent on the beta commit, green required checks on the commit it releases,
+R7. (Promote) Promote SHALL also require: an approval in the `production` environment, an owner (listed
+in `.github/release-owners.txt`, under `.github/` so changing the list needs the code owner's review) as the person who
+starts it, a passing verdict from the test agent on the beta commit (the `asdd/test` commit status its workflow records,
+which must be `success` and set by the workflow's bot; a structured signal, not text read from a comment), green
+required checks on the commit it releases,
 the changelog assembled for that version, and no existing stable tag for it. It then pushes the stable tag so
-that today's two release workflows run unchanged. A dry run runs every check and creates nothing.
+that today's two release workflows run unchanged. Promote defaults to a dry run, which runs every check and
+creates nothing.
 
 R8. No agent SHALL be able to promote: the approval and the owner check are mechanical, not a convention.
 
@@ -73,6 +81,10 @@ at a time so two betas can never interleave a feed update.
   the release-files-only rule, that the two stable workflows ignore a beta tag, that Cut Beta is hand-started
   and main-only and publishes only a pre-release with the beta identity, and that the live feed, the live app
   identity and the live app's data folder are unchanged.
+- `tests/test_beta_promote.py` passes: who may promote, which beta is promotable, that the test agent's verdict
+  must be the bot's own `asdd/test` status on that commit, and that Promote checks everything before it creates anything, defaults
+  to a dry run, is hand-started from main, and only its second job (behind the approval) mints the bot token
+  and creates the tag.
 - The Rust unit test for the data-folder name passes (`cargo test --lib`).
 - The guard step of both stable workflows is executed by the tests: it passes `vX.Y.Z` tags and refuses a beta tag
   and every other name.
