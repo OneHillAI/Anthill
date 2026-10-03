@@ -152,6 +152,16 @@ async fn check_and_apply_update(app: &AppHandle) -> tauri_plugin_updater::Result
     Ok(())
 }
 
+/// The name the backend keeps its data under: the app's product name ("Anthill" for the live app,
+/// "Anthill Beta" for the beta), so the beta never shares the live app's database or keys. A missing or
+/// blank product name falls back to "Anthill", which is the live app's long-standing data folder.
+fn app_data_name(product_name: Option<&str>) -> String {
+    match product_name.map(str::trim) {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => "Anthill".to_string(),
+    }
+}
+
 /// Spawn the backend sidecar for `profile` (None lets the backend resolve the active/last-used
 /// profile itself), read the `PORT=<n>` it prints, and wait until it accepts connections. Returns the
 /// port and the child handle (kept so a later switch can stop it). A background task then drains the
@@ -166,6 +176,11 @@ async fn spawn_backend<R: Runtime>(
         // Headless mode: desktop.py serves without opening a browser, binds a free port,
         // and prints `PORT=<n>` on stdout for us to read.
         .env("ANTHILL_NO_BROWSER", "1")
+        // Keep this app's data apart from any other Anthill build's (the beta has its own home).
+        .env(
+            "ANTHILL_APP_NAME",
+            app_data_name(app.config().product_name.as_deref()),
+        )
         // Our PID so the sidecar can watch *this shell* and self-exit if we vanish. A one-file
         // PyInstaller build runs uvicorn in a child of the bootloader, and on a hard shell crash
         // (SIGKILL / Force Quit, where RunEvent::Exit never fires to kill the bootloader) that
@@ -516,7 +531,7 @@ mod acl_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_port_line;
+    use super::{app_data_name, parse_port_line};
 
     #[test]
     fn parses_a_port_line() {
@@ -530,5 +545,16 @@ mod tests {
         assert_eq!(parse_port_line("PORT="), None);
         assert_eq!(parse_port_line("PORT=notaport"), None);
         assert_eq!(parse_port_line("PORT=99999999"), None); // overflows u16 -> rejected
+    }
+
+    #[test]
+    fn the_data_home_follows_the_product_name_and_defaults_to_the_live_app() {
+        // The live app's product name is "Anthill": its data folder must never change.
+        assert_eq!(app_data_name(Some("Anthill")), "Anthill");
+        // The beta app keeps its own home, apart from the live app's database and keys.
+        assert_eq!(app_data_name(Some("Anthill Beta")), "Anthill Beta");
+        // A missing or blank name must fall back to the live app's long-standing folder.
+        assert_eq!(app_data_name(None), "Anthill");
+        assert_eq!(app_data_name(Some("   ")), "Anthill");
     }
 }
