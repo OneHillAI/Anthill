@@ -3,6 +3,8 @@ The dashboard gates an unchosen solo install to /setup/model; choosing records t
 pull; skipping defers without downloading. No real Ollama is touched (installed_models() returns [] when
 the server is unreachable, and the pull is stubbed)."""
 
+import threading
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -240,7 +242,12 @@ def test_maybe_autopull_vision_survives_a_malformed_ollama_response(tmp_path, mo
     org_id, row.vision_autopull = row.org_id, True
     app_mod._SessionFactory().commit()
     monkeypatch.setattr(app_mod.httpx, "get", _fake_get_returning_unparseable_json)
+    before = set(threading.enumerate())
     app_mod._maybe_autopull_vision(org_id)  # must not raise
+    # It starts a background thread that calls _start_model_pull. Let it finish while the stub above is
+    # still in place: a thread that wakes after the patch is undone starts a real `ollama pull`.
+    for t in set(threading.enumerate()) - before:
+        t.join(timeout=5)
 
 
 def test_choosing_a_model_survives_a_malformed_ollama_response(tmp_path, monkeypatch):
