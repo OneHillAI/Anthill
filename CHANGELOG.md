@@ -12,6 +12,60 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
      pillar:feature line above is a repo-required exception (see .github/workflows/pr-validation.yml).
      Preview: build_changelog.py --draft -->
 
+## [1.0.1] - 2026-10-04
+
+Anthill 1.0.1 is a small update. You can now see which version you are running (Settings, then This device),
+and your chats are organised by project only: the separate folders are gone, and anything you had filed in a
+folder now sits under Unfiled. Opening a second profile in the desktop app now works too. Everything else in
+this release happens behind the scenes, in how changes are reviewed and tested before they reach you.
+
+### Added
+
+- **You can now see what version of Anthill you're running.** Settings -> This device now shows a
+  Version line, next to Appearance - previously there was no version number visible anywhere in the
+  app at all.
+
+### Changed
+
+- **The automated PR review and the post-merge documentation agent now run on Gemma 4 31B, hosted by
+  Infercom in Munich.** The earlier provider no longer offered the roster's models. The roster in
+  `.asdd.yml` and its spec now name the models that exist there, all open weights and EU-hosted. Contributors
+  see only the reviewer's model name in PR comments.
+- **docs.anthill.run's "Using Anthill" guide now covers every real capability, not just the basics.** The earlier rewrite covered chat, the wiki, tasks, agents, skills, memory, and model choice, but left shipped features completely undocumented: profiles (multiple isolated accounts on one device), snippets, running a council of models, your own cloud for a bigger model, inference-provider escalation, training and tuning your own model, MCP connectors (both connecting external tools in and exposing Anthill's own wiki out), and personalization. "Using Anthill" is now a five-page section - Your workspace, Chat & your knowledge base, Automating work, Models & compute, and Connectors & personalization - instead of growing back into one long page.
+- **Chats are grouped by project only.** Put a chat in a project from the Project menu at the top of the
+  chat, before its first message or after it already has history. A new project shows in the chat sidebar
+  at once, with a + that starts a chat inside it, and chats in no project sit under Unfiled. When your
+  organization's cloud model serves the project, Anthill asks before it moves a chat that already has
+  messages into it.
+- **The sidebar footer is simpler.** The account chip under your profile name used to always say
+  "Solo - private" (even once you'd connected a cloud GPU or set up training); it now shows the app
+  version instead, which is actually useful. "How it works" and "Setup" are no longer in the "..."
+  overflow menu there - they're still reachable from the Dashboard, and their content is moving to
+  docs.anthill.run as the primary place to read them.
+
+### Removed
+
+- **Removed standalone chat folders.** The "+ New folder" box and the Folder menu in a chat are gone, so
+  there is one way to group chats: a project. A chat you had filed in a folder is now Unfiled.
+- **Removed the redundant "Solo settings" card from your profile page.** It only ever linked to
+  Settings - the same page one click away from the sidebar's own Settings link - and didn't say
+  anything the sidebar didn't already.
+
+### Fixed
+
+- **The developer council no longer overstates its result.** When the lead model returns nothing (a reasoning model can spend its whole token budget thinking), the result now says "LEAD FAILED" and names the proposal it fell back to, instead of passing that proposal off as a synthesis. A result nothing verified now reads "NOT VERIFIED" rather than "verify passed", is recorded as `unverified` in the audit ledger, and is no longer written to the knowledge base as a verified exemplar. Proposals and syntheses cut off at the token cap are flagged in the transcript, a call that ran out of tokens before answering is not retried at the same budget, and an optional `dev_council.reasoning_effort` setting is sent on every council call.
+- **Opening another profile now works in the desktop app.** Creating a second profile worked, but
+  clicking Open on it (or choosing it in the sidebar switcher) failed with "Command open_profile not
+  allowed by ACL", so you could never switch. The desktop shell was refusing the request because it was
+  never granted permission to run it; it is now allowed, only from Anthill's own local window.
+
+### Contributors
+
+Thanks to everyone who shipped this release - the humans directing the work and,
+disclosed alongside them, the agents that did it:
+
+- **awchristoph** (24 changes), directing Claude Sonnet 5.5 (Claude Code)
+
 ## [1.0.0] - 2026-10-01
 
 ### Added
