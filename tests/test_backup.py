@@ -2,12 +2,16 @@
 restoring the fine-tuned Ollama model, the migration-hook wiring, and the admin page."""
 
 import json
+import os
+import shutil
 import sqlite3
+import tarfile
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from anthill import backup as bk
+from anthill import desktop
 from anthill.web import db
 from anthill.web.db import Organization, User
 
@@ -21,6 +25,8 @@ def _setup_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHILL_WORKSPACE", str(home / "workspace"))
     monkeypatch.setenv("ANTHILL_FILES_DIR", str(home / "files"))
     monkeypatch.setenv("ANTHILL_SKILLS_DIR", str(home / "skills"))
+    monkeypatch.setenv("ANTHILL_WIKI_ROOT", str(home / "wikis"))
+    monkeypatch.setenv("ANTHILL_ORG_WIKI", str(home / "org-wiki"))
     con = sqlite3.connect(str(home / "anthill.db"))
     con.execute("CREATE TABLE t(x)")
     con.execute("INSERT INTO t VALUES (1)")
@@ -59,6 +65,95 @@ def test_backup_and_restore_roundtrip(tmp_path, monkeypatch):
     con.close()
     assert n == 1  # the post-backup insert is gone
     assert rr.safety_backup and rr.safety_backup.exists()  # current state was saved first
+
+
+_WIKI_FILES = {
+    "wikis/user-1/wiki/p.md": "# personal page\n",
+    "wikis/user-1/raw/doc-abc123.pdf": "%PDF original upload\n",
+    "wikis/team-2/wiki/t.md": "# project page\n",
+    "org-wiki/wiki/o.md": "# org page\n",
+    "org-wiki/raw/orig.pdf": "%PDF org original\n",
+}
+
+
+def _packaged_home(tmp_path, monkeypatch):
+    """A home laid out the way the packaged app does it: desktop._apply_paths roots every path var,
+    the per-user/project wikis and the org wiki included, at one data dir."""
+    monkeypatch.setattr(
+        os, "environ", dict(os.environ)
+    )  # _apply_paths writes env; undone at teardown
+    home = tmp_path / "Anthill"
+    home.mkdir()
+    desktop._apply_paths(home, force=True)
+    con = sqlite3.connect(str(home / "anthill.db"))
+    con.execute("CREATE TABLE t(x)")
+    con.commit()
+    con.close()
+    (home / "secrets.env").write_text("ANTHILL_ENCRYPTION_KEY=abc\n")
+    for rel, body in _WIKI_FILES.items():
+        f = home / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body)
+    return home
+
+
+def _names(archive):
+    with tarfile.open(archive) as t:
+        return {m.name for m in t.getmembers() if m.isfile()}
+
+
+def test_backup_includes_every_wiki_in_the_packaged_layout(tmp_path, monkeypatch):
+    _packaged_home(tmp_path, monkeypatch)
+    res = bk.create_backup(include_model=False)
+    assert {"wikis", "org_wiki"} <= set(res.includes)
+    names = _names(res.path)
+    for rel in _WIKI_FILES:
+        assert f"data/{rel}" in names  # pages and the original uploads, personal, project and org
+
+
+def test_restore_brings_back_lost_wikis(tmp_path, monkeypatch):
+    home = _packaged_home(tmp_path, monkeypatch)
+    res = bk.create_backup(include_model=False)
+
+    shutil.rmtree(home / "wikis")
+    shutil.rmtree(home / "org-wiki")
+    rr = bk.restore_backup(res.path)
+
+    assert {"wikis", "org_wiki"} <= set(rr.restored)
+    for rel, body in _WIKI_FILES.items():
+        assert (home / rel).read_text() == body
+
+
+def test_restore_is_point_in_time_and_the_safety_copy_keeps_the_newer_wiki_page(
+    tmp_path, monkeypatch
+):
+    home = _packaged_home(tmp_path, monkeypatch)
+    res = bk.create_backup(include_model=False)
+    newer = home / "wikis/user-1/wiki/newer.md"
+    newer.write_text("# written after the backup\n")
+
+    rr = bk.restore_backup(res.path)
+
+    assert not newer.exists()  # the wiki rolls back with the database
+    assert "data/wikis/user-1/wiki/newer.md" in _names(rr.safety_backup)  # and is not lost for good
+
+
+def test_restoring_an_older_backup_leaves_the_wikis_alone(tmp_path, monkeypatch):
+    home = _packaged_home(tmp_path, monkeypatch)
+    wikis, org = home / "wikis", home / "org-wiki"
+    held = tmp_path / "held"
+    held.mkdir()
+    wikis.rename(held / "wikis")
+    org.rename(held / "org-wiki")
+    old_style = bk.create_backup(tmp_path / "old.tar.gz", include_model=False)  # no wiki members
+    (held / "wikis").rename(wikis)
+    (held / "org-wiki").rename(org)
+
+    rr = bk.restore_backup(old_style.path)
+
+    assert "wikis" not in rr.restored and "org_wiki" not in rr.restored
+    for rel, body in _WIKI_FILES.items():
+        assert (home / rel).read_text() == body  # never wiped by an archive that has no wikis
 
 
 def test_restore_rejects_a_non_backup(tmp_path, monkeypatch):
