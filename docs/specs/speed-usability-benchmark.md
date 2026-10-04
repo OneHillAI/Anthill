@@ -30,7 +30,9 @@ time it.
 - `real_usage_sample.jsonl` (300 prompts): the first user turn from 300 real WildChat-1M conversations,
   sampled at spread-out offsets across the ~838K-row dataset (not just the first N, avoiding time/topic
   clustering), filtered to English, non-toxic (dataset-provided flags), and a plausible single-message
-  length (10-800 chars). LMSYS-Chat-1M is gated on HuggingFace (needs a token with its terms accepted);
+  length (10-800 chars), and scrubbed of anything credential-shaped before it is stored (`redact_secrets` in
+  `fetch_prompts.py`): one prompt held a pasted Telegram bot token that GitHub's secret scanning flagged in the
+  stored sample. LMSYS-Chat-1M is gated on HuggingFace (needs a token with its terms accepted);
   `fetch_prompts.py --hf-token`/`$HF_TOKEN` can pull from it too once someone has accepted the gate -
   not required for the checked-in sample, which tops up from WildChat alone to stay in range.
 - `arena_hard_v0.1_questions.jsonl` (500 prompts): the full, unmodified Arena-Hard-Auto v0.1 set,
