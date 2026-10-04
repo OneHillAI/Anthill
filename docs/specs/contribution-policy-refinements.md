@@ -67,6 +67,22 @@ keeping a PR current never turns a green PR red.
   contributors and agents here never do (no force-push). Counting it made "update branch" a permanent red
   `intake` with no clean fix (PR #63, 2026-10-03). The ASDD kit made the same change upstream.
 
+### R5 - Open bot PRs are kept current with main automatically
+As a maintainer, I want an open PR to be brought up to date with `main` for me when another PR merges, so I
+am never the one clicking "Update branch" and waiting for CI again.
+
+- WHEN a commit is pushed to `main`, THE SYSTEM SHALL ask GitHub to merge `main` into every open, non-draft
+  PR that the bot opened, from a branch in this repository, against `main`, and that is behind it
+  (`.github/workflows/sync-bot-prs.yml`, `scripts/sync_bot_prs.py`).
+- THE SYSTEM SHALL do this with the bot App's token, so that CI starts on the updated head, and SHALL stay a
+  clean no-op until the App's repository secrets exist.
+- THE SYSTEM SHALL make API calls only: it never checks out, reads or runs anything from a PR, and the
+  workflow holds `contents: read` only. A merge conflict is reported as a warning and left alone.
+- THE SYSTEM SHALL NOT touch PRs opened by anyone else, draft PRs, or PRs from forks.
+- WHY: the merge ruleset will not merge a branch that is behind `main`, so every merge made every other open PR
+  stale and cost a manual update and a CI re-run each time (2026-10-03 and 2026-10-04). A merge commit made by
+  the update carries no sign-off; R4 means intake does not count it.
+
 ## 3. Design
 
 ### 3.1 Fit
@@ -97,6 +113,7 @@ the workflow, pure logic in the checked script - mirroring how `pr_number`/`head
 - [ ] `tests/test_asdd_intake_gate.py`: model-free cap-logic tests over the script.
 - [ ] `.github/workflows/asdd-intake.yml`: `git log --no-merges` for the DCO commit list (R4).
 - [ ] `tests/test_intake_dco_merge_commits.py`: a merge commit does not fail DCO; an unsigned authored commit still does (R4).
+- [ ] `scripts/sync_bot_prs.py`, `.github/workflows/sync-bot-prs.yml` and `tests/test_sync_bot_prs.py`: bring behind bot PRs up to date on every push to main (R5).
 - [ ] `docs/SYSTEM_IMPACT_LOG.md` entry.
 
 ## 5. Out of scope
