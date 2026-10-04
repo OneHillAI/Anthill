@@ -135,7 +135,8 @@ jobs:
             dist/Anthill-Appliance.pkg
           body_path: ${{ runner.temp }}/notes.md
           fail_on_unmatched_files: true
-          # A pre-release until Make latest: this publishes the release before the app files exist (the Desktop release
-          # workflow uploads them), and as latest it would send visitors to a download that is not there yet.
+          # A pre-release until a release owner makes it the latest release by hand: this publishes the release before the
+          # app files exist (the Desktop release workflow uploads them), and as latest it would send visitors to a
+          # download that is not there yet.
           prerelease: true
           make_latest: false

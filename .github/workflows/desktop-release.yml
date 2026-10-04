@@ -151,7 +151,8 @@ jobs:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Anthill {0}', github.ref_name) || '' }}
           releaseDraft: false
-          # A pre-release until Make latest, so a half-built release is never the one people are sent to.
+          # A pre-release until a release owner makes it the latest release, so a half-built release is never the one
+          # people are sent to.
           prerelease: true
           tauriScript: tauri
           projectPath: .

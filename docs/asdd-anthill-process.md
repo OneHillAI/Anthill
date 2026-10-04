@@ -29,8 +29,8 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
    the whole suite and records PASS or FAIL as the `asdd/test` status, and the documentation agent proposes the
    docs the change needs. Both only advise.
 6. **Release.** Merged work reaches users only through a release. A new stable release starts as a pre-release;
-   after it is checked, a release owner presses **Make latest**. The beta lane (Cut Beta, Promote Beta) is built
-   but has not been used yet. See [`releasing.md`](releasing.md).
+   after it is checked, a release owner makes it the latest release by hand. The beta lane (Cut Beta, Promote
+   Beta) is built but has not been used yet. See [`releasing.md`](releasing.md).
 
 ## The agents
 
@@ -99,4 +99,4 @@ take a commit SHA that must be on `main`.
 
 - Merge-reviewer and impact reviewer, and the interaction agent (it needs a chosen surface).
 - The test author has not run on a real change.
-- Cut Beta, Promote Beta and Make latest have never been run on a real release; they have only been tested.
+- Cut Beta and Promote Beta have never been run on a real release; they have only been tested.
