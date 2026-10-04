@@ -32,6 +32,7 @@ from platformdirs import user_data_dir
 # imports resolve both when frozen AND when this module is imported as `anthill.desktop`
 # (server.py / cli.py / tests rely on that).
 from anthill import profiles
+from anthill.platform_layer import pid_alive
 
 HOST = "127.0.0.1"
 PORT = 8000  # default for the standalone dmg launcher; sidecar/ANTHILL_PORT override it (_resolve_port)
@@ -207,24 +208,11 @@ def _env_truthy(name: str) -> bool:
 
 
 def _should_watch_parent() -> bool:
-    """Enable the orphan watchdog only in sidecar mode on POSIX. There the parent is the Tauri
-    desktop shell (via the PyInstaller one-file bootloader), so a re-parent means it's gone and we
-    must exit. The standalone dmg launcher (no ANTHILL_NO_BROWSER; its parent is launchd) and
-    Windows (no re-parent-to-init semantics) are left untouched - the shell's own kill suffices."""
-    return os.name == "posix" and _env_truthy("ANTHILL_NO_BROWSER")
-
-
-def _pid_alive(pid: int) -> bool:
-    """True if `pid` is a live process we could signal. ``kill(pid, 0)`` sends no signal; it just
-    probes: ProcessLookupError means gone, PermissionError means alive but not ours (won't happen
-    same-user). Used to watch the Tauri shell, which is our grandparent, not a child we can wait on."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+    """Enable the orphan watchdog only in sidecar mode. There the parent is the Tauri desktop shell
+    (via the PyInstaller one-file bootloader), so if it is gone we must exit. The standalone dmg
+    launcher (no ANTHILL_NO_BROWSER; its parent is launchd) is left untouched - the shell's own kill
+    suffices."""
+    return _env_truthy("ANTHILL_NO_BROWSER")
 
 
 def _exit_when_orphaned() -> None:
@@ -234,13 +222,14 @@ def _exit_when_orphaned() -> None:
     by which we can be orphaned and keep serving on our port - the stale ``anthill-server`` processes
     that pile up across quit/relaunch:
 
-    * Graceful quit: the shell kills the bootloader (RunEvent::Exit), which re-parents this worker to
-      launchd - caught by ``getppid()`` changing.
+    * Graceful quit: the shell kills the bootloader (RunEvent::Exit). On macOS this re-parents this
+      worker to launchd - caught by ``getppid()`` changing. Windows never re-parents, so there we
+      also ask whether the bootloader's PID is still alive.
     * Hard crash / Force Quit: the shell is SIGKILLed, RunEvent::Exit never fires, so nothing kills
       the bootloader - it is merely re-parented and stays alive, so ``getppid()`` here does NOT
       change. To catch this we also watch the shell's own PID, which it passes as ``ANTHILL_SHELL_PID``.
 
-    Exiting on either signal frees the port. Polling is POSIX-portable and dependency-free; ``os._exit``
+    Exiting on either signal frees the port. Polling is portable and dependency-free; ``os._exit``
     skips cleanup because uvicorn owns the main thread and the point is simply to free the port now."""
     if not _should_watch_parent():
         return
@@ -253,8 +242,11 @@ def _exit_when_orphaned() -> None:
     def _watch() -> None:
         while True:
             reparented = os.getppid() != initial_ppid  # bootloader died (e.g. graceful-quit kill)
-            shell_gone = shell_pid > 1 and not _pid_alive(shell_pid)  # shell crashed / force-quit
-            if reparented or shell_gone:
+            bootloader_gone = initial_ppid > 1 and not pid_alive(
+                initial_ppid
+            )  # Windows: no re-parenting
+            shell_gone = shell_pid > 1 and not pid_alive(shell_pid)  # shell crashed / force-quit
+            if reparented or bootloader_gone or shell_gone:
                 os._exit(0)
             time.sleep(1.0)
 

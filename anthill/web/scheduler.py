@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import object_session, sessionmaker
 
+from ..platform_layer import try_lock_exclusive
 from .db import (
     OrgSettings,
     QueuedUpload,
@@ -54,14 +55,10 @@ def _acquire_scheduler_process_lock(engine) -> bool:
         return True
     handle = None
     try:
-        import fcntl
-
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = path.open("a+")
         os.chmod(path, 0o600)
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        if not try_lock_exclusive(handle):
             handle.close()
             return False
         _scheduler_process_lock = handle
@@ -69,8 +66,8 @@ def _acquire_scheduler_process_lock(engine) -> bool:
     except (ImportError, OSError):
         if handle is not None:
             handle.close()
-        # Non-POSIX/unsupported filesystems retain the process-local guard; normal Anthill deployments
-        # use SQLite on macOS/Linux, where flock is available and released by the kernel on exit.
+        # File systems that cannot lock retain the process-local guard; normal Anthill deployments use
+        # SQLite on a local disk, where the lock is released by the kernel when the process exits.
         return True
 
 

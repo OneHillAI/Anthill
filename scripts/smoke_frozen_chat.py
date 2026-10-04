@@ -167,6 +167,31 @@ def _signal_name(returncode: int) -> str:
         return f"killed by signal {-returncode}"
 
 
+def _read_log(path: Path) -> str:
+    """The sidecar's output, tolerant of the console code page (on Windows it is not UTF-8)."""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _backend_outlives_launcher(proc: subprocess.Popen, base: str, *, wait: float = 20.0) -> bool:
+    """Kill the launcher process the way a quit does, then report whether the backend still answers.
+
+    A one-file PyInstaller build is a bootloader process that runs the real backend as its child.
+    Killing the bootloader must stop the backend too (anthill/desktop.py _exit_when_orphaned); on
+    Windows nothing else does, so a backend that keeps serving here would pile up across relaunches."""
+    import httpx
+
+    proc.terminate()
+    proc.wait(timeout=10)
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        try:
+            httpx.get(f"{base}/login", timeout=1)
+        except httpx.HTTPError:
+            return False
+        time.sleep(0.5)
+    return True
+
+
 def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
     import httpx
 
@@ -213,7 +238,7 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
         base = None
         deadline = time.time() + timeout
         while time.time() < deadline and proc.poll() is None:
-            m = re.search(r"PORT=(\d+)", log_path.read_text())
+            m = re.search(r"PORT=(\d+)", _read_log(log_path))
             if m:
                 base = f"http://127.0.0.1:{m.group(1)}"
                 try:
@@ -282,6 +307,9 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
         alive = proc.poll() is None
         if answer and not error and alive:
             ok, detail = True, f"answered {len(answer)} characters, sidecar still running"
+            # Windows only for now: the macOS release build is left exactly as it was.
+            if sys.platform == "win32" and _backend_outlives_launcher(proc, base):
+                ok, detail = False, "the backend kept serving after its launcher was killed"
         else:
             why = error or "no answer"
             state = "sidecar still running" if alive else f"sidecar {_signal_name(proc.returncode)}"
@@ -302,7 +330,7 @@ def _report(ok: bool, detail: str, log_path: Path, proc: subprocess.Popen) -> in
     print(f"smoke-frozen-chat: {'PASS' if ok else 'FAIL'} - {detail}")
     if not ok:
         try:
-            tail = [ln for ln in log_path.read_text().splitlines() if "SMTP" not in ln][-25:]
+            tail = [ln for ln in _read_log(log_path).splitlines() if "SMTP" not in ln][-25:]
         except OSError:
             tail = []
         if tail:
