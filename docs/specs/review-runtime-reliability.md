@@ -35,6 +35,24 @@ Both make the gate behave wrongly on correct input, so both erode trust in it.
   SHALL record it as a `note` that names the file to check, and SHALL NOT raise a `warn` or `block` on
   that basis.
 
+### R3 - One bad model reply does not cost the whole review
+As a maintainer, I want one odd reply from the model to be retried and recovered, not to end the review as
+"No usable AI review", so that the review is there when I need it.
+
+- THE adapter SHALL ask the model for JSON only (a system instruction, plus `response_format` on the first
+  attempt) and SHALL recover the review object from a prose-wrapped, fenced or reasoning-content reply with
+  a real JSON parser (`.github/asdd/runtime/extract-json.py`), never by slicing between the first and last brace.
+- IF an attempt yields no valid review object, THEN THE adapter SHALL retry (up to `ASDD_MODEL_RETRIES`,
+  default 3), the retries leaving out `response_format` because some providers reject it.
+- THE per-call timeout SHALL default to 45 seconds (`ASDD_MODEL_TIMEOUT`), so a model that hangs fails fast.
+- WHEN every attempt fails, THE adapter SHALL log a key-safe diagnostic (HTTP status, sizes, a short head and
+  tail of the reply, a truncated error body) and print nothing, so `generic.sh` still fails closed to the honest
+  "No usable AI review" comment and the gate never sees a false pass.
+- WHY: PR #66's review on 2026-10-04 ended as "No usable AI review" after two model calls that returned in about
+  three seconds. The adapter made one call, kept no cause and could not retry. The ASDD kit has had this
+  adapter since "Review runtime recovers the model's JSON" (spec `review-json-recovery` upstream); Anthill's copy
+  predated it. Anthill keeps its own `generic.sh` (the honest degraded status, no impact lens).
+
 ## 3. Design
 
 - **R1**: `openai-compat.sh` gains a small normalization block before the request: trim a trailing slash,
@@ -52,6 +70,9 @@ Both make the gate behave wrongly on correct input, so both erode trust in it.
 - [ ] `.github/asdd/runtime/openai-compat.test.sh` + `tests/test_asdd_runtime.py`: normalization test (R1).
 - [ ] `.github/asdd/agents/review-quality.md`: out-of-diff calibration (R2).
 - [ ] `docs/SYSTEM_IMPACT_LOG.md` entry.
+
+- [ ] `.github/asdd/runtime/openai-compat.sh`: the kit's resilient adapter (R3); `openai-compat.test.sh` and `extract-json.test.sh` come with it.
+- [ ] `tests/test_asdd_runtime.py`: run both shell tests from the suite (R3).
 
 ## 5. Out of scope
 
