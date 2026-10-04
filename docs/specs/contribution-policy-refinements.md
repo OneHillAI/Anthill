@@ -55,6 +55,18 @@ an agent wrote it - so authorship is accountable, not just disclosed.
 - THE SYSTEM SHALL NOT make this a new hard intake gate, so PRs opened before the template change are
   not retroactively failed; it strengthens the existing disclosure rather than adding a fourth blocker.
 
+### R4 - DCO counts authored commits, not merge commits
+As a contributor, I want to bring my branch up to date with `main` without breaking intake, so that
+keeping a PR current never turns a green PR red.
+
+- THE SYSTEM SHALL build the commit list that intake checks for a DCO sign-off with `git log --no-merges`,
+  so a merge commit (for example the one GitHub's "Update branch" button creates, or a plain
+  `git merge origin/main`) is not required to carry a `Signed-off-by:` line.
+- THE SYSTEM SHALL still require a sign-off on every authored (non-merge) commit in the PR range.
+- WHY: a merge commit carries no change of its own and cannot be signed without rewriting history, which
+  contributors and agents here never do (no force-push). Counting it made "update branch" a permanent red
+  `intake` with no clean fix (PR #63, 2026-10-03). The ASDD kit made the same change upstream.
+
 ## 3. Design
 
 ### 3.1 Fit
@@ -83,6 +95,8 @@ the workflow, pure logic in the checked script - mirroring how `pr_number`/`head
 - [ ] `.github/asdd/intake-check.sh`: numeric cap check, backward compatible (R2).
 - [ ] `.github/workflows/asdd-intake.yml`: read-only open-PR count into `meta.env` (R2).
 - [ ] `tests/test_asdd_intake_gate.py`: model-free cap-logic tests over the script.
+- [ ] `.github/workflows/asdd-intake.yml`: `git log --no-merges` for the DCO commit list (R4).
+- [ ] `tests/test_intake_dco_merge_commits.py`: a merge commit does not fail DCO; an unsigned authored commit still does (R4).
 - [ ] `docs/SYSTEM_IMPACT_LOG.md` entry.
 
 ## 5. Out of scope

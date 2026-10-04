@@ -256,8 +256,9 @@ suite, so a version bump without a changelog entry fails at PR time. To cut `x.y
    change and, disclosed alongside them, the agent that did it (from the `Agent:` / `Co-Authored-By`
    trailers). Optionally have the advisory
    [`release-notes` lens](.github/asdd/agents/release-notes.md) add a short Highlights paragraph; a human
-   always edits and approves - no agent publishes. Use the assembled section (changes + Contributors) as
-   the GitHub Release body. Spec:
+   always edits and approves - no agent publishes. Open the section with a short plain-language Highlights
+   paragraph. The Release workflow puts the assembled section (Highlights, changes, Contributors) on the GitHub
+   release page (`scripts/release_body.py`); read the page back after the tag is built. Spec:
    [`docs/specs/release-notes-and-credits.md`](docs/specs/release-notes-and-credits.md).
 4. Merge that, then tag and push: `git tag vx.y.z && git push origin vx.y.z`. `scripts/check-release.sh`
    gates the tag: the version must match, `CHANGELOG.md` must have a `## [x.y.z]` section, and no
