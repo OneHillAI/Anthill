@@ -9,6 +9,7 @@ test_propose_layer_actually_enforces_its_timeout below is the regression test th
 the original draft's code and passes against the fix.
 """
 
+import threading
 import time
 import types
 
@@ -53,6 +54,22 @@ class FakeBackend:
 
     def health(self):
         return None
+
+
+class _MeetingBackend(FakeBackend):
+    """On its first call, waits for the other members at a barrier. It only gets through if all of them are
+    inside chat() at the same moment, so it proves concurrency without measuring how fast the machine is."""
+
+    def __init__(self, model, barrier, **kw):
+        super().__init__(model, **kw)
+        self._barrier = barrier
+        self.met = False
+
+    def chat(self, messages, *, temperature=0.2):
+        if not self.calls and self._barrier is not None:
+            self._barrier.wait()  # raises BrokenBarrierError after its timeout if the others never arrive
+            self.met = True
+        return super().chat(messages, temperature=temperature)
 
 
 def _cfg_with_members(members_json):
@@ -238,18 +255,17 @@ def test_single_member_result_has_no_proposals_to_bank(monkeypatch):
 
 
 def test_propose_layer_runs_in_parallel(monkeypatch):
-    # 3 proposers each sleeping 0.4s + a fast synthesizer (the lead, m0, replies instantly).
-    # Sequential proposals alone would already be ~1.2s; parallel collapses to ~0.4s.
-    fakes = [FakeBackend(f"m{i}", reply=f"draft{i}", sleep=0.4) for i in range(3)]
+    # The three proposers must be inside chat() at the same moment: each waits for the others at a barrier on
+    # its first call, so the test passes only if the engine really runs them concurrently, whatever the speed of
+    # the machine. (An earlier version timed the whole run against a 1.1s limit and failed on a busy CI runner.)
+    barrier = threading.Barrier(3, timeout=3)
+    fakes = [_MeetingBackend(f"m{i}", barrier, reply=f"draft{i}") for i in range(3)]
     _patch_resolved(monkeypatch, fakes)
 
-    start = time.monotonic()
     res = run_council(object(), _q("q?"), _noop_decrypt)
-    elapsed = time.monotonic() - start
 
     assert res.synthesized is True
-    # The propose layer must NOT be the sum of all members' sleeps (that would be ~1.2s+).
-    assert elapsed < 1.1, f"looks sequential, not parallel: {elapsed:.2f}s"
+    assert all(f.met for f in fakes), "the propose layer did not run the members at the same time"
 
 
 def test_propose_layer_actually_enforces_its_timeout(monkeypatch):
