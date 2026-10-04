@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import httpx
@@ -61,6 +62,7 @@ def test_fake_answers_the_non_streaming_chat_and_the_other_routes(smoke, fake):
     assert httpx.get(f"{fake}/api/ps").json() == {"models": []}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in binary is a shell script")
 def test_run_smoke_launches_a_binary_given_by_a_relative_path(smoke, tmp_path, monkeypatch, capsys):
     # Regression: scripts/build-sidecar.sh passes `dist/anthill-server`. The sidecar is started in its own
     # throwaway working directory, so an unresolved relative path made the launch raise FileNotFoundError

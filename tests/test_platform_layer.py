@@ -5,6 +5,7 @@ no POSIX-only commands.
 """
 
 import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -134,6 +135,7 @@ WATCHED = textwrap.dedent(
     from anthill import desktop
 
     beat = Path(sys.argv[1])
+    Path(sys.argv[1] + ".parent").write_text(str(os.getppid()))
     desktop._exit_when_orphaned()
     for _ in range(300):  # a stray test run cannot leave this behind for long
         beat.write_text(str(time.time()))
@@ -161,16 +163,21 @@ def _sidecar_env(**extra: str) -> dict[str, str]:
 
 
 def test_backend_exits_when_its_launcher_is_killed(tmp_path, children):
-    """The bootloader dies (a quit that kills it, or a crash): the worker must stop serving, on every OS."""
+    """The process that launched the backend dies (a quit that kills the bootloader, or a crash): the
+    backend must stop serving, on every OS. The backend reports its real parent, which is not always
+    the process we started (a Windows virtual-environment python is a small launcher in front of the
+    real one), and that parent is the one killed."""
     worker_py = tmp_path / "worker.py"
     worker_py.write_text(WATCHED)
     middle_py = tmp_path / "middle.py"
     middle_py.write_text(MIDDLE)
     beat = tmp_path / "beat.txt"
-    middle = _spawn(children, str(middle_py), str(worker_py), str(beat), env=_sidecar_env())
-    assert _wait_until(beat.exists, timeout=60)  # the worker is up and beating
-    middle.kill()
-    middle.wait()
+    _spawn(children, str(middle_py), str(worker_py), str(beat), env=_sidecar_env())
+    parent_file = Path(str(beat) + ".parent")
+    assert _wait_until(lambda: parent_file.exists() and beat.exists(), timeout=60)
+    os.kill(
+        int(parent_file.read_text()), signal.SIGTERM
+    )  # on Windows this ends the process outright
     assert _wait_until(lambda: _heartbeat_stopped(beat), timeout=20), (
         "backend kept running after its launcher died"
     )
