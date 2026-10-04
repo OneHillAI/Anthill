@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anthill"
-version = "1.0.0"
+version = "1.0.1"
 description = "Organization-scoped GPT that runs on local machines and grows a knowledge wiki the model maintains itself."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
