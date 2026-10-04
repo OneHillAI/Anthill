@@ -1,0 +1,99 @@
+# Make latest: promote a finished stable release from pre-release to the latest release.
+#
+# New stable releases start as PRE-releases (release.yml and desktop-release.yml), because the Release workflow
+# publishes the release minutes before the app files exist: as "latest" it would send visitors to a download that
+# does not exist yet and leave installed apps without an update feed. The founder checks the finished release (the
+# 31-check verify-release script) and presses this button once; it re-checks that the release is complete and only
+# then makes it the latest full release. A mistake here moves the download button and the update feed for
+# every user, so it is mechanical, not a convention:
+#   - only a release owner (.github/release-owners.txt) can start it, from main;
+#   - the release must be a published pre-release for a stable tag holding all six files, with an update feed that
+#     names this version and this release's bundle (scripts/make_latest.py);
+#   - the Release and Desktop release workflows for the tag's commit must have finished successfully.
+# It defaults to a DRY RUN: pressing Run without changing anything runs every check and changes nothing.
+# See docs/releasing.md and docs/specs/beta-release-lane.md R11.
+
+name: Make latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The stable release to make latest, as its tag (for example v1.0.2)"
+        required: true
+        type: string
+      dry_run:
+        description: "Run every check and change nothing (leave ticked until the checks pass)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: make-latest
+  cancel-in-progress: false
+
+jobs:
+  make-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # only to change the release's flags; nothing is checked out from a PR
+      actions: read
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Refuse anything but main
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Make latest only runs from main (this run is on ${GITHUB_REF})."; exit 1
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Mechanical, not a convention: only a person listed in .github/release-owners.txt (read from main) can start this.
+      - name: Only a release owner may make a release latest
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: python3 scripts/beta_release.py is-owner --actor "$ACTOR" --config .github/release-owners.txt
+
+      - name: Fetch the release and its update feed
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > "$RUNNER_TEMP/release.json"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$RUNNER_TEMP" --clobber
+          SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}^{}" | cut -f1)"
+          [ -n "$SHA" ] || SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}" | cut -f1)"
+          [ -n "$SHA" ] || { echo "::error::the tag ${TAG} does not exist."; exit 1; }
+          echo "SHA=${SHA}" >> "$GITHUB_ENV"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&event=push&per_page=100" > "$RUNNER_TEMP/runs.json"
+
+      - name: The release is complete
+        run: python3 scripts/make_latest.py check "$TAG" "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/latest.json"
+
+      - name: The release builds finished and are green
+        run: python3 scripts/make_latest.py runs "$RUNNER_TEMP/runs.json"
+
+      - name: Make it the latest full release
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+          {
+            echo "### ${TAG} is now the latest release"
+            echo
+            echo "The download button and the update feed now point at it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run == true }}
+        run: |
+          {
+            echo "### Dry run: ${TAG} passed every check"
+            echo
+            echo "**Nothing was changed.** Run again with dry run unticked to make it the latest release."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -27,7 +27,12 @@ reaches the live app.
 6. **Promote.** Actions, **Promote Beta**, Run workflow, with the beta's tag (for example `v1.1.0-rc.2`). It starts
    as a **dry run**: it runs every check and creates nothing. When it passes, run it again with dry run
    unticked; it then waits for your approval in the `production` environment and creates the stable tag. The
-   existing **Release** and **Desktop release** workflows run on that tag and the live app updates.
+   existing **Release** and **Desktop release** workflows run on that tag and build the release.
+7. **Check it, then make it latest.** The new release stays a **pre-release** while it is built, so the download
+   button and the update feed keep serving the previous release. When both workflows are green and all six files
+   are on the release, check it (`verify-release.sh vX.Y.Z`), then Actions, **Make latest**, Run workflow, with the
+   tag. Run it as a **dry run** first; it re-checks that the release is complete and changes nothing. Then run it
+   with dry run unticked. Only then does the live app update.
 
 ## The rule: a beta ships only as tested
 
@@ -67,6 +72,9 @@ The signing and notarization secrets the stable release already uses are used by
 
 ## Good to know
 
+- A new stable release is published as a pre-release on purpose: the Release workflow publishes it before the app
+  files exist, and as the latest release it would send visitors to a missing download. Make latest is the one
+  step that changes that, and it refuses until the release is complete.
 - The beta feed is one setting, `src-tauri/tauri.beta.conf.json`; moving it (for example to a private feed for
   team members only) does not change the app.
 - Pre-releases on a public repo are visible to anyone. The beta contains only code that is already public.

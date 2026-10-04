@@ -75,6 +75,15 @@ could race a concurrent run or remove something being inspected); the recovery i
 the orphan may be deleted by hand. The release tag is pinned to the commit that was built, and Cut Beta runs one
 at a time so two betas can never interleave a feed update.
 
+R11. A new stable release SHALL start as a pre-release and SHALL become the latest release only through the
+Make latest workflow. The Release workflow publishes a release minutes before the app files exist, and as latest
+it sent visitors to a download that was not there and left installed apps without an update feed (v1.0.1,
+2026-10-04, fixed by hand). Make latest is hand-started from main by a release owner, defaults to a dry run, and
+refuses unless the release is a published pre-release for a stable tag with all six files fully uploaded, an update
+feed that names this version and this release's bundle with a signature, and finished, green Release and Desktop
+release runs for the tag's commit (`scripts/make_latest.py`). It changes nothing but the release's pre-release and
+latest flags. Checking the finished release (the verify-release script) stays a separate human step before it.
+
 ## 4. Acceptance criteria
 
 - `tests/test_beta_release_lane.py` passes: the version rules, the version patching, the green-checks rule,
@@ -91,12 +100,16 @@ at a time so two betas can never interleave a feed update.
 - The merged beta configuration was checked by compiling the app with and without the overlay: the beta has the
   beta name, bundle id and feed and keeps the same signing key; the live build is unchanged.
 - Cut Beta's workflow parses and is linted with the kit's workflow linter.
+- `tests/test_make_latest.py` passes: a release is safe to make latest only when complete (six files, a feed for
+  this version, green builds), the two stable workflows publish pre-releases, and Make latest is hand-started from
+  main, defaults to a dry run, checks everything before it changes anything, and never runs code from a PR.
 
 ## 5. Proof on a real change
 
 Not "set up" until a beta has been cut and used: run Cut Beta with the dry run, then for real, install Anthill
 Beta next to the live app, and confirm it opens its own empty data folder, shows the rc version, and updates
 from the `beta-channel` feed. Promote is first run as a dry run.
+Make latest is first run as a dry run on the next stable release, then for real; it has only been exercised by tests.
 
 ## 6. Out of scope
 
