@@ -6,7 +6,8 @@ move to a new machine. This module is that safety net.
 
 What a full backup captures (all of it, in one ``.tar.gz``):
   - the SQLite DB (settings, memory, gold training examples, cache, snippets, teams, MCP, audit)
-  - the wiki workspace (markdown: pages, PRINCIPLES.md, SCHEMA.md, log)
+  - the wikis: the legacy workspace, every personal and project wiki, and the org wiki (markdown pages,
+    PRINCIPLES.md, SCHEMA.md, log, and the original uploads kept under ``raw/``)
   - generated files and skills
   - ``secrets.env`` - the JWT + AES-256 keys, WITHOUT which every encrypted field (cloud / AWS /
     Modal / MCP secrets) is permanently unreadable on restore
@@ -33,6 +34,16 @@ from pathlib import Path
 BACKUP_FORMAT = 1
 _OLLAMA_REGISTRY = ("registry.ollama.ai", "library")  # manifests/<registry>/<ns>/<name>/<tag>
 
+# Directory trees archived under ``data/``: (key in data_paths(), archive name). Backup and restore both
+# walk this one list, so a tree can never be saved without being restored (or the reverse).
+_TREES = (
+    ("workspace", "data/workspace"),
+    ("wikis", "data/wikis"),
+    ("org_wiki", "data/org-wiki"),
+    ("files", "data/files"),
+    ("skills", "data/skills"),
+)
+
 
 def _now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -51,6 +62,8 @@ def data_paths() -> dict[str, Path]:
         "home": home,
         "db": db,
         "workspace": Path(os.environ.get("ANTHILL_WORKSPACE", "workspace")),
+        "wikis": Path(os.environ.get("ANTHILL_WIKI_ROOT", "data/wikis")),
+        "org_wiki": Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki")),
         "files": Path(os.environ.get("ANTHILL_FILES_DIR", "data/files")),
         "skills": Path(os.environ.get("ANTHILL_SKILLS_DIR", "skills")),
         "secrets": home / "secrets.env",
@@ -164,11 +177,7 @@ def create_backup(
                 tmp_db.unlink(missing_ok=True)
             includes.append("db")
 
-        for key, arc in (
-            ("workspace", "data/workspace"),
-            ("files", "data/files"),
-            ("skills", "data/skills"),
-        ):
+        for key, arc in _TREES:
             if p[key].exists():
                 tar.add(p[key], arcname=arc)
                 includes.append(key)
@@ -231,9 +240,10 @@ def restore_backup(
 ) -> RestoreResult:
     """Reload a backup archive into this install's data dir (and Ollama store for the model).
 
-    Overwrites the DB / workspace / files / skills / secrets in place; takes a safety copy of the
-    *current* state first (so a mistaken restore is itself reversible). Restart the app afterwards -
-    the running process holds the old DB open."""
+    Overwrites the DB / wikis / files / skills / secrets in place; takes a safety copy of the
+    *current* state first (so a mistaken restore is itself reversible). A tree the archive does not
+    contain (an older backup has no wikis) is left as it is. Restart the app afterwards - the running
+    process holds the old DB open."""
     archive_path = Path(archive_path)
     manifest = read_manifest(archive_path)  # validates it's ours before touching anything
     p = data_paths()
@@ -253,11 +263,8 @@ def restore_backup(
             restored.append("db")
 
         # Trees: wipe-and-replace so a restore is a true point-in-time, not a merge.
-        for key, prefix in (
-            ("workspace", "data/workspace/"),
-            ("files", "data/files/"),
-            ("skills", "data/skills/"),
-        ):
+        for key, arc in _TREES:
+            prefix = arc + "/"
             tree_members = [m for n, m in members.items() if n.startswith(prefix)]
             if not tree_members:
                 continue
