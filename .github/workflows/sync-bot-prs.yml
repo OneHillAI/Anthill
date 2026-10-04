@@ -1,0 +1,59 @@
+# Keep open bot-authored PR branches current with main.
+#
+# Why: when one PR merges, every other open PR falls behind main, and the merge ruleset will not let a branch that
+# is behind merge. Bringing each one up to date by hand, and waiting for CI again, cost the founder time on every
+# merge. On each push to main this asks GitHub to merge main into every open PR the bot opened that is now behind
+# (scripts/sync_bot_prs.py). It makes API calls only: it never checks out, reads or runs anything from a PR.
+#
+# The bot App's token does the update, not the default workflow token, because a push made with the default token
+# does not start CI on the updated PR. Dormant (a clean no-op) until the ANTHILL_BOT_APP_ID and ANTHILL_BOT_APP_KEY
+# repository secrets exist, like asdd-automerge.yml. Spec: docs/specs/contribution-policy-refinements.md R5.
+
+name: Sync bot PRs with main
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-bot-prs
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Only for the script itself, from main (this runs on a push to main, never on PR code).
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Is the bot App configured?
+        id: cfg
+        env:
+          APP_ID: ${{ secrets.ANTHILL_BOT_APP_ID }}
+        run: |
+          if [ -n "${APP_ID:-}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::ANTHILL_BOT_APP_ID is not set - syncing stays dormant until the App secrets exist."
+          fi
+
+      - name: Mint the bot token
+        if: ${{ steps.cfg.outputs.configured == 'true' }}
+        id: app
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
+          private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}
+
+      - name: Bring behind bot PR branches up to date
+        if: ${{ steps.cfg.outputs.configured == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python3 scripts/sync_bot_prs.py
