@@ -339,6 +339,30 @@ def test_a_changelog_fragment_is_only_wanted_when_product_code_changed(tmp_path)
     assert "did not propose a usable one" in bad_cat
 
 
+def test_a_release_cut_never_gets_a_changelog_fragment(tmp_path):
+    """A release cut assembles the fragments and bumps anthill/__init__.py; the docs agent used to ask for a fragment
+    for it (v1.0.1, PR 67), which would only repeat the notes in the next release."""
+    mod = _renderer()
+    cut_files = ("CHANGELOG.md", "pyproject.toml", "anthill/__init__.py", "changelog.d/+x.added.md")
+    by_title = _args(tmp_path, changed=("anthill/__init__.py", "anthill/web/x.py"))
+    by_title.title = "chore: cut release v1.0.1"
+    assert "release cut" in mod.render(_GOOD, by_title)
+    assert "changelog.d/58" not in mod.render(_GOOD, by_title)
+    by_files = mod.render(_GOOD, _args(tmp_path, changed=cut_files))
+    assert "release cut" in by_files and "changelog.d/58" not in by_files
+
+
+def test_only_a_real_release_cut_is_recognised_as_one():
+    mod = _renderer()
+    assert mod.is_release_cut([], "chore(release): cut release v2.0.0")
+    assert mod.is_release_cut(["CHANGELOG.md", "pyproject.toml"], "")
+    assert not mod.is_release_cut([], "refactor: cut release overhead")
+    assert not mod.is_release_cut(["anthill/__init__.py", "anthill/web/x.py"], "Fix a thing")
+    assert not mod.is_release_cut([], "")
+    assert mod.needs_changelog(["anthill/web/x.py"], "Fix a thing")
+    assert not mod.needs_changelog(["anthill/web/x.py"], "chore: cut release v1.0.1")
+
+
 def test_a_changelog_marker_is_stripped_and_flagged(tmp_path):
     mod = _renderer()
     payload = {**_GOOD, "changelog": {"category": "added", "text": "## Heading text here"}}
