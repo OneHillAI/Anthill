@@ -104,7 +104,7 @@ jobs:
 
       - name: Write release notes
         run: |
-          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          cat > "$RUNNER_TEMP/notes-base.md" <<'EOF'
           ## Anthill ${{ github.ref_name }}
 
           Signed and notarized by Apple - **just open it**, no Gatekeeper warning. The app **updates itself** from then on, so you only download it once.
@@ -122,6 +122,11 @@ jobs:
           ```
           Full build/operate docs: [CONTRIBUTING.md](https://github.com/OneHillAI/Anthill/blob/main/CONTRIBUTING.md).
           EOF
+          # The release page says what changed, not only how to install: the version's Highlights go under the
+          # title and its changelog section (entries, Contributors) before "Build from source". Fails the job if
+          # CHANGELOG.md has no section for the tag. Spec: docs/specs/release-notes-and-credits.md R6.
+          python3 scripts/release_body.py --version "${GITHUB_REF_NAME#v}" --changelog CHANGELOG.md \
+            --base "$RUNNER_TEMP/notes-base.md" --out "$RUNNER_TEMP/notes.md"
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2

@@ -69,6 +69,19 @@ As a maintainer, I want a curated highlights summary, but I stay the approver.
 - THE SYSTEM SHALL produce a `## [x.y.z]` block that satisfies `scripts/check-release.sh` (Keep a
   Changelog headings, matching version), and SHALL NOT change the SemVer scheme or the gate.
 
+### R6 - The release page says what changed
+As a user opening a release page or an update prompt, I want to read in plain language what has happened, not
+only how to install.
+
+- THE SYSTEM SHALL open each version's `## [x.y.z]` section in `CHANGELOG.md` with a short Highlights
+  paragraph (two to four sentences, plain language, what a user notices first, no jargon or PR numbers), then
+  the grouped entries, then the Contributors block.
+- THE Release workflow SHALL put that section on the GitHub release page: the Highlights under the title and
+  the rest under "What's changed in this version", before "Build from source" (`scripts/release_body.py`).
+  A release whose changelog has no section for its tag SHALL fail rather than publish a page that says nothing.
+- WHY: v1.0.0's page held only download instructions, although this spec's flow (3.4) says the section seeds
+  the release body. The workflow never did it. Founder's standing order, 2026-10-04.
+
 ## 3. Design
 
 ### 3.1 Architecture fit
@@ -105,6 +118,8 @@ core the unit tests target, plus a thin agent layer) rather than inventing a sec
 - [ ] `tests/test_release_notes.py`: model-free unit tests over synthetic `git log` output.
 - [ ] `.github/asdd/agents/release-notes.md`: the advisory curation lens (R4).
 - [ ] Runbook: document the flow in `CONTRIBUTING.md` (or `docs/`) and point `AGENTS.md` at it.
+- [ ] `scripts/release_body.py` and `tests/test_release_body.py`: the page body carries the version's section (R6).
+- [ ] `.github/workflows/release.yml`: build the body with `release_body.py` (R6).
 - [ ] `docs/SYSTEM_IMPACT_LOG.md` entry.
 
 ## 5. Out of scope
