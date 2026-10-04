@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import random
 import sys
@@ -32,6 +33,24 @@ import urllib.request
 
 _API = "https://datasets-server.huggingface.co/rows"
 _PAGE = 100  # datasets-server's per-request row cap
+
+
+# Real conversations sometimes contain a pasted secret (one WildChat prompt held a Telegram bot token, which
+# GitHub's secret scanning flagged in this fixture). Scrub anything credential-shaped before a prompt is stored.
+_SECRET_PATTERNS = (
+    (re.compile(r"[0-9]{8,10}:[A-Za-z0-9_-]{35}"), "<REDACTED-BOT-TOKEN>"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"), "<REDACTED-GITHUB-TOKEN>"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{30,}"), "<REDACTED-GITHUB-TOKEN>"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"), "<REDACTED-API-KEY>"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "<REDACTED-AWS-KEY>"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"), "<REDACTED-SLACK-TOKEN>"),
+)
+
+
+def redact_secrets(text: str) -> str:
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def _fetch_page(dataset: str, offset: int, length: int, *, hf_token: str = "") -> list[dict]:
@@ -124,7 +143,7 @@ def _sample_dataset(
                     "id": f"{source}-{row.get('row_idx', offset)}",
                     "source": source,
                     "language": turn.get("language") or "english",
-                    "prompt": text,
+                    "prompt": redact_secrets(text),
                 }
             )
         time.sleep(0.2)  # be polite to the shared public API

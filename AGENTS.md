@@ -59,6 +59,17 @@ work. Protected paths (auth, crypto, training, CI, governance, and the wiki and 
 runs are bounded (`max_actions_per_run`). Report security issues **privately** per
 [`SECURITY.md`](SECURITY.md), never in a public issue.
 
+**After the merge.** Two agents comment on the merged PR: the test agent runs the whole suite on the merged
+code and records PASS or FAIL, and the documentation agent proposes the impact-log entry, changelog line and any
+untrue doc sentence for a human to paste. Both advise; neither edits or merges. An agent with a shell runs
+only on merged code, never on an open PR. The agents, their models and their state are in
+[`docs/asdd-anthill-process.md`](docs/asdd-anthill-process.md).
+
+**Opening PRs.** An agent opens a PR only after the maintainer has said yes to that PR, pushes as the
+OneHill-Dev-Agent App, signs off every authored commit, and adds the `Agent:` trailer (no co-author line for an
+AI). Nothing merges, approves, enables auto-merge or force-pushes except a human, and a release is tagged only
+on the maintainer's explicit order.
+
 **Agent identity.** GitHub blocks self-approval, so a solo maintainer's own PRs can never satisfy a
 required review. Agent-authored PRs are opened under the **OneHill-Dev-Agent** GitHub App identity
 (org-installed, not a personal account), so the human reviewer is a different identity from the PR

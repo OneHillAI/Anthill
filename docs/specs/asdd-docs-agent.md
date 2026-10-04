@@ -36,7 +36,7 @@ starting with additive, refactor, migration or plan-only, and every number in th
 the PR (title, description, diff stat, changed paths).
 
 R4. A changelog fragment SHALL only be proposed when product code (`anthill/`) changed, named
-`changelog.d/<PR>.<category>.md` with an allowed category, with no heading and no leading dash.
+`changelog.d/<PR>.<category>.md` with an allowed category, with no heading and no leading dash. A release cut (a PR titled "chore: cut release ...", or one that changes nothing but the changelog, the version files and `changelog.d/`) SHALL never get a fragment: it assembles the fragments itself, and one for it would repeat the notes in the next release (found on PR 67, v1.0.1).
 
 R5. A proposed doc edit SHALL be kept only if its file exists inside the repository and its "now untrue"
 sentence is verbatim in that file; otherwise it is dropped with a note.

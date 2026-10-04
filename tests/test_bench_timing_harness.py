@@ -53,6 +53,41 @@ def test_first_user_turn_none_when_first_turn_is_not_user():
     assert fetch_prompts._first_user_turn(row, conv_key="conversation") is None
 
 
+def test_redact_secrets_scrubs_credential_shaped_strings():
+    # Built at run time so no token-shaped text is committed in this file.
+    bot = "123456789" + ":" + "A" * 35
+    gh = "ghp_" + "b" * 36
+    aws = "AKIA" + "C" * 16
+    text = f"use {bot} and {gh} and {aws} to log in"
+    out = fetch_prompts.redact_secrets(text)
+    assert bot not in out and gh not in out and aws not in out
+    assert (
+        "<REDACTED-BOT-TOKEN>" in out
+        and "<REDACTED-GITHUB-TOKEN>" in out
+        and "<REDACTED-AWS-KEY>" in out
+    )
+    assert out.startswith("use ") and out.endswith(" to log in")
+
+
+def test_redact_secrets_leaves_ordinary_prompts_alone():
+    for text in (
+        "Write a poem about 10:30 meetings",
+        "What is 12345678:90 as a ratio?",
+        "sk-learn is a library",
+    ):
+        assert fetch_prompts.redact_secrets(text) == text
+
+
+def test_the_stored_sample_holds_no_credential_shaped_string():
+    import pathlib
+
+    sample = (
+        pathlib.Path(__file__).resolve().parents[1] / "tools/bench/fixtures/real_usage_sample.jsonl"
+    )
+    text = sample.read_text(encoding="utf-8")
+    assert fetch_prompts.redact_secrets(text) == text
+
+
 # ── run_timing.py: prompt loading (both schemas) ────────────────────────────────────────────────
 
 

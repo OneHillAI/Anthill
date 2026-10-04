@@ -75,6 +75,12 @@ could race a concurrent run or remove something being inspected); the recovery i
 the orphan may be deleted by hand. The release tag is pinned to the commit that was built, and Cut Beta runs one
 at a time so two betas can never interleave a feed update.
 
+R11. A new stable release SHALL start as a pre-release, never as the latest release, and a release owner makes it
+the latest release by hand (Edit release, untick pre-release, tick Set as the latest release) once it is complete
+and checked (the verify-release script). The Release workflow publishes a release minutes before the app files
+exist, and as latest it sent visitors to a download that was not there and left installed apps without an update
+feed (v1.0.1, 2026-10-04, fixed by hand). The two stable workflows therefore publish a pre-release.
+
 ## 4. Acceptance criteria
 
 - `tests/test_beta_release_lane.py` passes: the version rules, the version patching, the green-checks rule,
@@ -91,6 +97,8 @@ at a time so two betas can never interleave a feed update.
 - The merged beta configuration was checked by compiling the app with and without the overlay: the beta has the
   beta name, bundle id and feed and keeps the same signing key; the live build is unchanged.
 - Cut Beta's workflow parses and is linted with the kit's workflow linter.
+- `tests/test_stable_releases_start_as_prereleases.py` passes: both stable workflows publish a pre-release that is not
+  the latest, and the release doc tells the owner how to make it latest.
 
 ## 5. Proof on a real change
 

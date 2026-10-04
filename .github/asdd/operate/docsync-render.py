@@ -76,8 +76,23 @@ def newest_month_heading(impact_log_text):
     return None
 
 
-def needs_changelog(changed_paths):
-    """A fragment is wanted only when product code changed (tests, docs and CI alone do not)."""
+RELEASE_FILES = {"CHANGELOG.md", "pyproject.toml", "anthill/__init__.py"}
+
+
+def is_release_cut(changed_paths, title=""):
+    """A release cut assembles the fragments into CHANGELOG.md and bumps the version, so a fragment for it would
+    only repeat the notes in the next release. Recognised by its title, or by touching nothing but release files."""
+    if re.match(r"^\s*chore(\([^)]*\))?:\s*cut release\b", title or "", re.I):
+        return True
+    paths = [p for p in changed_paths if p]
+    return bool(paths) and all(p in RELEASE_FILES or p.startswith("changelog.d/") for p in paths)
+
+
+def needs_changelog(changed_paths, title=""):
+    """A fragment is wanted only when product code changed (tests, docs and CI alone do not), and never for a
+    release cut (its version bump touches anthill/__init__.py but it is not a user-facing change)."""
+    if is_release_cut(changed_paths, title):
+        return False
     return any(p.startswith("anthill/") for p in changed_paths)
 
 
@@ -111,8 +126,13 @@ def build_impact(payload, pr, title, date, flags, corpus):
     )
 
 
-def build_changelog(payload, pr, changed_paths, flags):
-    if not needs_changelog(changed_paths):
+def build_changelog(payload, pr, changed_paths, flags, title=""):
+    if is_release_cut(changed_paths, title):
+        return (
+            "No changelog fragment needed: this is a release cut, which assembles the fragments itself.",
+            None,
+        )
+    if not needs_changelog(changed_paths, title):
         return "No changelog fragment needed: no product code (`anthill/`) changed.", None
     cl = payload.get("changelog") if isinstance(payload.get("changelog"), dict) else {}
     category = str(cl.get("category", "")).strip().lower()
@@ -169,7 +189,7 @@ def render(payload, a, flags=None):
         if month
         else "at the top of the newest month section"
     )
-    cl_note, cl_text = build_changelog(payload, a.pr, changed, flags)
+    cl_note, cl_text = build_changelog(payload, a.pr, changed, flags, a.title)
     edits = build_doc_edits(payload, a.root, flags)
     ref7 = a.ref[:7]
     lines = [

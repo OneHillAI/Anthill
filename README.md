@@ -124,6 +124,9 @@ whatever writes them:
   one lane tag), a multi-lens review, and a security scan (deterministic rules plus SAST) run on every PR.
 - **Any tool, or none.** Use Claude, Codex, Cursor, a local model, or your own hands - the gates enforce
   quality and security regardless of how a change was produced, so contribution stays open.
+- **Agents that run.** A reviewer on every PR, and after every merge a test agent (the whole suite) and a
+  documentation agent, each on an open model from a different family than the one that wrote the change. See
+  [how ASDD runs here](docs/asdd-anthill-process.md).
 
 Start at [`CONTRIBUTING.md`](CONTRIBUTING.md) for the four-item PR contract (sign-off, one lane label, the
 disclosure, tests). ASDD is also packaged as a portable standard any project can adopt:
