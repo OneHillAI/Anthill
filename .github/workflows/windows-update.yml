@@ -101,24 +101,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/updater.key")"
+          rm -rf src-tauri/target/release/bundle/nsis
           tauri build --bundles nsis --config "$RUNNER_TEMP/v0.9.1.conf.json"
           mkdir -p "$RUNNER_TEMP/old"
-          cp src-tauri/target/release/bundle/nsis/*-setup.exe "$RUNNER_TEMP/old/"
+          cp src-tauri/target/release/bundle/nsis/Anthill_0.9.1_x64-setup.exe "$RUNNER_TEMP/old/"
 
       - name: Build the new installer (0.9.2) and its signature
         env:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/updater.key")"
+          rm -rf src-tauri/target/release/bundle/nsis
           tauri build --bundles nsis --config "$RUNNER_TEMP/v0.9.2.conf.json"
           mkdir -p "$RUNNER_TEMP/new"
-          cp src-tauri/target/release/bundle/nsis/*-setup.exe src-tauri/target/release/bundle/nsis/*-setup.exe.sig "$RUNNER_TEMP/new/"
+          cp src-tauri/target/release/bundle/nsis/Anthill_0.9.2_x64-setup.exe src-tauri/target/release/bundle/nsis/Anthill_0.9.2_x64-setup.exe.sig "$RUNNER_TEMP/new/"
           ls -la "$RUNNER_TEMP/old" "$RUNNER_TEMP/new"
 
       - name: Install the old build and watch it update itself
         run: |
-          OLD=$(ls "$RUNNER_TEMP"/old/*-setup.exe | head -1)
-          NEW=$(ls "$RUNNER_TEMP"/new/*-setup.exe | head -1)
+          OLD="$RUNNER_TEMP/old/Anthill_0.9.1_x64-setup.exe"
+          NEW="$RUNNER_TEMP/new/Anthill_0.9.2_x64-setup.exe"
           python scripts/windows_update_check.py "$OLD" "$NEW" "$NEW.sig" --new-version 0.9.2
 
       - name: Stop anything left running
