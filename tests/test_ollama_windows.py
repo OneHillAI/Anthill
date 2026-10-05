@@ -64,13 +64,18 @@ def fresh():
     return copy
 
 
+def _trusting(monkeypatch, blob: bytes) -> None:
+    """Pin the checksum to this test archive, the way production pins the real one."""
+    monkeypatch.setattr(ollama, "_OLLAMA_WINDOWS_SHA256", hashlib.sha256(blob).hexdigest())
+
+
 def _real_runtime() -> bytes:
     return _zip_bytes("ollama.exe", "lib/ollama/cuda_v12/ggml-cuda.dll")
 
 
 def test_windows_download_unpacks_the_verified_runtime_into_the_data_dir(windows, monkeypatch):
     blob = _real_runtime()
-    monkeypatch.setattr(ollama, "_OLLAMA_WINDOWS_SHA256", hashlib.sha256(blob).hexdigest())
+    _trusting(monkeypatch, blob)
     monkeypatch.setattr(ollama, "_http_download", _writes(blob))
     path = ollama._download_ollama_windows()
     runtime = windows / "home" / "ollama-runtime"
@@ -82,10 +87,9 @@ def test_windows_download_unpacks_the_verified_runtime_into_the_data_dir(windows
 
 def test_windows_download_dispatches_from_download_ollama(windows, monkeypatch):
     calls: list[str] = []
+    _trusting(monkeypatch, _real_runtime())
     monkeypatch.setattr(ollama, "_http_download", _writes(_real_runtime(), calls))
-    assert ollama.download_ollama(verify=False) == str(
-        windows / "home" / "ollama-runtime" / "ollama.exe"
-    )
+    assert ollama.download_ollama() == str(windows / "home" / "ollama-runtime" / "ollama.exe")
     assert calls == [ollama._OLLAMA_WINDOWS_URL]
     assert ollama._OLLAMA_WINDOWS_URL.endswith("/v0.30.10/ollama-windows-amd64.zip")
 
@@ -98,40 +102,55 @@ def test_windows_download_rejects_a_bad_checksum_and_leaves_nothing(windows, mon
 
 
 def test_windows_download_needs_the_executable_in_the_archive(windows, monkeypatch):
-    monkeypatch.setattr(ollama, "_http_download", _writes(_zip_bytes("lib/ollama/x.dll")))
-    assert ollama._download_ollama_windows(verify=False) is None
+    blob = _zip_bytes("lib/ollama/x.dll")
+    _trusting(monkeypatch, blob)
+    monkeypatch.setattr(ollama, "_http_download", _writes(blob))
+    assert ollama._download_ollama_windows() is None
     assert not (windows / "home" / "ollama-runtime").exists()
+
+
+def test_windows_download_refuses_an_archive_that_writes_outside_the_data_dir(windows, monkeypatch):
+    blob = _zip_bytes("ollama.exe", "../escape.txt")
+    _trusting(monkeypatch, blob)
+    monkeypatch.setattr(ollama, "_http_download", _writes(blob))
+    assert ollama._download_ollama_windows() is None
+    assert not (windows / "home" / "ollama-runtime").exists()
+    assert not (windows / "home" / "escape.txt").exists()
+    assert not (windows / "escape.txt").exists()
 
 
 def test_windows_download_replaces_an_incomplete_earlier_attempt(windows, monkeypatch):
     stale = windows / "home" / "ollama-runtime"
     stale.mkdir(parents=True)
     (stale / "half-written.dll").write_bytes(b"\x00")  # a runtime with no ollama.exe
+    _trusting(monkeypatch, _real_runtime())
     monkeypatch.setattr(ollama, "_http_download", _writes(_real_runtime()))
-    assert ollama._download_ollama_windows(verify=False) == str(stale / "ollama.exe")
+    assert ollama._download_ollama_windows() == str(stale / "ollama.exe")
     assert not (stale / "half-written.dll").exists()
 
 
 def test_windows_download_is_skipped_when_the_disk_is_nearly_full(windows, monkeypatch):
     calls: list[str] = []
+    _trusting(monkeypatch, _real_runtime())
     monkeypatch.setattr(ollama, "_http_download", _writes(_real_runtime(), calls))
     monkeypatch.setattr(
         ollama.shutil,
         "disk_usage",
         lambda p: type("U", (), {"free": 1024**3, "total": 1, "used": 1})(),
     )
-    assert ollama._download_ollama_windows(verify=False) is None
+    assert ollama._download_ollama_windows() is None
     assert calls == []  # never started a gigabyte download it could not finish
 
 
 def test_windows_download_does_not_download_twice(windows, monkeypatch):
     calls: list[str] = []
+    _trusting(monkeypatch, _real_runtime())
     monkeypatch.setattr(ollama, "_http_download", _writes(_real_runtime(), calls))
-    first = ollama._download_ollama_windows(verify=False)
+    first = ollama._download_ollama_windows()
     Path(first).chmod(
         0o755
     )  # the executable bit only matters off Windows, where this runs as a test
-    assert ollama._download_ollama_windows(verify=False) == first
+    assert ollama._download_ollama_windows() == first
     assert len(calls) == 1
 
 
@@ -251,7 +270,7 @@ def test_macos_never_takes_the_windows_download(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
     called: list[str] = []
     monkeypatch.setattr(ollama, "_download_ollama_windows", lambda **kw: called.append("windows"))
-    ollama.download_ollama(fetch=lambda url: b"not a tarball", verify=False)
+    ollama.download_ollama(fetch=lambda url: b"not a tarball")
     assert called == []
 
 

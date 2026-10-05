@@ -539,6 +539,23 @@ def _http_download(url: str, dest: Path) -> str:
     return digest.hexdigest()
 
 
+def _extract_zip_safely(archive: zipfile.ZipFile, dest: Path) -> bool:
+    """Unpack ``archive`` into ``dest``, member by member. False (with the rest left unwritten) if any
+    member would land outside ``dest``, the same guarantee ``filter="data"`` gives the macOS tarball."""
+    root = dest.resolve()
+    for member in archive.infolist():
+        target = (dest / member.filename).resolve()
+        if root != target and root not in target.parents:
+            return False
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member) as source, target.open("wb") as out:
+            shutil.copyfileobj(source, out)
+    return True
+
+
 def _download_ollama_windows(
     *, stream: Callable[[str, Path], str] | None = None, verify: bool = True
 ) -> str | None:
@@ -563,7 +580,8 @@ def _download_ollama_windows(
             return None
         unpacked = staging / "runtime"
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(unpacked)  # strips absolute and ".." member names
+            if not _extract_zip_safely(zf, unpacked):
+                return None
         archive.unlink()
         if not (unpacked / "ollama.exe").exists():
             return None
