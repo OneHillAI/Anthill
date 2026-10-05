@@ -10,11 +10,14 @@ import sys
 import tarfile
 import time
 import urllib.parse
+import zipfile
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import httpx
+from platformdirs import user_data_dir
 
+from ..platform_layer import detached_process_kwargs
 from .base import BackendError, ChatResult, Message, _mean_logprob
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -449,6 +452,13 @@ _OLLAMA_DARWIN_SHA256 = "ad8a4d2918ed09480b8160419570602b4f49e48c9e3792efb601c0f
 _OLLAMA_DARWIN_URL = (
     f"https://github.com/ollama/ollama/releases/download/v{_OLLAMA_VERSION}/ollama-darwin.tgz"
 )
+# Windows: Ollama's own zip (ollama.exe at the root, the GPU runtimes under lib/ollama). It is 1.46 GB because
+# it carries the NVIDIA runtime; without an NVIDIA card Ollama simply runs on the CPU.
+_OLLAMA_WINDOWS_SHA256 = "9606cee7501703a0969682667def313130f99ed73f44a88a7a8efe82d4b565f0"
+_OLLAMA_WINDOWS_URL = f"https://github.com/ollama/ollama/releases/download/v{_OLLAMA_VERSION}/ollama-windows-amd64.zip"
+_OLLAMA_WINDOWS_MIN_FREE_BYTES = (
+    5 * 1024**3
+)  # the zip plus what it unpacks to (about 2 GB) plus slack
 
 
 def _managed_ollama_dir() -> Path:
@@ -456,13 +466,22 @@ def _managed_ollama_dir() -> Path:
     persists across launches AND app auto-updates (it is not inside the .app bundle, which the
     updater replaces wholesale)."""
     base = os.environ.get("ANTHILL_HOME", "")
-    root = Path(base) if base else (Path.home() / "Library" / "Application Support" / "Anthill")
+    if base:
+        root = Path(base)
+    elif sys.platform == "win32":
+        root = Path(user_data_dir("Anthill", appauthor=False))
+    else:
+        root = Path.home() / "Library" / "Application Support" / "Anthill"
     return root / "ollama-runtime"
+
+
+def _ollama_exe_name() -> str:
+    return "ollama.exe" if sys.platform == "win32" else "ollama"
 
 
 def managed_ollama_bin() -> str | None:
     """The first-run-downloaded Ollama binary in the data dir, or None if it isn't there yet."""
-    cand = _managed_ollama_dir() / "ollama"
+    cand = _managed_ollama_dir() / _ollama_exe_name()
     return str(cand) if cand.exists() and os.access(cand, os.X_OK) else None
 
 
@@ -477,9 +496,11 @@ def download_ollama(
 
     The desktop app calls this on first run when no Ollama is found, so the local model works without
     the user installing anything - while keeping the dmg/auto-update small (the engine is fetched once
-    here, not bundled). macOS only for now; best-effort and silent - any failure returns None and the
+    here, not bundled). macOS and Windows; best-effort and silent - any failure returns None and the
     chat falls back to its "install Ollama" message. The checksum is verified so an unexpected binary
     is never run. ``fetch``/``verify`` are injectable for tests."""
+    if sys.platform == "win32":
+        return _download_ollama_windows(verify=verify)
     if sys.platform != "darwin":
         return None  # other OSes get their own url/checksum when the cross-platform builds land
     if managed_ollama_bin():
@@ -503,9 +524,62 @@ def download_ollama(
     return None
 
 
+def _http_download(url: str, dest: Path) -> str:
+    """Stream ``url`` to the file ``dest`` and return the SHA-256 of what was written. The Windows engine
+    is over a gigabyte, so unlike the macOS one it is never held in memory."""
+    digest = hashlib.sha256()
+    with httpx.stream(
+        "GET", url, follow_redirects=True, timeout=httpx.Timeout(30.0, read=120.0)
+    ) as response:
+        response.raise_for_status()
+        with dest.open("wb") as out:
+            for chunk in response.iter_bytes(1 << 20):
+                out.write(chunk)
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _download_ollama_windows(
+    *, stream: Callable[[str, Path], str] | None = None, verify: bool = True
+) -> str | None:
+    """Download, verify and unpack the pinned Windows Ollama into the data dir; return ``ollama.exe`` or None.
+
+    Everything happens in a staging folder and the finished runtime is moved into place in one step, so a
+    download that dies half way never leaves an ``ollama.exe`` without its libraries. ``stream`` is
+    injectable for tests. Best-effort and silent, like the macOS path."""
+    if managed_ollama_bin():
+        return managed_ollama_bin()
+    final = _managed_ollama_dir()
+    staging = final.parent / (final.name + ".partial")
+    try:
+        final.parent.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(final.parent).free < _OLLAMA_WINDOWS_MIN_FREE_BYTES:
+            return None
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
+        archive = staging / "ollama.zip"
+        digest = (stream or _http_download)(_OLLAMA_WINDOWS_URL, archive)
+        if verify and digest != _OLLAMA_WINDOWS_SHA256:
+            return None
+        unpacked = staging / "runtime"
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(unpacked)  # strips absolute and ".." member names
+        archive.unlink()
+        if not (unpacked / "ollama.exe").exists():
+            return None
+        shutil.rmtree(final, ignore_errors=True)  # an earlier, incomplete attempt
+        os.replace(unpacked, final)
+        return str(final / "ollama.exe")
+    except Exception:
+        return None
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def find_ollama_bin() -> str | None:
     """Locate the ollama binary: the runtime **bundled in the app** first, then a **first-run
-    download** in the data dir, then ``~/bin/ollama`` (bare-binary install), then PATH. Returns the
+    download** in the data dir, then (Windows) the official installer's folder, then ``~/bin/ollama``
+    (bare-binary install), then PATH. Returns the
     absolute path, or None if ollama is not available anywhere. PATH alone is unreliable - a macOS GUI
     app inherits a minimal PATH that often excludes ``~/bin``."""
     bundled = bundled_ollama_bin()
@@ -514,6 +588,10 @@ def find_ollama_bin() -> str | None:
     managed = managed_ollama_bin()
     if managed:
         return managed
+    if sys.platform == "win32":
+        installed = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+        if installed.is_file():
+            return str(installed)
     home_bin = os.path.expanduser("~/bin/ollama")
     if os.path.exists(home_bin) and os.access(home_bin, os.X_OK):
         return home_bin
@@ -528,12 +606,13 @@ def _server_reachable(base_url: str, *, timeout: float = 1.5) -> bool:
 
 
 def _spawn_ollama_serve(ollama_bin: str) -> None:
-    # Detached (new session) so the server outlives the launcher that started it.
+    # Detached (new session; on Windows a detached, windowless process) so the server outlives the
+    # launcher that started it.
     subprocess.Popen(
         [ollama_bin, "serve"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        **detached_process_kwargs(),
     )
 
 

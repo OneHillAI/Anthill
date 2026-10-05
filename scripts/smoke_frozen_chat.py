@@ -2,6 +2,7 @@
 """Release gate: run one real chat end to end against the FROZEN sidecar binary.
 
     python scripts/smoke_frozen_chat.py dist/anthill-server
+    python scripts/smoke_frozen_chat.py dist/anthill-server --real-ollama qwen2.5:0.5b
 
 Why this exists: the packaged app once shipped with a sidecar that was killed by SIGSEGV on every
 chat turn (Arrow's mimalloc allocator crashing on a worker thread inside the PyInstaller build). The
@@ -11,6 +12,10 @@ database, points it at a small fake Ollama (so it needs no model, network, or re
 sends a chat, and requires a real streamed answer and a server that is still alive afterwards. The fake
 reports an embedding model, so the semantic cache is active and the native lancedb/pyarrow path runs,
 exactly as it does for a user.
+
+With --real-ollama MODEL the fake is left out. The backend then fetches and starts its own Ollama exactly as
+it does on a user's first run, the script pulls the small MODEL with it, and the chat is answered by that
+real model (the Windows job runs this; the macOS release build never passes the flag).
 
 Exit status: 0 = the chat completed, 1 = it did not (a native crash shows up as a signal name).
 """
@@ -192,7 +197,42 @@ def _backend_outlives_launcher(proc: subprocess.Popen, base: str, *, wait: float
     return True
 
 
-def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
+def _prepare_real_ollama(
+    data: Path, model: str, proc: subprocess.Popen, *, engine_wait: float = 1800.0
+) -> str | None:
+    """Wait for the backend to fetch and start its own Ollama, then pull ``model``. Returns None when the
+    engine is serving and the model is installed, else why not."""
+    import httpx
+
+    exe = data / "ollama-runtime" / ("ollama.exe" if sys.platform == "win32" else "ollama")
+    print(f"smoke-frozen-chat: waiting for the backend to download Ollama ({exe.parent}) ...", flush=True)
+    deadline = time.time() + engine_wait
+    while not exe.exists():
+        if proc.poll() is not None:
+            return "the backend exited while it should have been downloading Ollama"
+        if time.time() > deadline:
+            return "the backend never finished downloading Ollama"
+        time.sleep(2)
+    print("smoke-frozen-chat: Ollama is in place; waiting for it to answer ...", flush=True)
+    deadline = time.time() + 180
+    while True:
+        try:
+            if httpx.get("http://127.0.0.1:11434/api/tags", timeout=2).status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        if time.time() > deadline:
+            return "the downloaded Ollama never started answering"
+        time.sleep(1)
+    for attempt in (1, 2):  # the model registry is a network service: one retry
+        print(f"smoke-frozen-chat: pulling {model} (attempt {attempt}) ...", flush=True)
+        pulled = subprocess.run([str(exe), "pull", model], timeout=1800)
+        if pulled.returncode == 0:
+            return None
+    return f"could not pull {model}"
+
+
+def run_smoke(binary: str, *, timeout: float = 120.0, real_model: str | None = None) -> int:
     import httpx
 
     # The sidecar runs with its own throwaway working directory, so a relative path (the build script
@@ -206,8 +246,11 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
         return 1
     binary = str(binary_path)
 
-    fake, fake_port = start_fake_ollama()
-    fake_url = f"http://127.0.0.1:{fake_port}"
+    if real_model:
+        fake, fake_url = None, "http://localhost:11434"
+    else:
+        fake, fake_port = start_fake_ollama()
+        fake_url = f"http://127.0.0.1:{fake_port}"
     data = Path(tempfile.mkdtemp(prefix="anthill-smoke-"))
     log_path = data / "server.log"
     env = dict(os.environ)
@@ -221,13 +264,14 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
             "ANTHILL_ENCRYPTION_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
             "ANTHILL_JWT_SECRET": secrets.token_urlsafe(32),
             "ANTHILL_BACKEND": "ollama",
-            "ANTHILL_MODEL": CHAT_MODEL,
-            "ANTHILL_BASE_URL": fake_url,
-            "OLLAMA_HOST": fake_url,  # the embedder reads this one
+            "ANTHILL_MODEL": real_model or CHAT_MODEL,
             "ANTHILL_NO_BROWSER": "1",
             "PYTHONUNBUFFERED": "1",
         }
     )
+    if not real_model:
+        env["ANTHILL_BASE_URL"] = fake_url
+        env["OLLAMA_HOST"] = fake_url  # the embedder reads this one
     for name in list(env):  # never let a developer's mail settings turn setup into a real send
         if name.startswith(("ANTHILL_SMTP", "RESEND")):
             env.pop(name)
@@ -252,6 +296,10 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
         if base is None:
             detail = f"server never became ready ({_signal_name(proc.poll()) if proc.poll() is not None else 'timeout'})"
             return _report(ok, detail, log_path, proc)
+        if real_model:
+            detail = _prepare_real_ollama(data, real_model, proc) or ""
+            if detail:
+                return _report(ok, detail, log_path, proc)
         client = httpx.Client(follow_redirects=False, timeout=timeout)
         password = secrets.token_urlsafe(18)
         email = "smoke@localhost.test"
@@ -281,7 +329,11 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
                 "GET",
                 f"{base}/chat/{m.group(1)}/stream",
                 params={
-                    "message": "how do NDAs differ between Germany and Delaware?",
+                    "message": (
+                        "Reply with the single word: ready"
+                        if real_model
+                        else "how do NDAs differ between Germany and Delaware?"
+                    ),
                     "web": "false",
                 },
             ) as resp:
@@ -322,7 +374,8 @@ def run_smoke(binary: str, *, timeout: float = 120.0) -> int:
         except (ProcessLookupError, subprocess.TimeoutExpired):
             proc.kill()
         log.close()
-        fake.shutdown()
+        if fake:
+            fake.shutdown()
         shutil.rmtree(data, ignore_errors=True)
 
 
@@ -340,7 +393,12 @@ def _report(ok: bool, detail: str, log_path: Path, proc: subprocess.Popen) -> in
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    real = None
+    if len(args) == 3 and args[1] == "--real-ollama":
+        real = args[2]
+        args = args[:1]
+    if len(args) != 1:
         print(__doc__)
         raise SystemExit(2)
-    raise SystemExit(run_smoke(sys.argv[1]))
+    raise SystemExit(run_smoke(args[0], timeout=300.0 if real else 120.0, real_model=real))

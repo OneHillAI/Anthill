@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import errno
 import os
+import subprocess
 import sys
-from typing import IO
+from typing import IO, Any
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -84,3 +85,56 @@ def try_lock_exclusive(handle: IO[str]) -> bool:
     except BlockingIOError:
         return False
     return True
+
+
+def hidden_window_kwargs() -> dict[str, Any]:
+    """Extra ``subprocess`` arguments that stop a child console program flashing a window on Windows.
+
+    Empty everywhere else, so a call that spreads it behaves exactly as before on macOS and Linux."""
+    if not IS_WINDOWS:
+        return {}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW}  # type: ignore[attr-defined]
+
+
+def detached_process_kwargs() -> dict[str, Any]:
+    """``subprocess`` arguments that let a child outlive the process that started it.
+
+    macOS and Linux: a new session. Windows: no console window, no console shared with us, and its own
+    process group, so closing Anthill neither closes it nor sends it our Ctrl+C."""
+    if not IS_WINDOWS:
+        return {"start_new_session": True}
+    flags = (
+        subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+        | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    )
+    return {"creationflags": flags}
+
+
+def memory_gb() -> tuple[float, float] | None:
+    """``(total, available)`` physical memory in GB on Windows, or None elsewhere or if unreadable.
+
+    The other platforms have their own probes in anthill/hosting/sizing.py."""
+    if not IS_WINDOWS:
+        return None
+    import ctypes
+
+    class _MemoryStatus(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = _MemoryStatus()
+    status.dwLength = ctypes.sizeof(_MemoryStatus)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+        return None
+    gb = 1024**3
+    return (status.ullTotalPhys / gb, status.ullAvailPhys / gb)

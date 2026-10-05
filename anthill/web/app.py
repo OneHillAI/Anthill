@@ -32,6 +32,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .. import __version__
 from ..mesh_auth import require_mesh
+from ..platform_layer import hidden_window_kwargs
 from ..wiki.workspace import workspace_for
 from . import audit, metrics
 from .crypto import (
@@ -442,7 +443,9 @@ def _maybe_pull_embedding_model() -> None:
 
             ollama = find_ollama_bin()
             if ollama and ensure_serving():
-                subprocess.run([ollama, "pull", embedder.MODEL_NAME], timeout=7200)
+                subprocess.run(
+                    [ollama, "pull", embedder.MODEL_NAME], timeout=7200, **hidden_window_kwargs()
+                )
         except Exception:
             pass
 
@@ -2363,7 +2366,12 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
 
             ollama = find_ollama_bin()
             if ollama and ensure_serving():
-                ok = subprocess.run([ollama, "pull", tag], timeout=7200).returncode == 0
+                ok = (
+                    subprocess.run(
+                        [ollama, "pull", tag], timeout=7200, **hidden_window_kwargs()
+                    ).returncode
+                    == 0
+                )
         except Exception:
             ok = False
         # Clear the flag; activate the new model only if the download actually succeeded.
