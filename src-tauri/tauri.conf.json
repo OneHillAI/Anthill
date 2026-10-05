@@ -40,6 +40,15 @@
       "minimumSystemVersion": "11.0",
       "entitlements": "../scripts/entitlements.plist",
       "infoPlist": "Info.plist"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
     }
   },
   "plugins": {
