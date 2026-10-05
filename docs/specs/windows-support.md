@@ -1,6 +1,6 @@
 # Spec: Anthill for Windows
 
-Status: Phase A merged (the backend builds and starts on Windows). Phase B in progress (local model).
+Status: Phases A (build and start) and B (local model) merged. Phase C in progress, in three pull requests: C1 the installer and the shell, tested in CI and unsigned; C2 the release flow; C3 signing and the self-update proof. Windows is an alpha; macOS is a beta.
 Lane: `pillar:platform`
 Relates to: `src-tauri/tauri.conf.json`, `src-tauri/src/lib.rs`, `scripts/build-sidecar.sh`, `anthill/desktop.py`,
 `anthill/inference/ollama.py`, `.github/workflows/desktop-release.yml`, `.github/workflows/desktop-beta.yml`,
@@ -49,7 +49,8 @@ R6. Quitting or crashing the shell SHALL NOT leave the backend running. On Windo
 equivalent, tested by killing the shell.
 
 R7. Installers and update bundles SHALL be signed. Until signing exists, a build may be published only as a clearly
-marked "Windows preview" pre-release, never as the latest release.
+marked "Windows alpha" pre-release, never as the latest release. Windows is an alpha as a whole until the maintainer says
+otherwise.
 
 R8. Windows SHALL update itself through the same feed (platform key `windows-x86_64`) and the same updater signing key.
 
@@ -97,12 +98,16 @@ Each phase is its own PR or small series, each with tests, and none changes how 
 - **Triage.** Issues and PRs carry an `os:windows` label next to the lane label, and the morning digest shows each
   platform's build status.
 
-## 6. Open decisions for the founder
+## 6. Decisions
 
-1. **Signing.** Either a cloud signing service (monthly fee, works from CI) or a certificate from a certificate authority.
-   Amounts to be confirmed before choosing. Until then, Windows preview builds only.
-2. **A real Windows test machine or virtual machine**, and who runs the real-device check.
-3. **Audience of the first Windows build:** testers only, or a public preview.
+1. **Signing (open).** The preferred route is SignPath Foundation, which is free for open source. Its terms
+   exclude a project with "commercial dual-licensing for all components", and `NOTICE` and the README offer a
+   commercial licence next to the AGPL, so SignPath has to be asked whether that disqualifies Anthill. The fallback is
+   Azure Artifact Signing (about $9.99 a month, organisations in the USA, Canada, the EU and the UK), which the
+   maintainer would rather avoid. A certificate from a certificate authority is the third choice. Until signing exists,
+   Windows builds are alpha pre-releases for testers.
+2. **A real Windows machine (decided, 2026-10-05).** One is available for the real-device check.
+3. **Audience of the first Windows build (decided, 2026-10-05).** Windows is an alpha, for testers only.
 
 ## 7. Out of scope
 
