@@ -65,7 +65,8 @@ the backend, so no backend is running while the installer replaces the program f
 The `Windows update` check proves this on every pull request that touches the shell: it builds two installers with a
 throwaway key (the real key and the real feed are never used), serves a local feed that offers the newer one, installs
 the older one, and requires the app to ask the feed, download the new installer, be replaced, start and answer, be the
-only copy running, and leave nothing behind when closed (`scripts/windows_update_check.py`).
+only copy running, and leave nothing behind when closed (`scripts/windows_update_check.py`). It passes: the Windows
+updater quits the old app, the installer replaces the files and starts the new version by itself.
 
 Signing order matters once Windows code signing exists. The updater signature (`.sig`) covers the exact bytes of the
 installer, so the installer must be signed by Windows code signing first and the updater signature made after it;
