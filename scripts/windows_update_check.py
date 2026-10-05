@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -93,6 +94,22 @@ def file_version(path: Path) -> str:
     return base._run(["powershell", "-NoProfile", "-Command", command]).stdout.strip()
 
 
+def launch_logged(app_dir: Path, app_exe: str, log_path: Path) -> subprocess.Popen:
+    """Start the app with its output in a file: it has no console, and its update and startup errors go to stderr."""
+    log = log_path.open("w", encoding="utf-8", errors="replace")
+    return subprocess.Popen([str(app_dir / app_exe)], cwd=str(app_dir), stdout=log, stderr=subprocess.STDOUT)
+
+
+def show_app_log(app: subprocess.Popen | None, log_path: Path) -> None:
+    exit_code = app.poll() if app else None
+    print(f"--- the app we started: {'still running' if exit_code is None else f'exited with {exit_code}'} ---", flush=True)
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    print(text[-3000:] or "(no output)", flush=True)
+
+
 def main(old: str, new: str, signature_file: str, new_version: str, port: int = 8765) -> int:
     local = Path(os.environ["LOCALAPPDATA"])
     ok = True
@@ -118,12 +135,25 @@ def main(old: str, new: str, signature_file: str, new_version: str, port: int = 
             return 1
         app_exe = base.main_exe_name(app_dir) or app_exe
 
+        # The installer starts the app itself. Stop that copy and start our own, so its output is captured.
+        base.stop_everything(app_exe)
+        base.wait_for(base.nothing_left, 20)
+        app_log = folder / "app.log"
+        app = launch_logged(app_dir, app_exe, app_log)
+
         # 2. it must ask the feed, download the new installer, and be replaced
-        ok &= base.report("the app asks the update feed", bool(base.wait_for(lambda: feed.asked("latest.json"), 120)), str(feed.requests))
-        ok &= base.report("the app downloads the new installer", bool(base.wait_for(lambda: feed.asked(installer_name), 120)))
+        asked = base.wait_for(lambda: feed.asked("latest.json"), 90)
+        ok &= base.report("the app asks the update feed", bool(asked), str(feed.requests))
+        if not asked:  # nothing more can follow; show why instead of waiting out the other steps
+            show_app_log(app, app_log)
+            base.diagnostics(app_exe, app_dir)
+            return 1
+        downloaded = base.wait_for(lambda: feed.asked(installer_name), 120)
+        ok &= base.report("the app downloads the new installer", bool(downloaded))
         replaced = base.wait_for(lambda: version_matches(file_version(app_dir / app_exe), new_version), 240)
         ok &= base.report("the app is replaced by the new version", bool(replaced), file_version(app_dir / app_exe))
         if not replaced:
+            show_app_log(app, app_log)
             base.diagnostics(app_exe, app_dir)
             return 1
 
