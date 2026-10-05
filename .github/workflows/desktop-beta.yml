@@ -275,3 +275,13 @@ jobs:
           # Make sure neither is ever "latest": the live app's feed is the newest NON-pre-release.
           gh release edit "$TAG" --prerelease --latest=false
           gh release edit beta-channel --prerelease --latest=false
+
+  # Windows alpha: built, install-checked and added to the beta by its own workflow, after the macOS job above has
+  # published the beta. The macOS job is not changed by it.
+  windows:
+    needs: beta
+    uses: ./.github/workflows/desktop-beta-windows.yml
+    with:
+      version: ${{ inputs.version }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit

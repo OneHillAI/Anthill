@@ -1,0 +1,181 @@
+# Cut Beta (Windows): add the Windows alpha to a beta (spec: docs/specs/windows-support.md, Phase C2).
+#
+# Cut Beta calls this after its macOS job has published the beta release; it can also be started by hand, and does
+# a DRY RUN unless told otherwise. It builds the Windows "Anthill Beta" installer with the beta identity, attaches
+# the installer and its signed update bundle to the beta pre-release, and tauri-action adds the `windows-x86_64`
+# entry to that release's latest.json. It then installs the built beta on the runner and runs the same install,
+# crash, close and uninstall check as the pull-request job, checks the release holds every Windows file
+# (scripts/verify_release.py), and only then updates the rolling beta-channel feed that beta apps follow. So a
+# Windows build that fails never reaches testers, and the macOS beta and its feed are never touched by this file.
+#
+# Windows is an alpha: the installer is not signed yet (Windows shows a SmartScreen warning), and the release notes
+# say so. Nothing here publishes a stable release or touches the live feed or download.
+name: Cut Beta (Windows)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Beta version, X.Y.Z-rc.N"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and check only; change no release or feed"
+        required: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Beta version, X.Y.Z-rc.N (a dry run needs a version no beta has used; a real run needs the beta Cut Beta already published)"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and check only; change no release or feed (leave ticked until it passes)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+# Not the caller's group (cut-beta): a called workflow in its caller's group would wait for itself.
+concurrency:
+  group: cut-beta-windows
+  cancel-in-progress: false
+
+jobs:
+  windows-beta:
+    name: Windows beta build, install check and feed
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      SIGN_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A beta is only ever cut from main, so what is tested is what is on main.
+      - name: Refuse anything but main
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Cut Beta (Windows) only runs from main (this run is on ${GITHUB_REF})."; exit 1
+          fi
+
+      - name: Signing not configured - skipping
+        if: ${{ env.SIGN_KEY == '' }}
+        run: |
+          echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set; a beta cannot be signed, so none is built."; exit 1
+
+      # A real run adds to the beta Cut Beta just published, so that release must exist and be a pre-release.
+      # A dry run has no release yet, so the version rules apply to it as they do to Cut Beta.
+      - name: Check the version and the beta release
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            STABLE="$(python scripts/beta_release.py stable-version)"
+            python scripts/beta_release.py check --version "$VERSION" --stable "$STABLE" --tags "$(git tag -l)"
+          else
+            IS_PRE="$(gh release view "v${VERSION}" --json isPrerelease --jq .isPrerelease)"
+            [ "$IS_PRE" = "true" ] || { echo "::error::v${VERSION} is not a published beta pre-release."; exit 1; }
+          fi
+
+      - name: Require green CI on this commit
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
+            --jq '.check_runs' | jq -s 'add' > "$RUNNER_TEMP/check-runs.json"
+          python scripts/beta_release.py ci-green "$RUNNER_TEMP/check-runs.json"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # uv comes from a commit-pinned action, not from a script piped straight into a shell.
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The beta builds, updates and displays as the rc. Patched in the checkout only, never committed.
+      - name: Set the beta version in the checkout
+        run: python scripts/beta_release.py apply --version "$VERSION"
+
+      - name: Build the anthill-server sidecar
+        run: bash scripts/build-sidecar.sh
+
+      - name: Install the Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Generate app icons
+        run: tauri icon assets/anthill-icon-1024.png
+
+      # Build the "Anthill Beta" installer and its updater bundle with the beta identity. With dry_run, tagName is
+      # empty: build only, nothing is attached. Otherwise the files are added to the beta pre-release (never "latest").
+      - name: Build + attach the Windows beta and update artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ inputs.dry_run == false && format('v{0}', inputs.version) || '' }}
+          # Pin the tag to the commit that was built, not to whatever main is when the release is touched.
+          commitish: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: true
+          tauriScript: tauri
+          projectPath: .
+          args: --bundles nsis --config src-tauri/tauri.beta.conf.json
+
+      # The same install, crash, close and uninstall check as the pull-request job, on the build that would ship.
+      - name: Install the beta, run it, crash it, close it, uninstall it
+        env:
+          ANTHILL_CHECK_DATA_FOLDER: Anthill Beta
+        run: |
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          python scripts/windows_installer_check.py "$INSTALLER"
+
+      - name: The beta release holds every Windows file
+        if: ${{ inputs.dry_run == false }}
+        run: python scripts/verify_release.py --tag "v${VERSION}" --platform windows
+
+      # Say plainly on the release page what the Windows file is.
+      - name: Mark the Windows file as an alpha in the release notes
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          TAG="v${VERSION}"
+          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+          if ! grep -q "Windows alpha" "$RUNNER_TEMP/notes.md"; then
+            printf '\n\n**Windows alpha.** The Windows installer is an early alpha for testers. It is not signed yet, so Windows shows a SmartScreen warning: choose "More info", then "Run anyway".\n' >> "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+      # Last, so a failure above never reaches the apps: the rolling feed the beta apps follow (latest.json now holds
+      # macOS and Windows) and a fixed-name download of the Windows installer. The stable download is NOT touched.
+      - name: Publish the Windows beta on the beta feed
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          cp "$INSTALLER" "$RUNNER_TEMP/Anthill-Beta-Windows-alpha-setup.exe"
+          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP" --clobber
+          gh release upload beta-channel "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/Anthill-Beta-Windows-alpha-setup.exe" --clobber
+          # Make sure the feed is never "latest": the live app's feed is the newest NON-pre-release.
+          gh release edit beta-channel --prerelease --latest=false
+
+      - name: Stop anything left running
+        if: always()
+        run: |
+          taskkill //F //IM anthill-desktop.exe || true
+          taskkill //F //IM anthill-server.exe || true
+          taskkill //F //IM ollama.exe || true

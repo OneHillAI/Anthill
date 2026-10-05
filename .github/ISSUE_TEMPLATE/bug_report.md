@@ -17,9 +17,9 @@ What you expected to happen.
 3.
 
 **Environment**
-- OS (e.g. macOS 14, Ubuntu 22.04):
+- OS and version (e.g. macOS 14, Windows 11, Ubuntu 22.04):
 - Python version (`python --version`):
-- Anthill version / commit:
+- Anthill version / commit (for the Windows alpha, the beta number on the installer):
 - Model (e.g. `qwen2.5:3b`):
 
 **Logs / screenshots**
