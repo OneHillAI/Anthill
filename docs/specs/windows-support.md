@@ -1,6 +1,6 @@
 # Spec: Anthill for Windows
 
-Status: proposed. Research done 2026-10-04; nothing built yet.
+Status: Phase A merged (the backend builds and starts on Windows). Phase B in progress (local model).
 Lane: `pillar:platform`
 Relates to: `src-tauri/tauri.conf.json`, `src-tauri/src/lib.rs`, `scripts/build-sidecar.sh`, `anthill/desktop.py`,
 `anthill/inference/ollama.py`, `.github/workflows/desktop-release.yml`, `.github/workflows/desktop-beta.yml`,

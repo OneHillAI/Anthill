@@ -104,3 +104,21 @@ def test_backend_that_keeps_serving_after_its_launcher_dies_is_reported(smoke):
         server.shutdown()
         server.server_close()
     assert smoke._backend_outlives_launcher(_Launcher(), base, wait=1.0) is False
+
+
+class _Process:
+    def __init__(self, exited: bool):
+        self._exited = exited
+
+    def poll(self):
+        return 1 if self._exited else None
+
+
+def test_real_ollama_mode_reports_a_backend_that_died_while_downloading(smoke, tmp_path):
+    why = smoke._prepare_real_ollama(tmp_path, "tiny:1b", _Process(exited=True), engine_wait=5)
+    assert why and "exited" in why
+
+
+def test_real_ollama_mode_gives_up_when_the_engine_never_arrives(smoke, tmp_path):
+    why = smoke._prepare_real_ollama(tmp_path, "tiny:1b", _Process(exited=False), engine_wait=0.1)
+    assert why and "never finished downloading Ollama" in why

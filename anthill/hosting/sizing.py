@@ -27,6 +27,8 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
+from ..platform_layer import hidden_window_kwargs, memory_gb
+
 _GB_PER_B_Q4 = 0.55  # GB of memory per billion params at 4-bit (weights, plus a little overhead)
 _GB_PER_B_FP16 = (
     2.0  # GB per billion params at full precision (bf16/fp16) - vLLM's default on a cloud GPU
@@ -1125,6 +1127,7 @@ def _nvidia_vram_gb() -> float | None:
             capture_output=True,
             text=True,
             timeout=5,
+            **hidden_window_kwargs(),
         )
         if out.returncode == 0:
             vals = [int(x) for x in out.stdout.split() if x.strip().isdigit()]
@@ -1136,6 +1139,10 @@ def _nvidia_vram_gb() -> float | None:
 
 
 def _posix_ram_gb() -> float | None:
+    """Total physical RAM in GB on Linux (and, through the platform layer, on Windows)."""
+    if platform.system() == "Windows":
+        memory = memory_gb()
+        return memory[0] if memory else None
     try:
         import os
 
@@ -1182,6 +1189,9 @@ def free_mem_gb() -> float | None:
         if system == "Darwin":
             out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5)
             return _parse_vm_stat_free_gb(out.stdout) if out.returncode == 0 else None
+        if system == "Windows":
+            memory = memory_gb()
+            return memory[1] if memory else None
         with open("/proc/meminfo") as fh:  # Linux
             for line in fh:
                 if line.startswith("MemAvailable:"):
