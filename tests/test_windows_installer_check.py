@@ -55,11 +55,22 @@ def test_listening_ports_are_only_the_backends_loopback_ones(check):
     assert check.parse_listening_ports(NETSTAT, {1}) == []
 
 
-def test_installed_app_is_found_in_either_per_user_folder(check, tmp_path):
+def test_installed_app_is_the_folder_holding_the_backend(check, tmp_path):
     assert check.find_installed_app(tmp_path) is None
     (tmp_path / "Anthill").mkdir()
-    (tmp_path / "Anthill" / "Anthill.exe").write_bytes(b"")
+    (tmp_path / "Anthill" / "anthill-desktop.exe").write_bytes(
+        b""
+    )  # no backend yet: not the install
+    assert check.find_installed_app(tmp_path) is None
+    (tmp_path / "Anthill" / "anthill-server.exe").write_bytes(b"")
     assert check.find_installed_app(tmp_path) == tmp_path / "Anthill"
     (tmp_path / "Programs" / "Anthill").mkdir(parents=True)
-    (tmp_path / "Programs" / "Anthill" / "Anthill.exe").write_bytes(b"")
+    (tmp_path / "Programs" / "Anthill" / "anthill-server.exe").write_bytes(b"")
     assert check.find_installed_app(tmp_path) == tmp_path / "Programs" / "Anthill"  # Programs wins
+
+
+def test_the_shell_is_the_executable_that_is_not_the_backend_or_the_uninstaller(check, tmp_path):
+    assert check.main_exe_name(tmp_path) is None
+    for name in ("anthill-server.exe", "uninstall.exe", "anthill-desktop.exe", "notes.txt"):
+        (tmp_path / name).write_bytes(b"")
+    assert check.main_exe_name(tmp_path) == "anthill-desktop.exe"

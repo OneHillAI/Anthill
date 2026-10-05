@@ -6,7 +6,7 @@
 This is the automatable half of the real-machine checklist (docs/releasing.md). On a clean Windows machine it:
 
 1. installs the NSIS installer silently, for the current user;
-2. starts Anthill and requires the backend to come up and answer, and the window to be shown;
+2. waits for Anthill (the installer starts it) and requires the backend to come up and answer, and the window to be shown;
 3. kills the app the hard way (a crash) and requires the backend to disappear by itself;
 4. starts it again, closes it the normal way, and requires nothing to be left running;
 5. uninstalls, and requires the user's data to survive.
@@ -28,8 +28,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-APP_EXE = "Anthill.exe"
 SIDECAR_EXE = "anthill-server.exe"
+UNINSTALLER_EXE = "uninstall.exe"
 
 
 # ── parsing (no Windows needed) ──────────────────────────────────────────────────────────────────
@@ -60,11 +60,24 @@ def parse_listening_ports(netstat_output: str, pids: set[int]) -> list[int]:
 
 
 def find_installed_app(local_app_data: Path) -> Path | None:
-    """The folder a per-user install put ``Anthill.exe`` in, under the places the installer is known to use."""
-    for candidate in (local_app_data / "Programs" / "Anthill", local_app_data / "Anthill"):
-        if (candidate / APP_EXE).is_file():
-            return candidate
+    """The folder a per-user install put the app in: the one holding the bundled backend, ``anthill-server.exe``.
+
+    Looked for in the places the installer is known to use and one level under them, so a change of Tauri's
+    default folder does not need a change here."""
+    for parent in (local_app_data / "Programs", local_app_data):
+        if not parent.is_dir():
+            continue
+        for candidate in (parent, *sorted(p for p in parent.iterdir() if p.is_dir())):
+            if (candidate / SIDECAR_EXE).is_file():
+                return candidate
     return None
+
+
+def main_exe_name(app_dir: Path) -> str | None:
+    """The desktop shell's executable in the install folder: the program that is neither the backend nor the
+    uninstaller (it is named after the Rust package, not the product)."""
+    others = sorted(p.name for p in app_dir.glob("*.exe") if p.name.lower() not in (SIDECAR_EXE, UNINSTALLER_EXE))
+    return others[0] if others else None
 
 
 # ── Windows side ─────────────────────────────────────────────────────────────────────────────────
@@ -112,16 +125,22 @@ def report(label: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
-def diagnostics() -> None:
+def diagnostics(app_exe: str = "", app_dir: Path | None = None) -> None:
     print("--- diagnostics ---", flush=True)
-    for image in (APP_EXE, SIDECAR_EXE, "ollama.exe", "msedgewebview2.exe"):
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    for folder in (local, local / "Programs", app_dir):
+        if folder and folder.is_dir():
+            print(f"{folder}: {sorted(p.name for p in folder.iterdir())[:40]}", flush=True)
+    for image in (app_exe, SIDECAR_EXE, "ollama.exe", "msedgewebview2.exe"):
+        if not image:
+            continue
         rows = processes(image)
         print(f"{image}: {[(r.get('PID'), r.get('Window Title')) for r in rows]}", flush=True)
     print(_run(["netstat", "-ano", "-p", "TCP"]).stdout[-1500:], flush=True)
 
 
-def start_app(app_dir: Path) -> subprocess.Popen:
-    return subprocess.Popen([str(app_dir / APP_EXE)], cwd=str(app_dir))
+def start_app(app_dir: Path, app_exe: str) -> subprocess.Popen:
+    return subprocess.Popen([str(app_dir / app_exe)], cwd=str(app_dir))
 
 
 def backend_serving() -> int | None:
@@ -131,12 +150,17 @@ def backend_serving() -> int | None:
     return None
 
 
-def window_title_shown() -> bool:
-    return any("Anthill" in (row.get("Window Title") or "") for row in processes(APP_EXE))
+def window_title_shown(app_exe: str) -> bool:
+    return any("Anthill" in (row.get("Window Title") or "") for row in processes(app_exe))
 
 
 def nothing_left() -> bool:
     return not pids(SIDECAR_EXE)
+
+
+def stop_everything(app_exe: str) -> None:
+    for image in (app_exe, SIDECAR_EXE):
+        _run(["taskkill", "/F", "/IM", image])
 
 
 def main(installer: str) -> int:
@@ -144,51 +168,56 @@ def main(installer: str) -> int:
     data_dir = local / "Anthill"
     ok = True
 
-    # 1. install, for the current user, with no prompts
+    # 1. install, for the current user, with no prompts. The installer starts the app itself when it is done.
     result = _run([installer, "/S"])
     app_dir = wait_for(lambda: find_installed_app(local), 120)
     ok &= report("installs silently for the current user", bool(app_dir), f"exit {result.returncode}; {app_dir}")
     if not app_dir:
         diagnostics()
         return 1
-    ok &= report("the backend is installed next to the app", (app_dir / SIDECAR_EXE).is_file())
+    app_exe = main_exe_name(app_dir)
+    ok &= report("the app and its backend are installed side by side", bool(app_exe), str(app_exe))
+    if not app_exe:
+        diagnostics("", app_dir)
+        return 1
 
-    # 2. start it; the backend must answer and the window must be shown
-    app = start_app(app_dir)
+    # 2. the app must come up: the installer started it, so give it time, and start it ourselves if it did not
+    wait_for(lambda: pids(app_exe), 20)
+    if not pids(app_exe):
+        start_app(app_dir, app_exe)
     port = wait_for(backend_serving, 150)
     ok &= report("the backend starts and answers", bool(port), f"port {port}")
     if not port:
-        diagnostics()
+        diagnostics(app_exe, app_dir)
         return 1
-    ok &= report("the window is shown", bool(wait_for(window_title_shown, 30)))
+    ok &= report("the window is shown", bool(wait_for(lambda: window_title_shown(app_exe), 30)))
     ok &= report("the app keeps its data in the data folder", (data_dir / "secrets.env").is_file(), str(data_dir))
 
     # 3. a crash: kill the shell the hard way; the backend must go by itself
-    _run(["taskkill", "/F", "/PID", str(app.pid)])
+    _run(["taskkill", "/F", "/IM", app_exe])
     ok &= report("the backend stops when the app crashes", bool(wait_for(nothing_left, 20)))
     if not nothing_left():
-        diagnostics()
+        diagnostics(app_exe, app_dir)
         _run(["taskkill", "/F", "/IM", SIDECAR_EXE])
 
     # 4. a normal close: ask the window to close; nothing must be left
-    app = start_app(app_dir)
+    start_app(app_dir, app_exe)
     port = wait_for(backend_serving, 150)
     ok &= report("it starts again after a crash", bool(port), f"port {port}")
     if port:
-        _run(["taskkill", "/PID", str(app.pid)])  # no /F: asks the window to close, like the close button
-        gone = wait_for(lambda: nothing_left() and not pids(APP_EXE), 30)
+        _run(["taskkill", "/IM", app_exe])  # no /F: asks the window to close, like the close button
+        gone = wait_for(lambda: nothing_left() and not pids(app_exe), 30)
         ok &= report("nothing is left running after a normal close", bool(gone))
         if not gone:
-            diagnostics()
-    for image in (APP_EXE, SIDECAR_EXE):
-        _run(["taskkill", "/F", "/IM", image])
+            diagnostics(app_exe, app_dir)
+    stop_everything(app_exe)
 
     # 5. uninstall; the user's data must stay
-    uninstaller = app_dir / "uninstall.exe"
+    uninstaller = app_dir / UNINSTALLER_EXE
     ok &= report("an uninstaller was installed", uninstaller.is_file())
     if uninstaller.is_file():
         _run([str(uninstaller), "/S"])
-        removed = wait_for(lambda: not (app_dir / APP_EXE).exists(), 60)
+        removed = wait_for(lambda: not (app_dir / app_exe).exists(), 60)
         ok &= report("uninstalls", bool(removed))
     ok &= report("the user's data survives the uninstall", (data_dir / "secrets.env").is_file())
 
