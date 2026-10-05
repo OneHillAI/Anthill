@@ -56,6 +56,21 @@ the repo ever goes private again, auto-update stops for outside installs. In tha
 `latest.json` and the signed artifacts on a public channel and point `plugins.updater.endpoints`
 there instead.
 
+## Windows
+
+The Windows alpha updates through the same feed and the same updater key: the `windows-x86_64` entry in `latest.json`
+points at the NSIS installer (`*_x64-setup.exe`) and its `.sig`. On launch the shell checks the feed before it starts
+the backend, so no backend is running while the installer replaces the program files.
+
+The `Windows update` check proves this on every pull request that touches the shell: it builds two installers with a
+throwaway key (the real key and the real feed are never used), serves a local feed that offers the newer one, installs
+the older one, and requires the app to ask the feed, download the new installer, be replaced, start and answer, be the
+only copy running, and leave nothing behind when closed (`scripts/windows_update_check.py`).
+
+Signing order matters once Windows code signing exists. The updater signature (`.sig`) covers the exact bytes of the
+installer, so the installer must be signed by Windows code signing first and the updater signature made after it;
+changing the installer afterwards makes every update fail verification.
+
 ## Releasing
 
 Cut a release as usual (`scripts/check-release.sh` still gates the version + changelog):
