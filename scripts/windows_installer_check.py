@@ -11,7 +11,7 @@ This is the automatable half of the real-machine checklist (docs/releasing.md). 
 4. starts it again, closes it the normal way, and requires nothing to be left running;
 5. uninstalls, and requires the user's data to survive.
 
-Exit status 0 means every step passed. It prints what it sees at each step so a failure can be read from the log.
+Set ANTHILL_CHECK_DATA_FOLDER to "Anthill Beta" to check the beta app. Exit status 0 means every step passed. It prints what it sees at each step so a failure can be read from the log.
 Windows only; the parsing helpers are plain functions so they are tested on every platform.
 """
 
@@ -165,7 +165,8 @@ def stop_everything(app_exe: str) -> None:
 
 def main(installer: str) -> int:
     local = Path(os.environ["LOCALAPPDATA"])
-    data_dir = local / "Anthill"
+    # The app keeps its data under its product name: "Anthill", or "Anthill Beta" for the beta.
+    data_dir = local / os.environ.get("ANTHILL_CHECK_DATA_FOLDER", "Anthill")
     ok = True
 
     # 1. install, for the current user, with no prompts. The installer starts the app itself when it is done.
