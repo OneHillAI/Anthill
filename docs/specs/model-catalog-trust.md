@@ -92,6 +92,23 @@ never a poisoned accepted one. The load-bearing secret remains what it was - who
 workflow on `main` - which is why branch protection there, not the deploy token, is the control that
 matters.
 
+## Publishing touches only the catalog (implemented)
+
+The root of `OneHillAI/anthill.run` is also the live landing site (pages, chat widget, Functions), authored
+in that repo. The publish job first mirrored a folder of this repo over that root with `rsync --delete`; on
+2026-10-04 that deleted the site and left a placeholder (commit `54c0bf9`, restored by hand). Requirements:
+
+- R1. THE publish step SHALL copy exactly two files into the deploy repo, `model-catalog.json` and
+  `model-catalog.json.sigstore.json`, and stage exactly those two paths.
+- R2. THE publish step SHALL NOT delete, rename or change any other file in the deploy repo, whatever this
+  repo's `www/` folder contains.
+- R3. WHEN anything other than an added or modified catalog or signature file is staged, THE publish step
+  SHALL stop with an error before it commits or pushes.
+- R4. THE catalog and its signature SHALL still be published together, in one commit.
+
+Tests: `tests/test_catalog_publish_keeps_the_site.py` runs the real step against a local copy of a deploy
+repo that holds a landing site, and fails if any site file changes or goes missing.
+
 ## Alignment with the endpoint-transport trust model
 
 This spec and `docs/specs/llm-endpoint-secure-transport.md` are the two halves of Anthill's trust path and
