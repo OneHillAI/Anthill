@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import httpx
@@ -61,6 +62,7 @@ def test_fake_answers_the_non_streaming_chat_and_the_other_routes(smoke, fake):
     assert httpx.get(f"{fake}/api/ps").json() == {"models": []}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in binary is a shell script")
 def test_run_smoke_launches_a_binary_given_by_a_relative_path(smoke, tmp_path, monkeypatch, capsys):
     # Regression: scripts/build-sidecar.sh passes `dist/anthill-server`. The sidecar is started in its own
     # throwaway working directory, so an unresolved relative path made the launch raise FileNotFoundError
@@ -80,3 +82,25 @@ def test_run_smoke_launches_a_binary_given_by_a_relative_path(smoke, tmp_path, m
 def test_run_smoke_reports_a_missing_binary_clearly(smoke, tmp_path, capsys):
     assert smoke.run_smoke(str(tmp_path / "nope"), timeout=1) == 1
     assert "not found or not executable" in capsys.readouterr().out
+
+
+class _Launcher:
+    """Stands in for the bootloader process the smoke script kills."""
+
+    def terminate(self):
+        pass
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def test_backend_that_keeps_serving_after_its_launcher_dies_is_reported(smoke):
+    server, port = smoke.start_fake_ollama()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        # The fake answers /login with 404, which still proves something is serving there.
+        assert smoke._backend_outlives_launcher(_Launcher(), base, wait=1.0) is True
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert smoke._backend_outlives_launcher(_Launcher(), base, wait=1.0) is False

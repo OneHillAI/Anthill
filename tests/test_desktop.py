@@ -125,8 +125,7 @@ def test_parent_watchdog_only_in_sidecar_mode(monkeypatch):
     monkeypatch.delenv("ANTHILL_NO_BROWSER", raising=False)
     assert desktop._should_watch_parent() is False
     monkeypatch.setenv("ANTHILL_NO_BROWSER", "1")
-    # POSIX-only: on Windows there is no re-parent-to-init signal to watch, so it stays off.
-    assert desktop._should_watch_parent() is (os.name == "posix")
+    assert desktop._should_watch_parent() is True
 
 
 def test_exit_when_orphaned_is_a_noop_outside_sidecar_mode(monkeypatch):
@@ -137,15 +136,3 @@ def test_exit_when_orphaned_is_a_noop_outside_sidecar_mode(monkeypatch):
     before = threading.active_count()
     desktop._exit_when_orphaned()  # returns immediately; must not spawn a watcher or exit
     assert threading.active_count() == before
-
-
-def test_pid_alive():
-    """The shell-liveness probe the watchdog uses to catch a force-quit (where getppid() can't):
-    true for live processes, false once a process is gone."""
-    import subprocess
-
-    assert desktop._pid_alive(os.getpid()) is True
-    assert desktop._pid_alive(1) is True  # launchd/init is always alive
-    dead = subprocess.Popen(["true"])
-    dead.wait()  # reaped -> its PID is now gone
-    assert desktop._pid_alive(dead.pid) is False

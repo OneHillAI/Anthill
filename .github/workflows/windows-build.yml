@@ -1,0 +1,72 @@
+# Windows build: prove the backend still builds and starts on Windows (spec: docs/specs/windows-support.md, R9).
+#
+# It runs on the pull request itself, so nobody has to start it by hand, but only when the PR touches the
+# desktop shell, the sidecar build or the platform layer. The job builds the one-file backend (anthill-server.exe)
+# with PyInstaller, runs the same self-checks as the macOS release build, then boots the frozen binary, signs up,
+# runs one chat against a fake model, and checks the backend stops when its launcher is killed.
+#
+# It builds nothing signed and publishes nothing. It is advisory: a path-filtered check cannot be a required one.
+name: Windows build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "scripts/build-sidecar.sh"
+      - "scripts/smoke_frozen_chat.py"
+      - "Anthill-sidecar.spec"
+      - "anthill/desktop.py"
+      - "anthill/platform_layer.py"
+      - "anthill/web/scheduler.py"
+      - "requirements.lock"
+      - "pyproject.toml"
+      - "tests/test_platform_layer.py"
+      - ".github/workflows/windows-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "scripts/build-sidecar.sh"
+      - "Anthill-sidecar.spec"
+      - "anthill/desktop.py"
+      - "anthill/platform_layer.py"
+      - ".github/workflows/windows-build.yml"
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-sidecar:
+    name: Windows backend build and smoke test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The platform-layer tests use real child processes, so they run here as well as on Linux.
+      - name: Platform-layer tests
+        run: |
+          uv venv --python 3.11 .test-venv
+          uv pip install --python .test-venv/Scripts/python.exe --require-hashes -r requirements.lock
+          uv pip install --python .test-venv/Scripts/python.exe --no-deps -e .
+          uv pip install --python .test-venv/Scripts/python.exe pytest
+          .test-venv/Scripts/python.exe -m pytest tests/test_platform_layer.py tests/test_smoke_frozen_chat.py -q
+
+      - name: Build the anthill-server sidecar and smoke-test it
+        run: bash scripts/build-sidecar.sh
