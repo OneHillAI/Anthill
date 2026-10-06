@@ -104,13 +104,10 @@ jobs:
         # --desc on prints the CVE description inline for easier triage.
         # The step fails if any unfixed CVE is found in a direct or transitive dependency.
         #
-        # Documented exceptions (revisit when upstream ships a fix):
-        #   PYSEC-2026-1325 (ecdsa) - P-256 timing side-channel in SigningKey.sign_digest(). No upstream
-        #     fix exists (python-ecdsa treats side-channels as out of scope). ecdsa is a transitive dep of
-        #     python-jose only; Anthill signs JWTs with HS256 (HMAC, see anthill/web/crypto.py) and never
-        #     performs ECDSA signing, so the attack is unreachable. ECDSA verification is unaffected per
-        #     the advisory. Re-audit if a fixed ecdsa is released or the JWT algorithm changes.
-        run: pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325
+        # There are no documented exceptions. The one old exception (PYSEC-2026-1325, ecdsa, which only
+        # python-jose pulled in) went away when session tokens moved to PyJWT. Add an --ignore-vuln only with
+        # a written reason.
+        run: pip-audit --skip-editable --desc on
 
   security:
     name: SAST & license audit

@@ -1,6 +1,6 @@
 # Spec: replace python-jose with PyJWT for session tokens
 
-Status: proposed
+Status: implemented (PR 82)
 Lane: `pillar:privacy`
 Relates to: `anthill/web/crypto.py`, `anthill/web/app.py`, `pyproject.toml`, `requirements.lock`,
 `.github/workflows/pr-validation.yml`, `.github/workflows/security-audit.yml`
@@ -20,8 +20,10 @@ packaged app (it comes in through the `mcp` extra), so using it adds no new pack
 
 ## 2. Requirements
 
-R1. THE session token code SHALL use PyJWT. `python-jose`, `ecdsa`, `rsa` and `pyasn1` SHALL no longer be
-required by `pyproject.toml` or listed in `requirements.lock`.
+R1. THE session token code SHALL use PyJWT. `python-jose`, `ecdsa` and `rsa` SHALL no longer be required by
+`pyproject.toml` or listed in `requirements.lock`. (`pyasn1` left the lock with them at first, but `sigstore`,
+which the packaged app needs for the signed model catalog, requires it, so the regenerated lock lists it again
+for that reason. See `docs/specs/regenerate-requirements-lock.md`.)
 
 R2. A token made by python-jose before this change SHALL still be accepted, so that nobody who is signed in is
 signed out by the upgrade.
@@ -43,7 +45,7 @@ R5. THE dependency audit SHALL pass without an exception for CVE-2026-85394.
 - `anthill/web/app.py`: `from jwt import PyJWTError as JWTError`, so the seven existing `except JWTError`
   blocks catch every PyJWT failure unchanged.
 - `pyproject.toml`: `PyJWT>=2.8,<3` replaces `python-jose[cryptography]`.
-- `requirements.lock`: the four packages only python-jose needed are removed; nothing else changes.
+- `requirements.lock`: the four packages only python-jose needed (`python-jose`, `ecdsa`, `rsa`, `pyasn1`) are removed; nothing else changes. `pyasn1` returns later through `sigstore`.
 
 ## 4. Acceptance
 
@@ -57,6 +59,6 @@ R5. THE dependency audit SHALL pass without an exception for CVE-2026-85394.
 - Regenerating `requirements.lock` from `pyproject.toml`. The committed lock differs from `pyproject.toml` in
   other ways (it lists `torch` and `sentence-transformers` and does not list `sigstore`). Regenerating it would
   change what the packaged app ships, so it needs its own change and its own frozen-build check. This change
-  only removes the four packages python-jose needed.
+  only removes the four packages python-jose needed (`pyasn1` returns through `sigstore`).
 - Removing the `ecdsa` exception from the two audit workflows. It becomes unnecessary once this lands and is
   removed separately, because it edits `.github/`.
