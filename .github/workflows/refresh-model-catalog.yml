@@ -2,14 +2,18 @@
 #
 # Regenerates www/model-catalog.json from the vetted seed (anthill/hosting/model_catalog.json) and flags
 # tag/metadata drift + new frontier models (see scripts/gen_model_catalog.py). If the catalog changed, it
-# signs it and publishes the site to the OneHillAI/anthill.run repo; Cloudflare Pages is git-connected to
-# that repo and deploys on push, so Anthill's "Refresh models" button picks up the new frontier with no app
-# release.
+# signs it and publishes the catalog and its signature to the OneHillAI/anthill.run repo; Cloudflare Pages
+# is git-connected to that repo and deploys on push, so Anthill's "Refresh models" button picks up the new
+# frontier with no app release.
 #
 # Why a separate repo: Cloudflare's GitHub App cannot see this private monorepo, so it cannot deploy from
 # it. OneHillAI/anthill.run is a small, dedicated publish target the owner connects to Cloudflare instead.
-# This job SIGNS here (keeping the Sigstore identity in this repo - see below) and pushes only the built
-# site there; it never writes to this repo (contents: read), so main stays fully protected.
+# This job SIGNS here (keeping the Sigstore identity in this repo - see below) and pushes only the catalog
+# and its signature there; it never writes to this repo (contents: read), so main stays fully protected.
+#
+# That repo's root is also the live landing site (pages, chat widget, Functions), which is authored there,
+# not here. So the publish step adds or updates exactly two files and refuses to push anything else. It
+# must never mirror a folder over the repo: a mirror with --delete wiped the landing site on 2026-10-04.
 #
 # Runs on the default branch only (GitHub cron requirement). Also runs when the seed or generator changes,
 # so a curated edit republishes immediately. The bot commits to the anthill.run repo, not this one, so it
@@ -35,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       force_publish:
-        description: "Sign + publish even if the catalog is unchanged (use once to bootstrap, or to push a static site edit)."
+        description: "Sign + publish even if the catalog is unchanged (use once to bootstrap, or to re-sign). Publishes only the catalog and its signature."
         type: boolean
         default: false
 
@@ -118,21 +122,27 @@ jobs:
           python -m sigstore sign www/model-catalog.json \
             --bundle www/model-catalog.json.sigstore.json --overwrite
 
-      - name: Publish the signed site to anthill.run (Cloudflare deploys it)
+      - name: Publish the signed catalog to anthill.run (Cloudflare deploys it)
         if: steps.decide.outputs.publish == 'true'
-        # Mirror the built site (everything in www/ except the dev README) into the deploy repo root, then
-        # commit + push to its main. The catalog and its signature go together or not at all: a client
-        # refuses an unsigned catalog, so rsync copies both from www/ in the same publish. Cloudflare Pages
-        # serves the repo root, so index.html / _headers / functions/ land where it expects them.
+        # Copy the catalog and its signature into the deploy repo root, then commit + push to its main. They
+        # go together or not at all: a client refuses an unsigned catalog. Nothing else is copied and nothing
+        # is deleted: the rest of that repo is the live landing site, authored there. Cloudflare Pages serves
+        # the repo root, so both files land next to the site.
         env:
           DEPLOY_TOKEN: ${{ secrets.ANTHILL_RUN_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
-          rsync -a --delete --exclude '.git' --exclude 'README.md' www/ deploy/
+          cp www/model-catalog.json www/model-catalog.json.sigstore.json deploy/
           cd deploy
           git config user.name "anthill-catalog-bot"
           git config user.email "dev@onehill.org"
-          git add -A
+          git add -- model-catalog.json model-catalog.json.sigstore.json
+          # Guard: the commit may add or change those two files and nothing else. A deletion, a rename or any
+          # other staged path stops the job before it pushes.
+          if git diff --cached --name-status | grep -v -E '^[AM][[:space:]]+model-catalog\.json(\.sigstore\.json)?$'; then
+            echo "::error::Refusing to publish: something other than the catalog and its signature is staged."
+            exit 1
+          fi
           if git diff --cached --quiet; then
             echo "Deploy repo already up to date."
             exit 0
