@@ -33,7 +33,7 @@ Verify with: `grep -ri <name> anthill/` and the `pyproject.toml` dependency list
 | Web / API | **FastAPI**, **Uvicorn**, Jinja2, python-multipart |
 | Data / retrieval | **LanceDB** (vector database), **sentence-transformers** (embedder), SQLAlchemy, numpy |
 | Desktop app | **Tauri** (Rust; `src-tauri/`) |
-| Auth / crypto | Authlib (OAuth), python-jose (JWT), passlib/bcrypt, cryptography |
+| Auth / crypto | Authlib (OAuth), PyJWT (JWT), passlib/bcrypt, cryptography |
 | Privacy / PII | **built-in PII scrubber** (`anthill/hybrid/scrub.py`, no heavyweight dep): regex redaction of emails, cards, SSNs, phones, IPs, API keys, JWTs, IBANs, MAC addresses, and URLs before any egress - cloud escalation (`hybrid/escalate.py`), training-data export, and wiki-review flagging. Default on (`cloud_scrub_pii`). |
 | Web search / research | **DDGS (DuckDuckGo Search)** zero-config fallback (Google CSE primary when keys set); **Firecrawl / Jina** page fetch; **Meilisearch** index |
 | Document / output | **python-docx / python-pptx / openpyxl** (Office, `docs` extra), **reportlab** (PDF output), **MarkItDown** (local structured PDF-to-Markdown), **pypdf** (embedded-image fallback), **Pillow** (images/charts) |

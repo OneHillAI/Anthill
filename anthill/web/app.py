@@ -24,7 +24,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from jose import JWTError
+from jwt import PyJWTError as JWTError
 from sqlalchemy import insert, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
