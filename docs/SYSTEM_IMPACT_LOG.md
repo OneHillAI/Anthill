@@ -26,6 +26,12 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### PR #83 - deps and ci: patched libraries, SBOM built from the lock, pinned actions, browser check in the beta lane - merged 2026-10-06
+**System impact:** the packaged app is now built from a lock that matches `pyproject.toml`: 17 missing packages added (notably `sigstore`, which the signed model catalog check needs) and 36 unused ones dropped (the torch tree, `scikit-learn`, `scipy` and others). Seven shipped libraries moved to patched versions (`pypdf`, `pyjwt`, `cryptography`, `urllib3`, `anyio`, `h2`, `soupsieve`), `rustls` in the desktop shell and four docs-site libraries too, and the audit workflows no longer carry the old `ecdsa` exception. The SBOM is built from the same lock, `ci.yml`, `supply-chain.yml` and `sbom.yml` use pinned actions, and Cut Beta and Promote Beta now refuse a commit with a red `browser` check.
+**Surface:** `requirements.lock`, `src-tauri/Cargo.lock`, `docs-site/package.json` and `package-lock.json`, `scripts/beta_release.py`, `scripts/build-sidecar.sh` (comment only), `tests/test_beta_release_lane.py`, and the workflows `ci`, `supply-chain`, `sbom`, `pr-validation`, `security-audit` and `desktop-promote` (a comment) under `.github/workflows/`; `.github/workflows/changelog-fragment.yml` is deleted. Two new specs, four amended, two changelog fragments.
+**User-visible:** yes: the model catalog refresh works in the packaged app (it could not import `sigstore` before) and the libraries inside the app have security updates. The app now contacts Sigstore's public CDN (`tuf-repo-cdn.sigstore.dev`) on a catalog refresh; it sends no user data and keeps the current catalog when offline.
+**Footprint:** refactor; the lock is Python 3.11 and newer only, 13 workflows still use floating action tags, `braces` (docs site) and `glib` (Linux GTK) stay open on purpose. One regression: deleting `changelog-fragment.yml` removed the warning on non-feature PRs that change `anthill/` without a changelog fragment. An existing limit that #83 left as it was: the SBOM is the Linux resolution of the lock, and about 23 of its 138 components are the generator's own packages.
+
 ### The documentation agent proposes paste-ready docs and checks them - pending PR, prepared 2026-10-03
 **System impact:** the docs agent was live after every merge but wrong: its free-form diffs put the impact-log
 entry above the title, invented counts and labels, and left a human hand-copying fragments. It now returns
