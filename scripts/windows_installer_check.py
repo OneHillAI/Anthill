@@ -158,6 +158,21 @@ def nothing_left() -> bool:
     return not pids(SIDECAR_EXE)
 
 
+def close_politely(app_exe: str, *, window_wait: float = 60.0, timeout: float = 40.0) -> bool:
+    """Close the app the way the close button does, and report whether nothing is left running.
+
+    A plain ``taskkill`` (no /F) only reaches a window that is already visible, and the app shows its window a moment
+    after its backend starts answering, so one request sent too early is ignored. So wait for the window first, then
+    repeat the request until the app and its backend are gone."""
+    wait_for(lambda: window_title_shown(app_exe), window_wait)
+
+    def close_and_check() -> bool:
+        _run(["taskkill", "/IM", app_exe])
+        return nothing_left() and not pids(app_exe)
+
+    return bool(wait_for(close_and_check, timeout, step=3))
+
+
 def stop_everything(app_exe: str) -> None:
     for image in (app_exe, SIDECAR_EXE):
         _run(["taskkill", "/F", "/IM", image])
@@ -206,9 +221,8 @@ def main(installer: str) -> int:
     port = wait_for(backend_serving, 150)
     ok &= report("it starts again after a crash", bool(port), f"port {port}")
     if port:
-        _run(["taskkill", "/IM", app_exe])  # no /F: asks the window to close, like the close button
-        gone = wait_for(lambda: nothing_left() and not pids(app_exe), 30)
-        ok &= report("nothing is left running after a normal close", bool(gone))
+        gone = close_politely(app_exe)
+        ok &= report("nothing is left running after a normal close", gone)
         if not gone:
             diagnostics(app_exe, app_dir)
     stop_everything(app_exe)
