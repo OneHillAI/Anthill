@@ -1,25 +1,26 @@
 # anthill.run (hosting surface)
 
-This directory is the static site + services surface served at **https://anthill.run** via Cloudflare
-Pages. It is deliberately small for now: a placeholder landing page and the model catalog that Anthill's
-"Refresh models" button pulls. The real marketing/download page is a follow-up.
+This directory produces the model catalog that Anthill's "Refresh models" button pulls from
+**https://anthill.run/model-catalog.json**. The live landing site at anthill.run (pages, chat widget,
+Functions) is authored and deployed from the separate repo **`OneHillAI/anthill.run`** on Cloudflare Pages.
+The publish job adds or updates only the catalog and its signature in that repo and never changes or
+deletes anything else there.
 
 ## What is here
 
 ```
 www/
-  index.html            placeholder landing page
-  _headers              Cloudflare Pages response headers (content-type + short cache for the catalog)
   model-catalog.json    the published frontier catalog (see below); generated, do not hand-edit
+  index.html            placeholder landing page (NOT published)
+  _headers              Cloudflare Pages response headers (NOT published)
   functions/
-    api/health.js       example service -> https://anthill.run/api/health
+    api/health.js       example service (NOT published)
     README.md           how to add a service
 ```
 
-Two URL shapes are available going forward:
-
-- **Path services**: a file at `www/functions/api/<name>.js` serves at `anthill.run/api/<name>`.
-- **Subdomains** (`<name>.anthill.run`): added later at the Cloudflare/DNS level, outside this directory.
+Only `model-catalog.json` and the signature the job writes beside it (`model-catalog.json.sigstore.json`)
+are published. The other files here are local examples; to change the live site, change the
+`OneHillAI/anthill.run` repo.
 
 ## The model catalog
 
@@ -46,12 +47,13 @@ target that Cloudflare *can* be connected to:
 Anthill CI (this repo)                         OneHillAI/anthill.run          Cloudflare Pages
   gen_model_catalog.py  --> www/model-catalog.json
   sigstore sign         --> www/...sigstore.json
-  rsync www/ + git push  ----------------------> repo root (main) ----------> deploys on push --> anthill.run
+  copy the 2 files + git push -------------------> repo root (main) ----------> deploys on push --> anthill.run
 ```
 
-The refresh workflow **signs in this repo** and pushes only the built site to `anthill.run`. It never
-writes to this repo (`contents: read`), so `main` stays fully protected. Cloudflare deploys on every push
-to the deploy repo's `main`.
+The refresh workflow **signs in this repo** and pushes only the catalog and its signature to `anthill.run`.
+It stages exactly those two paths and stops before pushing if anything else, such as a deletion, is staged.
+It never writes to this repo (`contents: read`), so `main` stays fully protected. Cloudflare deploys on
+every push to the deploy repo's `main`.
 
 ## The signature (unchanged by the deploy repo)
 
