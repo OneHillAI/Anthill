@@ -167,16 +167,10 @@ def main(old: str, new: str, signature_file: str, new_version: str, port: int = 
         if not serving:
             base.diagnostics(app_exe, app_dir)
 
-        # 4. close it normally; nothing may be left; then uninstall. A plain taskkill only reaches a window that is
-        # already visible, so wait for the window first and repeat the request until the app is gone.
+        # 4. close it normally; nothing may be left; then uninstall
         ok &= base.report("the new version's window is shown", bool(base.wait_for(lambda: base.window_title_shown(app_exe), 60)))
-
-        def close_and_check() -> bool:
-            base._run(["taskkill", "/IM", app_exe])
-            return base.nothing_left() and not base.pids(app_exe)
-
-        gone = base.wait_for(close_and_check, 40, step=3)
-        ok &= base.report("nothing is left running after a normal close", bool(gone))
+        gone = base.close_politely(app_exe, window_wait=0)
+        ok &= base.report("nothing is left running after a normal close", gone)
         if not gone:
             base.diagnostics(app_exe, app_dir)
         base.stop_everything(app_exe)

@@ -74,3 +74,56 @@ def test_the_shell_is_the_executable_that_is_not_the_backend_or_the_uninstaller(
     for name in ("anthill-server.exe", "uninstall.exe", "anthill-desktop.exe", "notes.txt"):
         (tmp_path / name).write_bytes(b"")
     assert check.main_exe_name(tmp_path) == "anthill-desktop.exe"
+
+
+class _Closing:
+    """Stands in for the Windows tools: counts close requests and says when the app is finally gone."""
+
+    def __init__(self, gone_after: int | None, window_after: int = 0):
+        self.requests = 0
+        self.gone_after = gone_after
+        self.window_checks = 0
+        self.window_after = window_after
+
+    def run(self, command, **kwargs):
+        if command[:2] == ["taskkill", "/IM"]:
+            self.requests += 1
+
+    def window_shown(self, app_exe):
+        self.window_checks += 1
+        return self.window_checks > self.window_after
+
+    def gone(self):
+        return self.gone_after is not None and self.requests >= self.gone_after
+
+
+def _wire(check, monkeypatch, fake):
+    monkeypatch.setattr(check, "_run", fake.run)
+    monkeypatch.setattr(check, "window_title_shown", fake.window_shown)
+    monkeypatch.setattr(check, "nothing_left", fake.gone)
+    monkeypatch.setattr(check, "pids", lambda image: set() if fake.gone() else {1})
+    monkeypatch.setattr(check.time, "sleep", lambda seconds: None)
+
+
+def test_the_polite_close_waits_for_the_window_before_the_first_request(check, monkeypatch):
+    fake = _Closing(gone_after=1, window_after=3)  # the window appears on the fourth look
+    _wire(check, monkeypatch, fake)
+    assert check.close_politely("anthill-desktop.exe", window_wait=5, timeout=5) is True
+    assert fake.window_checks > 3  # it looked until the window was there
+    assert fake.requests == 1  # and only then asked to close, once, which was enough
+
+
+def test_the_polite_close_repeats_the_request_until_the_app_is_gone(check, monkeypatch):
+    fake = _Closing(
+        gone_after=4
+    )  # the first three requests are ignored, as when the window is not yet visible
+    _wire(check, monkeypatch, fake)
+    assert check.close_politely("anthill-desktop.exe", window_wait=0, timeout=5) is True
+    assert fake.requests == 4
+
+
+def test_the_polite_close_gives_up_and_says_so_when_the_app_never_closes(check, monkeypatch):
+    fake = _Closing(gone_after=None)
+    _wire(check, monkeypatch, fake)
+    assert check.close_politely("anthill-desktop.exe", window_wait=0, timeout=0.2) is False
+    assert fake.requests >= 1
