@@ -3,7 +3,7 @@
 
     python scripts/windows_update_check.py OLD-setup.exe NEW-setup.exe NEW-setup.exe.sig --new-version 0.9.2
 
-The two installers are built by the Windows update workflow with a throwaway signing key. The old one is built to ask
+The two installers are built by the update job of the Windows CI with a throwaway signing key. The old one is built to ask
 a local update feed (http://127.0.0.1) and trusts that key. This script serves the feed, then:
 
 1. installs the old build silently (the installer starts the app);
