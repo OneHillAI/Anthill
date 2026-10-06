@@ -23,7 +23,7 @@ the first public Windows build; the rows below are what is known today.
 | Chat, wiki, knowledge, connectors, web UI | Same | Same, not yet checked on a real machine | Shared Python code and web UI. |
 | Hardware reading for the model picker | Memory, Apple chip or NVIDIA card | Memory and NVIDIA card | Windows reads memory from the system; a machine with no NVIDIA card is treated as CPU only. |
 | Per-user data folder | `~/Library/Application Support/Anthill` | `%LOCALAPPDATA%\Anthill` | Chosen by `platformdirs`. |
-| Backend stops when the app quits or crashes | Yes | Yes, checked by the Windows build job and, with the real app, by the installer job | Windows has no re-parenting, so the backend asks whether its launcher and the app are still alive. |
+| Backend stops when the app quits or crashes | Yes | Yes, checked by the Windows CI backend job and, with the real app, by its installer job | Windows has no re-parenting, so the backend asks whether its launcher and the app are still alive. |
 | One scheduler per database | Yes | Yes | An operating-system file lock that is dropped when the process dies. |
 | PDF reading memory limit | Yes | Yes | A job object on Windows. |
 | Local model (Ollama) install and start | Yes | Yes, on the CPU and NVIDIA cards. Checked on a CPU-only runner | A 1.46 GB first-run download on Windows (143 MB on macOS) because it carries the NVIDIA runtime. AMD and Intel cards run on the CPU for now. The NVIDIA path needs the real-device check. |
@@ -35,7 +35,7 @@ the first public Windows build; the rows below are what is known today.
 
 ## Rules for changes
 
-- A change to the platform layer, the desktop shell or the sidecar build must pass the Windows build job.
+- A change to the platform layer, the desktop shell or the sidecar build must pass the Windows CI (`.github/workflows/windows-ci.yml`).
 - A feature may ship on one platform first only behind a capability flag, with the reason recorded here.
 - Before a platform's first public release, a person installs the build on a real machine and ticks the checklist in
   `docs/releasing.md`.

@@ -1,6 +1,6 @@
 """The operating-system layer: process liveness, the process-death lock, and the sidecar's orphan watchdog.
 
-These run on every platform (the Windows build job runs them too), so they use real child processes and
+These run on every platform (the Windows CI backend job runs them too), so they use real child processes and
 no POSIX-only commands.
 """
 
