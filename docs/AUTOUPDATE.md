@@ -62,7 +62,7 @@ The Windows alpha updates through the same feed and the same updater key: the `w
 points at the NSIS installer (`*_x64-setup.exe`) and its `.sig`. On launch the shell checks the feed before it starts
 the backend, so no backend is running while the installer replaces the program files.
 
-The `Windows update` check proves this on every pull request that touches the shell: it builds two installers with a
+The `update` job of the Windows CI proves this on every pull request that touches the shell: it builds two installers with a
 throwaway key (the real key and the real feed are never used), serves a local feed that offers the newer one, installs
 the older one, and requires the app to ask the feed, download the new installer, be replaced, start and answer, be the
 only copy running, and leave nothing behind when closed (`scripts/windows_update_check.py`). It passes: the Windows
