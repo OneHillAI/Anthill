@@ -110,7 +110,12 @@ jobs:
         #     python-jose only; Anthill signs JWTs with HS256 (HMAC, see anthill/web/crypto.py) and never
         #     performs ECDSA signing, so the attack is unreachable. ECDSA verification is unaffected per
         #     the advisory. Re-audit if a fixed ecdsa is released or the JWT algorithm changes.
-        run: pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325
+        #   GHSA-3qf3-8w2g-rqmx / CVE-2026-85394 (python-jose) - HS256 token forgery when the algorithm is
+        #     not restricted (an incomplete fix for CVE-2024-3366). No upstream fix exists. Unreachable
+        #     here: anthill/web/crypto.py signs and verifies with HS256 using a random server secret
+        #     (ANTHILL_JWT_SECRET) and restricts algorithms=["HS256"] explicitly; no public-key JWT path
+        #     goes through python-jose. Re-audit when python-jose ships a fix or the JWT setup changes.
+        run: pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325 --ignore-vuln GHSA-3qf3-8w2g-rqmx
 
   security:
     name: SAST & license audit

@@ -49,8 +49,11 @@ jobs:
         # --desc on: print the CVE description inline for triage.
         # --ignore-vuln PYSEC-2026-1325: ecdsa P-256 timing side-channel; no upstream fix, transitive via
         #   python-jose, unreachable here (JWTs are HS256/HMAC, no ECDSA signing). Revisit if fixed.
+        # --ignore-vuln GHSA-3qf3-8w2g-rqmx (CVE-2026-85394, python-jose): HS256 forgery when the algorithm
+        #   is unrestricted; no upstream fix. Unreachable here - crypto.py uses a random HS256 secret and
+        #   restricts algorithms=["HS256"]; no public-key JWT path. Revisit when python-jose ships a fix.
         run: |
-          pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325 2>&1 | tee /tmp/audit.txt
+          pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325 --ignore-vuln GHSA-3qf3-8w2g-rqmx 2>&1 | tee /tmp/audit.txt
           {
             echo "## Dependency CVE audit"
             echo '```'
