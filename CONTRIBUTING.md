@@ -68,7 +68,13 @@ make demo       # full walkthrough
   the packaged app's runtime closure (base deps + the `docs` and `mcp` extras) for a byte-for-byte
   reproducible, tamper-evident install: `pip install --require-hashes -r requirements.lock`. The release
   build installs from it (`scripts/build-sidecar.sh`). Regenerate it after changing those dependencies:
-  `uv pip compile --universal --generate-hashes --extra docs --extra mcp pyproject.toml -o requirements.lock`.
+  `uv pip compile --universal --python-version 3.11 --generate-hashes --extra docs --extra mcp pyproject.toml -o requirements.lock`.
+  The lock targets Python 3.11 and newer (some pins, such as `pandas` 3.0, need 3.11); `pyproject.toml` still
+  allows 3.10, and a 3.10 install uses `pyproject.toml`, not the lock.
+  Keep `--python-version 3.11` (the packaged app's Python). Without it uv uses the machine's Python, and on
+  3.13 or newer the lock silently loses the macOS `onnxruntime<1.20` pin and the numpy splits for 3.11 and 3.12.
+  After a regeneration, check that every package the app imports is in the lock: the packaged app installs
+  nothing beyond it, so a missing entry (as `sigstore` once was) fails only inside the frozen build.
 - Local model for tests/dev: `qwen2.5:3b` on Ollama.
 - Working protocol and the contribution contract: [`AGENTS.md`](AGENTS.md). Authoritative design:
   [`ARCHITECTURE.md`](ARCHITECTURE.md).

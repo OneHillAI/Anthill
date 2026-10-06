@@ -39,8 +39,9 @@ case "$TRIPLE" in *windows*) EXE=".exe" ;; esac
 # Throwaway build venv. Runtime deps come from the pinned, hash-verified lockfile
 # (requirements.lock, which covers base + the docs and mcp extras) for a reproducible,
 # tamper-evident bundle; the anthill package installs --no-deps on top; PyInstaller is a
-# build-time tool only. Regenerate the lock with `uv pip compile --universal --generate-hashes
-# --extra docs --extra mcp pyproject.toml -o requirements.lock` when deps change.
+# build-time tool only. Regenerate the lock with `uv pip compile --universal --python-version 3.11
+# --generate-hashes --extra docs --extra mcp pyproject.toml -o requirements.lock` when deps change
+# (keep --python-version 3.11, the packaged app's Python; see CONTRIBUTING.md).
 BUILD_DIR="$(mktemp -d)"; BUILD_VENV="$BUILD_DIR/venv"
 if command -v uv >/dev/null 2>&1; then
   uv venv --python 3.11 "$BUILD_VENV"

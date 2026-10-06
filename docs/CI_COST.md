@@ -8,7 +8,7 @@ that, and what is left to you.
 
 - **Cancel superseded runs.** Every workflow that runs on each PR push carries a `concurrency` group with
   `cancel-in-progress: true` - `ci`, `pr-validation`, `asdd-invariants`, `supply-chain`, `security-audit`,
-  `changelog-fragment`, and the review + intake workflows. A newer push to the same branch cancels the
+  and the review + intake workflows. A newer push to the same branch cancels the
   in-flight run instead of paying for both. This is the single biggest per-PR saving during active work.
   (`asdd-docsync` runs on pushes to `main` and intentionally serializes rather than cancels, so a doc
   update is never dropped; `pr-review-publish` is triggered by a completed review, not per push.)

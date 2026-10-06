@@ -25,7 +25,7 @@ build can be installed, used and judged, and only then shipped.
 
 R1. Cut Beta SHALL be started by hand (a manually run workflow), from `main` only, for a version `X.Y.Z-rc.N`
 whose base is higher than the current live version and whose N is exactly one more than the last beta of that
-base (1 if none), and only on a commit whose checks on `main` (lint and the four test runs) are green; intake already gated the PR
+base (1 if none), and only on a commit whose checks on `main` (lint, the four test runs and the browser tests) are green; intake already gated the PR
 before it merged, and a merge commit on `main` carries no run of it.
 
 R2. A beta SHALL be published as a GitHub pre-release `vX.Y.Z-rc.N`, never as the latest release. The beta

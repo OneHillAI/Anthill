@@ -47,10 +47,11 @@ jobs:
       - name: pip-audit - fail on any known CVE
         # --skip-editable: anthill itself has no PyPI entry to check.
         # --desc on: print the CVE description inline for triage.
-        # --ignore-vuln PYSEC-2026-1325: ecdsa P-256 timing side-channel; no upstream fix, transitive via
-        #   python-jose, unreachable here (JWTs are HS256/HMAC, no ECDSA signing). Revisit if fixed.
+        # No --ignore-vuln: the one old exception (PYSEC-2026-1325, ecdsa, pulled in only by python-jose) went
+        #   away with the move to PyJWT. Add one only with a written reason, and keep it identical to
+        #   pr-validation.yml.
         run: |
-          pip-audit --skip-editable --desc on --ignore-vuln PYSEC-2026-1325 2>&1 | tee /tmp/audit.txt
+          pip-audit --skip-editable --desc on 2>&1 | tee /tmp/audit.txt
           {
             echo "## Dependency CVE audit"
             echo '```'

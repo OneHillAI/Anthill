@@ -11,7 +11,7 @@
 #     fragments) changed on main since the beta commit, the beta must be re-cut and re-tested. A beta is
 #     promoted only as tested;
 #   - a release that is not ready: changelog assembled, versions bumped (scripts/check-release.sh);
-#   - a commit whose required checks (lint, the four test runs) are not green;
+#   - a commit whose required checks (lint, the four test runs, the browser tests) are not green;
 #   - a beta the test agent has not passed (its `asdd/test` commit status on that exact commit must be success).
 # Then the second job waits for approval in the `production` environment before it creates the tag.
 #
