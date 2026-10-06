@@ -6,8 +6,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt_lib
+import jwt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from jose import jwt
 
 # ── password hashing (bcrypt, cost 12) ───────────────────────────────────────
 
@@ -59,6 +59,9 @@ def decrypt(token: str) -> str:
 
 _JWT_SECRET = os.environ.get("ANTHILL_JWT_SECRET", secrets.token_hex(32))
 _ALGORITHM = "HS256"
+_CLOCK_LEEWAY_SECONDS = (
+    10  # PyJWT rejects an iat in the future; python-jose did not, so allow a little clock drift
+)
 _TTL_HOURS = int(os.environ.get("ANTHILL_SESSION_HOURS", str(30 * 24)))
 SESSION_MAX_AGE_SECONDS = _TTL_HOURS * 60 * 60
 _SESSION_RENEW_AFTER_SECONDS = min(60 * 60, max(1, SESSION_MAX_AGE_SECONDS // 2))
@@ -99,8 +102,8 @@ def session_needs_renewal(claims: dict) -> bool:
 
 
 def decode_token(token: str) -> dict:
-    """Raises JWTError on invalid/expired tokens."""
-    return jwt.decode(token, _JWT_SECRET, algorithms=[_ALGORITHM])
+    """Raises jwt.PyJWTError (imported as JWTError in app.py) on invalid/expired tokens."""
+    return jwt.decode(token, _JWT_SECRET, algorithms=[_ALGORITHM], leeway=_CLOCK_LEEWAY_SECONDS)
 
 
 # ── invite tokens ─────────────────────────────────────────────────────────────
