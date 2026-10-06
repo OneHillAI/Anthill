@@ -30,7 +30,7 @@ the first public Windows build; the rows below are what is known today.
 | On-device fine-tuning | Yes (Apple MLX) | No | Hidden in the interface where the platform cannot do it. |
 | Installer | `.dmg` | NSIS installer for the current user, no administrator rights. Built, installed, run and uninstalled in CI; unsigned | Part of Cut Beta as an alpha since Phase C2; not part of the stable release yet. |
 | Signing and notarisation | Yes | Not yet | Needs a decision on how to sign. |
-| Automatic updates | Yes | Not yet | Same feed, a `windows-x86_64` key, in Phase C. |
+| Automatic updates | Yes | Yes, as an alpha. Proven in CI against a local feed with a throwaway key; Cut Beta adds the `windows-x86_64` entry to the beta feed | Same feed and updater key as macOS. Not part of the stable release yet. |
 | Always-on organisation backend appliance | Yes | No | Out of scope. |
 
 ## Rules for changes

@@ -1,0 +1,131 @@
+# Windows self-update: prove an installed Anthill updates itself to the next version (spec: docs/specs/windows-support.md,
+# Phase C3 and R8).
+#
+# It runs on the pull request itself, only when the PR touches the desktop shell, the sidecar build, the platform layer
+# or this check. The job makes a throwaway update-signing key and builds two installers with it, versions 0.9.1 and
+# 0.9.2. The old one is built to ask a local update feed (http://127.0.0.1) and to trust that key. The job then serves a
+# feed that offers the new one, installs the old one, and requires the app to ask the feed, download the new installer,
+# be replaced by the new version, start and answer, be the only copy running, and leave nothing behind when closed
+# (scripts/windows_update_check.py).
+#
+# The real signing key and the real feed are never used. Nothing is published. It is advisory: a path-filtered check
+# cannot be a required one.
+name: Windows update
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "scripts/build-sidecar.sh"
+      - "scripts/windows_update_check.py"
+      - "scripts/windows_installer_check.py"
+      - "Anthill-sidecar.spec"
+      - "anthill/desktop.py"
+      - "anthill/platform_layer.py"
+      - "tests/test_windows_update_check.py"
+      - ".github/workflows/windows-update.yml"
+
+concurrency:
+  group: windows-update-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-update:
+    name: Windows app updates itself to the next version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      FEED: http://127.0.0.1:8765/latest.json
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build the anthill-server sidecar
+        run: bash scripts/build-sidecar.sh
+
+      - name: Install the Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Generate app icons
+        run: tauri icon assets/anthill-icon-1024.png
+
+      # A key made for this run only. The public half goes into the old build; the private half signs both installers.
+      - name: Make a throwaway update-signing key
+        run: tauri signer generate --ci -w "$RUNNER_TEMP/updater.key"
+
+      # Two configuration overlays: the version, the throwaway public key, and the local feed (plain http is allowed
+      # for this test build only; the signature is still checked).
+      - name: Write the two configuration overlays
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          pub = (temp / "updater.key.pub").read_text().strip()
+          for version in ("0.9.1", "0.9.2"):
+              overlay = {
+                  "version": version,
+                  "bundle": {"createUpdaterArtifacts": True},
+                  "plugins": {"updater": {
+                      "pubkey": pub,
+                      "endpoints": [os.environ["FEED"]],
+                      "dangerousInsecureTransportProtocol": True,
+                  }},
+              }
+              (temp / f"v{version}.conf.json").write_text(json.dumps(overlay))
+          PY
+
+      - name: Build the old installer (0.9.1)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/updater.key")"
+          rm -rf src-tauri/target/release/bundle/nsis
+          tauri build --bundles nsis --config "$RUNNER_TEMP/v0.9.1.conf.json"
+          mkdir -p "$RUNNER_TEMP/old"
+          cp src-tauri/target/release/bundle/nsis/Anthill_0.9.1_x64-setup.exe "$RUNNER_TEMP/old/"
+
+      - name: Build the new installer (0.9.2) and its signature
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/updater.key")"
+          rm -rf src-tauri/target/release/bundle/nsis
+          tauri build --bundles nsis --config "$RUNNER_TEMP/v0.9.2.conf.json"
+          mkdir -p "$RUNNER_TEMP/new"
+          cp src-tauri/target/release/bundle/nsis/Anthill_0.9.2_x64-setup.exe src-tauri/target/release/bundle/nsis/Anthill_0.9.2_x64-setup.exe.sig "$RUNNER_TEMP/new/"
+          ls -la "$RUNNER_TEMP/old" "$RUNNER_TEMP/new"
+
+      - name: Install the old build and watch it update itself
+        run: |
+          OLD="$RUNNER_TEMP/old/Anthill_0.9.1_x64-setup.exe"
+          NEW="$RUNNER_TEMP/new/Anthill_0.9.2_x64-setup.exe"
+          python scripts/windows_update_check.py "$OLD" "$NEW" "$NEW.sig" --new-version 0.9.2
+
+      - name: Stop anything left running
+        if: always()
+        run: |
+          taskkill //F //IM anthill-desktop.exe || true
+          taskkill //F //IM anthill-server.exe || true
+          taskkill //F //IM ollama.exe || true
