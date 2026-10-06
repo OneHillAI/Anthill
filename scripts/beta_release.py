@@ -43,7 +43,7 @@ RC_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$")
 STABLE_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 # The checks every commit on main carries. `intake` is deliberately not here: it is a pull-request check (it
 # gates the PR before it merges) and a merge commit on main has no run of it.
-REQUIRED_CHECKS = ("lint", "test (3.10)", "test (3.11)", "test (3.12)", "test (3.13)")
+REQUIRED_CHECKS = ("lint", "test (3.10)", "test (3.11)", "test (3.12)", "test (3.13)", "browser")
 
 # What a release cut may change after a beta was tested (CHANGELOG assembled, versions bumped, fragments
 # consumed). Anything else means code moved since the beta and a new beta is needed.

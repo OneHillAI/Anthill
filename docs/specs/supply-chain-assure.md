@@ -15,7 +15,10 @@ layer (`standards/assure.md`).
   app's installed runtime dependency set with `cyclonedx-py environment`, and uploads it as a build
   artifact. It runs on dependency changes, on `main`, and on demand (path-filtered + concurrency-capped
   to respect CI cost), so the generation is exercised by CI on this PR itself. The release workflow can
-  later download and attach this artifact to the GitHub Release.
+  later download and attach this artifact to the GitHub Release. (Update 2026-10-06: the job now installs
+  the pinned, hash-checked `requirements.lock`, the set the packaged app ships, instead of resolving
+  `pyproject.toml`, and it also runs when the lock changes. `supply-chain.yml` separately covers the built
+  sdist and wheel.)
 - **Bounded dependencies.** Every base runtime dependency in `pyproject.toml` now carries an upper bound
   at the next major in addition to its floor, so an untested major release cannot silently enter a
   build. Bounds sit above the versions we currently resolve (verified: all installed versions satisfy

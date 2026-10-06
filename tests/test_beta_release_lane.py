@@ -165,6 +165,41 @@ def test_ci_green_refuses_a_missing_or_unfinished_required_check():
         br.ci_green(runs)
 
 
+def test_the_required_checks_include_the_browser_tests():
+    # Cut Beta (macOS and Windows) and Promote Beta all gate on this list. The fixtures above are built from the
+    # tuple itself, so they would still pass if "browser" were dropped; this pins the contents.
+    assert br.REQUIRED_CHECKS == (
+        "lint",
+        "test (3.10)",
+        "test (3.11)",
+        "test (3.12)",
+        "test (3.13)",
+        "browser",
+    )
+
+
+def test_ci_defines_a_check_for_every_required_name():
+    # A name CI no longer produces would make every beta and promotion refuse for "no run on this commit".
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    produced = {"lint", "browser"}
+    produced |= {f"test ({v})" for v in jobs["test"]["strategy"]["matrix"]["python-version"]}
+    assert set(br.REQUIRED_CHECKS) <= produced
+
+
+@pytest.mark.parametrize("bad", ["failure", "cancelled", "timed_out"])
+def test_ci_green_refuses_a_failed_browser_run(bad):
+    runs = [_run("browser", bad) if r["name"] == "browser" else r for r in _all_green()]
+    with pytest.raises(br.Refused, match="browser"):
+        br.ci_green(runs)
+
+
+def test_ci_green_refuses_a_missing_browser_run():
+    with pytest.raises(br.Refused, match="browser"):
+        br.ci_green([r for r in _all_green() if r["name"] != "browser"])
+
+
 def test_ci_green_uses_the_latest_run_of_each_check():
     older_fail_newer_pass = [*_all_green(), _run("lint", "failure", started="2026-10-03T09:00:00Z")]
     assert br.ci_green(older_fail_newer_pass)

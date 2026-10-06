@@ -53,9 +53,11 @@ still open.
   `changelog.d/*.md` is covered automatically.
 
 ### PR intake (advisory)
-- `.github/workflows/changelog-fragment.yml`: a **non-blocking** check that warns when a PR changes
-  `anthill/` but adds no fragment (mirrors the spec-gate philosophy; advisory to start, so it never
-  fails a build). `chore`/docs PRs need no fragment.
+- `.github/workflows/pr-validation.yml`: a `pillar:feature` PR must add a fragment; this is the only CI gate
+  for it. The earlier non-blocking `changelog-fragment.yml` warned on any PR that changed `anthill/` without a
+  fragment, including fix and platform PRs; it was removed on 2026-10-06 and that warning is gone. What is
+  left for those lanes is the report-only conventions check (`asdd-conventions.yml`) and the hint the local
+  pre-push check prints. `chore`/docs PRs need no fragment.
 - `.github/PULL_REQUEST_TEMPLATE.md`: the "Docs updated" line points to adding a `changelog.d/` fragment.
 
 ## Migration
