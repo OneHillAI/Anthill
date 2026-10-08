@@ -56,3 +56,26 @@ inside the organisation's perimeter.
 - `tests/browser/test_chat_markdown.py` seeds the cases above in separate answers, serves a stream for the
   live case, and asserts the requests made, the elements that remain and the absence of script errors other
   than the existing start-up error named above.
+
+## Why this shape
+
+The change touches several parts of one script because the exposure had several routes. Each choice, and
+what it does not do:
+
+- **Order: marked, then linkify, then sanitise, then nothing.** The sanitiser output is what gets inserted, so
+  any later edit to that string can put markup back. The old code linkified bare `/files/` paths after
+  sanitising; a path inside an attribute value could close the attribute and leave the rest as markup in
+  engines that do not escape angle brackets there (older WebKit, as used by the macOS app). Linkifying first
+  and sanitising last removes that class of problem. The code now also never changes the string afterwards.
+- **One rule, `isChatFile()`.** "Is this one of this app's files" is decided for an image, for the sanitiser
+  hook, for an inline preview, for the preview body and for the Canvas. The first version had a looser copy
+  ("a path with one leading slash") in two of those places, and that is how `/\host` and app routes got
+  through. A single function cannot drift between places.
+- **Two layers for images, on purpose.** A Markdown image goes through the renderer, which turns anything that
+  is not a file into a link. A raw `<img>` in the text never reaches the renderer, so the sanitiser hook
+  drops it. Both use the same rule.
+- **Only the button is built with DOM calls.** It was the only place an address was written into a JavaScript
+  string (`onclick="openCanvas('...')"`). That is a different path from the sanitising order and is hardened
+  separately. The inline previews still use strings, after `isChatFile()` has limited the address to letters,
+  digits, dot, underscore and hyphen.
+- Not done: no change to Markdown-to-HTML conversion itself, to streaming, or to what is stored.

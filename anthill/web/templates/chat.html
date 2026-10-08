@@ -726,6 +726,9 @@ function scrollBottom() {
   if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
 }
 scrollBottom();
+// The single rule for "is this one of this app's files". It is one function because the same decision is made
+// in five places (the image renderer, the sanitiser hook, the inline preview, the preview body and the Canvas);
+// the first version had a looser copy of it in two of them, and that is how /\host got through.
 // A file this app serves: exactly /files/<name>. Not "any path starting with a slash": that also admits
 // /\\host/x (browsers read the backslash as a slash and fetch from that host) and any app route, which an
 // image tag would then request with the user's session (GET /logout, the export routes). Function
@@ -919,6 +922,11 @@ function mdRenderer() {
   };
   return r;
 }
+// Order matters, and the sanitiser is last: marked builds the HTML, bare /files/ paths are turned into links,
+// then DOMPurify cleans the result, and nothing edits that string afterwards (the old order linkified
+// after sanitising, and a path inside an attribute value could split it). The custom image renderer and
+// the hook are two layers on purpose: a Markdown image and a raw <img> reach the sanitiser by different
+// routes, and both must end up with the same rule, isChatFile().
 function renderMd(text) {
   text = text == null ? '' : String(text);
   try {
@@ -968,7 +976,10 @@ function fillFilePreview(el, href, big) {
 }
 
 // Inline preview + an "Open in Canvas" button under any /files/<name> link. The href is the answer's own
-// text, so a link that is not exactly /files/<name> gets no preview, and the button is built with DOM calls.
+// text, so a link that is not exactly /files/<name> gets no preview. Only the button is built with DOM calls:
+// it was the one place that put the address inside a JavaScript string (onclick="openCanvas('...')"), where
+// quoting is what fails. The previews themselves still use strings, but only after isChatFile() has limited
+// the address to letters, digits, dot, underscore and hyphen. This is separate from the sanitising order above.
 function enhancePreviews(scope) {
   if (!scope) return;
   scope.querySelectorAll('a[href^="/files/"]').forEach(function (a) {
