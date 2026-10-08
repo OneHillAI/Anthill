@@ -26,7 +26,7 @@
   </div>
   <div style="font-size:14px;color:var(--clay);margin-bottom:16px;line-height:1.8">
     <b>Schedule:</b> {{ task.schedule }} &nbsp;·&nbsp;
-    <b>Runs:</b> {{ task.run_count }} &nbsp;·&nbsp;
+    <b>Runs:</b> {{ history_total }} &nbsp;·&nbsp;
     <b>Last run:</b>
     {% if task.last_run_at %}<span data-utc="{{ task.last_run_at|utc_iso }}">{{ task.last_run_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}
     &nbsp;·&nbsp; <b>Next run:</b>
@@ -62,12 +62,13 @@
   {% endif %}
 </div>
 
-<!-- run history: every past run, newest first (the newest expanded) -->
+{# run history: every recorded run, newest first, paged (25 at a time); only page 1 expands its newest run #}
 <div class="card mb-2">
-  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted">· {{ task.run_count }} run{{ '' if task.run_count == 1 else 's' }}</span></h3>
+  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted" id="history-count">·
+    {% if history_total > runs|length %}showing {{ history_first }} to {{ history_last }} of {{ history_total }} runs{% else %}{{ history_total }} run{{ '' if history_total == 1 else 's' }}{% endif %}</span></h3>
   {% if runs %}
   {% for r in runs %}
-  <details {% if loop.first %}open{% endif %}
+  <details {% if loop.first and history_page == 1 %}open{% endif %}
            style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
     <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span class="text-sm text-muted">{% if r.finished_at %}<span data-utc="{{ r.finished_at|utc_iso }}">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% endif %}</span>
@@ -101,6 +102,13 @@
   {% endfor %}
   {% else %}
   <p class="text-sm text-muted">No runs recorded yet.</p>
+  {% endif %}
+  {% if history_pages > 1 %}
+  <div id="history-pager" class="flex justify-between items-center" style="margin-top:12px">
+    {% if history_page > 1 %}<a class="btn btn-outline btn-sm" href="/tasks/{{ task.id }}/result?page={{ history_page - 1 }}">Newer runs</a>{% else %}<span></span>{% endif %}
+    <span class="text-sm text-muted">Page {{ history_page }} of {{ history_pages }}</span>
+    {% if history_page < history_pages %}<a class="btn btn-outline btn-sm" href="/tasks/{{ task.id }}/result?page={{ history_page + 1 }}">Older runs</a>{% else %}<span></span>{% endif %}
+  </div>
   {% endif %}
 </div>
 

@@ -82,6 +82,7 @@ from .db import (
 from .task_text import display_task_text
 
 _HERE = Path(__file__).parent
+TASK_HISTORY_PAGE_SIZE = 25  # runs shown per page on the task result page (#96)
 _CHAT_FAILURE_MARKER = "⚠️ Generation failed - "
 _TASK_QUEUE_RETRY_LIMIT = 4
 _TASK_QUEUE_RETRY_WINDOW = 0.25
@@ -15418,18 +15419,30 @@ async def queue_task_input(
 
 
 @app.get("/tasks/{task_id}/result", response_class=HTMLResponse)
-def task_result(request: Request, task_id: int, user: dict = Depends(_require_user)):
+def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     task = _task_visible(db, task_id, org, user)  # creator, org-plane anyone, or team member (#597)
     if not task:
         return RedirectResponse("/tasks", status_code=302)
-    # Run history: every past run (the task row only keeps the latest summary), newest first.
+    # Run history: every past run (the task row only keeps the latest summary), newest first, one bounded
+    # page at a time (#96). A run in progress is stored with its claim time as `finished_at` (the column
+    # default fills the None that task_occurrences passes), so it already sorts as the newest. A stored NULL,
+    # which the app does not create, is ordered first as well, as a guard. `id` breaks ties between runs
+    # that finished at the same instant, so in a history that is not changing each run appears exactly
+    # once. Paging is by offset: a run that finishes between two page loads shifts the later pages by one.
+    # The total counts the recorded runs themselves, not the task's run_count, which can differ for tasks
+    # that ran before history was kept.
+    history_q = db.query(TaskRun).filter(TaskRun.task_id == task.id)
+    history_total = history_q.count()
+    history_pages = max(1, (history_total + TASK_HISTORY_PAGE_SIZE - 1) // TASK_HISTORY_PAGE_SIZE)
+    history_page = min(max(1, page), history_pages)  # out of range lands on the nearest real page
     runs = (
-        db.query(TaskRun)
-        .filter(TaskRun.task_id == task.id)
-        .order_by(TaskRun.finished_at.desc())
-        .limit(25)
+        history_q.order_by(
+            TaskRun.finished_at.is_(None).desc(), TaskRun.finished_at.desc(), TaskRun.id.desc()
+        )
+        .offset((history_page - 1) * TASK_HISTORY_PAGE_SIZE)
+        .limit(TASK_HISTORY_PAGE_SIZE)
         .all()
     )
     # Live only while a TaskRun is actually running. A stale task status must not keep the browser
@@ -15447,6 +15460,11 @@ def task_result(request: Request, task_id: int, user: dict = Depends(_require_us
             "task": task,
             "runs": runs,
             "live": live,
+            "history_total": history_total,
+            "history_page": history_page,
+            "history_pages": history_pages,
+            "history_first": (history_page - 1) * TASK_HISTORY_PAGE_SIZE + 1 if runs else 0,
+            "history_last": (history_page - 1) * TASK_HISTORY_PAGE_SIZE + len(runs),
         },
     )
 
