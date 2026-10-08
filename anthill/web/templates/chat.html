@@ -734,6 +734,10 @@ try {
     }
   });
 } catch (_) {}
+// File types that get an inline preview. Declared before the first enhancePreviews() call below: a loaded
+// conversation whose history links a /files/ path reads it there, and a later `var` would still be undefined
+// (the TypeError stopped this script, so the preview never attached and the message input `inp` never initialised).
+var PREVIEWABLE = ['png','jpg','jpeg','gif','webp','pdf','html','docx','pptx','xlsx'];
 renderHistory();                       // format server-rendered history (raw markdown -> HTML)
 if (msgBox) enhancePreviews(msgBox);   // then linkify/preview files in the rendered history
 window.addEventListener("load", renderIcons);
@@ -890,8 +894,6 @@ function renderHistory() {
     b.dataset.mdDone = '1';
   });
 }
-
-var PREVIEWABLE = ['png','jpg','jpeg','gif','webp','pdf','html','docx','pptx','xlsx'];
 
 // Fill `el` with a preview of the file at `href`. Shared by the inline preview
 // and the Canvas pane. `big` uses a taller viewport for the pane.
