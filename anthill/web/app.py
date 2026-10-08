@@ -79,7 +79,6 @@ from .db import (
     get_engine,
     normalize_topology,
 )
-from .task_text import display_task_text
 
 _HERE = Path(__file__).parent
 TASK_HISTORY_PAGE_SIZE = 25  # runs shown per page on the task result page (#96)
@@ -373,7 +372,6 @@ def _utc_iso(dt) -> str:
 
 
 templates.env.filters["utc_iso"] = _utc_iso
-templates.env.filters["task_text"] = display_task_text
 
 
 def _as_utc(dt):

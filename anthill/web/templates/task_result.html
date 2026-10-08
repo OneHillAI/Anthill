@@ -42,14 +42,14 @@
   </div>
   <h3 style="margin-bottom:10px">Last result</h3>
   {% if task.last_result %}
-  {# The stored result, untouched: "Save as snippet" sends this, not the rendered or Unicode-decoded view.
+  {# The stored result, untouched: "Save as snippet" sends this, not the rendered view.
      It sits before any rendered result text and rendered ids are stripped, so a result cannot shadow it. #}
   <script type="application/json" id="task-result-src">{{ task.last_result|tojson }}</script>
   {% if task.last_result.startswith('ERROR:') %}
   <div style="margin-bottom:6px"><span class="badge badge-danger">error</span></div>
   <pre id="task-result" class="task-error">{{ task.last_result }}</pre>
   {% else %}
-  <div id="task-result" class="task-md task-md-raw" data-md>{{ task.last_result|task_text }}</div>
+  <div id="task-result" class="task-md task-md-raw" data-md>{{ task.last_result }}</div>
   {% endif %}
   <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <input type="text" id="snip-tags" placeholder="tags (comma-separated)"
@@ -95,7 +95,7 @@
     {% if r.status == 'error' %}
     <pre class="task-error" style="margin:8px 0 0">{{ r.error }}</pre>
     {% else %}
-    <div class="task-md task-md-raw" data-md style="margin:8px 0 0">{{ r.result|task_text }}</div>
+    <div class="task-md task-md-raw" data-md style="margin:8px 0 0">{{ r.result }}</div>
     {% endif %}
     {% endif %}
   </details>

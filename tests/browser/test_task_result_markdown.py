@@ -1,7 +1,7 @@
-"""Visual/browser check (#89): task results render as sanitized Markdown, with Unicode shown as characters.
+"""Visual/browser check (#89): task results render as sanitized Markdown.
 
 A headless Chromium loads a seeded task whose latest result and run history are Markdown, one with a
-double-escaped Unicode sequence and a script injection, plus a failed run. It asserts formatted output,
+doubled Unicode escape and a script injection, plus a failed run. It asserts formatted output,
 that nothing executes, that errors stay plain, and that "Save as snippet" still sends the stored source.
 Runs in its own CI job; skipped when Playwright is not installed.
 """
@@ -205,14 +205,14 @@ def test_nothing_in_a_result_can_execute(live):
             browser.close()
 
 
-def test_double_escaped_unicode_shows_as_a_character_and_user_backslashes_stay(live):
+def test_a_doubled_unicode_escape_is_shown_as_stored_and_not_decoded(live):
     with sync_api.sync_playwright() as p:
         browser, page = _open(live, p)
         try:
             text = page.locator("#task-result").inner_text()
-            assert "Cost \u00b7 low" in text
-            assert "\\u00b7" not in text
-            assert "C:\\users\\me" in text  # legitimate user-authored backslashes are untouched
+            assert "\u00b7" not in text  # the middle dot: nothing decodes the escape
+            assert "u00b7" in text  # shown as text (Markdown reads the doubled backslash as one)
+            assert "C:\\users\\me" in text  # user-authored backslashes are untouched
         finally:
             browser.close()
 
@@ -247,7 +247,7 @@ def test_save_as_snippet_still_sends_the_stored_source(live):
             assert (
                 "Weekly summary" in body and "**bold** item" in body
             )  # Markdown source, not HTML text
-            assert "\\\\u00b7" in body  # still the stored escape, not the decoded character
+            assert "\\\\u00b7" in body  # the stored escape, exactly as stored
         finally:
             browser.close()
 
