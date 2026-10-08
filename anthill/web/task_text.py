@@ -43,6 +43,12 @@ def _single(m: re.Match) -> str:
 def display_task_text(text: str | None) -> str:
     """The text to show for a task result: double-escaped four-digit Unicode escapes become characters.
 
+    Why this is a display-side rule: the result writers store the text as given, so the stored value already
+    holds the doubled escapes, and the text is model output that cannot be guaranteed clean at the source.
+    A likely source is that tool results are serialised with ``json.dumps`` (ASCII escaping on) before they
+    are shown to the model in ``anthill/agent/executor.py``; a pipeline change there would alter what the
+    model is given and would not repair results already stored. See "Why this shape" in the #89 spec.
+
     Display only. The stored result is never changed and actions that consume the raw result (saving a
     snippet) keep receiving it as stored.
     """
