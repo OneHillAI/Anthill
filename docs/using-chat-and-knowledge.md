@@ -14,6 +14,25 @@ recurring, like "every morning, summarize my inbox", and it proposes a scheduled
 
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
 
+Some local models think before they answer, and you see nothing until they finish. That can take ten
+seconds or more on a laptop. The **Thinking** button under the message box turns this off. Click it
+to read "Thinking off" and the answer comes sooner, at the cost of less careful reasoning on hard
+questions. Click again to turn thinking back on. It only changes models that run on this machine and
+that can think. Other models answer the same either way, and so do models that always think (gpt-oss,
+for one, cannot turn thinking fully off). A question that searches the web shows its answer once it is complete,
+word by word only when it does not search, and Thinking off shortens that wait too.
+
+Thinking and web search each have a default and a choice for every chat. Both are on by default for a new
+account. Set
+the defaults in **Settings**: Thinking under **Model**, Web access under **Privacy**. A web search
+sends the text of your question to a search provider, so turn it off if a question must not leave
+your machine.
+In a chat, the Thinking button and the **Options** button change them for that chat only, and Anthill
+remembers the choice for that chat. A chat you have not changed follows the default, so changing the
+default changes those chats too. The first time you open Chat, Agents or Tasks, a short notice tells you
+what the defaults are and lets you change them. Even with web search off, Anthill may search the web on
+its own when a question clearly needs live information, and it marks that answer with a globe.
+
 ### Group chats with a project
 
 A project is the one way to group chats. Chats in no project sit under **Unfiled** in the sidebar.

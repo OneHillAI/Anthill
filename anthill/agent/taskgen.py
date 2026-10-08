@@ -29,13 +29,15 @@ _SYS = (
 )
 
 
-def parse_task(description: str, backend, *, today: str = "") -> dict:
+def parse_task(description: str, backend, *, today: str = "", think: bool | None = None) -> dict:
     """NL description → {title, schedule, goal}. Best-effort; always valid."""
     desc = (description or "").strip()
     data = {}
     try:
         user = desc + (f"\n\n(today is {today})" if today else "")
-        raw = json_chat(backend, [Message("system", _SYS), Message("user", user)])
+        msgs = [Message("system", _SYS), Message("user", user)]
+        # think is passed only when given, so a call without it is exactly what it was before.
+        raw = json_chat(backend, msgs) if think is None else json_chat(backend, msgs, think=think)
         data = extract_json(raw)
     except Exception:
         data = {}

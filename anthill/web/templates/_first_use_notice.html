@@ -1,0 +1,73 @@
+{# One-time first-use notice, shown on chat, agents and tasks until the user acknowledges it (or changes a
+   switch in it). Says what the Thinking and Web search defaults are, lets the user change them right here,
+   and points to the two places they can be changed later. Needs `first_use_notice` in the page context. #}
+{% if first_use_notice %}
+<style>
+  .fu-notice{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:12px 14px;margin:0 0 12px;font-size:13px;line-height:1.45}
+  .fu-notice h4{margin:0 0 4px;font-size:14px}
+  .fu-notice p{margin:4px 0}
+  .fu-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0}
+  .fu-row label{display:flex;align-items:center;gap:8px;cursor:pointer}
+  .fu-actions{display:flex;gap:8px;align-items:center;margin-top:8px}
+</style>
+<div id="first-use-notice" class="fu-notice" role="status">
+  <h4>Thinking and web search</h4>
+  <p>
+    Thinking is <b id="fu-think-state">{{ 'on' if first_use_notice.thinking_on else 'off' }}</b> and web search is
+    <b id="fu-web-state">{{ 'on' if first_use_notice.web_on else 'off' }}</b> in your {% if first_use_notice.org_mode %}personal {% endif %}chats.
+    {% if first_use_notice.org_mode %}Organisation chats always search the web. {% endif %}Turn either off whenever you do not want it.
+  </p>
+  <div class="fu-row">
+    <label><input type="checkbox" id="fu-think" {% if first_use_notice.thinking_on %}checked{% endif %}>
+      Thinking: some models think before they answer (better on hard questions, slower to start). Only for models running on this machine.</label>
+  </div>
+  <div class="fu-row">
+    <label><input type="checkbox" id="fu-web" {% if first_use_notice.web_on %}checked{% endif %}>
+      Web search: look things up online when needed (sends the question to a search provider)</label>
+  </div>
+  <p class="text-muted">
+    These are your defaults for chats. Change them for one chat with the Thinking button and the Options button in the
+    chat box, or for every chat in Settings:
+    <a href="/personalize#model" onclick="fuSave({seen: true})">Thinking</a> under Model,
+    <a href="/personalize#privacy" onclick="fuSave({seen: true})">Web access</a> under Privacy.
+    {% if first_use_notice.page in ('agents', 'tasks') %}Agents and scheduled tasks keep their own settings.{% endif %}
+    Anthill may still search the web on its own when a question clearly needs live information, and marks that
+    answer with a globe.
+  </p>
+  <div class="fu-actions"><button type="button" class="btn btn-primary btn-sm" id="fu-ok">Got it</button></div>
+</div>
+<script>
+  (function () {
+    function fuSave(patch, done) {
+      try {
+        fetch('/settings/chat-defaults', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                          body: JSON.stringify(patch), credentials: 'same-origin', keepalive: true})
+          .then(function (r) { return r.json(); })
+          .then(function (d) { if (d && d.ok && done) done(d); })
+          .catch(function () {});
+      } catch (e) {}
+    }
+    window.fuSave = fuSave;
+    var think = document.getElementById('fu-think'), web = document.getElementById('fu-web');
+    function state(el, on) { var s = document.getElementById(el); if (s) s.textContent = on ? 'on' : 'off'; }
+    // A switch here changes the default (saved at once) and counts as having seen the notice.
+    think.addEventListener('change', function () {
+      state('fu-think-state', think.checked);
+      fuSave({thinking_on: think.checked, seen: true}, function (d) {
+        if (window.applyChatDefaults) window.applyChatDefaults(d);
+      });
+    });
+    web.addEventListener('change', function () {
+      state('fu-web-state', web.checked);
+      fuSave({web_access: web.checked, seen: true}, function (d) {
+        if (window.applyChatDefaults) window.applyChatDefaults(d);
+      });
+    });
+    document.getElementById('fu-ok').addEventListener('click', function () {
+      fuSave({seen: true}, function () {
+        var n = document.getElementById('first-use-notice'); if (n) n.style.display = 'none';
+      });
+    });
+  })();
+</script>
+{% endif %}

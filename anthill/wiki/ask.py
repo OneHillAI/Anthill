@@ -308,6 +308,7 @@ def ask(
     decrypt=None,  # Callable[[str], str] - required alongside cfg to attempt the council
     provider_available: bool = False,  # #278: a connected org/RunPod/inference-provider backend exists
     # and this turn answered locally - names it in the "go deeper" suggestion as a second option.
+    think: bool | None = None,  # False = no hidden thinking for the answer (web-composed or local)
 ) -> tuple[str, list[str], bool]:
     """Answer a question.
 
@@ -380,7 +381,7 @@ def ask(
     # dead-end the user - fall through to the normal local answer.
     # Prior conversation turns, reconciled to a budget (summarise the old, keep the recent), so a
     # follow-up - on the web path or the local path - has memory of the chat without blowing context.
-    prepared_history = _prepare_history(history, backend, model_override)
+    prepared_history = _prepare_history(history, backend, model_override, think=think)
     answer = None
     if web_search:
         try:
@@ -388,7 +389,7 @@ def ask(
 
             answer = search_and_answer(
                 question,
-                backend=_backend_with_model(backend, model_override),
+                backend=_backend_with_model(backend, model_override, think=think),
                 wiki_context=context_no_mem if (pages or profile or principles) else "",
                 memory_context=memory_context,
                 history=prepared_history,
@@ -420,7 +421,9 @@ def ask(
                 *[Message(r, c) for r, c in prepared_history],
                 Message("user", question, images=images_b64),
             ]
-            answer = _chat(backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS)
+            answer = _chat(
+                backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
+            )
         else:
             messages = prompts.answer_question(context, question, history=prepared_history)
             # Prompt-injection defence, layer 2. Two failure modes on the injection-suspect path, both
@@ -440,6 +443,8 @@ def ask(
             # walked by content it retrieved. Residual-hardening follow-up to #541/#568.
             suspect = has_injection_imperative(question) or has_injection_imperative(context)
             first_kwargs: dict = {"num_predict": ANSWER_MAX_TOKENS}
+            if think is False:
+                first_kwargs["think"] = False  # the user turned Thinking off for this turn
             if suspect:
                 # thinking off so an injection can't burn the whole budget in <think> and return empty
                 first_kwargs["think"] = False
@@ -570,6 +575,8 @@ def ask_stream(
     cfg=None,  # OrgSettings row - when given (with decrypt), an active council delegates to ask()
     decrypt=None,  # Callable[[str], str] - required alongside cfg to check council eligibility
     provider_available: bool = False,  # #278: see ask()'s param of the same name
+    think: bool
+    | None = None,  # False = answer without a reasoning model's hidden thinking (faster start)
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
@@ -632,14 +639,17 @@ def ask_stream(
             cfg=cfg,
             decrypt=decrypt,
             provider_available=provider_available,
+            think=think,
         )
         yield answer
         return
 
-    prepared_history = _prepare_history(history, backend, model_override)
+    prepared_history = _prepare_history(history, backend, model_override, think=think)
     messages = prompts.answer_question(context, question, history=prepared_history)
     chunks: list[str] = []
-    for chunk in stream_chat(backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS):
+    for chunk in stream_chat(
+        backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
+    ):
         chunks.append(chunk)
         yield chunk
 
@@ -684,7 +694,10 @@ def file_as_page(
 
 
 def _prepare_history(
-    history: list[tuple[str, str]] | None, backend, model_override: str | None
+    history: list[tuple[str, str]] | None,
+    backend,
+    model_override: str | None,
+    think: bool | None = None,
 ) -> list[tuple[str, str]]:
     """Reconcile prior turns to the context budget, summarising the older ones with the model."""
     if not history:
@@ -700,7 +713,7 @@ def _prepare_history(
             ),
             Message("user", transcript),
         ]
-        return _chat(backend, msgs, model_override)
+        return _chat(backend, msgs, model_override, think=think)
 
     from ..inference.context import char_budget
 
@@ -755,14 +768,21 @@ def _decorate_context(context: str, *, profile: str = "", principles: str = "") 
 
 
 def stream_chat(
-    backend, messages, model_override: str | None = None, *, num_predict: int | None = None
+    backend,
+    messages,
+    model_override: str | None = None,
+    *,
+    num_predict: int | None = None,
+    think: bool | None = None,
 ):
     """Yield answer chunks from the backend - the streaming sibling of ``_chat``.
 
     Real token streaming via ``chat_stream`` when the backend supports it (Ollama, OpenAI-compatible),
     otherwise the whole answer as a single chunk, so a non-streaming backend still works. ``num_predict``
     bounds the generation (a runaway is cut mid-stream); it degrades gracefully if the streamer does not
-    accept it.
+    accept it. ``think=False`` asks an Ollama reasoning model to skip its hidden reasoning so the first
+    word appears sooner (the chat's Thinking button); ``None`` leaves it to the model, and other
+    backends never see the flag.
     """
     streamer = getattr(backend, "chat_stream", None)
     if streamer is None:
@@ -775,6 +795,8 @@ def stream_chat(
         kwargs["model"] = model_override
     if num_predict is not None:
         kwargs["num_predict"] = num_predict
+    if think is not None and isinstance(backend, OllamaBackend):
+        kwargs["think"] = think
     try:
         yield from streamer(messages, **kwargs)
     except TypeError:
@@ -783,16 +805,17 @@ def stream_chat(
         yield from streamer(messages, **kwargs)
 
 
-def _backend_with_model(backend, model_override: str | None):
-    """Return a thin wrapper that injects model_override into every chat call."""
-    if not model_override:
+def _backend_with_model(backend, model_override: str | None, think: bool | None = None):
+    """Return a thin wrapper that injects model_override (and, when given, the Thinking choice) into every
+    chat call."""
+    if not model_override and think is None:
         return backend
 
     class _OverrideBackend:
-        model = model_override
+        model = model_override or getattr(backend, "model", "")
 
         def chat(self, messages, *, temperature=0.2):
-            return _chat(backend, messages, model_override)
+            return _chat(backend, messages, model_override, think=think)
 
         def health(self):
             return backend.health()
