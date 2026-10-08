@@ -109,6 +109,13 @@ def ollama_spawn_guard():
 
 
 @pytest.fixture(autouse=True)
+def _no_page_index_warmup(monkeypatch):
+    """The background page-vector warm-up (anthill/wiki/page_index.py) is off in every test: it would embed
+    pages on a worker thread behind a test's back. A test that wants it sets ``page_index.ENABLED`` itself."""
+    monkeypatch.setattr("anthill.wiki.page_index.ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_ollama(monkeypatch):
     def _unreachable(self, *args, **kwargs):
         raise BackendError("no local model in tests (hermetic default)")
