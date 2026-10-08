@@ -79,6 +79,7 @@ from .db import (
     get_engine,
     normalize_topology,
 )
+from .task_text import display_task_text
 
 _HERE = Path(__file__).parent
 _CHAT_FAILURE_MARKER = "⚠️ Generation failed - "
@@ -371,6 +372,7 @@ def _utc_iso(dt) -> str:
 
 
 templates.env.filters["utc_iso"] = _utc_iso
+templates.env.filters["task_text"] = display_task_text
 
 
 def _as_utc(dt):
