@@ -726,11 +726,29 @@ function scrollBottom() {
   if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
 }
 scrollBottom();
-// Markdown links open in a new tab, safely (hook set once, before any render).
+// The single rule for "is this one of this app's files". It is one function because the same decision is made
+// in five places (the image renderer, the sanitiser hook, the inline preview, the preview body and the Canvas);
+// the first version had a looser copy of it in two of them, and that is how /\host got through.
+// A file this app serves: exactly /files/<name>. Not "any path starting with a slash": that also admits
+// /\\host/x (browsers read the backslash as a slash and fetch from that host) and any app route, which an
+// image tag would then request with the user's session (GET /logout, the export routes). Function
+// declaration, so it is available to the first render below.
+function isChatFile(src) {
+  src = String(src == null ? '' : src);
+  if (!/^\/files\/(?!\.{1,2}$)[A-Za-z0-9._-]+$/.test(src)) return false;
+  try { return new URL(src, location.href).origin === location.origin; } catch (_) { return false; }
+}
+// Markdown links open in a new tab, safely (hook set once, before any render). An image may only be one of
+// this app's files: a remote image would make the browser contact that host the moment the answer
+// renders, which is how text from the web or a document could carry data out of the perimeter. Any other
+// image is dropped here; the Markdown renderer below already turns a non-file Markdown image into a link.
 try {
   if (window.DOMPurify) DOMPurify.addHook('afterSanitizeAttributes', function (node) {
     if (node.tagName === 'A' && node.getAttribute('href')) {
       node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer');
+    }
+    if (node.tagName === 'IMG' && !isChatFile(node.getAttribute('src'))) {
+      if (node.parentNode) node.parentNode.removeChild(node);
     }
   });
 } catch (_) {}
@@ -872,13 +890,54 @@ function linkifyFiles(html) {
 
 // Markdown -> sanitized HTML. Real GFM (lists, headings, tables, code, links) via the
 // self-hosted marked + DOMPurify above. Chat answers mix model text with web/document
-// content, so sanitizing is mandatory (strips <script>/<iframe>/on*/javascript:). Falls
-// back to a safe escape if the libs failed to load, so chat never breaks.
+// content, so sanitizing is mandatory and strict: only text formatting plus images from this app
+// survive. No form, input, button, style, id, class or inline style (they would let injected text
+// restyle the page, fake a prompt or submit a form), and a remote image is shown as a link, never
+// loaded. Falls back to a safe escape if the libs failed to load, so chat never breaks.
+// Functions, not top-level variables: renderHistory() runs before this point of the script has executed.
+// A `var` would still be undefined then, and DOMPurify would silently fall back to its defaults; a `const`
+// would throw a ReferenceError that renderMd catches, leaving the answer as escaped plain text.
+function mdPolicy() {
+  return {
+    ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre',
+                   'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+    ALLOWED_ATTR: ['href', 'title', 'align', 'start', 'src', 'alt'],
+    // DOMPurify tests this pattern on every attribute that is not on its own URI-safe list, so align and
+    // start (plain words and numbers) are named below or they would always be stripped.
+    ADD_URI_SAFE_ATTR: ['align', 'start'],
+    // http(s), mailto, and a site path with a single leading slash (not "//" and not "/\\", which browsers
+    // read as another host). No in-page "#" links: answers have no ids to point at.
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|\/(?![\/\\]))/i,
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false
+  };
+}
+function mdEsc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function mdRenderer() {
+  var r = new marked.Renderer();
+  // marked 12 (pinned) calls image(href, title, text) with text already escaped; later majors pass one
+  // token whose text is raw. Both shapes are handled so a version bump cannot reopen the image path.
+  r.image = function (href, title, text) {
+    if (href && typeof href === 'object') { text = mdEsc(href.text); href = href.href; }
+    if (isChatFile(href)) return '<img src="' + mdEsc(href) + '" alt="' + (text || '') + '">';
+    return '<a href="' + mdEsc(href) + '">' + (text || mdEsc(href)) + '</a>';  // anything else is a link
+  };
+  return r;
+}
+// Order matters, and the sanitiser is last: marked builds the HTML, bare /files/ paths are turned into links,
+// then DOMPurify cleans the result, and nothing edits that string afterwards (the old order linkified
+// after sanitising, and a path inside an attribute value could split it). The custom image renderer and
+// the hook are two layers on purpose: a Markdown image and a raw <img> reach the sanitiser by different
+// routes, and both must end up with the same rule, isChatFile().
 function renderMd(text) {
   text = text == null ? '' : String(text);
   try {
     if (window.marked && window.DOMPurify) {
-      return linkifyFiles(DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true })));
+      // Bare /files/ paths become links BEFORE sanitising, so the sanitiser always sees the final markup.
+      return DOMPurify.sanitize(
+        linkifyFiles(marked.parse(text, { gfm: true, breaks: true, renderer: mdRenderer() })), mdPolicy());
     }
   } catch (_) {}
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
@@ -896,8 +955,9 @@ function renderHistory() {
 }
 
 // Fill `el` with a preview of the file at `href`. Shared by the inline preview
-// and the Canvas pane. `big` uses a taller viewport for the pane.
+// and the Canvas pane. `big` uses a taller viewport for the pane. Only /files/<name> is previewed.
 function fillFilePreview(el, href, big) {
+  if (!isChatFile(href)) { el.textContent = 'No preview for this file type.'; return; }
   var ext = (href.split('.').pop() || '').toLowerCase();
   var h = big ? '80vh' : '440px';
   if (['png','jpg','jpeg','gif','webp'].indexOf(ext) >= 0) {
@@ -917,13 +977,18 @@ function fillFilePreview(el, href, big) {
   }
 }
 
-// Inline preview + an "Open in Canvas" button under any /files/… link.
+// Inline preview + an "Open in Canvas" button under any /files/<name> link. The href is the answer's own
+// text, so a link that is not exactly /files/<name> gets no preview. Only the button is built with DOM calls:
+// it was the one place that put the address inside a JavaScript string (onclick="openCanvas('...')"), where
+// quoting is what fails. The previews themselves still use strings, but only after isChatFile() has limited
+// the address to letters, digits, dot, underscore and hyphen. This is separate from the sanitising order above.
 function enhancePreviews(scope) {
   if (!scope) return;
   scope.querySelectorAll('a[href^="/files/"]').forEach(function (a) {
     if (a.dataset.previewed) return;
     a.dataset.previewed = '1';
     var href = a.getAttribute('href');
+    if (!isChatFile(href)) return;
     var ext  = (href.split('.').pop() || '').toLowerCase();
     if (PREVIEWABLE.indexOf(ext) < 0) return;   // md / txt: no preview
     var box = document.createElement('div');
@@ -933,8 +998,12 @@ function enhancePreviews(scope) {
     fillFilePreview(prev, href, false);
     var bar = document.createElement('div');
     bar.style.cssText = 'margin-top:8px';
-    bar.innerHTML = '<button type="button" class="btn btn-outline btn-sm" onclick="openCanvas(\'' +
-                    href + '\')"><i data-lucide="panel-right">▦</i> Open in Canvas</button>';
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn btn-outline btn-sm';
+    var ico = document.createElement('i'); ico.setAttribute('data-lucide', 'panel-right'); ico.textContent = '▦';
+    btn.appendChild(ico); btn.appendChild(document.createTextNode(' Open in Canvas'));
+    btn.addEventListener('click', function () { openCanvas(href); });
+    bar.appendChild(btn);
     box.appendChild(prev); box.appendChild(bar);
     a.parentNode.insertBefore(box, a.nextSibling);
     renderIcons();
@@ -944,6 +1013,7 @@ function enhancePreviews(scope) {
 // ── Canvas pane: enlarged preview + iterate on a file ─────────────────────────
 let canvasFile = '';
 function openCanvas(href) {
+  if (!isChatFile(href)) return;
   canvasFile = href;
   document.getElementById('canvas-name').textContent = href.split('/').pop();
   fillFilePreview(document.getElementById('canvas-preview'), href, true);
