@@ -229,7 +229,8 @@ def plan_web_query(message: str, history, backend) -> tuple[bool, str] | None:
         msgs.append(Message(role if role in ("user", "assistant") else "user", content))
     msgs.append(Message("user", message))
     try:
-        data = extract_json(json_chat(backend, msgs))
+        # No hidden thinking for this call: it only decides whether to search and writes the query.
+        data = extract_json(json_chat(backend, msgs, think=False))
     except Exception:
         return None
     if not isinstance(data, dict) or "search" not in data:
@@ -568,14 +569,18 @@ _SYS = (
 )
 
 
-def classify(message: str, backend) -> dict:
+def classify(message: str, backend, *, think: bool | None = None) -> dict:
     """Message -> {intent, format, summary, harmful}. Always valid; falls back to 'answer'.
 
     ``harmful`` is a safety flag for a request to PRODUCE content that materially enables harm - True if
     the deterministic pattern matches OR the model flags it. The caller must refuse a harmful request
     rather than route it to the create-artifact path (a protected safety invariant)."""
     try:
-        data = extract_json(json_chat(backend, [Message("system", _SYS), Message("user", message)]))
+        msgs = [Message("system", _SYS), Message("user", message)]
+        # think is passed only when given, so a call without it is exactly what it was before.
+        data = extract_json(
+            json_chat(backend, msgs) if think is None else json_chat(backend, msgs, think=think)
+        )
     except Exception:
         data = {}
     intent = str(data.get("intent", "")).strip().lower()

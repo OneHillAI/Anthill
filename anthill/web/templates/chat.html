@@ -313,7 +313,7 @@
       {# The dot/text is kept in sync with the live Web-search toggle by JS below (issue: this claim was
          unconditionally true while Web search defaulted ON, which really does send the query text to a
          search provider - see chat-web-privacy-sync). #}
-      <span class="chat-trust"><span class="chat-trust-dot"></span><span id="chat-trust-msg">Running on this machine. Nothing leaves it.</span></span>
+      <span class="chat-trust"><span class="chat-trust-dot"></span><span id="chat-trust-msg">{% if active_conv and web_default %}Web search is on for this chat.{% else %}Running on this machine. Nothing leaves it.{% endif %}</span></span>
       {% else %}
       <span class="text-sm text-muted">{{ org.name }} · org model</span>
       {% endif %}
@@ -373,6 +373,10 @@
       your question as is, instead of planning it. <a href="/personalize#model">Pick a larger model</a> for
       action-style search.
     </div>
+    {% endif %}
+
+    {% if first_use_notice %}
+    <div style="padding:10px 14px 0">{% include "_first_use_notice.html" %}</div>
     {% endif %}
 
     <div class="chat-messages" id="messages">
@@ -489,24 +493,31 @@
           <span id="send-icon">➤</span>
         </button>
       </div>
-      <!-- Single box by default. Web search defaults OFF on Solo (a search sends your question to a
-           search provider - contradicts "nothing leaves it" if on by default) and ON for Org (which
-           already runs on a shared, non-local model). A capable model still decides when to search once
-           it's on; a small model auto-enables it just-in-time for a question that clearly needs live
-           info, always flagged with a visible "🌐 web" badge on that answer either way. Options let you
-           flip the default or set a scope. Agent mode is no longer a toggle (#421): the router picks
-           depth, and "go deeper" in words forces it on a follow-up. -->
+      <!-- Single box by default. Web search starts ON for a new account (most questions are about live
+           information) and ON for Org; the account default lives in Settings and this chat can change its
+           own. A search sends the question to a search provider, so the header says "Web search is on" while
+           it is on and only claims "Nothing leaves it" while it is off. A capable model still decides when
+           to search once it's on; a question that clearly needs live info can also turn it on for that turn,
+           flagged with a visible "🌐 web" badge on that answer. Options let you flip it for this chat or set
+           a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
+           forces it on a follow-up. -->
       <div class="input-options-bar">
         <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
                 title="Switch to local + wiki only, or set a knowledge scope">
           <i data-lucide="sliders-horizontal">⚙</i> Options
+        </button>
+        {# Thinking button: on (default) leaves it to the model; off asks a model that thinks to answer without
+           its hidden thinking, so the answer comes sooner. Only affects local models that think. #}
+        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="true"
+                title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
+          <i data-lucide="brain">🧠</i> <span id="opt-think-label">Thinking on</span>
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>
       <div class="input-options" id="opt-panel" style="display:none">
         <label class="toggle-opt" id="opt-web-label"
                title="Search the web to help answer - sends your question to a search provider.">
-          <input type="checkbox" id="opt-web" {% if active_conv.plane != 'solo' or web_access_on %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
+          <input type="checkbox" id="opt-web" {% if web_default %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
         </label>
         {# Agent-mode toggle retired (#421): the router auto-escalates to the multi-step agent when a
            question needs depth, and saying "go deeper" on a follow-up forces it. No manual button. #}
@@ -535,28 +546,109 @@
         var t = document.getElementById('opt-toggle');
         if (t) t.classList.toggle('active', open);
       }
-      // The user's web-search choice persists across reloads (default: off on Solo, on for Org - see
-      // the opt-web markup above). The Solo trust banner is kept honest: it only claims "nothing leaves
-      // it" while web search is actually off for this chat.
-      (function () {
-        var w = document.getElementById('opt-web');
-        if (!w) return;
+      // Thinking and Web search, per chat. Settings holds the DEFAULT for every chat. Changing a switch here
+      // changes it for THIS chat only (kept in this browser, keyed by the chat). A chat with no choice of its
+      // own follows the Settings default, so changing the default applies at once to those chats.
+      var _CHAT_KEY = {{ active_conv.id if active_conv else 'null' }};
+      var _OPTS_STORE = 'anthill_chat_opts_v1';
+      // Whether this chat's web search follows the Settings default (a Solo chat, or a project chat in an install
+      // with no organisation server). Organisation chats, and project chats on the shared model, always start on.
+      var _WEB_FOLLOWS_DEFAULT = {{ 'true' if web_follows_default else 'false' }};
+      var _defaults = {
+        think: {{ 'true' if thinking_on_default else 'false' }},
+        web: {{ 'true' if web_default else 'false' }}
+      };
+      function _loadOpts() {
+        try { return JSON.parse(localStorage.getItem(_OPTS_STORE) || '{}') || {}; } catch (e) { return {}; }
+      }
+      function _chatOpt(name) {
+        if (_CHAT_KEY === null) return null;
+        var o = _loadOpts()[_CHAT_KEY];
+        return (o && typeof o[name] === 'boolean') ? o[name] : null;
+      }
+      function _setChatOpt(name, value) {
+        if (_CHAT_KEY === null) return;
         try {
-          var saved = localStorage.getItem('anthill_web_on');
-          if (saved !== null) w.checked = (saved === '1');
+          var all = _loadOpts(), o = all[_CHAT_KEY] || {};
+          o[name] = value; all[_CHAT_KEY] = o;
+          localStorage.setItem(_OPTS_STORE, JSON.stringify(all));
         } catch (e) {}
-        function syncTrustBanner() {
-          var msg = document.getElementById('chat-trust-msg');
-          if (!msg) return;  // not rendered on an Org conversation
-          msg.textContent = w.checked
-            ? 'Web search is on for this chat.'
-            : 'Running on this machine. Nothing leaves it.';
-        }
+      }
+      // The Thinking button: on leaves thinking to the model; off sends think=false with each message so a
+      // reasoning model answers without its hidden thinking.
+      window._thinkOn = (_chatOpt('think') === null) ? _defaults.think : _chatOpt('think');
+      function paintThinking() {
+        var b = document.getElementById('opt-think');
+        if (!b) return;
+        var l = document.getElementById('opt-think-label');
+        if (l) l.textContent = window._thinkOn ? 'Thinking on' : 'Thinking off';
+        b.setAttribute('aria-pressed', window._thinkOn ? 'true' : 'false');
+        b.classList.toggle('active', !window._thinkOn);  // highlighted while off
+      }
+      function toggleThinking() {
+        window._thinkOn = !window._thinkOn;
+        _setChatOpt('think', window._thinkOn);
+        paintThinking();
+      }
+      paintThinking();
+      // Web search: the checkbox starts from this chat's own choice, else the default. The Solo trust banner
+      // is kept honest: it only claims "nothing leaves it" while web search is actually off for this chat.
+      var _webBox = document.getElementById('opt-web');
+      function syncTrustBanner() {
+        var msg = document.getElementById('chat-trust-msg');
+        if (!msg || !_webBox) return;  // not rendered on an Org conversation
+        msg.textContent = _webBox.checked
+          ? 'Web search is on for this chat.'
+          : 'Running on this machine. Nothing leaves it.';
+      }
+      if (_webBox) {
+        if (_chatOpt('web') !== null) _webBox.checked = _chatOpt('web');
         syncTrustBanner();
-        w.addEventListener('change', function () {
-          try { localStorage.setItem('anthill_web_on', w.checked ? '1' : '0'); } catch (e) {}
+        _webBox.addEventListener('change', function () {
+          _setChatOpt('web', _webBox.checked);
           syncTrustBanner();
         });
+      }
+      // Called by the first-use notice (and the one-time import below) after a new default is saved: apply it
+      // to this chat unless the chat already has a choice of its own.
+      window.applyChatDefaults = function (d) {
+        if (typeof d.thinking_on === 'boolean') {
+          _defaults.think = d.thinking_on;
+          if (_chatOpt('think') === null) { window._thinkOn = d.thinking_on; paintThinking(); }
+        }
+        if (typeof d.web_access === 'boolean' && _WEB_FOLLOWS_DEFAULT) {
+          _defaults.web = d.web_access;
+          if (_chatOpt('web') === null && _webBox) { _webBox.checked = d.web_access; syncTrustBanner(); }
+        }
+        // Keep the first-use notice (when it is on this page) in step, so it never states an old default.
+        var ft = document.getElementById('fu-think'), fw = document.getElementById('fu-web');
+        if (typeof d.thinking_on === 'boolean' && ft) {
+          ft.checked = d.thinking_on;
+          var st = document.getElementById('fu-think-state'); if (st) st.textContent = d.thinking_on ? 'on' : 'off';
+        }
+        if (typeof d.web_access === 'boolean' && fw) {
+          fw.checked = d.web_access;
+          var sw = document.getElementById('fu-web-state'); if (sw) sw.textContent = d.web_access ? 'on' : 'off';
+        }
+      };
+      // One-time import of the old browser-wide web choice (anthill_web_on). It used to override the Settings
+      // default for every chat in this browser. Only "off" is carried over, as the account default, so a user
+      // who had web search switched off here keeps it off. "On" is just dropped: promoting it would turn web
+      // search on for the account on every device. The key is removed either way, so it never overrides again.
+      (function () {
+        var legacy = null;
+        try { legacy = localStorage.getItem('anthill_web_on'); } catch (e) {}
+        if (legacy === null) return;
+        try { localStorage.removeItem('anthill_web_on'); } catch (e) {}
+        if (legacy !== '0') return;
+        try {
+          fetch('/settings/chat-defaults', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({web_access: false}),
+                                            credentials: 'same-origin', keepalive: true})
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.ok && window.applyChatDefaults) window.applyChatDefaults(d); })
+            .catch(function () {});
+        } catch (e) {}
       })();
     </script>
     {% endif %}
@@ -1338,7 +1430,7 @@ function saveRecurringFromDom(btn, msgId) {
   scheduleCardAfter(btn.closest('.meta'), {goal: prompt, title: prompt.slice(0, 60), sourceMessageId: msgId});
 }
 
-function runStream({message, web=false, agent=false, prior='', showUser=true, header='', scope=null, confirm=false, image_token='', research=false}) {
+function runStream({message, web=false, agent=false, prior='', showUser=true, header='', scope=null, confirm=false, image_token='', research=false, think=window._thinkOn !== false}) {
   if (!convId || streaming) return;
 
   if (showUser) {
@@ -1380,7 +1472,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   };
 
   const wikiScope = scope || (document.getElementById('opt-scope') || {}).value || 'all';
-  const params = new URLSearchParams({message, web, agent_mode: agent, prior, wiki_scope: wikiScope, confirm, research, use_local: _useLocalNow});
+  const params = new URLSearchParams({message, web, agent_mode: agent, prior, wiki_scope: wikiScope, confirm, research, use_local: _useLocalNow, think});
   if (image_token) params.set('image_token', image_token);
   const src = new EventSource(`/chat/${convId}/stream?${params}`);
   currentSrc = src; setStreaming(true);

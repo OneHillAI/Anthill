@@ -154,7 +154,7 @@ def test_settings_privacy_toggles_persist(tmp_path, monkeypatch):
 
 def test_settings_web_access_toggle_persists(tmp_path, monkeypatch):
     # "Web access" is a real Privacy toggle now (not "coming soon"): it persists to User.web_access_on,
-    # off by default, and seeds the per-chat Web-search toggle.
+    # on for a new account, and seeds each chat's Web-search toggle (a chat can change its own).
     from anthill.web.db import User
 
     c, app_mod = _client(tmp_path, monkeypatch)

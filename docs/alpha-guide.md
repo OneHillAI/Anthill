@@ -65,9 +65,10 @@ On first launch you land on a short **setup wizard** (three steps).
 ### 3a. Chat
 - Click **Chat** -> start a conversation -> ask anything, e.g. *"Explain what a semantic cache is in one
   paragraph."*
-- **You should see** the answer stream in, word by word. The header reads "Running on this machine.
-  Nothing leaves it." (Web search is a per-chat option under **Options**, off by default on Solo - turning
-  it on sends that query to a search engine, and the header updates to say so.)
+- **You should see** the answer stream in, word by word. The header reads "Web search is on for this
+  chat." (Web search is on by default for a new account. It sends the question to a search engine, so the
+  header says so. Turn it off for one chat under **Options**, or for every chat under **Settings, Privacy**;
+  once it is off the header reads "Running on this machine. Nothing leaves it.")
 
 ### 3b. Give it knowledge, then ask about it
 - Click **Wiki** -> **Add a document** -> choose a `.md`, `.txt`, `.pdf`, or Office file (`.docx`,

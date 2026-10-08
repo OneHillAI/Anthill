@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 # A JSON helper reply (intent decision, task draft, verifier verdict) is small by construction, so a
 # generous token cap can't truncate a legitimate result - but it DOES bound a runaway. Reasoning
@@ -19,14 +20,21 @@ import re
 JSON_MAX_TOKENS = 1024
 
 
-def json_chat(backend, messages) -> str:
+def json_chat(backend, messages, *, think: bool | None = None) -> str:
     """Call backend.chat asking for bounded JSON output. Uses Ollama's ``fmt="json"`` and a token cap
-    when the backend supports them, degrading gracefully for backends that accept fewer kwargs."""
-    for kwargs in (
+    when the backend supports them, degrading gracefully for backends that accept fewer kwargs.
+
+    ``think=False`` asks a reasoning model to skip its hidden thinking: a small structured decision does
+    not need it, and under the token cap it can eat the whole budget and leave no JSON. A backend that
+    does not accept ``think`` is called without it."""
+    ladder: list[dict[str, Any]] = [
         {"fmt": "json", "num_predict": JSON_MAX_TOKENS},
         {"fmt": "json"},
         {},
-    ):
+    ]
+    if think is not None:
+        ladder = [{**k, "think": think} for k in ladder] + ladder
+    for kwargs in ladder:
         try:
             return backend.chat(messages, **kwargs)
         except TypeError:
