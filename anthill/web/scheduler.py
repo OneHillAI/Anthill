@@ -100,6 +100,28 @@ def _normalize_timezone(name: str) -> str:
     return name
 
 
+def _one_time_due(local_value: str, timezone_name: str) -> datetime:
+    """Validate an unambiguous local wall time and return its future UTC instant."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", local_value):
+        raise ValueError("Choose a valid local date and time")
+    try:
+        local = datetime.fromisoformat(local_value)
+        zone = ZoneInfo(timezone_name or "UTC")
+        due = local.replace(tzinfo=zone).astimezone(timezone.utc)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise ValueError("Choose a valid local date, time and timezone") from exc
+    if due.astimezone(zone).replace(tzinfo=None) != local:
+        raise ValueError("This local time does not exist because of a daylight-saving change")
+    if (
+        local.replace(tzinfo=zone, fold=0).utcoffset()
+        != local.replace(tzinfo=zone, fold=1).utcoffset()
+    ):
+        raise ValueError("This local time is ambiguous because of a daylight-saving change")
+    if due <= datetime.now(timezone.utc):
+        raise ValueError("Choose a date and time in the future")
+    return due
+
+
 def _task_schedule_anchor(
     schedule: str,
     from_dt: datetime | None = None,

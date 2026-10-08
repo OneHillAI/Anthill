@@ -6,6 +6,12 @@ A **task** is work Anthill does on a schedule or on demand. You describe it in p
 daily digest or a weekly report. Tasks keep your local time zone, including through daylight
 saving. Run one immediately, or let it run on its own schedule.
 
+For a one-time task, choose **Run once**, then **Run now** or **Choose a future date and time**.
+The date and time are local to the timezone shown in the form. Editing keeps that timezone even
+if your browser has moved. Invalid, past, nonexistent or ambiguous daylight-saving times are
+rejected without saving; choose an unambiguous future time. After a successful run, no repeat is
+scheduled. Editing a completed task does not run it again; use **Now** or choose a new future date.
+
 ## Agents
 
 An **agent** is a named worker with a standing job, like an employee with a role. It runs toward

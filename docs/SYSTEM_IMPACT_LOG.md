@@ -26,6 +26,12 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Arbitrary one-time task scheduling - pending PR for #88
+**System impact:** manual one-shots can target a future local instant, converted to UTC through the existing occurrence ledger; no new recurrence or database schema is introduced.
+**Surface:** Tasks create/edit routes, Tasks dialog, scheduler local-time validation helper.
+**User-visible:** yes: Run now or choose a future date/time; editing preserves the task timezone and seconds, with inline validation errors.
+**Footprint:** additive; ambiguous and nonexistent DST times are rejected, and active scheduled one-shots cannot be rescheduled until they finish. Chat and recurring scheduling are unchanged.
+
 ### PR #83 - deps and ci: patched libraries, SBOM built from the lock, pinned actions, browser check in the beta lane - merged 2026-10-06
 **System impact:** the packaged app is now built from a lock that matches `pyproject.toml`: 17 missing packages added (notably `sigstore`, which the signed model catalog check needs) and 36 unused ones dropped (the torch tree, `scikit-learn`, `scipy` and others). Seven shipped libraries moved to patched versions (`pypdf`, `pyjwt`, `cryptography`, `urllib3`, `anyio`, `h2`, `soupsieve`), `rustls` in the desktop shell and four docs-site libraries too, and the audit workflows no longer carry the old `ecdsa` exception. The SBOM is built from the same lock, `ci.yml`, `supply-chain.yml` and `sbom.yml` use pinned actions, and Cut Beta and Promote Beta now refuse a commit with a red `browser` check.
 **Surface:** `requirements.lock`, `src-tauri/Cargo.lock`, `docs-site/package.json` and `package-lock.json`, `scripts/beta_release.py`, `scripts/build-sidecar.sh` (comment only), `tests/test_beta_release_lane.py`, and the workflows `ci`, `supply-chain`, `sbom`, `pr-validation`, `security-audit` and `desktop-promote` (a comment) under `.github/workflows/`; `.github/workflows/changelog-fragment.yml` is deleted. Two new specs, four amended, two changelog fragments.
