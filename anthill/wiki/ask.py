@@ -9,11 +9,13 @@ import numpy as np
 
 from ..cache import DEFAULT_THRESHOLD, SemanticCache
 from ..cache import embedder as emb
+from ..cache.page_vectors import PageVectorIndex
 from ..common.text import first_h1, normalize_wiki_page, strip_frontmatter
 from ..inference.base import BackendError, InferenceBackend, Message
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
+from .page_index import embed_text
 from .workspace import Workspace
 
 # Minimum cosine similarity for a wiki page to ground an answer. Below this, the "closest" page is
@@ -867,25 +869,56 @@ def _central_publish(org_url: str, q_vec: np.ndarray, answer: str) -> None:
 
 
 def _rank_by_embedding(
-    paths: list[Path], question: str, k: int, q_vec: np.ndarray | None
+    paths: list[Path],
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None,
+    roots: list[Path] | None = None,
+    whole_wiki: bool = False,
 ) -> list[Path]:
     """Top-k of `paths` by cosine similarity to the question (embeds each page's first 2000 chars).
 
     Pages below ``MIN_GROUNDING_SIM`` are dropped: grounding an answer on the "closest" page when
     nothing is actually related is just cross-topic bleed (an unrelated query pulling another
-    conversation's content). Below the floor we return nothing and let the model answer unprompted."""
+    conversation's content). Below the floor we return nothing and let the model answer unprompted.
+
+    ``roots`` are the workspace roots the pages belong to. A page under one of them takes its vector from
+    that workspace's persistent index, so it is embedded once and again only when its text changes (see
+    ``anthill.cache.page_vectors``); a page under none, or no ``roots``, is embedded here on every call.
+    ``whole_wiki`` says ``paths`` is every page of the single workspace in ``roots``, which lets the index
+    drop the rows of pages that no longer exist."""
     if q_vec is None:
         q_vec = emb.embed(question)
+    texts = [embed_text(p) for p in paths]
     # Keep each page's vector (not just its score) so MMR can measure page-to-page similarity below
     # without re-embedding.
     scored = []
-    for p in paths:
-        v = emb.embed(strip_frontmatter(p.read_text())[:2000])
+    for p, v in zip(paths, _page_vectors(paths, texts, roots or [], whole_wiki), strict=True):
         s = emb.cosine(q_vec, v)
         if s >= MIN_GROUNDING_SIM:
             scored.append((s, p, v))
     scored.sort(key=lambda x: x[0], reverse=True)
     return _mmr_select(scored, k)
+
+
+def _page_vectors(
+    paths: list[Path], texts: list[str], roots: list[Path], whole_wiki: bool
+) -> list[np.ndarray]:
+    """One vector per page, in order: from the index of the workspace the page sits in (the deepest of
+    ``roots`` that contains it), or embedded directly for a page outside every root."""
+    by_root: dict[Path, list[int]] = {}
+    for i, p in enumerate(paths):
+        owners = [r for r in roots if p.is_relative_to(r)]
+        if owners:
+            by_root.setdefault(max(owners, key=lambda r: len(r.parts)), []).append(i)
+    vecs: dict[int, np.ndarray] = {}
+    for root, idxs in by_root.items():
+        items = [(paths[i].relative_to(root).as_posix(), texts[i]) for i in idxs]
+        got = PageVectorIndex(root / ".cache").vectors(
+            items, emb.embed, emb.MODEL_NAME, complete=whole_wiki and len(roots) == 1
+        )
+        vecs.update(zip(idxs, got, strict=True))
+    return [vecs[i] if i in vecs else emb.embed(texts[i]) for i in range(len(paths))]
 
 
 def _mmr_select(scored: list, k: int, lam: float | None = None) -> list[Path]:
@@ -930,7 +963,8 @@ def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = No
     if len(uniq) <= k:
         return uniq
     try:
-        return _rank_by_embedding(uniq, question, k, q_vec)
+        roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
+        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots)
     except Exception:
         return uniq[:k]
 
@@ -956,7 +990,7 @@ def _relevant_pages(
         # likely not indexed yet - seed this workspace's own index, use embeddings this turn
         meili.index_pages(pages, index=ws.meili_index)
     try:
-        return _rank_by_embedding(pages, question, k, q_vec)
+        return _rank_by_embedding(pages, question, k, q_vec, roots=[ws.root], whole_wiki=True)
     except Exception:
         return _keyword_fallback(ws, question, k)
 

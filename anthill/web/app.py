@@ -417,6 +417,10 @@ def _startup():
             _maybe_pull_embedding_model()  # first-run: fetch Ollama's bge-m3 if not already pulled
         except Exception:
             pass
+        try:
+            _warm_page_index_in_background()  # embed the wiki pages now, not at the first question
+        except Exception:
+            pass
         from .scheduler import start_scheduler
 
         start_scheduler(_engine or get_engine())
@@ -450,6 +454,19 @@ def _maybe_pull_embedding_model() -> None:
             pass
 
     threading.Thread(target=_run, daemon=True, name="anthill-embed-model-pull").start()
+
+
+def _warm_page_index_in_background() -> None:
+    """Build the wiki page-vector index now, so the first question does not pay for it (see
+    anthill/wiki/page_index.py). Background, best effort, and a wiki with no pages costs nothing."""
+    import threading
+
+    from ..wiki import page_index
+
+    if page_index.ENABLED:
+        threading.Thread(
+            target=page_index.warm_all, daemon=True, name="anthill-warm-page-index"
+        ).start()
 
 
 def _autostart_local_serving() -> None:
