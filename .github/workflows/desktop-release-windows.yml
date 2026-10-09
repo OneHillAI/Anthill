@@ -1,0 +1,197 @@
+# Desktop release (Windows): add the Windows alpha to a stable release (spec: docs/specs/windows-support.md).
+#
+# "Desktop release (Tauri auto-update)" calls this after its macOS job has published the release for a stable tag
+# vX.Y.Z; it can also be started by hand, and with no tag it is a DRY RUN that builds and checks and publishes nothing.
+# It builds the Windows "Anthill" installer and its signed update bundle, installs the built installer on the runner and runs
+# the same install, crash, close and uninstall check as the pull-request job, and only then adds the files to the release
+# (which stays a pre-release until a release owner makes it the latest). The update manifest, latest.json, is written LAST:
+# the Windows entry is merged in only after the files are uploaded and the release is checked to hold the files of both
+# platforms (scripts/verify_release.py), so a Windows build that fails a check never leaves a Windows entry in it.
+#
+# A real run must start from the tag it releases: it refuses to build anything else, because it signs with the production
+# update key. Windows is an alpha: the installer is not signed yet (Windows shows a SmartScreen warning), and the release
+# notes say so. The macOS job is never touched by this file, and a Windows failure leaves the macOS files exactly as they
+# were. It is dormant without the updater signing key, like the macOS job.
+name: Desktop release (Windows)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Stable release tag vX.Y.Z whose release gets the Windows files; empty for a dry run"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Stable release tag vX.Y.Z to add the Windows files to. Run this workflow FROM THAT TAG (Use workflow from: Tag); the macOS job must have published the release. Empty: a dry run that publishes nothing."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+# Not the caller's group: a called workflow in its caller's group would wait for itself.
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Windows alpha build, install check and release files
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    # GitHub forbids the `secrets` context in a step `if:`, so the signing key is hoisted to env and the build steps
+    # gate on env.SIGN_KEY (empty -> the job no-ops), as in the macOS job.
+    env:
+      SIGN_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Belt and braces, as in the macOS job: only a plain stable tag (vX.Y.Z) may add files to a LIVE release.
+      - name: Refuse anything but a stable version tag
+        run: |
+          if [ -n "$TAG" ] && ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG' is not a stable version tag (vX.Y.Z); only a stable tag may add files to a live release."; exit 1
+          fi
+
+      # The checkout above is of the commit this run started from. A real run signs with the production update key and
+      # attaches to the stable release, so it must be that tag's own commit, never a branch someone picked by hand.
+      - name: A real run builds the tag itself
+        run: |
+          if [ -n "$TAG" ] && [ "$GITHUB_REF" != "refs/tags/$TAG" ]; then
+            echo "::error::This run started from '$GITHUB_REF', not from the tag $TAG. Start it from the tag (Use workflow from: Tag $TAG), so what is signed and attached is that tag's own code."; exit 1
+          fi
+
+      - name: Auto-update signing not configured - skipping
+        if: ${{ env.SIGN_KEY == '' }}
+        run: |
+          echo "TAURI_SIGNING_PRIVATE_KEY is not set; the Windows release build is dormant."
+
+      # A real run adds to the release the macOS job just published, so it must exist and still be a pre-release.
+      - name: The release exists and is still a pre-release
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: |
+          IS_PRE="$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)"
+          [ "$IS_PRE" = "true" ] || { echo "::error::$TAG is not a published pre-release; Windows files are added before a release is made the latest."; exit 1; }
+
+      - uses: actions/setup-python@v5
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          python-version: "3.11"
+      # uv comes from a commit-pinned action, not from a script piped straight into a shell.
+      - name: Install uv
+        if: ${{ env.SIGN_KEY != '' }}
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ env.SIGN_KEY != '' }}
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        if: ${{ env.SIGN_KEY != '' }}
+        with:
+          node-version: "20"
+
+      # Keep the desktop app version in lockstep with the release tag - the updater compares the installed app's version
+      # against latest.json, so a stale tauri.conf.json version breaks it. Patched in the checkout only, never committed.
+      - name: Sync the Tauri app version to the tag
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: |
+          python - "${TAG#v}" <<'PY'
+          import re, sys
+          v = sys.argv[1]
+          p = "src-tauri/tauri.conf.json"
+          s = open(p, encoding="utf-8").read()
+          s = re.sub(r'("version"\s*:\s*)"[^"]+"', rf'\g<1>"{v}"', s, count=1)
+          open(p, "w", encoding="utf-8").write(s)
+          c = "src-tauri/Cargo.toml"
+          t = open(c, encoding="utf-8").read()
+          t = re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', t, count=1)
+          open(c, "w", encoding="utf-8").write(t)
+          PY
+
+      - name: Build the anthill-server sidecar
+        if: ${{ env.SIGN_KEY != '' }}
+        run: bash scripts/build-sidecar.sh
+
+      - name: Install the Tauri CLI
+        if: ${{ env.SIGN_KEY != '' }}
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Generate app icons
+        if: ${{ env.SIGN_KEY != '' }}
+        run: tauri icon assets/anthill-icon-1024.png
+
+      # Build only: nothing is uploaded here. This makes the installer and, with the updater key, its .sig file.
+      - name: Build the Windows installer and its update signature
+        if: ${{ env.SIGN_KEY != '' }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          tauri build --bundles nsis
+          ls -la src-tauri/target/release/bundle/nsis/
+
+      # The same install, crash, close and uninstall check as the pull-request job, on the build that would ship.
+      - name: Install it, run it, crash it, close it, uninstall it
+        if: ${{ env.SIGN_KEY != '' }}
+        run: |
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          python scripts/windows_installer_check.py "$INSTALLER"
+
+      # Only now do the files go onto the release. The manifest still has no Windows entry, so nothing points at them yet.
+      - name: Upload the installer and its signature to the release
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: |
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          gh release upload "$TAG" "$INSTALLER" "$INSTALLER.sig" --clobber
+
+      # Merge the Windows entry into the macOS job's latest.json on this runner, and check that the release would hold
+      # the files of both platforms, all before anything is published.
+      - name: Add the Windows entry to latest.json and check both platforms
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: |
+          set -euo pipefail
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          mkdir -p "$RUNNER_TEMP/feed/old" "$RUNNER_TEMP/feed/new"
+          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP/feed/old" --clobber
+          python scripts/windows_release_manifest.py --latest "$RUNNER_TEMP/feed/old/latest.json" --version "${TAG#v}" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/$(basename "$INSTALLER")" \
+            --signature-file "$INSTALLER.sig" --out "$RUNNER_TEMP/feed/new/latest.json"
+          gh release view "$TAG" --json assets --jq .assets > "$RUNNER_TEMP/feed/assets.json"
+          python scripts/verify_release.py --assets "$RUNNER_TEMP/feed/assets.json" --latest "$RUNNER_TEMP/feed/new/latest.json" --platform macos --platform windows
+
+      # The manifest is written last. Installed apps read it, and the live feed carries it once the release is the latest.
+      - name: Publish the new latest.json
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP/feed/new/latest.json" --clobber
+
+      # Say plainly on the release page what the Windows file is, and give it a fixed name to link to. The marker is
+      # ours alone, so release notes a person writes later cannot be mistaken for this paragraph.
+      - name: Mark the Windows file as an alpha and name it
+        if: ${{ env.SIGN_KEY != '' && inputs.tag != '' }}
+        run: |
+          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+          if ! grep -qF "<!-- windows-alpha-note -->" "$RUNNER_TEMP/notes.md"; then
+            printf '\n\n<!-- windows-alpha-note -->\n**Windows alpha.** The Windows installer (Anthill-Windows-alpha-setup.exe) is an early alpha for testers. It is not signed yet, so Windows shows a SmartScreen warning: choose "More info", then "Run anyway".\n' >> "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          cp "$INSTALLER" "$RUNNER_TEMP/Anthill-Windows-alpha-setup.exe"
+          gh release upload "$TAG" "$RUNNER_TEMP/Anthill-Windows-alpha-setup.exe" --clobber
+
+      - name: Stop anything left running
+        if: always()
+        run: |
+          taskkill //F //IM anthill-desktop.exe || true
+          taskkill //F //IM anthill-server.exe || true
+          taskkill //F //IM ollama.exe || true

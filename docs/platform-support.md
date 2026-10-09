@@ -28,9 +28,9 @@ the first public Windows build; the rows below are what is known today.
 | PDF reading memory limit | Yes | Yes | A job object on Windows. |
 | Local model (Ollama) install and start | Yes | Yes, on the CPU and NVIDIA cards. Checked on a CPU-only runner | A 1.46 GB first-run download on Windows (143 MB on macOS) because it carries the NVIDIA runtime. AMD and Intel cards run on the CPU for now. The NVIDIA path needs the real-device check. |
 | On-device fine-tuning | Yes (Apple MLX) | No | Hidden in the interface where the platform cannot do it. |
-| Installer | `.dmg` | NSIS installer for the current user, no administrator rights. Built, installed, run and uninstalled in CI; unsigned | Part of Cut Beta as an alpha since Phase C2; not part of the stable release yet. |
+| Installer | `.dmg` | NSIS installer for the current user, no administrator rights. Built, installed, run and uninstalled in CI; unsigned | Part of Cut Beta and of the stable release as an alpha (the stable release adds it after the macOS job). |
 | Signing and notarisation | Yes | Not yet | Needs a decision on how to sign. |
-| Automatic updates | Yes | Yes, as an alpha. Proven in CI against a local feed with a throwaway key; Cut Beta adds the `windows-x86_64` entry to the beta feed | Same feed and updater key as macOS. Not part of the stable release yet. |
+| Automatic updates | Yes | Yes, as an alpha. Proven in CI against a local feed with a throwaway key; Cut Beta adds the `windows-x86_64` entry to the beta feed | Same feed and updater key as macOS. The stable release adds the Windows entry to its feed. |
 | Always-on organisation backend appliance | Yes | No | Out of scope. |
 
 ## Rules for changes
