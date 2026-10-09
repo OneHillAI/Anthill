@@ -55,8 +55,10 @@ where the roster allows, and the reviewer differs from the test agents. The rost
   date with `main`; protected paths also need the code owner's review.
 - **Advisory:** the review (its `asdd/review` status and comment), the runtime check, the test agent, the
   documentation agent, and the report-only invariants and conventions checks.
-- The review is a skeptic by design: one warning from its adversarial pass fails the status. Read the comment,
-  fix what is fair, and a human decides. Keep PRs to one purpose; a mixed PR draws more objections.
+- The review is a skeptic by design, but only a real finding fails the status: a security block, or a concern
+  from the code or spec lens. A design-only objection from its adversarial pass stays in the comment and the
+  status stays green with a description that names it. Read the comment, fix what is fair, and a human decides.
+  Keep PRs to one purpose; a mixed PR draws more objections.
 
 ## Rules every agent follows
 

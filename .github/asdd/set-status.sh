@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ASDD - set the merge-gating commit status for the review. Turns the security/quality verdict
 # into a MECHANICAL gate: make `asdd/review` a required status check in branch protection and a
-# security block or a request-changes recommendation blocks merge for everyone. Runs only in the
+# security block or a request-changes recommendation from the code, security or spec lens blocks merge for
+# everyone (a design-only objection from the adversarial lens is advice and stays green, see below). Runs only in the
 # write-scoped publish job. Never shell-execs model output. (Intake is its own separate check.)
 #
 # Usage: set-status.sh <review.json>
@@ -16,11 +17,32 @@ SHA="$(jq -r '.head_sha' "$REVIEW")"
 sec_block="$(jq -r '[(.lenses // [])[] | select(.lens=="security") | (.findings // [])[] | select(.severity=="block")] | length' "$REVIEW")"
 rec="$(jq -r '.recommendation // "comment"' "$REVIEW")"
 
+# "Design-only": the adversarial QUALITY lens recommends changes while the code, security and spec lenses are all ok
+# (verdict ok or absent, no warn and no block finding) and no lens has a block finding. The independent skeptic
+# pass raises a design objection on almost every PR (more code, more abstraction, more edge cases), and the merge
+# of the two model calls lets it fail the whole review. That objection is advice for a human, not a defect: it
+# is shown in the comment and named in the status description, and the state stays success. Anything else a
+# request-changes can come from (a security block, a concern in the code or spec lens, a block finding, or a review
+# with no lens detail at all) keeps its failure unchanged. Only a LIVE review can be design-only: a review that
+# did not run live is never softened, and a lens that cannot be read keeps the failure (the `|| echo false`).
+design_only="$(jq -r '
+  (.lenses // []) as $l
+  | ([$l[] | select(.lens=="quality")] | length > 0) as $has_quality
+  | ([$l[] | select(.lens!="quality")
+       | select((.verdict // "ok") != "ok"
+                or ([(.findings // [])[] | select(.severity=="warn" or .severity=="block")] | length > 0))] | length == 0) as $others_ok
+  | ([$l[] | (.findings // [])[] | select(.severity=="block")] | length == 0) as $no_block
+  | ($has_quality and $others_ok and $no_block and ((.mode // "live") == "live"))' "$REVIEW" 2>/dev/null || echo false)"
+
 state="success"; desc="Advisory review complete; a human approves and merges."
 if [ "${sec_block:-0}" -gt 0 ]; then
   state="failure"; desc="Security review raised a blocking finding; needs a human resolution."
 elif [ "$rec" = "request-changes" ]; then
-  state="failure"; desc="Review recommends changes."
+  if [ "$design_only" = "true" ]; then
+    desc="Advisory: only the adversarial design pass recommends changes; code, security and spec are ok. A human decides."
+  else
+    state="failure"; desc="Review recommends changes."
+  fi
 fi
 
 # A review that did not happen must not read like one. The runtime records its mode in the artifact:
