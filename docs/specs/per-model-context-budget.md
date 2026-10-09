@@ -37,3 +37,25 @@ necessary, losing detail a big-context model could have kept.
 - `AgentExecutor(..., max_context_tokens=N)` still honours an explicit N.
 - Because tests run with no reachable Ollama, the probe returns 0 and every budget stays at the floor -
   so no existing behaviour changes. Covered by `tests/test_context_budget.py`.
+
+## Update (issue #109): the window in use, not the trained maximum
+
+The budgets above were built on the model's TRAINED maximum, but Ollama never gave the model that window: Anthill
+sent no `num_ctx`, so Ollama used its own default (4,096 tokens on a 16 GB Mac) and silently dropped what did not
+fit. Since #109:
+
+- `OllamaBackend.context_window(model)` reports the window in use: the smaller of the trained maximum and the
+  window Anthill requests on every call (`num_ctx`: `ANTHILL_NUM_CTX`, else Ollama's `OLLAMA_CONTEXT_LENGTH`, else
+  8,192, or 32k or 256k on a Mac with enough memory). `trained_context_window(model)` is the old probe (the trained
+  maximum, 0 when it can't be read), which also supplies the cap.
+- The budgets therefore follow the window actually in use. At the default window of 8,192 they sit at their floors
+  (6,000 tokens and 24,000 characters), and they scale up when the window does, for example when
+  `ANTHILL_NUM_CTX` is raised. The earlier example (a 128k window giving a 78k-token budget) described a window
+  the engine did not grant.
+- Consequence to know about: at the default window a long chat summarises its older turns once its history passes
+  about 24,000 characters, with one blocking model call, and agent compaction starts at 6,000 tokens for every
+  model. The prompt fit guard (`inference/fit.py`) keeps that paid-for summary until every other older turn has
+  gone.
+- `AgentExecutor(..., max_context_tokens=N)` still honours an explicit N, and the history budget has the
+  floor of the original policy.
+

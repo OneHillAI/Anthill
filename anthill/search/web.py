@@ -361,6 +361,26 @@ def search_and_answer(
     )
     user_parts.append(f"QUESTION: {question}")
 
+    # Fit the prompt to the model's window (#109): the wiki context and the older turns give way first; the
+    # system message, the memory, the web results and the question stay. A prompt that fits is unchanged.
+    from ..inference.context import known_window
+    from ..inference.fit import cost, fit_prompt
+
+    window = known_window(backend)
+    if window and wiki_context:
+        fixed = system + "\n\n".join(p for p in user_parts if not p.startswith("WIKI CONTEXT:\n"))
+        wiki_context, history = fit_prompt(
+            fixed_cost=cost(fixed) + cost("WIKI CONTEXT:\n"),
+            reference=wiki_context,
+            history=list(history or []),
+            window=window,
+        )
+        user_parts = [
+            (f"WIKI CONTEXT:\n{wiki_context}" if p.startswith("WIKI CONTEXT:\n") else p)
+            for p in user_parts
+        ]
+        if not wiki_context:
+            user_parts = [p for p in user_parts if p != "WIKI CONTEXT:\n"]
     messages = [Message("system", system)]
     for role, content in history or []:
         r = role if role in ("user", "assistant", "system") else "user"

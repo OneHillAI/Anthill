@@ -36,29 +36,45 @@ def test_zero_window_falls_back_to_default():
     assert context.window_for(_Zero()) == 8192
 
 
-def test_ollama_context_window_reads_model_info_and_caches(monkeypatch):
-    import anthill.inference.ollama as om
-
-    om._CTX_WINDOW_CACHE.clear()
-    calls = {"n": 0}
-
+def _show_response(context_length):
     class _Resp:
         def raise_for_status(self):
             pass
 
         def json(self):
-            return {"model_info": {"general.name": "q", "qwen2.context_length": 32768}}
+            return {"model_info": {"general.name": "q", "qwen2.context_length": context_length}}
 
+    return _Resp()
+
+
+def test_ollama_trained_window_is_read_from_model_info_and_cached(monkeypatch):
+    import anthill.inference.ollama as om
+
+    om._CTX_WINDOW_CACHE.clear()
+    calls = {"n": 0}
     monkeypatch.setattr(
-        om.httpx, "post", lambda url, **k: (calls.update(n=calls["n"] + 1), _Resp())[1]
+        om.httpx,
+        "post",
+        lambda url, **k: (calls.update(n=calls["n"] + 1), _show_response(32768))[1],
     )
     be = om.OllamaBackend("http://x", "qwen3:8b")
-    assert be.context_window() == 32768
-    assert be.context_window() == 32768  # served from cache
+    assert be.trained_context_window() == 32768
+    assert be.trained_context_window() == 32768  # served from cache
     assert calls["n"] == 1  # probed once
 
 
-def test_ollama_context_window_zero_on_error(monkeypatch):
+def test_context_window_is_the_smaller_of_the_trained_maximum_and_the_requested_window(monkeypatch):
+    import anthill.inference.ollama as om
+
+    om._CTX_WINDOW_CACHE.clear()
+    monkeypatch.setattr(om.httpx, "post", lambda url, **k: _show_response(262144))
+    assert om.OllamaBackend("http://big", "m", num_ctx=8192).context_window() == 8192
+    om._CTX_WINDOW_CACHE.clear()
+    monkeypatch.setattr(om.httpx, "post", lambda url, **k: _show_response(4096))
+    assert om.OllamaBackend("http://small", "m", num_ctx=8192).context_window() == 4096
+
+
+def test_context_window_falls_back_to_the_requested_window_when_the_probe_fails(monkeypatch):
     import anthill.inference.ollama as om
 
     om._CTX_WINDOW_CACHE.clear()
@@ -67,7 +83,9 @@ def test_ollama_context_window_zero_on_error(monkeypatch):
         raise om.httpx.HTTPError("engine down")
 
     monkeypatch.setattr(om.httpx, "post", _boom)
-    assert om.OllamaBackend("http://y", "m").context_window() == 0
+    be = om.OllamaBackend("http://y", "m", num_ctx=6144)
+    assert be.trained_context_window() == 0  # unknown
+    assert be.context_window() == 6144  # but the window we asked for is known
 
 
 def test_executor_derives_budget_from_the_model_window():
