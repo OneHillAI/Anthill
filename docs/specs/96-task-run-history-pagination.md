@@ -41,3 +41,16 @@ task's `run_count`, which can differ from the runs actually recorded, and older 
 
 - `tests/test_task_history_pagination.py` covers the cases above, the page-size constant, and that the total
   comes from recorded runs and not from `run_count`.
+
+## Why offset paging
+
+The history is paged by offset, as the Tasks list is, with a bounded query and a total count so the page can
+say "Page X of Y" and "showing A to B of N". Facts that bound the cost of that choice:
+
+- A task has at most one running run: `task_occurrences.claim` does not claim a task that already has a running
+  run. A run's row is created when it is claimed, so it is already the newest and finishing does not move any
+  row. Only a claim between two page loads (a scheduled run, or a manual Run now) adds a row and can shift the
+  later pages by one run.
+- Keyset paging (a cursor on `finished_at` and `id`) would remove that shift, but it would need an extra count query
+  for each page to give a page number or a position in the total, and it would make this page behave
+  differently from the Tasks list. It can replace the offset later without changing what the page shows.

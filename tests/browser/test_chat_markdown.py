@@ -110,9 +110,9 @@ def live(tmp_path_factory):
         for c in (MARKDOWN, HOSTILE, ALT_INJECTION)
     ]
     s.add_all(msgs)
-    # A second conversation with no file link in its history, for the streaming test: a loaded history that
-    # links /files/ hits the start-up error fixed in chat-history-file-links (PREVIEWABLE read too early),
-    # which also stops the message box from initialising, so it could not send until that fix is merged.
+    # A second conversation for the streaming test. The first conversation's history now renders a PDF preview
+    # (a button and an inline style) and holds /files/pic.png, which would confound the streaming test's
+    # page-wide selectors, so the streamed answer is the only thing rendered there besides its own history.
     conv2 = Conversation(org_id=o.id, user_id=u.id, title="t2")
     s.add(conv2)
     s.flush()
@@ -146,10 +146,9 @@ def live(tmp_path_factory):
 
 
 def _script_errors(errors):
-    """Page errors other than the start-up TypeError from reading PREVIEWABLE before it is declared. That one
-    exists on main for any history that links /files/ and is fixed by chat-history-file-links (a separate
-    change); it is ignored here so this file passes with or without that fix."""
-    return [e for e in errors if "indexOf" not in e]
+    """Every uncaught page error. All of them count: the start-up TypeError from
+    reading PREVIEWABLE before it was declared is fixed (chat-history-file-links), so nothing is ignored."""
+    return list(errors)
 
 
 def _open(live, p, conversation=None):
