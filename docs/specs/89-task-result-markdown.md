@@ -23,7 +23,11 @@ usually Markdown, so headings, lists, tables and links show as punctuation.
 - Links keep only `http:`, `https:`, `mailto:` and site paths with a single leading slash that is not followed
   by `/` or `\`. They open in a new tab with `rel="noopener noreferrer"`. In-page `#` links are dropped
   because results have no ids to point at.
-- If `marked` or DOMPurify fails to load, the text stays as plain pre-wrapped text.
+- `marked` and DOMPurify are the copies already shipped in `anthill/web/static`, which Chat and the OKGF spec
+  page (`/docs/okgf`) already load.
+- If `marked` or DOMPurify fails to load, the text stays as plain pre-wrapped text. The result is always in
+  the page as escaped text first and the renderer replaces it once the scripts at the end of the page have
+  run, so the content is readable without JavaScript and never depends on a script for its meaning.
 - A failed run, and a latest result that starts with `ERROR:`, stays plain text in an error block with the
   `error` badge, so it is never read as Markdown or as a success.
 - The stored result is never modified. "Save as snippet" sends the stored text, not the rendered text.

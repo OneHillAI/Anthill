@@ -15428,7 +15428,10 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     # default fills the None that task_occurrences passes), so it already sorts as the newest. A stored NULL,
     # which the app does not create, is ordered first as well, as a guard. `id` breaks ties between runs
     # that finished at the same instant, so in a history that is not changing each run appears exactly
-    # once. Paging is by offset: a run that finishes between two page loads shifts the later pages by one.
+    # once. Paging is by offset, like the Tasks list. A task has at most one running run (a task with a running
+    # run is never claimed again, see task_occurrences.claim), and a run's row is created when it is claimed, so
+    # it is already the newest and finishing moves no row. Only a claim between two page loads (a scheduled
+    # run, or a manual Run now) adds a row and shifts the later pages by one.
     # The total counts the recorded runs themselves, not the task's run_count, which can differ for tasks
     # that ran before history was kept.
     history_q = db.query(TaskRun).filter(TaskRun.task_id == task.id)
