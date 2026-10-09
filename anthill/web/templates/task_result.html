@@ -26,7 +26,7 @@
   </div>
   <div style="font-size:14px;color:var(--clay);margin-bottom:16px;line-height:1.8">
     <b>Schedule:</b> {{ task.schedule }} &nbsp;·&nbsp;
-    <b>Runs:</b> {{ task.run_count }} &nbsp;·&nbsp;
+    <b>Runs:</b> {{ history_total }} &nbsp;·&nbsp;
     <b>Last run:</b>
     {% if task.last_run_at %}<span data-utc="{{ task.last_run_at|utc_iso }}">{{ task.last_run_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}
     &nbsp;·&nbsp; <b>Next run:</b>
@@ -42,7 +42,15 @@
   </div>
   <h3 style="margin-bottom:10px">Last result</h3>
   {% if task.last_result %}
-  <div id="task-result" style="white-space:pre-wrap;font-size:14px;line-height:1.7">{{ task.last_result }}</div>
+  {# The stored result, untouched: "Save as snippet" sends this, not the rendered view.
+     It sits before any rendered result text and rendered ids are stripped, so a result cannot shadow it. #}
+  <script type="application/json" id="task-result-src">{{ task.last_result|tojson }}</script>
+  {% if task.last_result.startswith('ERROR:') %}
+  <div style="margin-bottom:6px"><span class="badge badge-danger">error</span></div>
+  <pre id="task-result" class="task-error">{{ task.last_result }}</pre>
+  {% else %}
+  <div id="task-result" class="task-md task-md-raw" data-md>{{ task.last_result }}</div>
+  {% endif %}
   <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <input type="text" id="snip-tags" placeholder="tags (comma-separated)"
            style="flex:1;min-width:180px;max-width:340px">
@@ -54,12 +62,13 @@
   {% endif %}
 </div>
 
-<!-- run history: every past run, newest first (the newest expanded) -->
+{# run history: every recorded run, newest first, paged (25 at a time); only page 1 expands its newest run #}
 <div class="card mb-2">
-  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted">· {{ task.run_count }} run{{ '' if task.run_count == 1 else 's' }}</span></h3>
+  <h3 style="margin-bottom:8px">Run history <span class="text-sm text-muted" id="history-count">·
+    {% if history_total > runs|length %}showing {{ history_first }} to {{ history_last }} of {{ history_total }} runs{% else %}{{ history_total }} run{{ '' if history_total == 1 else 's' }}{% endif %}</span></h3>
   {% if runs %}
   {% for r in runs %}
-  <details {% if loop.first %}open{% endif %}
+  <details {% if loop.first and history_page == 1 %}open{% endif %}
            style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
     <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span class="text-sm text-muted">{% if r.finished_at %}<span data-utc="{{ r.finished_at|utc_iso }}">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% endif %}</span>
@@ -83,12 +92,23 @@
     {% if r.status == 'running' %}
     <div class="text-sm text-muted" style="margin:8px 0 0">The task is running now. This page refreshes automatically.</div>
     {% else %}
-    <pre style="white-space:pre-wrap;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:10px;margin:8px 0 0;overflow-x:auto">{{ r.error if r.status == 'error' else r.result }}</pre>
+    {% if r.status == 'error' %}
+    <pre class="task-error" style="margin:8px 0 0">{{ r.error }}</pre>
+    {% else %}
+    <div class="task-md task-md-raw" data-md style="margin:8px 0 0">{{ r.result }}</div>
+    {% endif %}
     {% endif %}
   </details>
   {% endfor %}
   {% else %}
   <p class="text-sm text-muted">No runs recorded yet.</p>
+  {% endif %}
+  {% if history_pages > 1 %}
+  <div id="history-pager" class="flex justify-between items-center" style="margin-top:12px">
+    {% if history_page > 1 %}<a class="btn btn-outline btn-sm" href="/tasks/{{ task.id }}/result?page={{ history_page - 1 }}">Newer runs</a>{% else %}<span></span>{% endif %}
+    <span class="text-sm text-muted">Page {{ history_page }} of {{ history_pages }}</span>
+    {% if history_page < history_pages %}<a class="btn btn-outline btn-sm" href="/tasks/{{ task.id }}/result?page={{ history_page + 1 }}">Older runs</a>{% else %}<span></span>{% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -98,12 +118,70 @@
 <script>setTimeout(function () { window.location.reload(); }, 4000);</script>
 {% endif %}
 
+<style>
+  .task-md { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
+  .task-md-raw { white-space:pre-wrap; }  /* plain text until the renderer runs, and if it cannot load */
+  .task-md > :first-child { margin-top:0; } .task-md > :last-child { margin-bottom:0; }
+  .task-md pre, .task-error { white-space:pre-wrap; background:var(--bg-subtle); border:1px solid var(--border);
+    border-radius:6px; padding:10px; overflow-x:auto; }
+  .task-md code { font-size:13px; }
+  .task-md table { border-collapse:collapse; display:block; overflow-x:auto; }
+  .task-md th, .task-md td { border:1px solid var(--border); padding:4px 8px; }
+  .task-error { color:var(--danger, inherit); }
+</style>
+{# Result text is Markdown from a model or a tool, often written unattended from web, email or other
+   content, and shown to everyone who can see the task. So it gets a strict policy, not Chat's: only the
+   tags and attributes marked itself produces for text (no img, style, form, input, button, id, class or
+   inline style), images become plain links so nothing loads without a click, and only http(s), mailto,
+   same-site and in-page links survive. If either library fails to load the text stays as plain
+   pre-wrapped text, which the template has already HTML-escaped. #}
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
+<script>
+(function () {
+  if (!(window.marked && window.DOMPurify)) return;
+  var esc = function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+  var renderer = new marked.Renderer();
+  // marked 12 (pinned) passes the alt text already escaped; a later major passes one token with raw text.
+  renderer.image = function (href, title, text) {  // an image is shown as a link to it, never loaded
+    if (href && typeof href === 'object') { text = esc(href.text); href = href.href; }
+    return '<a href="' + esc(href) + '">' + (text || esc(href)) + '</a>';
+  };
+  var POLICY = {
+    ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre',
+                   'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a'],
+    ALLOWED_ATTR: ['href', 'title', 'align', 'start'],
+    // align and start are plain words and numbers; DOMPurify tests every attribute that is not on its own
+    // URI-safe list against the pattern below, so they must be named here or they are always stripped.
+    ADD_URI_SAFE_ATTR: ['align', 'start'],
+    // http(s), mailto, and a site path with one leading slash that is not followed by / or \ (browsers read
+    // "/\\host" as another host). No in-page # links: results have no ids to point at.
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|\/(?![\/\\]))/i,
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false
+  };
+  DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+    if (node.tagName === 'A' && node.getAttribute('href')) {
+      node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+  document.querySelectorAll('[data-md]').forEach(function (el) {
+    try {
+      el.innerHTML = DOMPurify.sanitize(marked.parse(el.textContent, { gfm: true, breaks: true, renderer: renderer }), POLICY);
+      el.classList.remove('task-md-raw');
+    } catch (_) {}
+  });
+})();
+</script>
+
 <script>
 async function saveResultSnippet() {
   const status = document.getElementById('snip-status');
   status.innerText = 'Saving + deriving the red line…';
   const fd = new FormData();
-  fd.append('content',  document.getElementById('task-result').innerText);
+  fd.append('content',  JSON.parse(document.getElementById('task-result-src').textContent));
   fd.append('tags',     document.getElementById('snip-tags').value);
   fd.append('question', {{ task.goal | tojson }});
   fd.append('source',   'task');
