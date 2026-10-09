@@ -256,3 +256,12 @@ jobs:
           # permanent stable-named download.
           gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
           gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Anthill.dmg" --clobber
+
+  # Windows alpha: built, install-checked and added to the same release by its own workflow, after the macOS job above
+  # has published the release. The macOS job is not changed by it, and a Windows failure leaves the macOS files as they are.
+  windows:
+    needs: desktop
+    uses: ./.github/workflows/desktop-release-windows.yml
+    with:
+      tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+    secrets: inherit
