@@ -2,6 +2,7 @@
 {% block title %}Task result{% endblock %}
 {% block page_title %}Task result{% endblock %}
 {% block content %}
+<div class="tasks-page">
 
 <div class="flex justify-between items-center mb-2">
   <a href="/tasks" class="btn btn-outline btn-sm">← All tasks</a>
@@ -12,7 +13,7 @@
 
 {% if live %}
 <div class="alert alert-running text-sm" style="margin-bottom:12px">
-  <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2E86C1;margin-right:6px"></span>
+  <span class="live-dot" aria-hidden="true"></span>
   This task is running now. This page refreshes automatically until it finishes.
 </div>
 {% endif %}
@@ -24,7 +25,7 @@
       {{ task.status }}
     </span>
   </div>
-  <div style="font-size:14px;color:var(--clay);margin-bottom:16px;line-height:1.8">
+  <div class="ink-clay" style="font-size:14px;margin-bottom:16px;line-height:1.8">
     <b>Schedule:</b> {{ task.schedule }} &nbsp;·&nbsp;
     <b>Runs:</b> {{ history_total }} &nbsp;·&nbsp;
     <b>Last run:</b>
@@ -85,7 +86,7 @@
       {% if r.duration_ms %}<span class="text-sm text-muted">{{ (r.duration_ms / 1000)|round(1) }}s</span>{% endif %}
     </summary>
     {% if r.verify_needs_review and r.verify_reason %}
-    <div class="text-sm" style="color:var(--warn);margin:8px 0 2px">
+    <div class="text-sm ink-warn" style="margin:8px 0 2px">
       &#9888; Verifier (confidence {{ r.verify_confidence }}): {{ r.verify_reason }}
     </div>
     {% endif %}
@@ -127,7 +128,7 @@
   .task-md code { font-size:13px; }
   .task-md table { border-collapse:collapse; display:block; overflow-x:auto; }
   .task-md th, .task-md td { border:1px solid var(--border); padding:4px 8px; }
-  .task-error { color:var(--danger, inherit); }
+  .task-error { color:var(--danger-text, inherit); }
 </style>
 {# Result text is Markdown from a model or a tool, often written unattended from web, email or other
    content, and shown to everyone who can see the task. So it gets a strict policy, not Chat's: only the
@@ -193,4 +194,5 @@ async function saveResultSnippet() {
   } catch (e) { status.innerText = '⚠️ save failed'; }
 }
 </script>
+</div>
 {% endblock %}

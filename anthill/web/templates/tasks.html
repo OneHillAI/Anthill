@@ -2,6 +2,7 @@
 {% block title %}Tasks{% endblock %}
 {% block page_title %}Tasks{% endblock %}
 {% block content %}
+<div class="tasks-page">
 {% include "_first_use_notice.html" %}
 
 <div class="flex justify-between items-center mb-2">
@@ -101,19 +102,19 @@
       {% if doc_sources %}
       <label for="tf-server" class="text-sm" style="font-weight:600;margin:6px 0 4px">Files from a connected service</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
-        <select id="tf-server" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <select id="tf-server" style="padding:7px 9px;border-radius:var(--radius-sm)">
           {% for ds in doc_sources %}<option value="{{ ds.id }}">{{ ds.name }}</option>{% endfor %}
         </select>
-        <input type="text" id="tf-q" aria-label="Search files by name" placeholder="Search by name (optional)" style="flex:1;min-width:180px;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <input type="text" id="tf-q" aria-label="Search files by name" placeholder="Search by name (optional)" style="flex:1;min-width:180px;padding:7px 9px;border-radius:var(--radius-sm)">
         <button type="button" class="btn btn-outline btn-sm" onclick="taskFindFiles()">Find files</button>
       </div>
-      <select name="context_files" id="task-files" aria-label="Files from connected service" multiple size="3" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <select name="context_files" id="task-files" aria-label="Files from connected service" multiple size="3" style="width:100%;padding:6px;border-radius:var(--radius-sm)">
         <option value="" disabled>Search a service above, then select one or more files (Cmd/Ctrl-click)</option>
       </select>
       {% endif %}
       {% if snippets %}
       <label for="task-snippets" class="text-sm" style="font-weight:600;margin:10px 0 4px">Snippets</label>
-      <select id="task-snippets" name="context_snippets" multiple size="3" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <select id="task-snippets" name="context_snippets" multiple size="3" style="width:100%;padding:6px;border-radius:var(--radius-sm)">
         {% for sn in snippets %}<option value="{{ sn.id }}">{{ sn.label }}</option>{% endfor %}
       </select>
       {% endif %}
@@ -152,7 +153,7 @@
 {% if tasks %}
 <div class="card">
 <div style="overflow-x:auto">
-<table>
+<table class="tasks-list">
   <thead>
     <tr>
       <th>Title</th>
@@ -174,7 +175,7 @@
       <br><a class="text-sm" href="/chat/{{ task.source_conv_id }}" title="Open the conversation this task came from">💬 from chat</a>
       {% endif %}
     </td>
-    <td class="text-sm">
+    <td class="text-sm" data-label="Schedule"><div class="cell">
       {{ task.schedule }}{% if task.schedule|trim|lower not in ['once', 'hourly'] %}<br><span class="text-muted">{{ task.timezone or 'UTC' }}</span>{% endif %}
       <br><span class="text-muted">Next run:
         {% if task.status == 'cancelled' %}Cancelled
@@ -183,9 +184,9 @@
         {% elif task.id in active_task_ids %}Running now
         {% else %}Not scheduled{% endif %}
       </span>
-    </td>
-    <td class="text-sm"><span class="plane-dot plane-dot-{{ 'org' if task.plane == 'org' else 'solo' }}"></span>{{ task.plane|capitalize }}</td>
-    <td>
+    </div></td>
+    <td class="text-sm" data-label="Scope"><div class="cell"><span class="plane-dot plane-dot-{{ 'org' if task.plane == 'org' else 'solo' }}" aria-hidden="true"></span>{{ task.plane|capitalize }}</div></td>
+    <td data-label="Status"><div class="cell">
       <span class="badge
         {% if task.status == 'done' %}badge-active
         {% elif task.status == 'running' %}badge-running
@@ -194,12 +195,12 @@
         {% else %}badge-pending{% endif %}">
         {{ task.status }}
       </span>
-    </td>
-    <td class="text-sm text-muted">
+    </div></td>
+    <td class="text-sm text-muted" data-label="Last run"><div class="cell">
       {% if task.last_run_at %}<span data-utc="{{ task.last_run_at|utc_iso }}">{{ task.last_run_at.strftime('%m-%d %H:%M') }} UTC</span>{% else %}-{% endif %}
-    </td>
-    <td class="text-sm">{{ task.run_count }}</td>
-    <td>
+    </div></td>
+    <td class="text-sm" data-label="Runs"><div class="cell">{{ task.run_count }}</div></td>
+    <td data-label="Actions"><div class="cell">
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         {% if task.last_result %}
         <a href="/tasks/{{ task.id }}/result" class="btn btn-outline btn-sm">Result</a>
@@ -235,7 +236,7 @@
         </form>
         {% endif %}
       </div>
-    </td>
+    </div></td>
   </tr>
   {% if task.status not in ['cancelled'] %}
   <tr id="q-{{ task.id }}" style="display:none">
@@ -250,7 +251,7 @@
       {% endif %}
       <form method="post" action="/tasks/{{ task.id }}/queue" style="display:flex;gap:8px;flex-wrap:wrap">
         <input type="text" name="instruction" required placeholder="Add a follow-up instruction…"
-               style="flex:1;min-width:240px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+               style="flex:1;min-width:240px;padding:6px 10px;border-radius:var(--radius-sm)">
         <button class="btn btn-primary btn-sm">Queue it</button>
       </form>
     </td>
@@ -271,7 +272,7 @@
 {% else %}
 <div class="card" style="text-align:center;padding:40px">
   <div style="font-size:34px;margin-bottom:12px;color:var(--accent)"><i data-lucide="bot">🤖</i></div>
-  <p style="color:var(--clay)">No tasks yet. Ask in <a href="/chat">Chat</a> ("every morning...", or
+  <p class="ink-clay">No tasks yet. Ask in <a href="/chat">Chat</a> ("every morning...", or
     "save as a recurring task" on any answer), or create one above.</p>
 </div>
 {% endif %}
@@ -304,7 +305,8 @@
 <script>
 function toggleQ(id) {
   const r = document.getElementById('q-' + id);
-  if (r) r.style.display = (r.style.display === 'none' || !r.style.display) ? 'table-row' : 'none';
+  // '' lets the stylesheet decide (a table row on the desktop, a stacked block on narrow screens).
+  if (r) r.style.display = r.style.display === 'none' ? '' : 'none';
 }
 function browserTimezone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
@@ -503,4 +505,5 @@ try {
 setTaskTimezone(browserTimezone());
 updateTaskTimezoneVisibility();
 </script>
+</div>
 {% endblock %}
