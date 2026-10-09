@@ -15,7 +15,9 @@ def answer_fresh(ws: Workspace, question: str, backend, *, model: str | None = N
 
     pages = _relevant_pages(ws, question, 3)
     context = "\n\n---\n\n".join(p.read_text() for p in pages) if pages else "(the wiki is empty)"
-    msgs = prompts.answer_question(context, question)
+    from ..inference.context import known_window
+
+    msgs = prompts.answer_question(context, question, window=known_window(backend, model))
     if model and isinstance(backend, OllamaBackend):
         return backend.chat(msgs, model=model)
     return backend.chat(msgs)

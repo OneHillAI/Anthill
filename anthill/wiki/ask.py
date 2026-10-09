@@ -16,6 +16,7 @@ from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
 from .page_index import embed_text
+from .passages import build_reference
 from .workspace import Workspace
 
 # Minimum cosine similarity for a wiki page to ground an answer. Below this, the "closest" page is
@@ -371,7 +372,7 @@ def ask(
     pages = _merge_relevant(spaces, question, k, q_vec)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
-    context = "\n\n---\n\n".join(strip_frontmatter(p.read_text()) for p in pages) if pages else ""
+    context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -427,7 +428,12 @@ def ask(
                 backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
             )
         else:
-            messages = prompts.answer_question(context, question, history=prepared_history)
+            messages = prompts.answer_question(
+                context,
+                question,
+                history=prepared_history,
+                window=_window_for(backend, model_override),
+            )
             # Prompt-injection defence, layer 2. Two failure modes on the injection-suspect path, both
             # handled here (see qa/chat-eval/DEV_FINDINGS.md, "#338 follow-up"):
             #  (a) HIJACK - the answer echoes the injected token ("BANANA"); the system-prompt rule alone
@@ -487,7 +493,11 @@ def ask(
             # show the hijacked first answer or a raw backend error.
             if _looks_hijacked(answer, question, context) or not answer.strip():
                 messages = prompts.answer_question(
-                    context, question, history=prepared_history, reassert=True
+                    context,
+                    question,
+                    history=prepared_history,
+                    reassert=True,
+                    window=_window_for(backend, model_override),
                 )
                 try:
                     retry = _chat(
@@ -598,7 +608,7 @@ def ask_stream(
     )
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
     pages = _merge_relevant(spaces, question, k, q_vec)
-    context = "\n\n---\n\n".join(strip_frontmatter(p.read_text()) for p in pages) if pages else ""
+    context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     if memory_context:
         context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
@@ -647,7 +657,9 @@ def ask_stream(
         return
 
     prepared_history = _prepare_history(history, backend, model_override, think=think)
-    messages = prompts.answer_question(context, question, history=prepared_history)
+    messages = prompts.answer_question(
+        context, question, history=prepared_history, window=_window_for(backend, model_override)
+    )
     chunks: list[str] = []
     for chunk in stream_chat(
         backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
@@ -751,6 +763,14 @@ def _chat(
     return backend.chat(messages)
 
 
+def _window_for(backend, model_override: str | None) -> int:
+    """The model's context window in tokens when the backend reports one, else 0 (the prompt is then not
+    shortened). The wiki prompts are fitted to it so the engine never drops the reference silently (#109)."""
+    from ..inference.context import known_window
+
+    return known_window(backend, model_override)
+
+
 def _decorate_context(context: str, *, profile: str = "", principles: str = "") -> str:
     """Prepend the user's profile and the standing principles to the wiki context.
 
@@ -821,6 +841,13 @@ def _backend_with_model(backend, model_override: str | None, think: bool | None 
 
         def health(self):
             return backend.health()
+
+        def context_window(self, model=None):
+            # The wrapper stands in for the backend on the web answer path: it must report the same
+            # window, or the fit guard sees "unknown" and never runs there (#109).
+            from ..inference.context import known_window
+
+            return known_window(backend, model or model_override)
 
     return _OverrideBackend()
 
