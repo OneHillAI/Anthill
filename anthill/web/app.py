@@ -14866,15 +14866,20 @@ def _task_visible(db, task_id: int, org, user):
     return None
 
 
+def _task_writable(task, user) -> bool:
+    """Creator, or an admin for an org-plane task. Shared viewers and project operators are not writers."""
+    return task.created_by == int(user["sub"]) or (
+        task.plane == "org" and user.get("role") == "admin"
+    )
+
+
 def _task_for_write(db, task_id: int, org, user):
-    """The task the user may MODIFY (edit / cancel): its creator, or an admin for an org-plane task.
-    Mirrors _agent_for_write."""
+    """The task the user may MODIFY (edit / cancel / acknowledge a result): its creator, or an admin
+    for an org-plane task. Mirrors _agent_for_write."""
     t = _task_in_org(db, task_id, org)
-    if t is None:
+    if t is None or not _task_writable(t, user):
         return None
-    if t.created_by == int(user["sub"]) or (t.plane == "org" and user.get("role") == "admin"):
-        return t
-    return None
+    return t
 
 
 def _task_for_operate(db, task_id: int, org, user):
@@ -15043,6 +15048,7 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             # #278: only offer the per-task escalation checkbox when there's actually something to
             # escalate to - otherwise it's a setting that can't do anything.
             "escalation_available": _escalation_available(db, org),
+            "review_actions": _list_review_actions(db, tasks, user),
         },
     )
 
@@ -15274,6 +15280,191 @@ def review_task_cadence(task_id: int, user: dict = Depends(_require_user)):
     return RedirectResponse("/tasks", status_code=302)
 
 
+def _task_review_serializer():
+    """Signs the Mark reviewed form so a cross-site post cannot forge it. Same idea as the Slack
+    OAuth state: a timed signature over the acting user and the exact result, no server-side store."""
+    from itsdangerous import URLSafeTimedSerializer
+
+    from .crypto import _JWT_SECRET
+
+    return URLSafeTimedSerializer(_JWT_SECRET, salt="task-result-review")
+
+
+def _task_review_token(user_id: int, task_id: int, run_id: int) -> str:
+    return _task_review_serializer().dumps(
+        {"uid": int(user_id), "task": int(task_id), "run": int(run_id)}
+    )
+
+
+def _task_review_token_ok(token: str, user_id: int, task_id: int, run_id: int) -> bool:
+    from itsdangerous import BadSignature, SignatureExpired
+
+    try:
+        data = _task_review_serializer().loads(token, max_age=SESSION_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return False
+    return (
+        data.get("uid") == int(user_id)
+        and data.get("task") == int(task_id)
+        and data.get("run") == int(run_id)
+    )
+
+
+def _latest_completed_runs(db, task_ids: list[int]) -> dict[int, TaskRun]:
+    """Newest completed run per task, by id. A higher id is a later claim, which is how a review
+    decides whether a newer result now owns the list warning."""
+    if not task_ids:
+        return {}
+    from sqlalchemy import func
+
+    latest = (
+        db.query(TaskRun.task_id, func.max(TaskRun.id).label("max_id"))
+        .filter(TaskRun.task_id.in_(task_ids), TaskRun.status != "running")
+        .group_by(TaskRun.task_id)
+        .subquery()
+    )
+    rows = db.query(TaskRun).join(latest, TaskRun.id == latest.c.max_id).all()
+    return {row.task_id: row for row in rows}
+
+
+def _review_target_run_id(task, latest: TaskRun | None) -> int | None:
+    """Run id whose acknowledgement may clear the list warning. 0 is a legacy flag with no run."""
+    if not task.verify_needs_review:
+        return None
+    if latest is None:
+        return 0
+    if latest.verify_needs_review:
+        return latest.id
+    return None
+
+
+def _list_review_actions(db, tasks, user) -> dict[int, dict]:
+    writable = [task for task in tasks if task.verify_needs_review and _task_writable(task, user)]
+    if not writable:
+        return {}
+    latest = _latest_completed_runs(db, [task.id for task in writable])
+    uid = int(user["sub"])
+    actions = {}
+    for task in writable:
+        run_id = _review_target_run_id(task, latest.get(task.id))
+        if run_id is None:
+            continue
+        actions[task.id] = {
+            "run_id": run_id,
+            "token": _task_review_token(uid, task.id, run_id),
+        }
+    return actions
+
+
+def _acknowledge_task_result(db, task, run_id: int, user_id: int) -> bool:
+    """Record who reviewed a flagged result. Clear the list warning only if that result still owns it.
+
+    The verifier columns are not rewritten. A newer completed run that lands between the page render
+    and this update keeps its own warning: the clear is one statement that re-checks that no later
+    completed run exists.
+    """
+    now = datetime.now(timezone.utc)
+    uid = int(user_id)
+    if run_id == 0:
+        completed = (
+            db.query(TaskRun.id)
+            .filter(TaskRun.task_id == task.id, TaskRun.status != "running")
+            .exists()
+        )
+        cleared = (
+            db.query(ScheduledTask)
+            .filter(
+                ScheduledTask.id == task.id,
+                ScheduledTask.verify_needs_review.is_(True),
+                ~completed,
+            )
+            .update(
+                {
+                    ScheduledTask.verify_needs_review: False,
+                    ScheduledTask.result_reviewed_by: uid,
+                    ScheduledTask.result_reviewed_at: now,
+                },
+                synchronize_session=False,
+            )
+        )
+        return bool(cleared)
+
+    recorded = (
+        db.query(TaskRun)
+        .filter(
+            TaskRun.id == run_id,
+            TaskRun.task_id == task.id,
+            TaskRun.verify_needs_review.is_(True),
+            TaskRun.status != "running",
+            TaskRun.reviewed_at.is_(None),
+        )
+        .update(
+            {TaskRun.reviewed_by: uid, TaskRun.reviewed_at: now},
+            synchronize_session=False,
+        )
+    )
+    newer = (
+        db.query(TaskRun.id)
+        .filter(
+            TaskRun.task_id == task.id,
+            TaskRun.status != "running",
+            TaskRun.id > run_id,
+        )
+        .exists()
+    )
+    still_flagged = (
+        db.query(TaskRun.id)
+        .filter(
+            TaskRun.id == run_id,
+            TaskRun.task_id == task.id,
+            TaskRun.verify_needs_review.is_(True),
+            TaskRun.status != "running",
+        )
+        .exists()
+    )
+    cleared = (
+        db.query(ScheduledTask)
+        .filter(
+            ScheduledTask.id == task.id,
+            ScheduledTask.verify_needs_review.is_(True),
+            still_flagged,
+            ~newer,
+        )
+        .update({ScheduledTask.verify_needs_review: False}, synchronize_session=False)
+    )
+    return bool(recorded or cleared)
+
+
+@app.post("/tasks/{task_id}/review-result")
+def review_task_result(
+    task_id: int,
+    request: Request,
+    run_id: int = Form(0),
+    csrf_token: str = Form(""),
+    user: dict = Depends(_require_user),
+):
+    """Acknowledge a flagged result. Writers only; the signed token binds the exact run."""
+    db = _db()
+    org = _require_org(db, user)
+    if _task_visible(db, task_id, org, user) is None:
+        raise HTTPException(status_code=404)
+    task = _task_for_write(db, task_id, org, user)
+    if task is None:
+        raise HTTPException(status_code=403)
+    if not _task_review_token_ok(csrf_token, int(user["sub"]), task.id, run_id):
+        raise HTTPException(status_code=403)
+    if _acknowledge_task_result(db, task, run_id, int(user["sub"])):
+        audit.log(
+            db,
+            "task.result_reviewed",
+            f"id={task.id} run={run_id}",
+            org_id=org.id,
+            user_id=int(user["sub"]),
+            ip=request.client.host if request.client else "",
+        )
+    return _back_to_local(request, fallback=f"/tasks/{task.id}/result")
+
+
 @app.post("/tasks/create")
 async def create_task(
     request: Request,
@@ -15451,6 +15642,38 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     live = bool(
         db.query(TaskRun.id).filter(TaskRun.task_id == task.id, TaskRun.status == "running").first()
     )
+    latest_completed = _latest_completed_runs(db, [task.id]).get(task.id)
+    can_write = _task_writable(task, user)
+    review_tokens: dict[int, str] = {}
+    legacy_review_token = ""
+    if can_write:
+        uid = int(user["sub"])
+        flagged_runs = [
+            run
+            for run in runs
+            if run.verify_needs_review and run.reviewed_at is None and run.status != "running"
+        ]
+        if (
+            latest_completed is not None
+            and latest_completed.verify_needs_review
+            and latest_completed.reviewed_at is None
+            and latest_completed not in flagged_runs
+        ):
+            flagged_runs.append(latest_completed)
+        review_tokens = {run.id: _task_review_token(uid, task.id, run.id) for run in flagged_runs}
+        if latest_completed is None and task.verify_needs_review:
+            legacy_review_token = _task_review_token(uid, task.id, 0)
+    reviewer_ids = {run.reviewed_by for run in runs if run.reviewed_by}
+    if latest_completed is not None and latest_completed.reviewed_by:
+        reviewer_ids.add(latest_completed.reviewed_by)
+    if task.result_reviewed_by:
+        reviewer_ids.add(task.result_reviewed_by)
+    reviewer_labels = {}
+    if reviewer_ids:
+        for row in db.query(User.id, User.display_name, User.email).filter(
+            User.id.in_(reviewer_ids)
+        ):
+            reviewer_labels[row.id] = row.display_name or row.email or f"user {row.id}"
     return templates.TemplateResponse(
         request,
         "task_result.html",
@@ -15461,6 +15684,11 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
             "task": task,
             "runs": runs,
             "live": live,
+            "can_write": can_write,
+            "latest_completed": latest_completed,
+            "review_tokens": review_tokens,
+            "legacy_review_token": legacy_review_token,
+            "reviewer_labels": reviewer_labels,
             "history_total": history_total,
             "history_page": history_page,
             "history_pages": history_pages,

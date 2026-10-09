@@ -214,6 +214,13 @@
         {% if task.verify_needs_review %}
         <span class="badge badge-pending"
               title="{{ task.verify_reason|e }}">&#9888; result needs review</span>
+        {% if task.id in review_actions %}
+        <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin:0">
+          <input type="hidden" name="run_id" value="{{ review_actions[task.id].run_id }}">
+          <input type="hidden" name="csrf_token" value="{{ review_actions[task.id].token }}">
+          <button class="btn btn-outline btn-sm">Mark reviewed</button>
+        </form>
+        {% endif %}
         {% endif %}
         {% if task.status != 'cancelled' %}
         <button type="button" class="btn btn-outline btn-sm" onclick="editTask(this)"
