@@ -23,6 +23,9 @@
     /* The global app rail sits to the left of the chat's own conversation pane (never removed). */
     body { margin:0; height:100vh; display:flex; flex-direction:row; background:var(--bg); }
     .chat-layout { display:flex; flex:1; overflow:hidden; min-width:0; }
+    /* Below the desktop app's width the global rail is a bar across the top (style.css), so this page stacks the
+       bar above the conversation. As a row, the rail's 100% width left the conversation 0px wide. */
+    @media (max-width: 879px) { body { flex-direction:column; } .chat-layout { min-height:0; } }
 
     /* conversation pane - sits right of the global rail; a hairline separates the two dark columns */
     .chat-sidebar { width:240px; background:#1A110A; display:flex; flex-direction:column;
