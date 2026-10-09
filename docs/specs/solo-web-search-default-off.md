@@ -1,5 +1,10 @@
 # Solo chat: web search defaults off
 
+Status: **superseded on 2026-10-08** by the founder's decision that web search is on by default for new accounts
+(most questions are about live information), see `docs/specs/chat-thinking-toggle.md`. Requirement 2 still holds
+in its first half: "Nothing leaves it." is shown only while web search is off for the chat. Its second half, one
+saved choice for the whole browser, is replaced by a choice per chat.
+
 ## Problem
 
 The Solo chat header shows **"Running on this machine. Nothing leaves it."** while the Web search

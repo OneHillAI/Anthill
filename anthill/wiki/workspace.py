@@ -147,6 +147,10 @@ class Workspace:
         )
         path = self.wiki / f"{slugify(title_or_slug)}.md"
         path.write_text(okf.to_okf(page))
+        # Embed the saved page in the background so the first question that needs it finds it ready.
+        from .page_index import warm_page_soon
+
+        warm_page_soon(self.root, path)
         return path
 
     def migrate_to_okgf(self) -> int:

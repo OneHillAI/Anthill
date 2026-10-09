@@ -81,6 +81,7 @@ from .db import (
 )
 
 _HERE = Path(__file__).parent
+TASK_HISTORY_PAGE_SIZE = 25  # runs shown per page on the task result page (#96)
 _CHAT_FAILURE_MARKER = "⚠️ Generation failed - "
 _TASK_QUEUE_RETRY_LIMIT = 4
 _TASK_QUEUE_RETRY_WINDOW = 0.25
@@ -417,6 +418,10 @@ def _startup():
             _maybe_pull_embedding_model()  # first-run: fetch Ollama's bge-m3 if not already pulled
         except Exception:
             pass
+        try:
+            _warm_page_index_in_background()  # embed the wiki pages now, not at the first question
+        except Exception:
+            pass
         from .scheduler import start_scheduler
 
         start_scheduler(_engine or get_engine())
@@ -450,6 +455,19 @@ def _maybe_pull_embedding_model() -> None:
             pass
 
     threading.Thread(target=_run, daemon=True, name="anthill-embed-model-pull").start()
+
+
+def _warm_page_index_in_background() -> None:
+    """Build the wiki page-vector index now, so the first question does not pay for it (see
+    anthill/wiki/page_index.py). Background, best effort, and a wiki with no pages costs nothing."""
+    import threading
+
+    from ..wiki import page_index
+
+    if page_index.ENABLED:
+        threading.Thread(
+            target=page_index.warm_all, daemon=True, name="anthill-warm-page-index"
+        ).start()
 
 
 def _autostart_local_serving() -> None:
@@ -5946,6 +5964,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "profile": (me.profile if me else "") or "",
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
+            "thinking_on": bool(getattr(me, "thinking_on", True)) if me else True,
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
@@ -6044,7 +6063,10 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     me.auto_memory_off = "memory_on" not in form
     me.web_access_on = (
         "web_access" in form
-    )  # Settings -> Privacy default for web access (off unless set)
+    )  # Settings -> Privacy default for web access (a new account starts on; a ticked box keeps it on)
+    me.thinking_on = (
+        "thinking_on" in form
+    )  # Settings -> Model default for Thinking (on unless unset)
     _porg = _require_org(db, user)
     _pcfg = _cfg(db, _porg)
     if not _pcfg:
@@ -8671,6 +8693,58 @@ def settings_automation_get(request: Request, user: dict = Depends(_require_admi
     )
 
 
+def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
+    """Template context for the one-time first-use notice (chat, agents or tasks, whichever the user opens
+    first): ``first_use_notice`` is None once acknowledged, else the current Thinking and Web-search defaults."""
+    me = db.query(User).filter(User.id == user_id).first()
+    if me is None or bool(getattr(me, "chat_defaults_notice_seen", False)):
+        return {"first_use_notice": None}
+    from .. import planes
+
+    cfg = db.query(OrgSettings).filter(OrgSettings.org_id == me.org_id).first()
+    try:
+        org_mode = bool(cfg) and bool(planes.is_org_mode(cfg))
+    except Exception:
+        org_mode = False
+    return {
+        "first_use_notice": {
+            "thinking_on": bool(getattr(me, "thinking_on", True)),
+            "web_on": bool(getattr(me, "web_access_on", False)),
+            "org_mode": org_mode,
+            "page": page,
+        }
+    }
+
+
+@app.post("/settings/chat-defaults")
+async def chat_defaults_post(request: Request, user: dict = Depends(_require_user)):
+    """Save the signed-in user's chat defaults (JSON): ``thinking_on`` and ``web_access`` (booleans), and
+    ``seen`` (true acknowledges the first-use notice). Anything that is not a real boolean is ignored."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "expected JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "expected a JSON object"}, status_code=400)
+    db = _db()
+    me = db.query(User).filter(User.id == int(user["sub"])).first()
+    if me is None:
+        return JSONResponse({"ok": False, "error": "no such user"}, status_code=404)
+    if isinstance(body.get("thinking_on"), bool):
+        me.thinking_on = body["thinking_on"]
+    if isinstance(body.get("web_access"), bool):
+        me.web_access_on = body["web_access"]
+    if body.get("seen") is True:
+        me.chat_defaults_notice_seen = True
+    db.commit()
+    return {
+        "ok": True,
+        "thinking_on": bool(me.thinking_on),
+        "web_access": bool(me.web_access_on),
+        "seen": bool(me.chat_defaults_notice_seen),
+    }
+
+
 @app.post("/settings/automation")
 async def settings_automation_post(
     request: Request,
@@ -11264,6 +11338,16 @@ def chat_conv(
     planner_fallback = (not on_org_model) and not model_can_plan(served_local, "ollama")
     _me = db.query(User).filter(User.id == int(user["sub"])).first()
     web_access_on = bool(getattr(_me, "web_access_on", False))
+    # Does this chat's web search follow the account default? A Solo chat does, and so does a project chat
+    # (plane "team") in an install with no organisation server, because it runs on the local model too. A
+    # project chat in an organisation install, and an organisation chat, run on the shared model and always
+    # start on. Decided once here and used for the checkbox, the page's default and the notice hook.
+    try:
+        _org_mode = bool(planes.is_org_mode(cfg))
+    except Exception:
+        _org_mode = False
+    web_follows_default = conv.plane == "solo" or (conv.plane == "team" and not _org_mode)
+    web_default = web_access_on if web_follows_default else True
     # Which knowledge-scope options actually apply to this account (#chat-knowledge-scope-labels):
     # "Org wiki" only means something once an org backend has ever been configured (planes.is_org_mode
     # - a Solo account has no org wiki at all); "My teams" only means something once the user actually
@@ -11309,6 +11393,10 @@ def chat_conv(
             # The user's Settings -> Privacy "Web access" default. Seeds the per-chat Web-search toggle's
             # initial state so a user who opted in gets it on from the start (org chats are unaffected).
             "web_access_on": web_access_on,
+            "web_follows_default": web_follows_default,
+            "web_default": web_default,
+            "thinking_on_default": bool(getattr(_me, "thinking_on", True)),
+            **_first_use_notice_ctx(db, int(user["sub"])),
             # An attached inference-provider label (empty when none configured) lets chat.html offer
             # "Ask {Provider} instead" while the local model is still generating (#1 UX follow-up to
             # #820/#824: don't make a slow local model finish before offering the fast alternative).
@@ -11570,6 +11658,7 @@ async def chat_stream(
     image_token: str = "",  # a one-time token from /chat/{id}/attach - an image for this turn
     research: bool = False,  # run the deep-research flow for this turn (a confirmed research proposal)
     use_local: bool = False,  # Solo-cloud offline: the user chose "use my local model now" over the VPC
+    think: bool = True,  # the chat's Thinking button; False answers without a reasoning model's hidden thinking
 ):
     """SSE endpoint - streams tokens to the browser as they arrive."""
     # Resolve an attached image (one-time) so this turn can ask a vision model about it.
@@ -11901,7 +11990,9 @@ async def chat_stream(
                     yield f"data: {json.dumps({'token': ack})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
-                cls = _intent.classify(message, backend)
+                # Thinking off reaches the classifier too: it runs before the first word on action-style turns.
+                # Sent only when off, so the call is unchanged (and any substitute classifier still fits) when on.
+                cls = _intent.classify(message, backend, **({} if think else {"think": False}))
                 if cls.get("harmful"):
                     # Protected safety path: a harmful create request is refused HERE, at intent
                     # routing - never routed to the create-artifact ("do") proposal, which would
@@ -11931,7 +12022,8 @@ async def chat_stream(
                     from ..agent.taskgen import parse_task
 
                     try:
-                        draft = parse_task(message, backend)
+                        # Thinking off reaches this second structured call too (sent only when off).
+                        draft = parse_task(message, backend, **({} if think else {"think": False}))
                     except Exception:
                         draft = {}
                     proposal = {
@@ -12258,6 +12350,8 @@ async def chat_stream(
                             cfg=cfg,
                             decrypt=_safe_decrypt,
                             provider_available=_provider_available,
+                            # Only an explicit "off" is sent; on leaves the choice to the model.
+                            think=None if think else False,
                         )
                     ):
                         # The client abandons this EventSource when "Ask {Provider} instead" fires
@@ -12302,6 +12396,7 @@ async def chat_stream(
                         cfg=cfg,
                         decrypt=_safe_decrypt,
                         provider_available=_provider_available,
+                        think=None if think else False,
                     )
                     if escalations and cfg:
                         cfg.cloud_spent_usd = f"{spent + sum(escalations):.6f}"
@@ -14948,6 +15043,7 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             "request": request,
             "user": user,
             "org": org,
+            **_first_use_notice_ctx(db, int(user["sub"]), "tasks"),
             "tasks": tasks,
             "active_task_ids": active_task_ids,
             "task_page": page,
@@ -15384,18 +15480,30 @@ async def queue_task_input(
 
 
 @app.get("/tasks/{task_id}/result", response_class=HTMLResponse)
-def task_result(request: Request, task_id: int, user: dict = Depends(_require_user)):
+def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     task = _task_visible(db, task_id, org, user)  # creator, org-plane anyone, or team member (#597)
     if not task:
         return RedirectResponse("/tasks", status_code=302)
-    # Run history: every past run (the task row only keeps the latest summary), newest first.
+    # Run history: every past run (the task row only keeps the latest summary), newest first, one bounded
+    # page at a time (#96). A run in progress is stored with its claim time as `finished_at` (the column
+    # default fills the None that task_occurrences passes), so it already sorts as the newest. A stored NULL,
+    # which the app does not create, is ordered first as well, as a guard. `id` breaks ties between runs
+    # that finished at the same instant, so in a history that is not changing each run appears exactly
+    # once. Paging is by offset: a run that finishes between two page loads shifts the later pages by one.
+    # The total counts the recorded runs themselves, not the task's run_count, which can differ for tasks
+    # that ran before history was kept.
+    history_q = db.query(TaskRun).filter(TaskRun.task_id == task.id)
+    history_total = history_q.count()
+    history_pages = max(1, (history_total + TASK_HISTORY_PAGE_SIZE - 1) // TASK_HISTORY_PAGE_SIZE)
+    history_page = min(max(1, page), history_pages)  # out of range lands on the nearest real page
     runs = (
-        db.query(TaskRun)
-        .filter(TaskRun.task_id == task.id)
-        .order_by(TaskRun.finished_at.desc())
-        .limit(25)
+        history_q.order_by(
+            TaskRun.finished_at.is_(None).desc(), TaskRun.finished_at.desc(), TaskRun.id.desc()
+        )
+        .offset((history_page - 1) * TASK_HISTORY_PAGE_SIZE)
+        .limit(TASK_HISTORY_PAGE_SIZE)
         .all()
     )
     # Live only while a TaskRun is actually running. A stale task status must not keep the browser
@@ -15413,6 +15521,11 @@ def task_result(request: Request, task_id: int, user: dict = Depends(_require_us
             "task": task,
             "runs": runs,
             "live": live,
+            "history_total": history_total,
+            "history_page": history_page,
+            "history_pages": history_pages,
+            "history_first": (history_page - 1) * TASK_HISTORY_PAGE_SIZE + 1 if runs else 0,
+            "history_last": (history_page - 1) * TASK_HISTORY_PAGE_SIZE + len(runs),
         },
     )
 
@@ -15524,6 +15637,7 @@ def agents_home(request: Request, user: dict = Depends(_require_user)):
             "request": request,
             "user": user,
             "org": org,
+            **_first_use_notice_ctx(db, uid, "agents"),
             "agents": agents,
             "schedules": _AGENT_SCHEDULES,
             "governance_opts": _AGENT_GOV,

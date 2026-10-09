@@ -227,6 +227,16 @@
      management doesn't belong in Anthill's UX. Uninstall lives on each model in the picker above
      (the per-model Uninstall button), which is the one place models are managed. #}
 
+  <div class="card mb-2" id="chat-defaults">
+    <div class="set-cardh"><h3>How it answers</h3></div>
+    <div class="setlist">
+      <div class="setrow">
+        <div class="setrow-main"><span class="setrow-name">Thinking</span><span class="setrow-d">Some models think before they answer: better on hard questions, slower to start. On by default; you can change it for each chat with the Thinking button. Only affects models running on this machine. Web search has its own default under Privacy.</span></div>
+        <label class="tog"><input type="checkbox" name="thinking_on" {% if thinking_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
+      </div>
+    </div>
+  </div>
+
   {# Advanced, model-scoped setup - lives here, not under This device: these are decisions about which
      model runs and where (founder ask, 2026-09-26). #}
   <details class="card mb-2" style="padding:0">
@@ -339,16 +349,17 @@
         <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
       <div class="setrow">
-        <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. Off by default; you can also toggle it per chat.</span></div>
+        <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. On by default; you can change it for each chat in the chat box.</span></div>
         <label class="tog"><input type="checkbox" name="web_access" {% if web_access_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
     </div>
   </div>
 
   <div class="card mb-2">
-    <div class="set-cardh"><h3>What leaves your setup</h3><span class="pill-on">{% if solo_cloud %}Your cloud{% else %}Nothing{% endif %}</span></div>
+    <div class="set-cardh"><h3>What leaves your setup</h3><span class="pill-on">{% if solo_cloud %}Your cloud{% elif web_access_on %}Web searches{% else %}Nothing{% endif %}{% if solo_cloud and web_access_on %} + web searches{% endif %}</span></div>
     <p class="set-note">
       {% if solo_cloud %}Your model lives in <b>your own cloud</b> - yours, not shared. Your wiki and data stay on this device; nothing else leaves.{% else %}Your model, wiki and data stay <b>on this device</b>. Nothing leaves unless you connect a cloud.{% endif %}
+      {% if web_access_on %}<b>Web search is on</b>: when a question needs live information, its text is sent to a search provider. Turn it off under Privacy, or for a single chat in the chat box.{% endif %}
     </p>
     {% if org_available %}
     <div class="core-item" style="margin-top:10px">In an org, your Solo chats run on the org model but stay private: grounded in your own wiki, never shared, never retained org-side.</div>

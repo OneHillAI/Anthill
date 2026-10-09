@@ -9,11 +9,13 @@ import numpy as np
 
 from ..cache import DEFAULT_THRESHOLD, SemanticCache
 from ..cache import embedder as emb
+from ..cache.page_vectors import PageVectorIndex
 from ..common.text import first_h1, normalize_wiki_page, strip_frontmatter
 from ..inference.base import BackendError, InferenceBackend, Message
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
+from .page_index import embed_text
 from .workspace import Workspace
 
 # Minimum cosine similarity for a wiki page to ground an answer. Below this, the "closest" page is
@@ -308,6 +310,7 @@ def ask(
     decrypt=None,  # Callable[[str], str] - required alongside cfg to attempt the council
     provider_available: bool = False,  # #278: a connected org/RunPod/inference-provider backend exists
     # and this turn answered locally - names it in the "go deeper" suggestion as a second option.
+    think: bool | None = None,  # False = no hidden thinking for the answer (web-composed or local)
 ) -> tuple[str, list[str], bool]:
     """Answer a question.
 
@@ -380,7 +383,7 @@ def ask(
     # dead-end the user - fall through to the normal local answer.
     # Prior conversation turns, reconciled to a budget (summarise the old, keep the recent), so a
     # follow-up - on the web path or the local path - has memory of the chat without blowing context.
-    prepared_history = _prepare_history(history, backend, model_override)
+    prepared_history = _prepare_history(history, backend, model_override, think=think)
     answer = None
     if web_search:
         try:
@@ -388,7 +391,7 @@ def ask(
 
             answer = search_and_answer(
                 question,
-                backend=_backend_with_model(backend, model_override),
+                backend=_backend_with_model(backend, model_override, think=think),
                 wiki_context=context_no_mem if (pages or profile or principles) else "",
                 memory_context=memory_context,
                 history=prepared_history,
@@ -420,7 +423,9 @@ def ask(
                 *[Message(r, c) for r, c in prepared_history],
                 Message("user", question, images=images_b64),
             ]
-            answer = _chat(backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS)
+            answer = _chat(
+                backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
+            )
         else:
             messages = prompts.answer_question(context, question, history=prepared_history)
             # Prompt-injection defence, layer 2. Two failure modes on the injection-suspect path, both
@@ -440,6 +445,8 @@ def ask(
             # walked by content it retrieved. Residual-hardening follow-up to #541/#568.
             suspect = has_injection_imperative(question) or has_injection_imperative(context)
             first_kwargs: dict = {"num_predict": ANSWER_MAX_TOKENS}
+            if think is False:
+                first_kwargs["think"] = False  # the user turned Thinking off for this turn
             if suspect:
                 # thinking off so an injection can't burn the whole budget in <think> and return empty
                 first_kwargs["think"] = False
@@ -570,6 +577,8 @@ def ask_stream(
     cfg=None,  # OrgSettings row - when given (with decrypt), an active council delegates to ask()
     decrypt=None,  # Callable[[str], str] - required alongside cfg to check council eligibility
     provider_available: bool = False,  # #278: see ask()'s param of the same name
+    think: bool
+    | None = None,  # False = answer without a reasoning model's hidden thinking (faster start)
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
@@ -632,14 +641,17 @@ def ask_stream(
             cfg=cfg,
             decrypt=decrypt,
             provider_available=provider_available,
+            think=think,
         )
         yield answer
         return
 
-    prepared_history = _prepare_history(history, backend, model_override)
+    prepared_history = _prepare_history(history, backend, model_override, think=think)
     messages = prompts.answer_question(context, question, history=prepared_history)
     chunks: list[str] = []
-    for chunk in stream_chat(backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS):
+    for chunk in stream_chat(
+        backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
+    ):
         chunks.append(chunk)
         yield chunk
 
@@ -684,7 +696,10 @@ def file_as_page(
 
 
 def _prepare_history(
-    history: list[tuple[str, str]] | None, backend, model_override: str | None
+    history: list[tuple[str, str]] | None,
+    backend,
+    model_override: str | None,
+    think: bool | None = None,
 ) -> list[tuple[str, str]]:
     """Reconcile prior turns to the context budget, summarising the older ones with the model."""
     if not history:
@@ -700,7 +715,7 @@ def _prepare_history(
             ),
             Message("user", transcript),
         ]
-        return _chat(backend, msgs, model_override)
+        return _chat(backend, msgs, model_override, think=think)
 
     from ..inference.context import char_budget
 
@@ -755,14 +770,21 @@ def _decorate_context(context: str, *, profile: str = "", principles: str = "") 
 
 
 def stream_chat(
-    backend, messages, model_override: str | None = None, *, num_predict: int | None = None
+    backend,
+    messages,
+    model_override: str | None = None,
+    *,
+    num_predict: int | None = None,
+    think: bool | None = None,
 ):
     """Yield answer chunks from the backend - the streaming sibling of ``_chat``.
 
     Real token streaming via ``chat_stream`` when the backend supports it (Ollama, OpenAI-compatible),
     otherwise the whole answer as a single chunk, so a non-streaming backend still works. ``num_predict``
     bounds the generation (a runaway is cut mid-stream); it degrades gracefully if the streamer does not
-    accept it.
+    accept it. ``think=False`` asks an Ollama reasoning model to skip its hidden reasoning so the first
+    word appears sooner (the chat's Thinking button); ``None`` leaves it to the model, and other
+    backends never see the flag.
     """
     streamer = getattr(backend, "chat_stream", None)
     if streamer is None:
@@ -775,6 +797,8 @@ def stream_chat(
         kwargs["model"] = model_override
     if num_predict is not None:
         kwargs["num_predict"] = num_predict
+    if think is not None and isinstance(backend, OllamaBackend):
+        kwargs["think"] = think
     try:
         yield from streamer(messages, **kwargs)
     except TypeError:
@@ -783,16 +807,17 @@ def stream_chat(
         yield from streamer(messages, **kwargs)
 
 
-def _backend_with_model(backend, model_override: str | None):
-    """Return a thin wrapper that injects model_override into every chat call."""
-    if not model_override:
+def _backend_with_model(backend, model_override: str | None, think: bool | None = None):
+    """Return a thin wrapper that injects model_override (and, when given, the Thinking choice) into every
+    chat call."""
+    if not model_override and think is None:
         return backend
 
     class _OverrideBackend:
-        model = model_override
+        model = model_override or getattr(backend, "model", "")
 
         def chat(self, messages, *, temperature=0.2):
-            return _chat(backend, messages, model_override)
+            return _chat(backend, messages, model_override, think=think)
 
         def health(self):
             return backend.health()
@@ -844,25 +869,56 @@ def _central_publish(org_url: str, q_vec: np.ndarray, answer: str) -> None:
 
 
 def _rank_by_embedding(
-    paths: list[Path], question: str, k: int, q_vec: np.ndarray | None
+    paths: list[Path],
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None,
+    roots: list[Path] | None = None,
+    whole_wiki: bool = False,
 ) -> list[Path]:
     """Top-k of `paths` by cosine similarity to the question (embeds each page's first 2000 chars).
 
     Pages below ``MIN_GROUNDING_SIM`` are dropped: grounding an answer on the "closest" page when
     nothing is actually related is just cross-topic bleed (an unrelated query pulling another
-    conversation's content). Below the floor we return nothing and let the model answer unprompted."""
+    conversation's content). Below the floor we return nothing and let the model answer unprompted.
+
+    ``roots`` are the workspace roots the pages belong to. A page under one of them takes its vector from
+    that workspace's persistent index, so it is embedded once and again only when its text changes (see
+    ``anthill.cache.page_vectors``); a page under none, or no ``roots``, is embedded here on every call.
+    ``whole_wiki`` says ``paths`` is every page of the single workspace in ``roots``, which lets the index
+    drop the rows of pages that no longer exist."""
     if q_vec is None:
         q_vec = emb.embed(question)
+    texts = [embed_text(p) for p in paths]
     # Keep each page's vector (not just its score) so MMR can measure page-to-page similarity below
     # without re-embedding.
     scored = []
-    for p in paths:
-        v = emb.embed(strip_frontmatter(p.read_text())[:2000])
+    for p, v in zip(paths, _page_vectors(paths, texts, roots or [], whole_wiki), strict=True):
         s = emb.cosine(q_vec, v)
         if s >= MIN_GROUNDING_SIM:
             scored.append((s, p, v))
     scored.sort(key=lambda x: x[0], reverse=True)
     return _mmr_select(scored, k)
+
+
+def _page_vectors(
+    paths: list[Path], texts: list[str], roots: list[Path], whole_wiki: bool
+) -> list[np.ndarray]:
+    """One vector per page, in order: from the index of the workspace the page sits in (the deepest of
+    ``roots`` that contains it), or embedded directly for a page outside every root."""
+    by_root: dict[Path, list[int]] = {}
+    for i, p in enumerate(paths):
+        owners = [r for r in roots if p.is_relative_to(r)]
+        if owners:
+            by_root.setdefault(max(owners, key=lambda r: len(r.parts)), []).append(i)
+    vecs: dict[int, np.ndarray] = {}
+    for root, idxs in by_root.items():
+        items = [(paths[i].relative_to(root).as_posix(), texts[i]) for i in idxs]
+        got = PageVectorIndex(root / ".cache").vectors(
+            items, emb.embed, emb.MODEL_NAME, complete=whole_wiki and len(roots) == 1
+        )
+        vecs.update(zip(idxs, got, strict=True))
+    return [vecs[i] if i in vecs else emb.embed(texts[i]) for i in range(len(paths))]
 
 
 def _mmr_select(scored: list, k: int, lam: float | None = None) -> list[Path]:
@@ -907,7 +963,8 @@ def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = No
     if len(uniq) <= k:
         return uniq
     try:
-        return _rank_by_embedding(uniq, question, k, q_vec)
+        roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
+        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots)
     except Exception:
         return uniq[:k]
 
@@ -933,7 +990,7 @@ def _relevant_pages(
         # likely not indexed yet - seed this workspace's own index, use embeddings this turn
         meili.index_pages(pages, index=ws.meili_index)
     try:
-        return _rank_by_embedding(pages, question, k, q_vec)
+        return _rank_by_embedding(pages, question, k, q_vec, roots=[ws.root], whole_wiki=True)
     except Exception:
         return _keyword_fallback(ws, question, k)
 

@@ -313,7 +313,7 @@
       {# The dot/text is kept in sync with the live Web-search toggle by JS below (issue: this claim was
          unconditionally true while Web search defaulted ON, which really does send the query text to a
          search provider - see chat-web-privacy-sync). #}
-      <span class="chat-trust"><span class="chat-trust-dot"></span><span id="chat-trust-msg">Running on this machine. Nothing leaves it.</span></span>
+      <span class="chat-trust"><span class="chat-trust-dot"></span><span id="chat-trust-msg">{% if active_conv and web_default %}Web search is on for this chat.{% else %}Running on this machine. Nothing leaves it.{% endif %}</span></span>
       {% else %}
       <span class="text-sm text-muted">{{ org.name }} · org model</span>
       {% endif %}
@@ -373,6 +373,10 @@
       your question as is, instead of planning it. <a href="/personalize#model">Pick a larger model</a> for
       action-style search.
     </div>
+    {% endif %}
+
+    {% if first_use_notice %}
+    <div style="padding:10px 14px 0">{% include "_first_use_notice.html" %}</div>
     {% endif %}
 
     <div class="chat-messages" id="messages">
@@ -489,24 +493,31 @@
           <span id="send-icon">➤</span>
         </button>
       </div>
-      <!-- Single box by default. Web search defaults OFF on Solo (a search sends your question to a
-           search provider - contradicts "nothing leaves it" if on by default) and ON for Org (which
-           already runs on a shared, non-local model). A capable model still decides when to search once
-           it's on; a small model auto-enables it just-in-time for a question that clearly needs live
-           info, always flagged with a visible "🌐 web" badge on that answer either way. Options let you
-           flip the default or set a scope. Agent mode is no longer a toggle (#421): the router picks
-           depth, and "go deeper" in words forces it on a follow-up. -->
+      <!-- Single box by default. Web search starts ON for a new account (most questions are about live
+           information) and ON for Org; the account default lives in Settings and this chat can change its
+           own. A search sends the question to a search provider, so the header says "Web search is on" while
+           it is on and only claims "Nothing leaves it" while it is off. A capable model still decides when
+           to search once it's on; a question that clearly needs live info can also turn it on for that turn,
+           flagged with a visible "🌐 web" badge on that answer. Options let you flip it for this chat or set
+           a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
+           forces it on a follow-up. -->
       <div class="input-options-bar">
         <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
                 title="Switch to local + wiki only, or set a knowledge scope">
           <i data-lucide="sliders-horizontal">⚙</i> Options
+        </button>
+        {# Thinking button: on (default) leaves it to the model; off asks a model that thinks to answer without
+           its hidden thinking, so the answer comes sooner. Only affects local models that think. #}
+        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="true"
+                title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
+          <i data-lucide="brain">🧠</i> <span id="opt-think-label">Thinking on</span>
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>
       <div class="input-options" id="opt-panel" style="display:none">
         <label class="toggle-opt" id="opt-web-label"
                title="Search the web to help answer - sends your question to a search provider.">
-          <input type="checkbox" id="opt-web" {% if active_conv.plane != 'solo' or web_access_on %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
+          <input type="checkbox" id="opt-web" {% if web_default %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
         </label>
         {# Agent-mode toggle retired (#421): the router auto-escalates to the multi-step agent when a
            question needs depth, and saying "go deeper" on a follow-up forces it. No manual button. #}
@@ -535,28 +546,109 @@
         var t = document.getElementById('opt-toggle');
         if (t) t.classList.toggle('active', open);
       }
-      // The user's web-search choice persists across reloads (default: off on Solo, on for Org - see
-      // the opt-web markup above). The Solo trust banner is kept honest: it only claims "nothing leaves
-      // it" while web search is actually off for this chat.
-      (function () {
-        var w = document.getElementById('opt-web');
-        if (!w) return;
+      // Thinking and Web search, per chat. Settings holds the DEFAULT for every chat. Changing a switch here
+      // changes it for THIS chat only (kept in this browser, keyed by the chat). A chat with no choice of its
+      // own follows the Settings default, so changing the default applies at once to those chats.
+      var _CHAT_KEY = {{ active_conv.id if active_conv else 'null' }};
+      var _OPTS_STORE = 'anthill_chat_opts_v1';
+      // Whether this chat's web search follows the Settings default (a Solo chat, or a project chat in an install
+      // with no organisation server). Organisation chats, and project chats on the shared model, always start on.
+      var _WEB_FOLLOWS_DEFAULT = {{ 'true' if web_follows_default else 'false' }};
+      var _defaults = {
+        think: {{ 'true' if thinking_on_default else 'false' }},
+        web: {{ 'true' if web_default else 'false' }}
+      };
+      function _loadOpts() {
+        try { return JSON.parse(localStorage.getItem(_OPTS_STORE) || '{}') || {}; } catch (e) { return {}; }
+      }
+      function _chatOpt(name) {
+        if (_CHAT_KEY === null) return null;
+        var o = _loadOpts()[_CHAT_KEY];
+        return (o && typeof o[name] === 'boolean') ? o[name] : null;
+      }
+      function _setChatOpt(name, value) {
+        if (_CHAT_KEY === null) return;
         try {
-          var saved = localStorage.getItem('anthill_web_on');
-          if (saved !== null) w.checked = (saved === '1');
+          var all = _loadOpts(), o = all[_CHAT_KEY] || {};
+          o[name] = value; all[_CHAT_KEY] = o;
+          localStorage.setItem(_OPTS_STORE, JSON.stringify(all));
         } catch (e) {}
-        function syncTrustBanner() {
-          var msg = document.getElementById('chat-trust-msg');
-          if (!msg) return;  // not rendered on an Org conversation
-          msg.textContent = w.checked
-            ? 'Web search is on for this chat.'
-            : 'Running on this machine. Nothing leaves it.';
-        }
+      }
+      // The Thinking button: on leaves thinking to the model; off sends think=false with each message so a
+      // reasoning model answers without its hidden thinking.
+      window._thinkOn = (_chatOpt('think') === null) ? _defaults.think : _chatOpt('think');
+      function paintThinking() {
+        var b = document.getElementById('opt-think');
+        if (!b) return;
+        var l = document.getElementById('opt-think-label');
+        if (l) l.textContent = window._thinkOn ? 'Thinking on' : 'Thinking off';
+        b.setAttribute('aria-pressed', window._thinkOn ? 'true' : 'false');
+        b.classList.toggle('active', !window._thinkOn);  // highlighted while off
+      }
+      function toggleThinking() {
+        window._thinkOn = !window._thinkOn;
+        _setChatOpt('think', window._thinkOn);
+        paintThinking();
+      }
+      paintThinking();
+      // Web search: the checkbox starts from this chat's own choice, else the default. The Solo trust banner
+      // is kept honest: it only claims "nothing leaves it" while web search is actually off for this chat.
+      var _webBox = document.getElementById('opt-web');
+      function syncTrustBanner() {
+        var msg = document.getElementById('chat-trust-msg');
+        if (!msg || !_webBox) return;  // not rendered on an Org conversation
+        msg.textContent = _webBox.checked
+          ? 'Web search is on for this chat.'
+          : 'Running on this machine. Nothing leaves it.';
+      }
+      if (_webBox) {
+        if (_chatOpt('web') !== null) _webBox.checked = _chatOpt('web');
         syncTrustBanner();
-        w.addEventListener('change', function () {
-          try { localStorage.setItem('anthill_web_on', w.checked ? '1' : '0'); } catch (e) {}
+        _webBox.addEventListener('change', function () {
+          _setChatOpt('web', _webBox.checked);
           syncTrustBanner();
         });
+      }
+      // Called by the first-use notice (and the one-time import below) after a new default is saved: apply it
+      // to this chat unless the chat already has a choice of its own.
+      window.applyChatDefaults = function (d) {
+        if (typeof d.thinking_on === 'boolean') {
+          _defaults.think = d.thinking_on;
+          if (_chatOpt('think') === null) { window._thinkOn = d.thinking_on; paintThinking(); }
+        }
+        if (typeof d.web_access === 'boolean' && _WEB_FOLLOWS_DEFAULT) {
+          _defaults.web = d.web_access;
+          if (_chatOpt('web') === null && _webBox) { _webBox.checked = d.web_access; syncTrustBanner(); }
+        }
+        // Keep the first-use notice (when it is on this page) in step, so it never states an old default.
+        var ft = document.getElementById('fu-think'), fw = document.getElementById('fu-web');
+        if (typeof d.thinking_on === 'boolean' && ft) {
+          ft.checked = d.thinking_on;
+          var st = document.getElementById('fu-think-state'); if (st) st.textContent = d.thinking_on ? 'on' : 'off';
+        }
+        if (typeof d.web_access === 'boolean' && fw) {
+          fw.checked = d.web_access;
+          var sw = document.getElementById('fu-web-state'); if (sw) sw.textContent = d.web_access ? 'on' : 'off';
+        }
+      };
+      // One-time import of the old browser-wide web choice (anthill_web_on). It used to override the Settings
+      // default for every chat in this browser. Only "off" is carried over, as the account default, so a user
+      // who had web search switched off here keeps it off. "On" is just dropped: promoting it would turn web
+      // search on for the account on every device. The key is removed either way, so it never overrides again.
+      (function () {
+        var legacy = null;
+        try { legacy = localStorage.getItem('anthill_web_on'); } catch (e) {}
+        if (legacy === null) return;
+        try { localStorage.removeItem('anthill_web_on'); } catch (e) {}
+        if (legacy !== '0') return;
+        try {
+          fetch('/settings/chat-defaults', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({web_access: false}),
+                                            credentials: 'same-origin', keepalive: true})
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.ok && window.applyChatDefaults) window.applyChatDefaults(d); })
+            .catch(function () {});
+        } catch (e) {}
       })();
     </script>
     {% endif %}
@@ -634,14 +726,36 @@ function scrollBottom() {
   if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
 }
 scrollBottom();
-// Markdown links open in a new tab, safely (hook set once, before any render).
+// The single rule for "is this one of this app's files". It is one function because the same decision is made
+// in five places (the image renderer, the sanitiser hook, the inline preview, the preview body and the Canvas);
+// the first version had a looser copy of it in two of them, and that is how /\host got through.
+// A file this app serves: exactly /files/<name>. Not "any path starting with a slash": that also admits
+// /\\host/x (browsers read the backslash as a slash and fetch from that host) and any app route, which an
+// image tag would then request with the user's session (GET /logout, the export routes). Function
+// declaration, so it is available to the first render below.
+function isChatFile(src) {
+  src = String(src == null ? '' : src);
+  if (!/^\/files\/(?!\.{1,2}$)[A-Za-z0-9._-]+$/.test(src)) return false;
+  try { return new URL(src, location.href).origin === location.origin; } catch (_) { return false; }
+}
+// Markdown links open in a new tab, safely (hook set once, before any render). An image may only be one of
+// this app's files: a remote image would make the browser contact that host the moment the answer
+// renders, which is how text from the web or a document could carry data out of the perimeter. Any other
+// image is dropped here; the Markdown renderer below already turns a non-file Markdown image into a link.
 try {
   if (window.DOMPurify) DOMPurify.addHook('afterSanitizeAttributes', function (node) {
     if (node.tagName === 'A' && node.getAttribute('href')) {
       node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer');
     }
+    if (node.tagName === 'IMG' && !isChatFile(node.getAttribute('src'))) {
+      if (node.parentNode) node.parentNode.removeChild(node);
+    }
   });
 } catch (_) {}
+// File types that get an inline preview. Declared before the first enhancePreviews() call below: a loaded
+// conversation whose history links a /files/ path reads it there, and a later `var` would still be undefined
+// (the TypeError stopped this script, so the preview never attached and the message input `inp` never initialised).
+var PREVIEWABLE = ['png','jpg','jpeg','gif','webp','pdf','html','docx','pptx','xlsx'];
 renderHistory();                       // format server-rendered history (raw markdown -> HTML)
 if (msgBox) enhancePreviews(msgBox);   // then linkify/preview files in the rendered history
 window.addEventListener("load", renderIcons);
@@ -776,13 +890,54 @@ function linkifyFiles(html) {
 
 // Markdown -> sanitized HTML. Real GFM (lists, headings, tables, code, links) via the
 // self-hosted marked + DOMPurify above. Chat answers mix model text with web/document
-// content, so sanitizing is mandatory (strips <script>/<iframe>/on*/javascript:). Falls
-// back to a safe escape if the libs failed to load, so chat never breaks.
+// content, so sanitizing is mandatory and strict: only text formatting plus images from this app
+// survive. No form, input, button, style, id, class or inline style (they would let injected text
+// restyle the page, fake a prompt or submit a form), and a remote image is shown as a link, never
+// loaded. Falls back to a safe escape if the libs failed to load, so chat never breaks.
+// Functions, not top-level variables: renderHistory() runs before this point of the script has executed.
+// A `var` would still be undefined then, and DOMPurify would silently fall back to its defaults; a `const`
+// would throw a ReferenceError that renderMd catches, leaving the answer as escaped plain text.
+function mdPolicy() {
+  return {
+    ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre',
+                   'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+    ALLOWED_ATTR: ['href', 'title', 'align', 'start', 'src', 'alt'],
+    // DOMPurify tests this pattern on every attribute that is not on its own URI-safe list, so align and
+    // start (plain words and numbers) are named below or they would always be stripped.
+    ADD_URI_SAFE_ATTR: ['align', 'start'],
+    // http(s), mailto, and a site path with a single leading slash (not "//" and not "/\\", which browsers
+    // read as another host). No in-page "#" links: answers have no ids to point at.
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|\/(?![\/\\]))/i,
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false
+  };
+}
+function mdEsc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function mdRenderer() {
+  var r = new marked.Renderer();
+  // marked 12 (pinned) calls image(href, title, text) with text already escaped; later majors pass one
+  // token whose text is raw. Both shapes are handled so a version bump cannot reopen the image path.
+  r.image = function (href, title, text) {
+    if (href && typeof href === 'object') { text = mdEsc(href.text); href = href.href; }
+    if (isChatFile(href)) return '<img src="' + mdEsc(href) + '" alt="' + (text || '') + '">';
+    return '<a href="' + mdEsc(href) + '">' + (text || mdEsc(href)) + '</a>';  // anything else is a link
+  };
+  return r;
+}
+// Order matters, and the sanitiser is last: marked builds the HTML, bare /files/ paths are turned into links,
+// then DOMPurify cleans the result, and nothing edits that string afterwards (the old order linkified
+// after sanitising, and a path inside an attribute value could split it). The custom image renderer and
+// the hook are two layers on purpose: a Markdown image and a raw <img> reach the sanitiser by different
+// routes, and both must end up with the same rule, isChatFile().
 function renderMd(text) {
   text = text == null ? '' : String(text);
   try {
     if (window.marked && window.DOMPurify) {
-      return linkifyFiles(DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true })));
+      // Bare /files/ paths become links BEFORE sanitising, so the sanitiser always sees the final markup.
+      return DOMPurify.sanitize(
+        linkifyFiles(marked.parse(text, { gfm: true, breaks: true, renderer: mdRenderer() })), mdPolicy());
     }
   } catch (_) {}
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
@@ -799,11 +954,10 @@ function renderHistory() {
   });
 }
 
-var PREVIEWABLE = ['png','jpg','jpeg','gif','webp','pdf','html','docx','pptx','xlsx'];
-
 // Fill `el` with a preview of the file at `href`. Shared by the inline preview
-// and the Canvas pane. `big` uses a taller viewport for the pane.
+// and the Canvas pane. `big` uses a taller viewport for the pane. Only /files/<name> is previewed.
 function fillFilePreview(el, href, big) {
+  if (!isChatFile(href)) { el.textContent = 'No preview for this file type.'; return; }
   var ext = (href.split('.').pop() || '').toLowerCase();
   var h = big ? '80vh' : '440px';
   if (['png','jpg','jpeg','gif','webp'].indexOf(ext) >= 0) {
@@ -823,13 +977,18 @@ function fillFilePreview(el, href, big) {
   }
 }
 
-// Inline preview + an "Open in Canvas" button under any /files/… link.
+// Inline preview + an "Open in Canvas" button under any /files/<name> link. The href is the answer's own
+// text, so a link that is not exactly /files/<name> gets no preview. Only the button is built with DOM calls:
+// it was the one place that put the address inside a JavaScript string (onclick="openCanvas('...')"), where
+// quoting is what fails. The previews themselves still use strings, but only after isChatFile() has limited
+// the address to letters, digits, dot, underscore and hyphen. This is separate from the sanitising order above.
 function enhancePreviews(scope) {
   if (!scope) return;
   scope.querySelectorAll('a[href^="/files/"]').forEach(function (a) {
     if (a.dataset.previewed) return;
     a.dataset.previewed = '1';
     var href = a.getAttribute('href');
+    if (!isChatFile(href)) return;
     var ext  = (href.split('.').pop() || '').toLowerCase();
     if (PREVIEWABLE.indexOf(ext) < 0) return;   // md / txt: no preview
     var box = document.createElement('div');
@@ -839,8 +998,12 @@ function enhancePreviews(scope) {
     fillFilePreview(prev, href, false);
     var bar = document.createElement('div');
     bar.style.cssText = 'margin-top:8px';
-    bar.innerHTML = '<button type="button" class="btn btn-outline btn-sm" onclick="openCanvas(\'' +
-                    href + '\')"><i data-lucide="panel-right">▦</i> Open in Canvas</button>';
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn btn-outline btn-sm';
+    var ico = document.createElement('i'); ico.setAttribute('data-lucide', 'panel-right'); ico.textContent = '▦';
+    btn.appendChild(ico); btn.appendChild(document.createTextNode(' Open in Canvas'));
+    btn.addEventListener('click', function () { openCanvas(href); });
+    bar.appendChild(btn);
     box.appendChild(prev); box.appendChild(bar);
     a.parentNode.insertBefore(box, a.nextSibling);
     renderIcons();
@@ -850,6 +1013,7 @@ function enhancePreviews(scope) {
 // ── Canvas pane: enlarged preview + iterate on a file ─────────────────────────
 let canvasFile = '';
 function openCanvas(href) {
+  if (!isChatFile(href)) return;
   canvasFile = href;
   document.getElementById('canvas-name').textContent = href.split('/').pop();
   fillFilePreview(document.getElementById('canvas-preview'), href, true);
@@ -1338,7 +1502,7 @@ function saveRecurringFromDom(btn, msgId) {
   scheduleCardAfter(btn.closest('.meta'), {goal: prompt, title: prompt.slice(0, 60), sourceMessageId: msgId});
 }
 
-function runStream({message, web=false, agent=false, prior='', showUser=true, header='', scope=null, confirm=false, image_token='', research=false}) {
+function runStream({message, web=false, agent=false, prior='', showUser=true, header='', scope=null, confirm=false, image_token='', research=false, think=window._thinkOn !== false}) {
   if (!convId || streaming) return;
 
   if (showUser) {
@@ -1380,7 +1544,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   };
 
   const wikiScope = scope || (document.getElementById('opt-scope') || {}).value || 'all';
-  const params = new URLSearchParams({message, web, agent_mode: agent, prior, wiki_scope: wikiScope, confirm, research, use_local: _useLocalNow});
+  const params = new URLSearchParams({message, web, agent_mode: agent, prior, wiki_scope: wikiScope, confirm, research, use_local: _useLocalNow, think});
   if (image_token) params.set('image_token', image_token);
   const src = new EventSource(`/chat/${convId}/stream?${params}`);
   currentSrc = src; setStreaming(true);

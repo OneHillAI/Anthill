@@ -355,3 +355,34 @@ def test_task_defaults_card_is_admin_only(tmp_path, monkeypatch):
     assert "Task defaults" in client.get("/tasks").text  # admin (default auth)
     _auth(client, ids["b"], ids["org"], "member")
     assert "Task defaults" not in client.get("/tasks").text
+
+
+def test_task_result_page_shows_an_error_latest_result_as_plain_text(tmp_path, monkeypatch):
+    # #89: a latest result that starts with "ERROR:" is a failure, not Markdown. It stays literal text under
+    # the error badge and is never offered to the Markdown renderer.
+    from bs4 import BeautifulSoup
+
+    import anthill.web.app as app_mod
+    from anthill.web.db import ScheduledTask
+
+    client, ids = _app(tmp_path, monkeypatch)
+    s = app_mod._SessionFactory()
+    t = ScheduledTask(
+        org_id=ids["org"],
+        created_by=ids["a"],
+        title="Err",
+        goal="g",
+        schedule="once",
+        status="failed",
+        last_result="ERROR: boom **not bold** <b>x</b>",
+    )
+    s.add(t)
+    s.commit()
+    soup = BeautifulSoup(client.get(f"/tasks/{t.id}/result").text, "html.parser")
+    box = soup.select_one("pre#task-result.task-error")
+    assert box is not None and box.get_text() == "ERROR: boom **not bold** <b>x</b>"
+    assert box.find("b") is None and "data-md" not in box.attrs
+    assert soup.select_one(".badge-danger") is not None
+    assert (
+        soup.find(id="task-result-src") is not None
+    )  # the stored text is still available to Save as snippet

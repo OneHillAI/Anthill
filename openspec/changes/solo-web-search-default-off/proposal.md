@@ -1,5 +1,8 @@
 # Solo chat: web search defaults off
 
+Status: **superseded on 2026-10-08** by the founder's decision that web search is on by default for new accounts (see
+`docs/specs/chat-thinking-toggle.md` and the note in `docs/specs/solo-web-search-default-off.md`).
+
 Full spec: `docs/specs/solo-web-search-default-off.md`.
 
 ## Why
