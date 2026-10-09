@@ -31,6 +31,22 @@ def window_for(backend, model: str | None = None) -> int:
     return _DEFAULT_WINDOW
 
 
+def known_window(backend, model: str | None = None) -> int:
+    """The model's window when the backend really reports one, else 0. Unlike ``window_for`` this never
+    guesses: a backend that does not know its window (a cloud or OpenAI-compatible endpoint) gets 0, so
+    the prompt fit guard (``inference/fit.py``) leaves its prompts alone instead of cutting them to a
+    default."""
+    fn = getattr(backend, "context_window", None)
+    if callable(fn):
+        try:
+            w = fn(model)
+            if isinstance(w, int) and w > 0:
+                return w
+        except Exception:
+            pass
+    return 0
+
+
 def token_budget(backend, model: str | None = None) -> int:
     """Tokens to spend on INPUT context - a fraction of the window, never below the historical floor."""
     return max(_MIN_TOKENS, int(window_for(backend, model) * _INPUT_FRACTION))

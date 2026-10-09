@@ -18,6 +18,10 @@ To uninstall a model, use the model list under **Settings**, on the **Model** ta
 within a few seconds. Uninstalling frees the disk space the model used. A model that is in use, as the
 lead or as a council member, has no Uninstall button.
 
+### How much a model can read at once
+
+A local model reads only a limited amount at a time: its context window. Anthill now asks for a window of 8,192 tokens on every request, so long wiki pages are shortened to fit and are no longer dropped without warning. A bigger window uses more memory. Measured on a 16 GB Mac, a model's footprint in memory grew by about 0.5 GB (qwen3.5:9b), 2.4 GB (mistral:7b) and 0.3 GB (gemma3:4b) going from 4,096 to 16,384 tokens. On a Mac with 32 GB of memory or more, Anthill asks for the larger window Ollama would use itself. To change it, set `ANTHILL_NUM_CTX` (a whole number of at least 4,096) before starting Anthill; Ollama's own `OLLAMA_CONTEXT_LENGTH` is honoured too.
+
 ## Running a council
 
 A council runs up to three open models on the same question in parallel, and combines their
