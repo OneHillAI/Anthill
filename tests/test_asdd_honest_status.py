@@ -93,6 +93,130 @@ def test_a_real_failure_is_not_softened(tmp_path):
     assert got == {"state": "failure", "description": "Review recommends changes."}
 
 
+# --- a design-only objection does not fail the status (docs/specs/asdd-design-concerns-advisory.md) ---
+
+DESIGN_ONLY = "Advisory: only the adversarial design pass recommends changes; code, security and spec are ok. A human decides."
+REVIEW_FAILS = {"state": "failure", "description": "Review recommends changes."}
+SECURITY_BLOCK_LINE = "Security review raised a blocking finding; needs a human resolution."
+
+
+def _lens(name: str, verdict: str = "ok", *severities: str) -> dict:
+    """One lens as the review runtime writes it: a verdict and findings with a severity each."""
+    return {
+        "lens": name,
+        "verdict": verdict,
+        "findings": [{"severity": s, "text": f"{s} in {name}"} for s in severities],
+    }
+
+
+def _live(tmp_path, rec: str, *lenses: dict) -> dict:
+    return _set_status(tmp_path, {"mode": "live", "recommendation": rec, "lenses": list(lenses)})
+
+
+def _all_ok_but_quality(quality: dict) -> list:
+    return [_lens("code"), _lens("security"), _lens("spec"), quality]
+
+
+def test_a_quality_only_request_changes_is_green_and_says_so(tmp_path):
+    q = _lens("quality", "request-changes", "warn")  # the adversarial pass: a design objection
+    got = _live(tmp_path, "request-changes", *_all_ok_but_quality(q))
+    assert got == {"state": "success", "description": DESIGN_ONLY}
+
+
+def test_a_quality_only_request_changes_with_only_notes_or_no_findings_is_green(tmp_path):
+    for q in (_lens("quality", "concerns", "note"), _lens("quality", "request-changes")):
+        got = _live(tmp_path, "request-changes", *_all_ok_but_quality(q))
+        assert got == {"state": "success", "description": DESIGN_ONLY}
+
+
+@pytest.mark.parametrize("other", ["code", "security", "spec", "impact"])
+@pytest.mark.parametrize("verdict", ["concerns", "request-changes"])
+def test_a_concern_in_any_other_lens_keeps_the_failure(tmp_path, other, verdict):
+    lenses = [
+        _lens("code"),
+        _lens("security"),
+        _lens("spec"),
+        _lens("quality", "request-changes", "warn"),
+    ]
+    lenses = [_lens(other, verdict, "note") if x["lens"] == other else x for x in lenses]
+    if other == "impact":
+        lenses.append(_lens("impact", verdict, "note"))
+    assert _live(tmp_path, "request-changes", *lenses) == REVIEW_FAILS
+
+
+@pytest.mark.parametrize("other", ["code", "security", "spec", "impact"])
+def test_a_warn_finding_in_another_lens_keeps_the_failure_even_with_an_ok_verdict(tmp_path, other):
+    lenses = [
+        _lens("code"),
+        _lens("security"),
+        _lens("spec"),
+        _lens("quality", "request-changes", "warn"),
+    ]
+    lenses = [_lens(other, "ok", "warn") if x["lens"] == other else x for x in lenses]
+    if other == "impact":
+        lenses.append(_lens("impact", "ok", "warn"))
+    assert _live(tmp_path, "request-changes", *lenses) == REVIEW_FAILS
+
+
+@pytest.mark.parametrize("where", ["code", "spec", "quality"])
+def test_a_block_finding_in_any_lens_keeps_the_failure(tmp_path, where):
+    lenses = [
+        _lens("code"),
+        _lens("security"),
+        _lens("spec"),
+        _lens("quality", "request-changes", "warn"),
+    ]
+    lenses = [_lens(where, "request-changes", "block") if x["lens"] == where else x for x in lenses]
+    assert _live(tmp_path, "request-changes", *lenses) == REVIEW_FAILS
+
+
+def test_a_security_block_keeps_its_own_failure_line_even_when_the_rest_is_design_only(tmp_path):
+    lenses = [
+        _lens("code"),
+        _lens("security", "request-changes", "block"),
+        _lens("spec"),
+        _lens("quality", "request-changes", "warn"),
+    ]
+    assert _live(tmp_path, "request-changes", *lenses) == {
+        "state": "failure",
+        "description": SECURITY_BLOCK_LINE,
+    }
+
+
+def test_request_changes_without_a_quality_lens_is_a_failure(tmp_path):
+    # Nothing shows the objection came from the adversarial pass, so it is not treated as design-only.
+    assert (
+        _live(tmp_path, "request-changes", _lens("code"), _lens("security"), _lens("spec"))
+        == REVIEW_FAILS
+    )
+
+
+def test_a_comment_recommendation_is_unchanged_whatever_quality_says(tmp_path):
+    got = _live(tmp_path, "comment", *_all_ok_but_quality(_lens("quality", "concerns", "warn")))
+    assert got == {
+        "state": "success",
+        "description": "Advisory review complete; a human approves and merges.",
+    }
+
+
+def test_a_lens_whose_findings_cannot_be_read_keeps_the_failure(tmp_path):
+    # If the rule cannot be applied it must not soften anything: the unreadable lens is not "ok".
+    lenses = _all_ok_but_quality(_lens("quality", "request-changes", "warn"))
+    lenses[0]["findings"] = "not a list"
+    assert _live(tmp_path, "request-changes", *lenses) == REVIEW_FAILS
+
+
+@pytest.mark.parametrize("mode", ["dry-run", "adapter-template", "degraded"])
+def test_a_review_that_did_not_run_live_is_never_softened_to_design_only(tmp_path, mode):
+    # R3: a non-live review is unchanged. Whatever its lenses say, it keeps the failure it always had.
+    q = _lens("quality", "request-changes", "warn")
+    got = _set_status(
+        tmp_path,
+        {"mode": mode, "recommendation": "request-changes", "lenses": _all_ok_but_quality(q)},
+    )
+    assert got == REVIEW_FAILS
+
+
 # --- post-review.sh --------------------------------------------------------------------------------
 
 

@@ -65,7 +65,8 @@ up within a day.
 - For each of `dry-run`, `adapter-template`, `degraded`: status state `success`, description starts
   `NO AI REVIEW RAN`, and the posted comment names the mode and says no AI review ran.
 - For a live review: the description is still `Advisory review complete; a human approves and merges.`
-  and a `request-changes` review is still `failure` / `Review recommends changes.`
+  and a `request-changes` review is still `failure` / `Review recommends changes.` (except a design-only
+  objection from the adversarial lens, see [`asdd-design-concerns-advisory.md`](asdd-design-concerns-advisory.md))
 - `generic.sh` with a model command that prints non-JSON writes `mode == "degraded"`.
 - For `https://api.infercom.ai/v1`, `.../v1/` and `.../v1/chat/completions`, Goose receives
   `OPENAI_HOST=https://api.infercom.ai` and `OPENAI_BASE_PATH=v1/chat/completions`.
