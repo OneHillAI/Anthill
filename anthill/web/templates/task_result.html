@@ -41,6 +41,51 @@
               font-size:13px;color:var(--text);margin-bottom:16px">
     <b>Goal:</b> {{ task.goal }}
   </div>
+  {% if latest_completed and latest_completed.verify_needs_review %}
+  <div style="margin-bottom:12px">
+    {% if latest_completed.reviewed_at %}
+    <span class="badge badge-member">reviewed</span>
+    <span class="text-sm text-muted">by {{ reviewer_labels.get(latest_completed.reviewed_by, "user") }}
+      <span data-utc="{{ latest_completed.reviewed_at|utc_iso }}">{{ latest_completed.reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span></span>
+    {% else %}
+    <span class="badge badge-warning">&#9888; needs review</span>
+    {% endif %}
+    {% if latest_completed.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin-top:6px">
+      &#9888; Verifier (confidence {{ latest_completed.verify_confidence }}): {{ latest_completed.verify_reason }}
+    </div>
+    {% endif %}
+    {% if can_write and not latest_completed.reviewed_at and latest_completed.id in review_tokens %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
+      <input type="hidden" name="run_id" value="{{ latest_completed.id }}">
+      <input type="hidden" name="csrf_token" value="{{ review_tokens[latest_completed.id] }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
+    {% endif %}
+  </div>
+  {% elif not latest_completed and (task.verify_needs_review or task.result_reviewed_at) %}
+  <div style="margin-bottom:12px">
+    {% if task.result_reviewed_at and not task.verify_needs_review %}
+    <span class="badge badge-member">reviewed</span>
+    <span class="text-sm text-muted">by {{ reviewer_labels.get(task.result_reviewed_by, "user") }}
+      <span data-utc="{{ task.result_reviewed_at|utc_iso }}">{{ task.result_reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span></span>
+    {% elif task.verify_needs_review %}
+    <span class="badge badge-warning">&#9888; needs review</span>
+    {% endif %}
+    {% if task.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin-top:6px">
+      &#9888; Verifier (confidence {{ task.verify_confidence }}): {{ task.verify_reason }}
+    </div>
+    {% endif %}
+    {% if can_write and task.verify_needs_review and legacy_review_token %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
+      <input type="hidden" name="run_id" value="0">
+      <input type="hidden" name="csrf_token" value="{{ legacy_review_token }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
   <h3 style="margin-bottom:10px">Last result</h3>
   {% if task.last_result %}
   {# The stored result, untouched: "Save as snippet" sends this, not the rendered view.
@@ -78,6 +123,8 @@
       <span class="badge badge-running">running&hellip;</span>
       {% elif r.status == 'error' %}
       <span class="badge badge-danger">error</span>
+      {% elif r.verify_needs_review and r.reviewed_at %}
+      <span class="badge badge-member">reviewed</span>
       {% elif r.verify_needs_review %}
       <span class="badge badge-warning">&#9888; needs review</span>
       {% else %}
@@ -89,6 +136,18 @@
     <div class="text-sm ink-warn" style="margin:8px 0 2px">
       &#9888; Verifier (confidence {{ r.verify_confidence }}): {{ r.verify_reason }}
     </div>
+    {% endif %}
+    {% if r.reviewed_at %}
+    <div class="text-sm text-muted" style="margin:6px 0 2px">
+      Reviewed by {{ reviewer_labels.get(r.reviewed_by, "user") }}
+      <span data-utc="{{ r.reviewed_at|utc_iso }}">{{ r.reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+    </div>
+    {% elif can_write and r.verify_needs_review and r.status != 'running' and r.id in review_tokens %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin:8px 0 2px">
+      <input type="hidden" name="run_id" value="{{ r.id }}">
+      <input type="hidden" name="csrf_token" value="{{ review_tokens[r.id] }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
     {% endif %}
     {% if r.status == 'running' %}
     <div class="text-sm text-muted" style="margin:8px 0 0">The task is running now. This page refreshes automatically.</div>

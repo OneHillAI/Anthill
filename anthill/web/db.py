@@ -588,6 +588,10 @@ class ScheduledTask(Base):
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
     verify_confidence = Column(String(8), nullable=False, default="")
+    # Acknowledgement of a flagged result that predates run history. Not a verdict: a new run
+    # overwrites verify_needs_review, and the result page ignores these once a run exists.
+    result_reviewed_by = Column(Integer, nullable=True)
+    result_reviewed_at = Column(DateTime, nullable=True)
     run_count = Column(Integer, nullable=False, default=0)
     queued_inputs = Column(
         Text, nullable=False, default=""
@@ -763,6 +767,9 @@ class TaskRun(Base):
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
     verify_confidence = Column(String(8), nullable=False, default="")
+    # Who acknowledged this run's verifier flag, and when. The flag itself is left as written.
+    reviewed_by = Column(Integer, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
     claimed_inputs = Column(Text, nullable=False, default="")
     cancel_requested = Column(Boolean, nullable=False, default=False)
     scheduled_for = Column(DateTime, nullable=True)
@@ -1512,6 +1519,24 @@ def create_tables(engine=None):
         log.exception(
             "versioned schema migration failed; a snapshot was taken, booting current schema"
         )
+    # Migration 4 rebuilds task_runs from a fixed column list and drops anything added before it.
+    # Top up the review columns after that rebuild so an upgrade still owing migration 4 keeps them.
+    _ensure_columns(
+        engine,
+        "scheduled_tasks",
+        {
+            "result_reviewed_by": "INTEGER",
+            "result_reviewed_at": "DATETIME",
+        },
+    )
+    _ensure_columns(
+        engine,
+        "task_runs",
+        {
+            "reviewed_by": "INTEGER",
+            "reviewed_at": "DATETIME",
+        },
+    )
     # Rebuild migrations drop their old indexes; top up after every structural migration.
     _ensure_indexes(engine)
     _log_fk_violations(engine)
