@@ -13,7 +13,7 @@ log, where the operator reads it.
 
 - MCP server (`mcp/server.py`): a failing exposed tool or agent tool answers `Tool failed.`; the exception is
   logged. A refusal from our own permission check keeps its reason, and so does a bad request to an agent tool
-  (`ValueError`, answered as `Invalid params: <reason>`), because that text is written by us.
+  (`ToolInvalid`, answered as `Invalid params: <reason>`, and `ToolDenied`, answered as `Not allowed: <reason>`), because that text is written by us in `anthill/web/a2a.py`. Any other exception, including a `ValueError` or `PermissionError` raised deeper in the run, is answered `Tool failed.` and is logged.
 - Outbound MCP calls (`mcp/client.py call_tool_raw`): the string handed back to the agent loop and to the
   document-source listing is `MCP call failed (<tool>).`; the exception is logged. When the remote MCP server
   itself answered with an error, its own message is kept (`MCP call failed (<tool>): <message>`); only
