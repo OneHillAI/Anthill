@@ -352,9 +352,9 @@ def test_tasks_settings_save_and_clamp(tmp_path, monkeypatch):
 
 def test_task_defaults_card_is_admin_only(tmp_path, monkeypatch):
     client, ids = _app(tmp_path, monkeypatch)
-    assert "Task defaults" in client.get("/tasks").text  # admin (default auth)
+    assert "Task settings for administrators" in client.get("/tasks").text  # admin (default auth)
     _auth(client, ids["b"], ids["org"], "member")
-    assert "Task defaults" not in client.get("/tasks").text
+    assert "Task settings for administrators" not in client.get("/tasks").text
 
 
 def test_task_result_page_shows_an_error_latest_result_as_plain_text(tmp_path, monkeypatch):

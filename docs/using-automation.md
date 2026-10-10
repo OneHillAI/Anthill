@@ -6,6 +6,13 @@ A **task** is work Anthill does on a schedule or on demand. You describe it in p
 daily digest or a weekly report. Tasks keep your local time zone, including through daylight
 saving. Run one immediately, or let it run on its own schedule.
 
+**Cancel future runs** stops a task from running again. Anything it already did stays, the history is kept and
+nothing is deleted, and a run already in progress is not interrupted. **Reactivate** turns a cancelled task's
+schedule back on. It does not run anything at that moment: work that fell due while the task was cancelled is
+skipped and the task waits for its next scheduled time, and follow-ups you queued before cancelling wait for
+that run too. You can reactivate a task once any run you cancelled has finished. **Run now** and **Add follow-up**
+are not available on a cancelled task; reactivate it first.
+
 ## Agents
 
 An **agent** is a named worker with a standing job, like an employee with a role. It runs toward

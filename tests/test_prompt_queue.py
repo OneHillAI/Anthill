@@ -16,6 +16,13 @@ from anthill.web import db, scheduler
 from anthill.web.db import Organization, ScheduledTask, TaskOccurrence, TaskRun, User
 
 
+def _reactivate(c, app_mod, task_id):
+    """Reactivate a cancelled task. A run that was cancelled while running must have finished first (the
+    route refuses until then), so the helper closes it the way a restart does, through the scheduler."""
+    scheduler._sweep_stale_running_runs(app_mod._engine)
+    return c.post(f"/tasks/{task_id}/reactivate", follow_redirects=False)
+
+
 def test_effective_goal_reads_only_the_claimed_occurrence_inputs():
     from anthill.web.scheduler import _effective_goal
 
@@ -494,6 +501,8 @@ def test_edit_cancelled_task_to_once_removes_paused_cadence(tmp_path):
             follow_redirects=False,
         )
         assert response.status_code == 302
+        # Reactivating a cancelled task is its own step now; Run now and Add follow-up no longer do it.
+        _reactivate(c, app_mod, tid)
         assert c.post(f"/tasks/{tid}/run-now", follow_redirects=False).status_code == 302
         remaining = (
             app_mod._SessionFactory()
@@ -1477,6 +1486,8 @@ def test_cancelling_active_recurring_run_preserves_reactivatable_cadence(tmp_pat
         cadence_id = cadence.id
         assert cadence.due_at > now.replace(tzinfo=None)
 
+        # Reactivating a cancelled task is its own step now; Run now and Add follow-up no longer do it.
+        _reactivate(c, app_mod, tid)
         assert c.post(f"/tasks/{tid}/run-now", follow_redirects=False).status_code == 302
         reactivated = app_mod._SessionFactory()
         cadence = reactivated.get(TaskOccurrence, cadence_id)
@@ -1691,6 +1702,8 @@ def test_cancelling_interrupted_recurring_run_synthesizes_missing_cadence(tmp_pa
         )
         assert cadence.due_at > now.replace(tzinfo=None)
 
+        # Reactivating a cancelled task is its own step now; Run now and Add follow-up no longer do it.
+        _reactivate(c, app_mod, tid)
         assert c.post(f"/tasks/{tid}/run-now", follow_redirects=False).status_code == 302
         assert app_mod._SessionFactory().get(TaskOccurrence, cadence.id).status == "pending"
     finally:
@@ -1721,27 +1734,34 @@ def test_cancel_then_run_again_survives_a_crash_without_replay(tmp_path, monkeyp
         s.commit()
 
         c.post(f"/tasks/{tid}/cancel", follow_redirects=False)
-        c.post(f"/tasks/{tid}/run-now", follow_redirects=False)
+        # The cancelled run is still running, so the task cannot be reactivated yet.
+        refused = c.post(f"/tasks/{tid}/reactivate", follow_redirects=False)
+        assert refused.headers["location"] == "/tasks?notice=still_cancelling"
 
         before_crash = app_mod._SessionFactory()
         fresh = before_crash.get(ScheduledTask, tid)
         active_run = before_crash.query(TaskRun).filter(TaskRun.task_id == tid).one()
-        manual = (
-            before_crash.query(TaskOccurrence)
-            .filter(TaskOccurrence.task_id == tid, TaskOccurrence.kind == "manual")
-            .one()
-        )
-        manual_at = manual.due_at
         assert fresh.status == "cancelled"
         assert fresh.next_run_at is None
         assert active_run.cancel_requested is True
         assert json.loads(fresh.queued_inputs) == ["queued later"]
 
-        scheduler._sweep_stale_running_runs(s.get_bind())
+        scheduler._sweep_stale_running_runs(s.get_bind())  # the crash: the cancelled run is closed
         recovered = app_mod._SessionFactory().get(ScheduledTask, tid)
-        assert recovered.status == "pending"
+        assert recovered.status == "cancelled"
         assert recovered.interrupted_run_at is None
-        assert recovered.next_run_at <= manual_at
+
+        # With the run closed the task can be reactivated and run again, and nothing is replayed.
+        _reactivate(c, app_mod, tid)
+        c.post(f"/tasks/{tid}/run-now", follow_redirects=False)
+        manual = (
+            app_mod._SessionFactory()
+            .query(TaskOccurrence)
+            .filter(TaskOccurrence.task_id == tid, TaskOccurrence.kind == "manual")
+            .one()
+        )
+        manual_at = manual.due_at
+        assert app_mod._SessionFactory().get(ScheduledTask, tid).status == "pending"
 
         seen = []
 
@@ -1813,6 +1833,8 @@ def test_cancelled_interrupted_input_is_not_replayed_when_repurposed(tmp_path):
             assert cancelled.status == "cancelled"
             assert cancelled.interrupted_run_at is None
             assert json.loads(cancelled.queued_inputs) == ["queued later"]
+            # Reactivating a cancelled task is its own step now.
+            _reactivate(c, app_mod, task_id)
 
             if action == "queue":
                 response = c.post(
@@ -1921,6 +1943,8 @@ def test_duplicate_input_ownership_is_not_double_consumed_after_cancel(tmp_path,
         s.commit()
 
         c.post(f"/tasks/{tid}/cancel", follow_redirects=False)
+        # Reactivating a cancelled task is its own step now; Run now and Add follow-up no longer do it.
+        _reactivate(c, app_mod, tid)
         c.post(f"/tasks/{tid}/queue", data={"instruction": "new"}, follow_redirects=False)
         scheduler._sweep_stale_running_runs(s.get_bind())
         seen = []
@@ -2081,6 +2105,7 @@ def test_cancelled_legacy_occupied_work_stays_cancelled_with_duplicate_queue(
             ("paused", "queued", ["same"]),
         ]
         if occupied_state == "interrupted":
+            task_occurrences.reactivate(session, task)
             task_occurrences.run_now(session, task, datetime.now(timezone.utc))
             session.commit()
             session.expire_all()
@@ -2285,10 +2310,13 @@ def test_scheduler_rechecks_global_order_after_each_completion(tmp_path, monkeyp
             if task.id == first_id:
                 other = app_mod._SessionFactory()
                 try:
+                    task_occurrences.reactivate(other, other.get(ScheduledTask, reactivated_id))
+                    # The overdue paused occurrence is skipped on reactivation; the explicit manual run is due
+                    # between First and Second, so it joins the global order there.
                     task_occurrences.run_now(
                         other,
                         other.get(ScheduledTask, reactivated_id),
-                        datetime.now(timezone.utc),
+                        now - timedelta(minutes=2),
                     )
                     other.commit()
                 finally:

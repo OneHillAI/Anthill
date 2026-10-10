@@ -15215,8 +15215,24 @@ def _escalation_available(db, org) -> bool:
     return org_endpoint_connected(_cfg(db, org), decrypt)
 
 
+# Messages the Tasks page can show after an action was refused, chosen by a fixed code in the address
+# (never free text), so a link cannot put its own words on the page.
+_TASK_NOTICES = {
+    "cancelled": "That task is cancelled. Reactivate it first; Run now and Add follow-up do not bring it back.",
+    "not_allowed": "You can't change that task. Only its owner, or an admin for an organisation task, can.",
+    "not_allowed_run": "You can't run that task. Only its owner, an admin for an organisation task, or a project member for a project task can.",
+    "lost_access": "You no longer have access to that task, so nothing was changed.",
+    "not_cancelled": "That task is not cancelled, so there was nothing to reactivate.",
+    "still_cancelling": "A run you cancelled is still finishing. You can reactivate the task once it has stopped.",
+    "reactivated_merged": "Reactivated. Nothing was run now. Follow-ups queued before it was cancelled will run with its next scheduled run.",
+    "reactivated_held": "Reactivated. Nothing was run now. It has no next scheduled run, so follow-ups queued before it was cancelled are held until you use Run now or Add follow-up.",
+}
+
+
 @app.get("/tasks", response_class=HTMLResponse)
-def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_user)):
+def tasks_page(
+    request: Request, page: int = 1, notice: str = "", user: dict = Depends(_require_user)
+):
     db = _db()
     org = _require_org(db, user)
     # Paginate: the list used to render every task in one table, which does not scale for an org with
@@ -15290,6 +15306,12 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
         {"id": s.id, "label": ((s.question or s.content or "").strip()[:70] or f"Snippet {s.id}")}
         for s in snips
     ]
+    # What this viewer may do with each task, so the page shows only controls that will work: a creator (or
+    # an admin, for an org task) may change it; they, and members of a team task's project, may run it.
+    can_write = {t.id for t in tasks if _task_writable(t, user)}
+    can_operate = can_write | {
+        t.id for t in tasks if t.plane == "team" and t.team_id in my_team_ids
+    }
     return templates.TemplateResponse(
         request,
         "tasks.html",
@@ -15299,6 +15321,9 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             "org": org,
             **_first_use_notice_ctx(db, int(user["sub"]), "tasks"),
             "tasks": tasks,
+            "can_write": can_write,
+            "can_operate": can_operate,
+            "notice_text": _TASK_NOTICES.get(notice, ""),
             "active_task_ids": active_task_ids,
             "task_page": page,
             "task_pages": task_pages,
@@ -15532,17 +15557,18 @@ def review_task_cadence(task_id: int, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     task = _task_for_write(db, task_id, org, user)
-    if task:
-        task.cadence_needs_review = False
-        task.cadence_review_reason = ""
-        db.commit()
-        audit.log(
-            db,
-            "task.cadence_reviewed",
-            f"id={task_id}",
-            org_id=org.id,
-            user_id=user["sub"],
-        )
+    if not task:
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
+    task.cadence_needs_review = False
+    task.cadence_review_reason = ""
+    db.commit()
+    audit.log(
+        db,
+        "task.cadence_reviewed",
+        f"id={task_id}",
+        org_id=org.id,
+        user_id=user["sub"],
+    )
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15802,7 +15828,7 @@ async def cancel_task(task_id: int, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     if not _task_for_write(db, task_id, org, user):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
     from . import task_occurrences
 
     def mutate_task():
@@ -15816,7 +15842,53 @@ async def cancel_task(task_id: int, user: dict = Depends(_require_user)):
     if not await _retry_task_mutation(
         db, mutate_task, busy_detail="Task action is busy; retry shortly"
     ):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse("/tasks?notice=lost_access", status_code=302)
+    return RedirectResponse("/tasks", status_code=302)
+
+
+@app.post("/tasks/{task_id}/reactivate")
+async def reactivate_task(task_id: int, user: dict = Depends(_require_user)):
+    """Turn a cancelled task's schedule back on. It runs nothing now: work that fell due while it was
+    cancelled is skipped (the next future slot replaces it), follow-ups queued before the cancel are kept
+    and merged into the next scheduled run (held until Run now or Add follow-up when there is none), and
+    Run now is a separate, explicit action. Refused while a cancelled run is still running."""
+    db = _db()
+    org = _require_org(db, user)
+    task = _task_for_write(db, task_id, org, user)
+    if not task:
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
+    if task.status != "cancelled":
+        return RedirectResponse("/tasks?notice=not_cancelled", status_code=302)
+    from . import task_occurrences
+
+    outcome = {"code": "ok", "merged": 0, "held": 0}
+
+    def mutate_task():
+        current = _task_for_write(db, task_id, org, user)
+        if not current:
+            outcome["code"] = "lost_access"
+            return False
+        if current.status != "cancelled":
+            outcome["code"] = "not_cancelled"
+            return False
+        try:
+            outcome["merged"], outcome["held"] = task_occurrences.reactivate(db, current)
+        except task_occurrences.TaskStillCancelling:
+            db.rollback()
+            outcome["code"] = "still_cancelling"
+            return False
+        db.commit()
+        return True
+
+    if not await _retry_task_mutation(
+        db, mutate_task, busy_detail="Task action is busy; retry shortly"
+    ):
+        return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
+    audit.log(db, "task.reactivated", f"id={task_id}", org_id=org.id, user_id=user["sub"])
+    if outcome["held"]:
+        return RedirectResponse("/tasks?notice=reactivated_held", status_code=302)
+    if outcome["merged"]:
+        return RedirectResponse("/tasks?notice=reactivated_merged", status_code=302)
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15827,21 +15899,32 @@ async def run_task_now(task_id: int, user: dict = Depends(_require_user)):
 
     db = _db()
     org = _require_org(db, user)
-    if not _task_for_operate(db, task_id, org, user):
-        return RedirectResponse("/tasks", status_code=302)
+    current = _task_for_operate(db, task_id, org, user)
+    if not current:
+        return RedirectResponse("/tasks?notice=not_allowed_run", status_code=302)
+    if current.status == "cancelled":
+        # Run now used to reactivate a cancelled task as a side effect. Bringing it back is its own action.
+        return RedirectResponse("/tasks?notice=cancelled", status_code=302)
+    outcome = {"code": "ok"}
 
     def mutate_task():
         task = _task_for_operate(db, task_id, org, user)
         if not task:
+            outcome["code"] = "lost_access"
             return False
-        task_occurrences.run_now(db, task, datetime.now(timezone.utc))
+        try:
+            task_occurrences.run_now(db, task, datetime.now(timezone.utc))
+        except task_occurrences.TaskCancelled:
+            db.rollback()
+            outcome["code"] = "cancelled"
+            return False
         db.commit()
         return True
 
     if not await _retry_task_mutation(
         db, mutate_task, busy_detail="Task action is busy; retry shortly"
     ):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15854,19 +15937,34 @@ async def queue_task_input(
 
     db = _db()
     org = _require_org(db, user)
-    if not _task_for_operate(db, task_id, org, user):
-        raise HTTPException(status_code=404)
+    current = _task_for_operate(db, task_id, org, user)
+    if not current:
+        return RedirectResponse("/tasks?notice=not_allowed_run", status_code=302)
+    if current.status == "cancelled":
+        # A follow-up used to reactivate a cancelled task as a side effect. Reactivating is its own action.
+        return RedirectResponse("/tasks?notice=cancelled", status_code=302)
     instruction = instruction.strip()
     if instruction:
+        outcome = {"code": "ok"}
 
         def mutate_task():
             task = _task_for_operate(db, task_id, org, user)
             if not task:
-                raise HTTPException(status_code=404)
-            task_occurrences.queue_input(db, task, instruction, datetime.now(timezone.utc))
+                outcome["code"] = "lost_access"
+                return False
+            try:
+                task_occurrences.queue_input(db, task, instruction, datetime.now(timezone.utc))
+            except task_occurrences.TaskCancelled:
+                db.rollback()
+                outcome["code"] = "cancelled"
+                return False
             db.commit()
+            return True
 
-        await _retry_task_mutation(db, mutate_task, busy_detail="Task queue is busy; retry shortly")
+        if not await _retry_task_mutation(
+            db, mutate_task, busy_detail="Task queue is busy; retry shortly"
+        ):
+            return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
         audit.log(
             db, "task.queued_input", f"task={task_id}", org_id=user["org"], user_id=user["sub"]
         )
@@ -15910,6 +16008,11 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     )
     latest_completed = _latest_completed_runs(db, [task.id]).get(task.id)
     can_write = _task_writable(task, user)
+    # Same rule as the Tasks list: who made it (or an admin, for an organisation task) and members of a
+    # project task's project may run it.
+    can_operate = can_write or (
+        task.plane == "team" and task.team_id in _user_team_ids(db, int(user["sub"]))
+    )
     review_tokens: dict[int, str] = {}
     legacy_review_token = ""
     if can_write:
@@ -15951,6 +16054,7 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
             "runs": runs,
             "live": live,
             "can_write": can_write,
+            "can_operate": can_operate,
             "latest_completed": latest_completed,
             "review_tokens": review_tokens,
             "legacy_review_token": legacy_review_token,

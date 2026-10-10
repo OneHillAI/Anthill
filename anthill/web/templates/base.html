@@ -41,9 +41,9 @@
       {% if nav_account %}<a href="/profile" class="topbar-identity"
         title="{{ nav_account.email }}{% if nav_profile %} - in the &quot;{{ nav_profile.name }}&quot; profile{% endif %} - profile &amp; account">{% if nav_profile %}<span class="profile-dot" style="background:{{ nav_profile.colour }}"></span>{% endif %}<span class="topbar-identity-name">{{ nav_account.name }}</span></a>{% endif %}
     </div>
-    <div class="content">
+    <main class="content" id="main-content">
       {% block content %}{% endblock %}
-    </div>
+    </main>
   </div>
 </div>
 
@@ -305,9 +305,10 @@ document.addEventListener('DOMContentLoaded', function () {
   // Toggle display directly (never the `hidden` attribute): an inline display would override [hidden]
   // and leave this full-screen overlay intercepting every click. Default display:none; shown as flex.
   function settle(v) { var p = pending; pending = null; ov.style.display = 'none'; if (p) p(v); }
-  function open(text, okLabel) {
+  function open(text, okLabel, cancelLabel) {
     msg.textContent = text || 'Are you sure?';
     okB.textContent = okLabel || 'Confirm';
+    caB.textContent = cancelLabel || 'Cancel';
     ov.style.display = 'flex';
     try { okB.focus(); } catch (e) {}
     return new Promise(function (res) { pending = res; });
@@ -328,7 +329,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (el.__ahConfirmed) { el.__ahConfirmed = false; return; }  // second pass: let it through
     e.preventDefault();
     e.stopImmediatePropagation();
-    open(el.getAttribute('data-confirm'), el.getAttribute('data-confirm-ok')).then(function (ok) {
+    open(el.getAttribute('data-confirm'), el.getAttribute('data-confirm-ok'), el.getAttribute('data-confirm-cancel')).then(function (ok) {
       if (!ok) return;
       el.__ahConfirmed = true;
       el.click();
@@ -341,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (f.__ahConfirmed) { f.__ahConfirmed = false; return; }  // second pass: let it submit
     e.preventDefault();
     e.stopImmediatePropagation();
-    open(f.getAttribute('data-confirm'), f.getAttribute('data-confirm-ok')).then(function (ok) {
+    open(f.getAttribute('data-confirm'), f.getAttribute('data-confirm-ok'), f.getAttribute('data-confirm-cancel')).then(function (ok) {
       if (!ok) return;
       f.__ahConfirmed = true;
       if (f.requestSubmit) f.requestSubmit(); else f.submit();
