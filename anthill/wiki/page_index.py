@@ -50,7 +50,15 @@ def workspace_roots() -> list[Path]:
     org = Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki"))
     legacy = Path(os.environ.get("ANTHILL_WORKSPACE", "workspace"))
     wikis = Path(os.environ.get("ANTHILL_WIKI_ROOT", "data/wikis"))
-    candidates = [org, legacy, *sorted(wikis.glob("user-*")), *sorted(wikis.glob("team-*"))]
+    from .workspace import org_wikis_base
+
+    candidates = [
+        org,
+        *sorted(org_wikis_base().glob("org-*")),
+        legacy,
+        *sorted(wikis.glob("user-*")),
+        *sorted(wikis.glob("team-*")),
+    ]
     roots: list[Path] = []
     seen: set[Path] = set()
     for r in candidates:

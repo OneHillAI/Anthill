@@ -15,6 +15,7 @@ def test_configure_env_uses_app_support_and_persists_secrets(tmp_path, monkeypat
         "ANTHILL_SKILLS_DIR",
         "ANTHILL_WIKI_ROOT",
         "ANTHILL_ORG_WIKI",
+        "ANTHILL_ORG_WIKIS",
         "ANTHILL_HOME",
         "ANTHILL_JWT_SECRET",
         "ANTHILL_ENCRYPTION_KEY",
@@ -40,6 +41,7 @@ def test_configure_env_uses_app_support_and_persists_secrets(tmp_path, monkeypat
     assert os.environ["ANTHILL_SKILLS_DIR"] == str(d / "skills")
     assert os.environ["ANTHILL_WIKI_ROOT"] == str(d / "wikis")
     assert os.environ["ANTHILL_ORG_WIKI"] == str(d / "org-wiki")
+    assert os.environ["ANTHILL_ORG_WIKIS"] == str(d / "org-wikis")
     secrets_txt = (d / "secrets.env").read_text()
     assert "ANTHILL_JWT_SECRET=" in secrets_txt and "ANTHILL_ENCRYPTION_KEY=" in secrets_txt
     assert os.environ["ANTHILL_JWT_SECRET"] and os.environ["ANTHILL_ENCRYPTION_KEY"]

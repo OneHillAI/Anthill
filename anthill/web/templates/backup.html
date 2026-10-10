@@ -5,6 +5,7 @@
 {% include "_org_tabs.html" %}
 
 
+{% if request.query_params.get('aside') %}<div class="alert alert-warn">The organisation wikis on this machine were newer than the backup and were not overwritten. They were moved aside to <code>{{ request.query_params.get('aside') }}</code> next to the data folder, with nothing deleted.</div>{% endif %}
 {% if request.query_params.get('restored') %}<div class="alert alert-ok">✅ Backup restored. <b>Restart Anthill</b> for it to take effect (the running process still holds the old database open).</div>{% endif %}
 {% if request.query_params.get('error') %}<div class="alert alert-danger">⚠️ Restore failed - the file wasn't a valid Anthill backup, or it couldn't be read. Nothing was changed.</div>{% endif %}
 

@@ -77,7 +77,7 @@ def test_workspace_for_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHILL_WIKI_ROOT", str(tmp_path / "wikis"))
     monkeypatch.setenv("ANTHILL_ORG_WIKI", str(tmp_path / "org"))
     monkeypatch.setenv("ANTHILL_WORKSPACE", str(tmp_path / "ws"))
-    assert workspace_for("org").root == tmp_path / "org"
+    assert workspace_for("org", org_id=1).root == tmp_path / "org"  # organisation 1 owns the folder
     assert workspace_for("team", team_id=7).root == tmp_path / "wikis" / "team-7"
     assert workspace_for("personal", user_id=3).root == tmp_path / "wikis" / "user-3"
     # personal with no user -> the single-node alpha default (legacy behavior kept)

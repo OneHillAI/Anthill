@@ -153,6 +153,7 @@ response = client.chat.completions.create(
 | `ANTHILL_INSTALL_OWNER` | unset | email of an active admin to make the install owner at start-up. A one-off recovery: it overrides the recorded owner every start, so remove it once the owner is right (a warning is logged when it changes the owner). An unknown email is ignored. `anthill owner set EMAIL` does the same once |
 | `ANTHILL_WORKSPACE` | `workspace` | local (personal) wiki root |
 | `ANTHILL_ORG_WIKI` | `data/org-wiki` | consolidated org wiki root |
+| `ANTHILL_ORG_WIKIS` | `data/org-wikis` (a sibling of `ANTHILL_ORG_WIKI`) | folder holding the org wiki of every organisation except the one that owns `ANTHILL_ORG_WIKI` |
 | `ANTHILL_JWT_SECRET` | generated | session signing |
 | `ANTHILL_SESSION_HOURS` | 720 | inactivity window before login is required again |
 | `ANTHILL_ENCRYPTION_KEY` | generated | at-rest encryption |

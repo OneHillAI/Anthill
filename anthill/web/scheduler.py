@@ -297,6 +297,7 @@ def _run_task(task: ScheduledTask, db) -> str:
         team_id=getattr(task, "team_id", None),
         member_user_id=task.created_by,
         personal_user_id=task.created_by,
+        org_id=task.org_id,
     )
     from .mcp_store import mcp_client_tools
 
@@ -1132,7 +1133,9 @@ def _backfill_review_outlines(engine):
             if cfg:
                 config.model = cfg.ollama_model or config.model
                 config.base_url = cfg.ollama_url or config.base_url
-            ws = workspace_for(rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by)
+            ws = workspace_for(
+                rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
+            )
             if not ws.exists():
                 ws.init()
             o = outline_change(
@@ -1201,6 +1204,7 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
             row.target_scope,
             team_id=row.team_id,
             user_id=row.user_id if row.target_scope == "personal" else None,
+            org_id=row.org_id,
         )
         if not ws.exists():
             ws.init()

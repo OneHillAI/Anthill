@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from ..common.text import first_h1, slugify, strip_frontmatter
+
+log = logging.getLogger(__name__)
 
 SCHEMA_SEED = """# Wiki schema
 
@@ -192,10 +196,120 @@ class Workspace:
             pass
 
 
-def workspace_for(scope: str = "personal", *, user_id=None, team_id=None) -> Workspace:
+_OWNER_MARKER = ".owner-org"
+
+
+def _legacy_org_wiki_root() -> Path:
+    return Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki"))
+
+
+def org_wikis_base() -> Path:
+    """Folder that holds the org wikis of every organisation other than the one that owns the legacy
+    ``ANTHILL_ORG_WIKI`` folder (``ANTHILL_ORG_WIKIS`` overrides; default: a sibling named ``org-wikis``).
+    It is a sibling, not a child, so exporting or backing up one org's wiki never includes another's."""
+    env = os.environ.get("ANTHILL_ORG_WIKIS")
+    return Path(env) if env else _legacy_org_wiki_root().parent / "org-wikis"
+
+
+def legacy_org_wiki_owner() -> int | None:
+    """The organisation that owns the legacy ``ANTHILL_ORG_WIKI`` folder, or None when not recorded yet."""
+    return _read_owner(_legacy_org_wiki_root() / _OWNER_MARKER)
+
+
+def _read_owner(marker: Path) -> int | None:
+    try:
+        return int(marker.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def claim_legacy_org_wiki(org_id: int) -> bool:
+    """Record ``org_id`` as the owner of the legacy org wiki folder, once. Called at start-up with the
+    first admin's organisation (so an existing install keeps its pages) and after the first organisation of
+    a fresh install is created. Never changes an owner that is already recorded.
+
+    The marker is created exclusively: the owner is written to a temporary file with a name no other process
+    shares and hard-linked into place, so two claims cannot both succeed and the first stays. A filesystem
+    without hard links falls back to creating the marker with ``O_EXCL``. A failure is logged, not raised (the
+    install keeps working on the default owner). Returns True when this call recorded the owner."""
+    if legacy_org_wiki_owner() is not None:
+        return False
+    root = _legacy_org_wiki_root()
+    marker = root / _OWNER_MARKER
+    text = f"{int(org_id)}\n"
+    tmp = None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        handle, tmp_name = tempfile.mkstemp(prefix=f"{_OWNER_MARKER}.", suffix=".tmp", dir=root)
+        tmp = Path(tmp_name)
+        with os.fdopen(handle, "w") as fh:
+            fh.write(text)
+        for _attempt in (1, 2):
+            try:
+                os.link(tmp, marker)
+            except FileExistsError:
+                if _read_owner(marker) is not None:
+                    return False
+                marker.unlink(missing_ok=True)  # empty or unreadable (a crash): replace it
+                continue
+            except OSError:
+                return _claim_with_excl(marker, text)  # no hard links here
+            return True
+        return False
+    except OSError as exc:
+        log.warning("could not record the owner of the org wiki folder %s: %s", root, exc)
+        return False
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
+def _claim_with_excl(marker: Path, text: str) -> bool:
+    """Create the marker with O_EXCL (for a filesystem that cannot hard-link). An empty or unreadable marker
+    left by a crash is replaced once."""
+    for _attempt in (1, 2):
+        try:
+            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            if _read_owner(marker) is not None:
+                return False
+            marker.unlink(missing_ok=True)  # a half-made marker: clear it and try once more
+            continue
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        return True
+    return False
+
+
+def org_wiki_root(org_id=None) -> Path:
+    """Folder of an organisation's wiki. The owner of the legacy folder (the first admin's organisation, so
+    an existing install keeps its pages in place) uses it; every other organisation has
+    ``org-wikis/org-<id>``. Before an owner is recorded, organisation 1 is the owner. With no ``org_id`` it is
+    the legacy folder: only for system code that has no signed-in organisation (see
+    ``legacy_org_wiki_workspace``); ``workspace_for`` itself requires an ``org_id`` for the org scope."""
+    legacy = _legacy_org_wiki_root()
+    if org_id is None:
+        return legacy
+    owner = legacy_org_wiki_owner()
+    if owner is None:
+        owner = 1
+    if int(org_id) == owner:
+        return legacy
+    return org_wikis_base() / f"org-{int(org_id)}"
+
+
+def legacy_org_wiki_workspace() -> Workspace:
+    """The legacy ``ANTHILL_ORG_WIKI`` folder as a workspace, whichever organisation owns it. Only for code
+    that moves or inspects that folder itself (the shared-wiki notice at start-up, tests); anything that acts
+    for an organisation uses ``workspace_for("org", org_id=...)``."""
+    return Workspace(_legacy_org_wiki_root(), scope="org")
+
+
+def workspace_for(scope: str = "personal", *, user_id=None, team_id=None, org_id=None) -> Workspace:
     """Resolve the Workspace for a knowledge scope on the ladder.
 
-    - ``org``  -> the single shared org wiki (``ANTHILL_ORG_WIKI``).
+    - ``org``  -> that organisation's wiki (see ``org_wiki_root``). ``org_id`` is required: leaving it out
+      would silently pick another organisation's folder, so it raises ``ValueError``.
     - ``team`` -> ``ANTHILL_WIKI_ROOT/team-<team_id>``.
     - ``personal`` -> ``ANTHILL_WIKI_ROOT/user-<user_id>`` when a user is given;
       otherwise the single-node ``ANTHILL_WORKSPACE`` (the alpha default, kept so
@@ -205,7 +319,9 @@ def workspace_for(scope: str = "personal", *, user_id=None, team_id=None) -> Wor
     else hardcodes a path.
     """
     if scope == "org":
-        return Workspace(Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki")), scope="org")
+        if org_id is None:
+            raise ValueError("the org wiki belongs to an organisation: pass org_id")
+        return Workspace(org_wiki_root(org_id), scope="org")
     root = Path(os.environ.get("ANTHILL_WIKI_ROOT", "data/wikis"))
     if scope == "team":
         return Workspace(root / f"team-{team_id}", scope="team")

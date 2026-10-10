@@ -139,6 +139,7 @@ def _apply_paths(d: Path, *, force: bool) -> None:
     setter("ANTHILL_SKILLS_DIR", str(d / "skills"))
     setter("ANTHILL_WIKI_ROOT", str(d / "wikis"))
     setter("ANTHILL_ORG_WIKI", str(d / "org-wiki"))
+    setter("ANTHILL_ORG_WIKIS", str(d / "org-wikis"))
 
 
 def configure_env() -> Path:
