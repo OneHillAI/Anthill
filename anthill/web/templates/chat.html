@@ -1072,6 +1072,19 @@ function setBuildStatus(text) {
   el.style.display = text ? 'block' : 'none';
 }
 
+// A web-search turn reports its real steps (chat_stream's meta.stage: searching, reading N pages, then
+// thinking or writing). The line under the ants names the current one; the first word of the answer clears it.
+function stageText(meta) {
+  const n = meta.count || 0;
+  switch (meta.stage) {
+    case 'searching': return 'Searching the web…';
+    case 'reading': return n ? `Reading ${n} ${n === 1 ? 'page' : 'pages'}…` : 'No web results. Writing the answer…';
+    case 'thinking': return 'Thinking, then writing the answer…';
+    case 'writing': return 'Writing the answer…';
+    default: return '';
+  }
+}
+
 // This turn is being answered by the attached inference provider, not the lead - swap the marching
 // ants to the caped symbol (#ah-ant-cape, _sidebar.html) for the duration of the call, and name it.
 // providerLabel is included on the SSE meta event that turns this on; omitted (e.g. turning it back
@@ -1521,7 +1534,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
 
   const bubble = appendMsg('assistant', (header || '') + BUILD_ROW);
   let buffer = '', metaHtml = '', lastRender = 0;
-  let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null;
+  let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
 
   // #1 UX follow-up to #820/#824: offer "Ask {Provider} instead" from the moment generation starts,
   // not gated behind waiting for local to finish first - that was the whole complaint (a slow local
@@ -1568,7 +1581,15 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         renderProposal(bubble, d.proposal);
         return;
       }
+      if (d.meta?.stage === 'left_out') {   // results kept out of the prompt because they carried instructions
+        const n = d.meta.count || 0;
+        metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill left these web results out of the answer because their text carried an instruction to the assistant.">🛡 ${n} web ${n === 1 ? 'result' : 'results'} left out</span>`;
+      } else if (d.meta?.stage) {   // a step of a web-search turn, before the first word
+        const t = stageText(d.meta);
+        if (t) { stageShown = true; setBuildStatus(t); }
+      }
       if (d.token) {
+        if (stageShown) { stageShown = false; setBuildStatus(''); }   // the words are the signal now
         buffer += d.token;
         // Throttle the markdown re-render to ~16 fps (marked parses the whole buffer each
         // time); the final, complete render happens in _finalize on [DONE].

@@ -20,8 +20,10 @@ a new account, so a plain answer starts in seconds. The **Thinking** button unde
 a chat: click it to read "Thinking on" and the model reasons more carefully on hard questions, at the
 cost of a longer wait. Click again to turn it back off. It only changes models that run on this machine and
 that can think. Other models answer the same either way, and so do models that always think (gpt-oss,
-for one, cannot turn thinking fully off). A question that searches the web shows its answer once it is complete,
-word by word only when it does not search, and Thinking off shortens that wait too.
+for one, cannot turn thinking fully off). A question that searches the web shows what it is doing ("Searching
+the web", "Reading 5 pages", "Writing the answer") and then streams its answer word by word, like any other. With
+Thinking on, the first word still waits until the model has finished thinking. If a web result carries an
+instruction to the assistant, Anthill leaves it out of the answer and says how many it left out under the answer.
 
 Thinking and web search each have a default and a choice for every chat. For a new account both are off,
 so answers start quickly; turn either one on when you want it. An account that existed before this

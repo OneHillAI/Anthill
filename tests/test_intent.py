@@ -916,6 +916,7 @@ def test_stream_no_auto_web_for_internal_question(tmp_path, monkeypatch):
     def _fake_ask_stream(ws, msg, backend, **kw):
         # an internal question takes the streaming local-generate path (never a web search)
         captured["streamed"] = True
+        captured["web"] = kw.get("web_search")
         yield "ok"
 
     monkeypatch.setattr(ask_mod, "ask", _fake_ask)

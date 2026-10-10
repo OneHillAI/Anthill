@@ -25,6 +25,8 @@ _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # (base_url, model) -> context window in tokens (0 = unknown). A model's context length is fixed, so
 # probe /api/show once and cache it across backend instances (they're created per request). (#277)
 _CTX_WINDOW_CACHE: dict[tuple[str, str], int] = {}
+# (base_url, model) -> whether the model can think before it answers, from /api/show's "capabilities".
+_CAN_THINK_CACHE: dict[tuple[str, str], bool] = {}
 
 # The window Anthill asks Ollama for on every request (issue #109). Without it Ollama picks its own default
 # and silently drops whatever does not fit. Ollama's own default depends on the machine's video memory
@@ -433,6 +435,24 @@ class OllamaBackend:
         what the model really gets (issue #109). Never raises."""
         trained = self.trained_context_window(model)
         return min(trained, self.num_ctx) if trained > 0 else self.num_ctx
+
+    def can_think(self, model: str | None = None) -> bool:
+        """Whether the model can think before it answers, as Ollama reports it (``capabilities`` includes
+        "thinking" in ``/api/show``), cached per (base_url, model) once it has been read. False when it cannot be
+        read (and then not cached), so a caller that wants to say "thinking" only says it for a model that
+        does. Never raises."""
+        m = model or self.model or ""
+        key = (self.base_url, m)
+        if key in _CAN_THINK_CACHE:
+            return _CAN_THINK_CACHE[key]
+        try:
+            resp = httpx.post(f"{self.base_url}/api/show", json={"model": m}, timeout=5)
+            resp.raise_for_status()
+            can = "thinking" in (resp.json().get("capabilities") or [])
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return False  # unreadable: not claimed and not remembered, so the next turn asks again
+        _CAN_THINK_CACHE[key] = can
+        return can
 
     def delete_model(self, tag: str) -> bool:
         """Uninstall a locally installed model (``ollama rm``), reclaiming its disk. Returns True on
