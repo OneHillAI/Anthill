@@ -65,10 +65,11 @@ On first launch you land on a short **setup wizard** (three steps).
 ### 3a. Chat
 - Click **Chat** -> start a conversation -> ask anything, e.g. *"Explain what a semantic cache is in one
   paragraph."*
-- **You should see** the answer stream in, word by word. The header reads "Web search is on for this
-  chat." (Web search is on by default for a new account. It sends the question to a search engine, so the
-  header says so. Turn it off for one chat under **Options**, or for every chat under **Settings, Privacy**;
-  once it is off the header reads "Running on this machine. Nothing leaves it.")
+- **You should see** the answer stream in, word by word. The header reads "Running on this machine. Nothing
+  leaves it." (Web search and Thinking are off by default for a new account, and a notice on your first
+  visit says so. Turn web search on for one chat under **Options**, or for every chat under **Settings,
+  Privacy**; while it is on the header reads "Web search is on for this chat." because a search sends the
+  question to a search engine.)
 
 ### 3b. Give it knowledge, then ask about it
 - Click **Wiki** -> **Add a document** -> choose a `.md`, `.txt`, `.pdf`, or Office file (`.docx`,

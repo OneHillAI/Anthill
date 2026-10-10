@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -351,6 +352,11 @@ def ask(
     # answer is specific to this requester. Bypass the shared cache (and the org central index) for
     # such answers so one user's private answer is never served to another. Per-user caches are safe.
     _skip_shared = shared_cache and (bool(extra_workspaces) or bool(profile))
+    if web_search:
+        # A turn that searches the web is answered fresh: no cached or organisation-published answer stands in
+        # for the search, and its answer is neither stored nor published (the flag is read by every cache and
+        # org-index step below).
+        _skip_shared = True
     # None when embeddings are unavailable (slim app / offline model). Retrieval then
     # falls back to keyword search and the semantic cache + org index are skipped, so a
     # missing optional dep degrades gracefully instead of breaking the answer.
@@ -590,6 +596,18 @@ def ask(
     return returned_answer, [p.stem for p in pages], False
 
 
+@dataclass(frozen=True)
+class Stage:
+    """A step of a web-search turn, yielded by ``ask_stream`` between the question and the first word, so the
+    chat page can say what is happening instead of staying silent. ``name`` is "searching", "reading" (with
+    ``count`` pages), "left_out" (``count`` results kept out of the prompt, only when there are some), "thinking"
+    (Thinking is not off and the Ollama model can think) or "writing". Only a turn with ``web_search`` yields
+    these."""
+
+    name: str
+    count: int = 0
+
+
 def ask_stream(
     ws: Workspace,
     question: str,
@@ -609,14 +627,23 @@ def ask_stream(
     provider_available: bool = False,  # #278: see ask()'s param of the same name
     think: bool
     | None = None,  # False = answer without a reasoning model's hidden thinking (faster start)
+    web_search: bool = False,  # search the web too; yields Stage markers, then the answer streams
+    search_query: str = "",  # what to search for (planned by decide_web); defaults to the question
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
     This is the *local generate* path: it grounds in the wiki (+ any team/org workspaces, profile,
     principles, memory) and the conversation history exactly like ``ask()``, then streams the model so
-    the first words appear immediately. It deliberately skips ``ask()``'s cache/org-index/web/cloud/image
+    the first words appear immediately. It deliberately skips ``ask()``'s cache/org-index/cloud/image
     branches - those richer paths stay on ``ask()``. The full streamed answer is cached at the end so a
     repeat is instant. Falls back to a single chunk when the backend cannot stream.
+
+    With ``web_search`` the turn first yields ``Stage`` markers ("searching", "reading", "left_out" when a result
+    was kept out, then "thinking" or "writing") and then streams an answer composed from the wiki and the web
+    results. A web answer is not
+    cached. A result whose text carries an instruction-override pattern is left out of the prompt, because a
+    streamed answer cannot be taken back; a turn whose question or wiki context carries one is handed to the
+    blocking ``ask()`` as before. If the search itself fails the turn answers from the wiki and the model.
     """
     small_talk = _is_small_talk(question, history)  # see ask(): nothing to embed, look up or cache
     no_cache = small_talk or _is_ack_reply(question, history)
@@ -632,6 +659,7 @@ def ask_stream(
     pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
     context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
+    context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
         context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
     if on_context is not None:
@@ -674,11 +702,66 @@ def ask_stream(
             decrypt=decrypt,
             provider_available=provider_available,
             think=think,
+            web_search=web_search,
+            search_query=search_query,
         )
         yield answer
         return
 
     prepared_history = _prepare_history(history, backend, model_override, think=think)
+    if web_search:
+        web_messages = None
+        try:
+            from ..search import web as _web
+
+            yield Stage("searching")
+            results = _web.web_search(search_query or question, max_results=5, fetch_bodies=False)
+            yield Stage("reading", len(results))
+            _web.read_pages(results)
+            results, left_out = _web.drop_injected(results)
+            if left_out:
+                yield Stage(
+                    "left_out", left_out
+                )  # the user is told, a benign page may have been dropped
+            web_messages = _web.web_messages(
+                question,
+                results,
+                # the routed model's window, as ask() uses, so the engine never drops the reference silently
+                backend=_backend_with_model(backend, model_override, think=think),
+                wiki_context=context_no_mem if (pages or profile or principles) else "",
+                memory_context=memory_context,
+                history=prepared_history,
+            )
+        except Exception:
+            web_messages = (
+                None  # offline or rate-limited: answer from the wiki and the model, as ask() does
+            )
+        if web_messages is not None:
+            can_think = getattr(backend, "can_think", None)
+            thinks = think is not False and callable(can_think) and bool(can_think(model_override))
+            yield Stage("thinking" if thinks else "writing")
+            # A reasoning model can spend its whole answer budget thinking and end with no words, and the
+            # engine can refuse a call before the first word. Nothing is on the page yet, so the same prompt
+            # is tried once more without thinking (what ask() does), and if that fails too the turn answers
+            # from the wiki and the model below. An error after the first word is a real error.
+            shown = False
+            for attempt_think in [think] if think is False else [think, False]:
+                try:
+                    for chunk in stream_chat(
+                        backend,
+                        web_messages,
+                        model_override,
+                        num_predict=ANSWER_MAX_TOKENS,
+                        think=attempt_think,
+                    ):
+                        shown = True
+                        yield chunk
+                except BackendError:
+                    if shown:
+                        raise
+                    continue
+                if shown:
+                    return
     messages = prompts.answer_question(
         context, question, history=prepared_history, window=_window_for(backend, model_override)
     )

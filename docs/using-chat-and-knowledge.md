@@ -17,23 +17,27 @@ recurring, like "every morning, summarize my inbox", and it proposes a scheduled
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
 
 Some local models think before they answer, and you see nothing until they finish. That can take ten
-seconds or more on a laptop. The **Thinking** button under the message box turns this off. Click it
-to read "Thinking off" and the answer comes sooner, at the cost of less careful reasoning on hard
-questions. Click again to turn thinking back on. It only changes models that run on this machine and
+seconds or more on a laptop, and minutes when a web search is involved. Thinking is off by default for
+a new account, so a plain answer starts in seconds. The **Thinking** button under the message box turns it on for
+a chat: click it to read "Thinking on" and the model reasons more carefully on hard questions, at the
+cost of a longer wait. Click again to turn it back off. It only changes models that run on this machine and
 that can think. Other models answer the same either way, and so do models that always think (gpt-oss,
-for one, cannot turn thinking fully off). A question that searches the web shows its answer once it is complete,
-word by word only when it does not search, and Thinking off shortens that wait too.
+for one, cannot turn thinking fully off). A question that searches the web shows what it is doing ("Searching
+the web", "Reading 5 pages", "Writing the answer") and then streams its answer word by word, like any other. With
+Thinking on, the first word still waits until the model has finished thinking. If a web result carries an
+instruction to the assistant, Anthill leaves it out of the answer and says how many it left out under the answer.
 
-Thinking and web search each have a default and a choice for every chat. Both are on by default for a new
-account. Set
+Thinking and web search each have a default and a choice for every chat. For a new account both are off,
+so answers start quickly; turn either one on when you want it. An account that existed before this
+changed keeps the values it had. Set
 the defaults in **Settings**: Thinking under **Model**, Web access under **Privacy**. A web search
 sends the text of your question to a search provider, so turn it off if a question must not leave
 your machine.
 In a chat, the Thinking button and the **Options** button change them for that chat only, and Anthill
 remembers the choice for that chat. A chat you have not changed follows the default, so changing the
 default changes those chats too. The first time you open Chat, Agents or Tasks, a short notice tells you
-what the defaults are and lets you change them. Even with web search off, Anthill may search the web on
-its own when a question clearly needs live information, and it marks that answer with a globe.
+what the defaults are and lets you change them. With web search off, nothing is searched on the web unless
+you ask for it in plain words as a follow-up, for example "check the web".
 
 ### Group chats with a project
 

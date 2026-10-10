@@ -496,24 +496,24 @@
           <span id="send-icon">➤</span>
         </button>
       </div>
-      <!-- Single box by default. Web search starts ON for a new account (most questions are about live
-           information) and ON for Org; the account default lives in Settings and this chat can change its
-           own. A search sends the question to a search provider, so the header says "Web search is on" while
-           it is on and only claims "Nothing leaves it" while it is off. A capable model still decides when
-           to search once it's on; a question that clearly needs live info can also turn it on for that turn,
-           flagged with a visible "🌐 web" badge on that answer. Options let you flip it for this chat or set
-           a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
+      <!-- Single box by default. Web search starts OFF for a new account and ON for Org; the account default
+           lives in Settings and this chat can change its own. A search sends the question to a search
+           provider, so the header says "Web search is on" while it is on and only claims "Nothing leaves it"
+           while it is off. A capable model still decides when to search once it's on; with the box off nothing
+           is searched unless the user asks for it in plain words as a follow-up ("check the web"). Options let
+           you flip it for this chat or set a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
            forces it on a follow-up. -->
       <div class="input-options-bar">
         <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
                 title="Switch to local + wiki only, or set a knowledge scope">
           <i data-lucide="sliders-horizontal">⚙</i> Options
         </button>
-        {# Thinking button: on (default) leaves it to the model; off asks a model that thinks to answer without
-           its hidden thinking, so the answer comes sooner. Only affects local models that think. #}
-        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="true"
+        {# Thinking button: on leaves it to the model; off asks a model that thinks to answer without its
+           hidden thinking, so the answer comes sooner. Only affects local models that think. The page script
+           repaints it from the account default and this chat's own choice. #}
+        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="{{ 'true' if thinking_on_default else 'false' }}"
                 title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
-          <i data-lucide="brain">🧠</i> <span id="opt-think-label">Thinking on</span>
+          <i data-lucide="brain">🧠</i> <span id="opt-think-label">{{ 'Thinking on' if thinking_on_default else 'Thinking off' }}</span>
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>
@@ -1072,6 +1072,19 @@ function setBuildStatus(text) {
   el.style.display = text ? 'block' : 'none';
 }
 
+// A web-search turn reports its real steps (chat_stream's meta.stage: searching, reading N pages, then
+// thinking or writing). The line under the ants names the current one; the first word of the answer clears it.
+function stageText(meta) {
+  const n = meta.count || 0;
+  switch (meta.stage) {
+    case 'searching': return 'Searching the web…';
+    case 'reading': return n ? `Reading ${n} ${n === 1 ? 'page' : 'pages'}…` : 'No web results. Writing the answer…';
+    case 'thinking': return 'Thinking, then writing the answer…';
+    case 'writing': return 'Writing the answer…';
+    default: return '';
+  }
+}
+
 // This turn is being answered by the attached inference provider, not the lead - swap the marching
 // ants to the caped symbol (#ah-ant-cape, _sidebar.html) for the duration of the call, and name it.
 // providerLabel is included on the SSE meta event that turns this on; omitted (e.g. turning it back
@@ -1521,7 +1534,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
 
   const bubble = appendMsg('assistant', (header || '') + BUILD_ROW);
   let buffer = '', metaHtml = '', lastRender = 0;
-  let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null;
+  let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
 
   // #1 UX follow-up to #820/#824: offer "Ask {Provider} instead" from the moment generation starts,
   // not gated behind waiting for local to finish first - that was the whole complaint (a slow local
@@ -1568,7 +1581,15 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         renderProposal(bubble, d.proposal);
         return;
       }
+      if (d.meta?.stage === 'left_out') {   // results kept out of the prompt because they carried instructions
+        const n = d.meta.count || 0;
+        metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill left these web results out of the answer because their text carried an instruction to the assistant.">🛡 ${n} web ${n === 1 ? 'result' : 'results'} left out</span>`;
+      } else if (d.meta?.stage) {   // a step of a web-search turn, before the first word
+        const t = stageText(d.meta);
+        if (t) { stageShown = true; setBuildStatus(t); }
+      }
       if (d.token) {
+        if (stageShown) { stageShown = false; setBuildStatus(''); }   // the words are the signal now
         buffer += d.token;
         // Throttle the markdown re-render to ~16 fps (marked parses the whole buffer each
         // time); the final, complete render happens in _finalize on [DONE].

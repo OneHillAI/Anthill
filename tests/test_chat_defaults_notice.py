@@ -55,7 +55,11 @@ def _user(app_mod, user_id):
 
 def test_new_user_defaults(tmp_path, monkeypatch):
     _client, app_mod, _cid, uid = _app(tmp_path, monkeypatch)
-    assert _user(app_mod, uid) == (True, True, False)  # thinking on, web on, notice not yet seen
+    assert _user(app_mod, uid) == (
+        False,
+        False,
+        False,
+    )  # thinking off, web off, notice not yet seen
 
 
 def test_notice_shows_on_chat_agents_and_tasks_until_acknowledged(tmp_path, monkeypatch):
@@ -64,8 +68,13 @@ def test_notice_shows_on_chat_agents_and_tasks_until_acknowledged(tmp_path, monk
         r = client.get(path)
         assert r.status_code == 200, path
         assert 'id="first-use-notice"' in r.text, path
-        assert 'Thinking is <b id="fu-think-state">on</b>' in r.text, path
-        assert '<b id="fu-web-state">on</b>' in r.text, path  # new accounts: web search on
+        assert 'Thinking is <b id="fu-think-state">off</b>' in r.text, (
+            path
+        )  # new accounts: answers start fast
+        assert '<b id="fu-web-state">off</b>' in r.text, path  # new accounts: web search off too
+        assert "clearly needs live information" not in r.text, (
+            path
+        )  # no automatic search to disclose
         assert 'href="/personalize#privacy"' in r.text, (
             path
         )  # opens the Settings tab that holds the defaults
@@ -104,12 +113,19 @@ def test_defaults_endpoint_needs_a_signed_in_user(tmp_path, monkeypatch):
 def test_chat_page_follows_the_saved_defaults(tmp_path, monkeypatch):
     client, _app_mod, cid, _uid = _app(tmp_path, monkeypatch)
     page = client.get(f"/chat/{cid}").text
-    assert "think: true" in page  # default on
-    assert '<input type="checkbox" id="opt-web" checked>' in page  # new accounts: web search on
-    client.post("/settings/chat-defaults", json={"thinking_on": False, "web_access": False})
+    assert "think: false" in page  # new accounts: Thinking off, so an answer starts in seconds
+    assert (
+        '<span id="opt-think-label">Thinking off</span>' in page
+    )  # the button is right before any script runs
+    assert (
+        'id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="false"' in page
+    )
+    assert '<input type="checkbox" id="opt-web" >' in page  # new accounts: web search off
+    client.post("/settings/chat-defaults", json={"thinking_on": True, "web_access": True})
     page = client.get(f"/chat/{cid}").text
-    assert "think: false" in page
-    assert '<input type="checkbox" id="opt-web" >' in page
+    assert "think: true" in page
+    assert '<span id="opt-think-label">Thinking on</span>' in page
+    assert '<input type="checkbox" id="opt-web" checked>' in page
 
 
 def test_settings_page_has_the_thinking_default_and_saves_it(tmp_path, monkeypatch):
@@ -147,6 +163,10 @@ def test_thinking_default_lives_under_model_and_web_access_under_privacy(tmp_pat
 
 def test_what_leaves_card_admits_web_search_when_it_is_on(tmp_path, monkeypatch):
     client, _app_mod, _cid, _uid = _app(tmp_path, monkeypatch)
+    page = client.get("/personalize").text
+    assert "sent to a search provider" not in page  # a new account has web search off
+    assert "Nothing</span>" in page  # and nothing leaves, which the pill says
+    client.post("/settings/chat-defaults", json={"web_access": True})
     page = client.get("/personalize").text
     assert "Web search is on" in page and "sent to a search provider" in page
     client.post("/settings/chat-defaults", json={"web_access": False})
@@ -190,17 +210,25 @@ def test_upgrading_an_existing_database_keeps_choices_and_fills_the_new_columns(
             org_id=org.id, email="old@x.com", role="member", active=True, web_access_on=False
         )
     )
+    s.add(  # an account that already had web search switched on (set by hand, or created while it was on)
+        db_mod.User(
+            org_id=org.id, email="web@x.com", role="member", active=True, web_access_on=True
+        )
+    )
     s.commit()
     s.close()
     with eng.begin() as con:  # an install from before these columns existed
         con.execute(text("ALTER TABLE users DROP COLUMN thinking_on"))
         con.execute(text("ALTER TABLE users DROP COLUMN chat_defaults_notice_seen"))
     db_mod.create_tables(eng)  # what the app runs at startup
-    row = sessionmaker(bind=eng)().query(db_mod.User).first()
-    assert row.web_access_on is False  # an existing account keeps the web value it had
+    rows = {r.email: r for r in sessionmaker(bind=eng)().query(db_mod.User).all()}
     assert (
-        row.thinking_on is True and row.chat_defaults_notice_seen is False
-    )  # new columns: defaults
+        rows["old@x.com"].web_access_on is False
+    )  # an existing account keeps the web value it had
+    assert rows["web@x.com"].web_access_on is True  # including one that had it on
+    for row in rows.values():
+        # the new columns: an existing account keeps Thinking on, as it always had, and has not seen the notice
+        assert row.thinking_on is True and row.chat_defaults_notice_seen is False
 
 
 def test_notice_in_an_organisation_account_talks_about_personal_chats(tmp_path, monkeypatch):
@@ -226,3 +254,14 @@ def test_thinking_is_described_as_local_only_everywhere_it_is_offered(tmp_path, 
         client.get("/personalize").text,
     ):
         assert "Only " in page and "models running on this machine" in page
+
+
+def test_the_settings_page_describes_both_defaults_as_off_for_a_new_account(tmp_path, monkeypatch):
+    client, _app_mod, _cid, _uid = _app(tmp_path, monkeypatch)
+    page = client.get("/personalize").text
+    assert (
+        page.count("Off by default for a new account") == 2
+    )  # the Thinking card and the Web access card
+    assert "On by default" not in page and "on by default" not in page
+    assert "Nothing leaves unless you connect a cloud." in page  # true while web search is off
+    assert "Web search is on" not in page and "sent to a search provider" not in page
