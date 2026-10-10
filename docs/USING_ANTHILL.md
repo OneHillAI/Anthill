@@ -6,7 +6,8 @@ it day to day:
 
 - **Your workspace** (this page). Solo, Projects, Organizations, profiles, and privacy.
 - **[Chat & your knowledge base](/using-chat-and-knowledge)**. Chat, the wiki, snippets, memory.
-- **[Automating work](/using-automation)**. Tasks, agents, skills, notifications.
+- **[Automating work](/using-automation)**. Tasks (including one-time future local dates), agents,
+  skills, notifications.
 - **[Models & compute](/using-models-and-compute)**. Choosing a model, running a council, cloud
   compute, escalating hard questions, training your own model.
 - **[Connectors & personalization](/using-connectors-and-personalization)**. External tools, and

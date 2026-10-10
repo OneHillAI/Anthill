@@ -26,6 +26,12 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### Arbitrary one-time task scheduling - pending PR for #88
+**System impact:** manual one-shots can target a future local instant, converted to UTC through the existing occurrence ledger; no new recurrence or database schema is introduced.
+**Surface:** Tasks create/edit routes, Tasks dialog, scheduler local-time validation helper.
+**User-visible:** yes: Run now or choose a future date/time; editing preserves the task timezone and seconds, with inline validation errors.
+**Footprint:** additive; ambiguous and nonexistent DST times are rejected, and active scheduled one-shots cannot be rescheduled until they finish. Chat and recurring scheduling are unchanged.
+
 ### PR #102 - Tasks: render results as safe Markdown and page the run history - merged 2026-10-09
 **System impact:** a task's result is now shown as formatted Markdown (headings, lists, tables, links, code) cleaned with a strict allow-list: no images (they show as links, nothing is fetched), forms, styles, ids or `#` links, links only to same-site paths, `http(s):` and `mailto:`, and "Save as snippet" still sends the stored text. The run history is paged and states the real run counts. Results come from unattended tasks and are shown to everyone who can see the task, so the policy keeps injected output from loading remote content or changing the page.
 **Surface:** `anthill/web/templates/task_result.html`, `anthill/web/app.py`, `docs/specs/89-task-result-markdown.md`, `docs/specs/96-task-run-history-pagination.md`, browser and unit tests.
