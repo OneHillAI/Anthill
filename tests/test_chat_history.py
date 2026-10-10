@@ -204,6 +204,9 @@ def test_conversational_turn_does_not_web_search_even_with_web_on(tmp_path, monk
 
     def _fs(ws, m, b, **kw):  # the conversational turn takes the streaming local-generate path
         seen["streamed"] = True
+        seen["web"] = kw.get(
+            "web_search"
+        )  # a web search is asked of ask_stream, so check it here too
         yield "ok"
 
     monkeypatch.setattr(wiki_ask, "ask_stream", _fs)
@@ -212,7 +215,7 @@ def test_conversational_turn_does_not_web_search_even_with_web_on(tmp_path, monk
         f"/chat/{conv_id}/stream",
         params={"message": "why didn't you tell me that before?", "web": "true"},
     )
-    # a web search happens only if ask() is called with web_search=True; it must not be
+    # a web search happens only if ask() or ask_stream() is called with web_search=True; it must not be
     assert seen["web"] is not True
 
 
@@ -221,10 +224,11 @@ def test_real_question_still_web_searches_when_web_on(tmp_path, monkeypatch):
 
     c, _app, conv_id = _solo_client(tmp_path, monkeypatch)
     seen = {}
+    # a turn that searches the web streams (docs/specs/108-web-turn-stream.md), so the search is asked of ask_stream
     monkeypatch.setattr(
         wiki_ask,
-        "ask",
-        lambda ws, m, b, **kw: seen.update(web=kw.get("web_search")) or ("ok", [], False),
+        "ask_stream",
+        lambda ws, m, b, **kw: seen.update(web=kw.get("web_search")) or iter(["ok"]),
     )
     c.get(
         f"/chat/{conv_id}/stream",

@@ -1,7 +1,11 @@
 # Solo chat: web search defaults off
 
-Status: **superseded on 2026-10-08** by the founder's decision that web search is on by default for new accounts
-(most questions are about live information), see `docs/specs/chat-thinking-toggle.md`. Requirement 2 still holds
+Status: **superseded on 2026-10-08, restored on 2026-10-09**. On 2026-10-08 the founder decided that web search is on by default for new accounts
+(most questions are about live information), see `docs/specs/chat-thinking-toggle.md`. On 2026-10-09 the founder
+put the default back to off for new accounts (in the same spec), so this spec's default holds again, with one
+saved choice per chat instead of one for the whole browser. The just-in-time automatic web search it left in place
+(requirement 3 below) was removed on 2026-10-10, see `docs/specs/chat-thinking-toggle.md`, requirement 10.
+Requirement 2 still holds
 in its first half: "Nothing leaves it." is shown only while web search is off for the chat. Its second half, one
 saved choice for the whole browser, is replaced by a choice per chat.
 

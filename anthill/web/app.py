@@ -6085,7 +6085,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "profile": (me.profile if me else "") or "",
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
-            "thinking_on": bool(getattr(me, "thinking_on", True)) if me else True,
+            "thinking_on": bool(getattr(me, "thinking_on", False)) if me else False,
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
@@ -6184,10 +6184,10 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     me.auto_memory_off = "memory_on" not in form
     me.web_access_on = (
         "web_access" in form
-    )  # Settings -> Privacy default for web access (a new account starts on; a ticked box keeps it on)
+    )  # Settings -> Privacy default for web access (a new account starts off; a ticked box turns it on)
     me.thinking_on = (
         "thinking_on" in form
-    )  # Settings -> Model default for Thinking (on unless unset)
+    )  # Settings -> Model default for Thinking (a new account starts off; a ticked box turns it on)
     _porg = _require_org(db, user)
     _pcfg = _cfg(db, _porg)
     if not _pcfg:
@@ -8829,7 +8829,7 @@ def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
         org_mode = False
     return {
         "first_use_notice": {
-            "thinking_on": bool(getattr(me, "thinking_on", True)),
+            "thinking_on": bool(getattr(me, "thinking_on", False)),
             "web_on": bool(getattr(me, "web_access_on", False)),
             "org_mode": org_mode,
             "page": page,
@@ -11600,7 +11600,7 @@ def chat_conv(
             "web_access_on": web_access_on,
             "web_follows_default": web_follows_default,
             "web_default": web_default,
-            "thinking_on_default": bool(getattr(_me, "thinking_on", True)),
+            "thinking_on_default": bool(getattr(_me, "thinking_on", False)),
             **_first_use_notice_ctx(db, int(user["sub"])),
             # An attached inference-provider label (empty when none configured) lets chat.html offer
             # "Ask {Provider} instead" while the local model is still generating (#1 UX follow-up to
@@ -12077,8 +12077,9 @@ async def chat_stream(
         # Intent routing (P1): a plain question streams an answer as usual; a make/do or
         # schedule request returns a *proposal* the user confirms in chat. Explicit
         # agent/web toggles, a confirmed proposal, and redo (prior) all bypass this.
-        # P4 also auto-enables the web for plain questions that clearly need live info, so the
-        # user doesn't have to flip a toggle (it stays available under Options as an override).
+        # The chat's Web search box decides (founder, 2026-10-10): a question that clearly needs live information
+        # no longer turns the web on by itself. The user's own plain-words follow-up ("check the web") below is
+        # an explicit request and still does.
         # An image turn is a question ABOUT the image: force the vision answer path - no web search
         # (the web composer can't see the image), no artifact/schedule proposal, no agent executor.
         web_effective = web and not images_b64
@@ -12093,9 +12094,6 @@ async def chat_stream(
             # Deterministic multi-hop signal; harmful stays on the normal answer path (model safety),
             # never handed the tool-wielding agent.
             agent_auto = _intent.looks_deep(message) and not _intent.looks_harmful(message)
-            if not web and _intent.needs_web_hint(message):
-                web_effective = True
-                auto_web = True
             # Whether to actually search + the query are finalised in the normal-chat branch by
             # intent.decide_web (agent-first: a capable model plans it; otherwise a deterministic
             # rule skips turns spoken to the assistant). Here we only set the preliminary toggle.
@@ -12197,7 +12195,9 @@ async def chat_stream(
                     return
                 # Thinking off reaches the classifier too: it runs before the first word on action-style turns.
                 # Sent only when off, so the call is unchanged (and any substitute classifier still fits) when on.
-                cls = _intent.classify(message, backend, **({} if think else {"think": False}))
+                cls = await run_in_threadpool(
+                    _intent.classify, message, backend, **({} if think else {"think": False})
+                )
                 if cls.get("harmful"):
                     # Protected safety path: a harmful create request is refused HERE, at intent
                     # routing - never routed to the create-artifact ("do") proposal, which would
@@ -12228,7 +12228,9 @@ async def chat_stream(
 
                     try:
                         # Thinking off reaches this second structured call too (sent only when off).
-                        draft = parse_task(message, backend, **({} if think else {"think": False}))
+                        draft = await run_in_threadpool(
+                            parse_task, message, backend, **({} if think else {"think": False})
+                        )
                     except Exception:
                         draft = {}
                     proposal = {
@@ -12413,7 +12415,9 @@ async def chat_stream(
                 if not prior:  # a redo already carries its own augmented prompt
                     from ..agent import intent as _intent
 
-                    web_effective, search_query = _intent.decide_web(
+                    # The planner is a model call: run it off the event loop so the server stays responsive.
+                    web_effective, search_query = await run_in_threadpool(
+                        _intent.decide_web,
                         message,
                         history,
                         backend,
@@ -12480,7 +12484,7 @@ async def chat_stream(
                     is_org=is_org,
                 )
                 from ..cache import DEFAULT_THRESHOLD, SemanticCache
-                from ..wiki.ask import ask_stream  # `ask` is imported above in this branch
+                from ..wiki.ask import Stage, ask_stream  # `ask` is imported above in this branch
 
                 try:
                     # Read the org's live cache_threshold (a raise to e.g. 1.01 must disable the cache
@@ -12495,8 +12499,9 @@ async def chat_stream(
 
                 # A cache hit short-circuits (instant). The plain local-generate path then streams REAL
                 # tokens (Fix b: true TTFT, and never a long zero-byte window that the client times out
-                # on). The richer ask() branches - vision, web blend, org central index, cloud
-                # escalation - stay on the blocking call; they are not the hang and need ask()'s logic.
+                # on). A web-search turn streams too: ask_stream yields Stage markers (searching, reading,
+                # writing) and then the answer. The richer ask() branches - vision, org central index, cloud
+                # escalation - stay on the blocking call, which now runs off the event loop.
                 from ..wiki.ask import has_injection_imperative
 
                 org_url = os.environ.get("ANTHILL_ORG_URL", "")
@@ -12505,11 +12510,7 @@ async def chat_stream(
                 # check the answer for a hijack and re-run the hardened prompt BEFORE it is shown (a
                 # streamed answer can't be un-said once the tokens are out). See the injection finding.
                 can_stream = not (
-                    images_b64
-                    or web_effective
-                    or cloud_on
-                    or org_url
-                    or has_injection_imperative(effective_message)
+                    images_b64 or cloud_on or org_url or has_injection_imperative(effective_message)
                 )
                 # Privacy: never send the personal profile to the org model, and never serve or store
                 # a team-/profile-personalized answer in the SHARED org-plane cache - it would leak
@@ -12518,6 +12519,10 @@ async def chat_stream(
                 org_cache_shared = not plane_inf.use_personal_context
                 profile_used = profile if plane_inf.use_personal_context else ""
                 skip_shared_cache = org_cache_shared and (bool(extra_ws) or bool(profile_used))
+                if web_effective:
+                    # A turn that searches the web is answered fresh: a cached answer must not stand in for the
+                    # search, and a web answer is never stored (ask() and ask_stream() skip the store).
+                    skip_shared_cache = True
 
                 hit = None
                 if not images_b64 and not skip_shared_cache:
@@ -12557,6 +12562,8 @@ async def chat_stream(
                             provider_available=_provider_available,
                             # Only an explicit "off" is sent; on leaves the choice to the model.
                             think=None if think else False,
+                            web_search=web_effective,
+                            search_query=search_query,
                         )
                     ):
                         # The client abandons this EventSource when "Ask {Provider} instead" fires
@@ -12570,11 +12577,19 @@ async def chat_stream(
                         if await request.is_disconnected():
                             _client_abandoned_this_turn = True
                             break
+                        if isinstance(
+                            token, Stage
+                        ):  # progress of a web turn, not part of the answer
+                            yield f"data: {json.dumps({'meta': {'stage': token.name, 'count': token.count}})}\n\n"
+                            continue
                         full_response.append(token)
                         yield f"data: {json.dumps({'token': token})}\n\n"
                     slugs = grabbed
                 else:
-                    answer, slugs, cache_hit = ask(
+                    # The blocking path (image, cloud, organisation server, injection-suspect question) is a
+                    # long model call: run it off the event loop so one slow turn does not stall the server.
+                    answer, slugs, cache_hit = await run_in_threadpool(
+                        ask,
                         ws,
                         effective_message,
                         backend,
