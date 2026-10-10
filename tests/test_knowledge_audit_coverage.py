@@ -197,7 +197,7 @@ def test_skill_deleted_audit_row_has_ip(tmp_path, monkeypatch):
     client, ids = _app(tmp_path, monkeypatch)
     from anthill.wiki.workspace import workspace_for
 
-    ws = workspace_for("org", user_id=ids["admin"])
+    ws = workspace_for("org", org_id=ids["org"])
     ws.init()
     (ws.skills / "demo").mkdir(parents=True, exist_ok=True)
     (ws.skills / "demo" / "SKILL.md").write_text("# demo\n")

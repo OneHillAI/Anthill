@@ -865,6 +865,11 @@ def restore_cmd(
         console.print(f"[dim]model(s) restored: {', '.join(result.models)}[/]")
     if result.safety_backup:
         console.print(f"[dim]previous state saved to:[/] {result.safety_backup}")
+    if result.moved_aside:
+        console.print(
+            f"[yellow]The organisation wikis on this machine were not in the backup; moved aside to:[/] "
+            f"{result.moved_aside}"
+        )
 
 
 # ── lifecycle (model upgrades) ─────────────────────────────────────────────────

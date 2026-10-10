@@ -6,6 +6,13 @@
 {{ compute_banner(compute_ready, setup_href) }}
 {% include "_knowledge_tabs.html" %}
 {% include "_wiki_tabs.html" %}
+{% if shared_before_upgrade %}
+<div class="alert alert-info" style="max-width:760px" role="note">
+  Before this update, every organisation on this install used the same organisation wiki. That wiki stays
+  with your organisation, and the other organisations now start with an empty organisation wiki of their own.
+  Nothing was deleted.
+</div>
+{% endif %}
 
 {% if active_wiki_tab == 'principles' %}
 {# ── Principles sub-tab ─────────────────────────────────────────────────────── #}
