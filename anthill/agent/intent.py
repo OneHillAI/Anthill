@@ -13,6 +13,7 @@ safe fallback to "answer" so a question is never blocked by a flaky model.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..common.jsonchat import extract_json, json_chat
 from ..inference.base import Message
@@ -185,6 +186,95 @@ def is_conversational(message: str) -> bool:
     return bool(_CONVERSATIONAL.search(message or ""))
 
 
+# Whole phrases that make up a bare greeting, thank-you, acknowledgement, farewell or check-in. Phrases, not
+# words: "how are you" is small talk and "how much is it" is not. English first; a few common German, French,
+# Spanish and Italian ones are listed too, and nothing else is covered. The text is NFC-normalised and
+# case-folded before it is matched ("ß" becomes "ss"), so the patterns are written in that form.
+_GREET = (
+    r"hello(?: there| again)?|hi(?: there| again)?|hey(?: there)?|hiya|howdy|yo|hallo|servus|moin|gr[uü](?:ss|ß) dich"
+    r"|grüezi|salut|bonjour|hola|buongiorno|good (?:morning|afternoon|evening|night|day)"
+    r"|guten (?:morgen|tag|abend)|buenos d[ií]as|buenas (?:tardes|noches)|buona sera"
+)
+_THANKS = (
+    r"thanks(?: a lot| so much| again)?|thank you(?: very much| so much| again)?|many thanks|thx|ty|cheers"
+    r"|danke(?: sch[oö]n| sehr)?|vielen dank|merci(?: beaucoup)?|(?:muchas )?gracias|grazie(?: mille)?"
+)
+# Acknowledgements are usually a reply to the assistant's last turn: see is_small_talk.
+_ACK = (
+    r"ok|okay|k|cool|great|nice|perfect|awesome|alright|got it|understood|sounds good|will do"
+    r"|yes|no|yep|nope|yeah|sure|fine"
+)
+_BYE = r"bye|goodbye|see you(?: later| soon)?|see ya|tsch[uü]ss|adieu|adi[oó]s|arrivederci|ciao"
+_CHECK = (
+    r"how are you(?: doing| today)?|how(?: is it |'s it )going|what's up|wie geht's|wie geht es dir"
+    r"|comment [cç]a va|[cç]a va|c[oó]mo est[aá]s"
+)
+_SEP = r"(?:\s*[,;.!?:¿¡-][\s,;.!?:¿¡-]*|\s+(?:and|und|et)\s+|\s+)"
+_ITEM = rf"(?:{_GREET}|{_THANKS}|{_ACK}|{_BYE}|{_CHECK})"
+_SMALL_TALK = re.compile(rf"{_ITEM}(?:{_SEP}{_ITEM}){{0,2}}")
+_HAS_ACK = re.compile(rf"(?<![\w'])(?:{_ACK})(?![\w'])")
+# The suggestion that ask() appends to an uncertain answer; it is not part of what the assistant asked.
+_GO_DEEPER_NUDGE = re.compile(r"\n\nThis answer isn't fully certain\. Say 'go deeper'[^\n]*\Z")
+_TAIL = " \t\n*_\"')\u201d\u2019]!.\u2026"
+
+
+def _last_sentence_asks(text: str) -> bool:
+    """True when the final sentence of ``text`` is a question (the go-deeper suggestion, trailing markup and
+    "!" or "." after the "?" are ignored: "yes?!" asks, "**Want more detail?**" asks)."""
+    text = _GO_DEEPER_NUDGE.sub("", text or "").strip()
+    last = re.split(r"(?<=[.!?])\s+", text)[-1] if text else ""
+    return last.rstrip(_TAIL).endswith("?")
+
+
+def _small_talk_parts(message: str) -> tuple[bool, bool, bool]:
+    """``(is_phrases, has_ack, asks)`` for ``message``: it is made only of the listed phrases, it holds an
+    acknowledgement phrase, and it contains a question mark. Nothing here looks at the conversation."""
+    raw = unicodedata.normalize("NFC", (message or "")).strip()
+    text = raw.casefold().replace("\u2019", "'")
+    if not text or len(text) > 60:
+        return False, False, False
+    if any(not (c.isalpha() or c.isspace() or c in "'-.,!?;:¿¡") for c in text):
+        return False, False, False
+    core = " ".join(text.split()).strip(" ,;.!?:¿¡-")
+    if not core or _SMALL_TALK.fullmatch(core) is None:
+        return False, False, False
+    return True, _HAS_ACK.search(core) is not None, "?" in raw
+
+
+def is_small_talk(message: str, history: list[tuple[str, str]] | None = None) -> bool:
+    """True for a bare greeting, thank-you, acknowledgement, farewell or check-in ("hi", "thanks!", "good
+    morning", "ok", "how are you?", "danke"): one to three phrases from the fixed lists above, nothing else.
+    Letters, spaces and ordinary punctuation only (the Spanish "¿" and "¡" count as punctuation), at most 60
+    characters, so a digit or a symbol makes it a normal message ("hello 123", "how much is 2+2?"), and so
+    does any other word ("hello, what is our refund policy?", "how much is it?"). Such a turn has nothing to
+    look up, and the wiki pages that happen to score highest against it only slow the answer and distract
+    the model.
+
+    A message that holds an acknowledgement ("yes", "ok", "fine", "sure", "yes thanks", "hi yes") answers the
+    assistant's last turn, so it is small talk only when it contains no question mark ("ok?" and "yes?!" are
+    questions) and the last assistant turn in ``history``, if there is one, did not end in a question: "yes"
+    or "yes thanks" to "Shall I look into the refund policy?" needs the conversation, and pages about
+    something else would invite made-up content."""
+    is_phrases, has_ack, asks = _small_talk_parts(message)
+    if not is_phrases:
+        return False
+    if has_ack:
+        if asks:
+            return False
+        for role, content in reversed(history or []):
+            if role == "assistant":
+                return not _last_sentence_asks(content or "")
+    return True
+
+
+def is_acknowledgement_reply(message: str, history: list[tuple[str, str]] | None = None) -> bool:
+    """True for an acknowledgement that is NOT small talk because it answers a question ("yes", "yes thanks"
+    after "Shall I search?"). What it means depends on the conversation, so its answer must never be read from
+    or written to a cache shared with other conversations."""
+    is_phrases, has_ack, _asks = _small_talk_parts(message)
+    return is_phrases and has_ack and not is_small_talk(message, history)
+
+
 # ── agentic web-search planning (model decides whether to search + crafts the query) ──
 # Default is agent-first: a capable model reasons about the turn and writes a focused query, the way
 # a good agent would, instead of searching the raw message text. Small/unknown-weak local models fall
@@ -257,7 +347,9 @@ def decide_web(
         return False, message
     # Fast path: an obvious turn spoken to the assistant never needs a search - skip it without
     # paying for a planner call (matters now that web is in play by default on every turn).
-    if is_conversational(message):
+    # A bare greeting or thank-you needs no search either: a capable model would pay a planner call for it and
+    # a small one would search the web for "hello".
+    if is_small_talk(message, history) or is_conversational(message):
         return False, message
     if model_can_plan(model, backend_kind):
         planned = plan_web_query(message, history, backend)

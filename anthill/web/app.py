@@ -12317,9 +12317,17 @@ async def chat_stream(
                 hit = None
                 if not images_b64 and not skip_shared_cache:
                     try:
-                        hit = SemanticCache(db_path=ws.root / ".cache", threshold=cache_thr).lookup(
-                            effective_message
-                        )
+                        # A bare greeting or thank-you is never served from the cache: an entry stored before
+                        # small talk stopped being grounded would replay an answer with unrelated pages as
+                        # its sources.
+                        from ..agent.intent import is_acknowledgement_reply, is_small_talk
+
+                        if not is_small_talk(effective_message, history) and not (
+                            is_acknowledgement_reply(effective_message, history)
+                        ):
+                            hit = SemanticCache(
+                                db_path=ws.root / ".cache", threshold=cache_thr
+                            ).lookup(effective_message)
                     except Exception:
                         hit = None
 
