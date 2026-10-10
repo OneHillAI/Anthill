@@ -437,6 +437,36 @@ def test_an_empty_marker_left_by_a_crash_is_replaced_once_by_the_fallback(env, m
     assert legacy_org_wiki_owner() == 3
 
 
+def test_the_folder_owner_follows_the_database_not_the_sign_up_that_runs_the_claim(env):
+    """Two sign-ups can race, but the claim reads the database: the organisation of the lowest-id admin owns
+    the folder whichever sign-up (or start-up) gets to run it, and a second run changes nothing."""
+    from anthill.web.db import Organization, User
+
+    eng = create_engine(f"sqlite:///{env / 'race.db'}", connect_args={"check_same_thread": False})
+    db_mod.create_tables(eng)
+    import anthill.web.app as app_mod
+
+    app_mod._engine = eng
+    app_mod._SessionFactory = sessionmaker(bind=eng, autoflush=False, autocommit=False)
+    s = app_mod._SessionFactory()
+    early = Organization(name="Early", slug="early")
+    late = Organization(name="Late", slug="late")
+    s.add_all([early, late])
+    s.flush()
+    # The "late" organisation's admin has the lower user id: it is the first admin, so it owns the folder.
+    s.add(User(org_id=late.id, email="a@late.com", role="admin", active=True))
+    s.flush()
+    s.add(User(org_id=early.id, email="b@early.com", role="admin", active=True))
+    s.commit()
+    expected = late.id
+    s.close()
+
+    app_mod._claim_legacy_org_wiki()  # as if the sign-up of the first admin ran it
+    assert legacy_org_wiki_owner() == expected
+    app_mod._claim_legacy_org_wiki()  # as if the other sign-up, or a restart, ran it afterwards
+    assert legacy_org_wiki_owner() == expected
+
+
 def test_a_failure_to_record_the_owner_is_logged_and_not_raised(env, monkeypatch, caplog):
     import logging
 
