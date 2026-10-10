@@ -11,6 +11,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -3940,8 +3941,8 @@ async def account_password(
     if not me:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     # Return to whichever page hosted the form (the account page, or the profile hub), never to an
-    # external site: only an internal, single-slash path is honoured.
-    dest = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/account"
+    # external site: only a local path is honoured.
+    dest = _local_or(next_url, "/account")
 
     def reject(error: str) -> RedirectResponse:
         return RedirectResponse(f"{dest}?error={error}", status_code=302)
@@ -7128,10 +7129,22 @@ def _review_event(kind: str, verb: str) -> str:
     return f"{prefix}.{verb}"
 
 
+def _is_local_path(value: str) -> bool:
+    """True only for a path on this site: one leading slash, no scheme or host, no backslash (browsers
+    read ``/\\host`` as ``//host``), and no control characters (a tab or newline inside ``//`` is stripped
+    by some browsers). Anything else is not a safe redirect target."""
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return False
+    if "\\" in value or any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        return False
+    parts = urlsplit(value)
+    return not parts.scheme and not parts.netloc
+
+
 def _local_or(nxt: str, default: str) -> str:
     """Return a caller-supplied `next` redirect target only if it is a safe local path (so the
     suggestions inbox can send the user back to itself after an approve/reject); else the default."""
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
+    return nxt if _is_local_path(nxt) else default
 
 
 @app.post("/wiki/review/{rid}/approve")
@@ -11480,8 +11493,6 @@ async def delete_conversation(conv_id: int, user: dict = Depends(_require_user))
 async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(_require_user)):
     """Toggle whether a conversation is pinned to the top of the chat list. Returns to the page the
     action came from (the rail on any chat, or the history page), preserving its query string."""
-    from urllib.parse import urlparse
-
     db = _db()
     conv = (
         db.query(Conversation)
@@ -11491,12 +11502,7 @@ async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(
     if conv:
         conv.pinned = not conv.pinned
         db.commit()
-    # Only ever redirect to a local path (drop the referer's host) so this cannot be an open redirect.
-    ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else "/chat"
-    if ref.query:
-        dest = f"{dest}?{ref.query}"
-    return RedirectResponse(dest, status_code=302)
+    return _back_to_local(request)
 
 
 @app.post("/chat/{conv_id}/rename")
@@ -11520,12 +11526,11 @@ async def rename_conversation(
 
 
 def _back_to_local(request: Request, fallback: str = "/chat") -> RedirectResponse:
-    """Redirect to the referer's local path + query only (host dropped, so never an open redirect)."""
-    from urllib.parse import urlparse
-
+    """Redirect to the referer's local path + query only (host dropped, so never an open redirect). A path
+    that is not a plain local path (``//host``, a backslash, control characters) falls back."""
     ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else fallback
-    if ref.query:
+    dest = ref.path if _is_local_path(ref.path) else fallback
+    if ref.query and dest == ref.path:
         dest = f"{dest}?{ref.query}"
     return RedirectResponse(dest, status_code=302)
 
