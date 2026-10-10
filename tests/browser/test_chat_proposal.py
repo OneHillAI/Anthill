@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import socket
 import threading
 import time
@@ -403,9 +404,9 @@ def test_task_creation_modal_discards_stale_draft_edit(live):
                 }"""
             )
             page.locator("#task-desc").fill("Draft a daily summary")
-            page.get_by_role("button", name="Draft it").click()
+            page.get_by_role("button", name="Draft from description").click()
 
-            edit = row.get_by_role("button", name="Edit")
+            edit = row.get_by_role("button", name=re.compile(r"^Edit task: "))
             edit.click()
             dialog = page.get_by_role("dialog", name="Edit task")
             form = dialog.locator("#task-form")
@@ -437,7 +438,7 @@ def test_task_creation_modal_discards_stale_draft_edit(live):
                 }"""
             )
             page.locator("#task-desc").fill("Draft another daily summary")
-            page.get_by_role("button", name="Draft it").click()
+            page.get_by_role("button", name="Draft from description").click()
             trigger.click()
             page.evaluate("window.resolveFailedDraft()")
             page.wait_for_function("!document.getElementById('draft-btn').disabled")
@@ -486,7 +487,7 @@ def test_task_creation_modal_ignores_stale_native_close(live):
             assert dialog.is_visible()
             page.keyboard.press("Escape")
             page.wait_for_function("window.taskCloseEvents === 2")
-            draft = page.get_by_role("button", name="Draft it")
+            draft = page.get_by_role("button", name="Draft from description")
             assert draft.evaluate("el => el === document.activeElement")
         finally:
             browser.close()
@@ -648,7 +649,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             edit_page = edit_context.new_page()
             edit_page.goto(f"{base}/tasks", wait_until="domcontentloaded")
             edit_row = edit_page.locator("tr", has_text="Browser timezone task")
-            edit_row.get_by_role("button", name="Edit").click()
+            edit_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             edit_form = edit_page.locator("#task-form")
             assert edit_form.locator("#task-timezone-label").inner_text() == timezone_id
             assert edit_form.locator("#task-timezone-note").is_visible() is True
@@ -677,7 +678,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             assert task.timezone == timezone_id
 
             edit_row = edit_page.locator("tr", has_text="Edited browser timezone task")
-            edit_row.get_by_role("button", name="Edit").click()
+            edit_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             edit_form.locator("#task-timezone").fill("Europe/Paris")
             edit_form.get_by_role("button", name="Save changes").click()
             edited_row = edit_page.locator("tr", has_text="Edited browser timezone task")
@@ -715,7 +716,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             s.commit()
             edit_page.reload(wait_until="domcontentloaded")
             running_row = edit_page.locator("tr", has_text="Edited browser timezone task")
-            assert running_row.get_by_role("button", name="Edit").is_visible()
+            assert running_row.get_by_role("button", name=re.compile(r"^Edit task: ")).is_visible()
 
             legacy_hourly = ScheduledTask(
                 org_id=task.org_id,
@@ -731,7 +732,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             edit_page.reload(wait_until="domcontentloaded")
             legacy_row = edit_page.locator("tr", has_text="Legacy hourly task")
             assert timezone_id not in legacy_row.inner_text()
-            legacy_row.get_by_role("button", name="Edit").click()
+            legacy_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             assert edit_page.locator("#task-timezone-note").is_hidden()
         finally:
             browser.close()

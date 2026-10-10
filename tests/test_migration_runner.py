@@ -510,6 +510,7 @@ def test_cancelled_recurring_backfill_reactivates_cadence_with_run_now(tmp_path)
     assert cadence.kind == "scheduled" and cadence.status == "paused"
     assert session.get(ScheduledTask, task.id).next_run_at is None
 
+    task_occurrences.reactivate(session, session.get(ScheduledTask, task.id))
     task_occurrences.run_now(
         session, session.get(ScheduledTask, task.id), datetime.now(timezone.utc)
     )

@@ -694,11 +694,20 @@ def _tick(engine):
             finalized = False
             finalization_error = f"task finalization failed: {exc}"
         if not finalized:
+            try:
+                was_cancelled = bool(
+                    db.query(TaskRun.cancel_requested).filter(TaskRun.id == run_row.id).scalar()
+                )
+            except Exception:
+                db.rollback()
+                was_cancelled = False
             _close_unpublished_task_run(
                 db,
                 run_row.id,
                 started,
-                finalization_error or "stale attempt lost occurrence ownership",
+                "Cancelled while it was running. Its result was not kept."
+                if was_cancelled
+                else (finalization_error or "stale attempt lost occurrence ownership"),
             )
             continue
 
