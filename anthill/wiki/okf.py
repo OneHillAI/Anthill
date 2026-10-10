@@ -18,19 +18,18 @@ specific layer - everything else described here already reflects how the live wi
 from __future__ import annotations
 
 import io
-import re
 import tarfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import yaml
 
-from ..common.text import first_h1, slugify
+from ..common.text import WIKILINK_RE, first_h1, slugify
 
 OKF_VERSION = "0.1"  # the adopted spec version (stamped into a bundle's root index.md)
 _DELIM = "---"
 _DEFAULT_TYPE = "Concept"  # OKF requires a non-empty `type`; an Anthill topic page is a Concept
-_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
+_WIKILINK = WIKILINK_RE  # bounded: see common/text.py
 
 # OkfPage attribute -> the `x-anthill-*` frontmatter key it serializes to. These are the governance
 # extensions that make up the published "OKF + governance" profile; OKF tolerates + preserves them.

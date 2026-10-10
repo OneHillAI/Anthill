@@ -27,7 +27,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ..common.text import first_h1, slugify
+from ..common.text import WIKILINK_RE, first_h1, slugify
 from ..inference.base import Message
 from .workspace import Workspace
 
@@ -111,7 +111,7 @@ def outline_change(
 
     # Mechanical: dangling [[links]] to pages that do not exist.
     existing_slugs = {p.stem for p in ws.pages()}
-    refs = re.findall(r"\[\[([^\]]+)\]\]", new_content)
+    refs = WIKILINK_RE.findall(new_content)
     dangling = sorted({r for r in refs if slugify(r) not in existing_slugs and slugify(r) != slug})
     if dangling:
         flags.append("broken_links")
