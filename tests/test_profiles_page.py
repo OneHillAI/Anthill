@@ -1,5 +1,5 @@
 """Profiles in the app (RFC-0003 P1a): a signed-in user sees every isolated profile on the device
-and can create one; the running profile is badged Active. Device-level, not org-role-gated."""
+and can create one; the running profile is badged Active. Device-level, not org-role-gated for the machine's own user."""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -40,7 +40,9 @@ def _app(tmp_path, monkeypatch):
         uid, oid = user.id, org.id
     finally:
         s.close()
-    client = TestClient(app_mod.app)
+    # The desktop app: a request from the machine itself (profile management is for the install owner or
+    # this machine; see tests/test_install_owner_controls.py for the network case).
+    client = TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
     client.cookies.set("session_token", make_token(uid, oid, "member"))
     return client, base
 

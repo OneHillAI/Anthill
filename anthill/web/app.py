@@ -3911,6 +3911,7 @@ def profile_hub(request: Request, user: dict = Depends(_require_user)):
             "org": org,
             "account": me,
             "profile": current,
+            "can_manage_profiles": install_scope_allowed(db, request, user),
             "other_count": other_count,
             "saved": request.query_params.get("saved", ""),
             "changed": request.query_params.get("changed") == "1",
@@ -3968,6 +3969,7 @@ def profiles_get(request: Request, user: dict = Depends(_require_user)):
             "request": request,
             "user": user,
             "profiles": items,
+            "can_manage": install_scope_allowed(_db(), request, user),
             "soft_cap": profiles_mod.SOFT_CAP,
             "over_cap": len(items) > profiles_mod.SOFT_CAP,
             "error": _PROFILE_ERRORS.get(request.query_params.get("error", ""), ""),
@@ -3977,11 +3979,14 @@ def profiles_get(request: Request, user: dict = Depends(_require_user)):
 
 @app.post("/profiles")
 def profiles_create(
+    request: Request,
     user: dict = Depends(_require_user),
     name: str = Form(""),
     colour: str = Form(""),
 ):
-    """Create a new isolated profile. Redirects back to /profiles (with an ?error code on failure)."""
+    """Create a new isolated profile. Redirects back to /profiles (with an ?error code on failure).
+    Install owner or this machine only: profiles belong to the device, not to one organisation."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -3996,11 +4001,14 @@ def profiles_create(
 @app.post("/profiles/{profile_id}/edit")
 def profiles_edit(
     profile_id: str,
+    request: Request,
     user: dict = Depends(_require_user),
     name: str = Form(""),
     colour: str = Form(""),
 ):
-    """Rename and/or recolour a profile in place (its id and data never change)."""
+    """Rename and/or recolour a profile in place (its id and data never change). Install owner or this
+    machine only."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -4013,9 +4021,11 @@ def profiles_edit(
 
 
 @app.post("/profiles/{profile_id}/delete")
-def profiles_delete(profile_id: str, user: dict = Depends(_require_user)):
+def profiles_delete(profile_id: str, request: Request, user: dict = Depends(_require_user)):
     """Delete a profile and its data. Guarded: never the default, never the one this backend is
-    running as (you can't pull the data dir out from under the live process)."""
+    running as (you can't pull the data dir out from under the live process). Install owner or this
+    machine only."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -13873,6 +13883,9 @@ def skills_page(request: Request, user: dict = Depends(_require_user)):
     owned_team_ids = {t.id for t in teams}
     # enrich each loaded skill with its scope's delete target + whether this user may edit it
     enriched = []
+    # The built-in skills are shared by the whole install, so deleting one follows the same rule as the
+    # route: the install owner, or someone on the machine itself on a server that is not shared.
+    can_delete_builtin = is_admin and install_scope_allowed(db, request, user)
     for sk in load_skills(scoped=[(tier, ws) for tier, _label, ws in scoped]):
         tid = None
         if sk.tier == "personal":
@@ -13896,6 +13909,7 @@ def skills_page(request: Request, user: dict = Depends(_require_user)):
                 "tier": sk.tier,
                 "team_id": tid,
                 "can_edit": can_edit,
+                "can_delete": can_delete_builtin if sk.tier == "builtin" else can_edit,
                 "scopes": sk.scopes,
             }
         )
@@ -14545,9 +14559,12 @@ async def skills_delete(
     db = _db()
     org = _require_org(db, user)
     safe = os.path.basename(slug)
-    if scope == "builtin":  # the global starter skills (admin-managed)
+    if scope == "builtin":  # the starter skills every organisation on this install shares
         if user.get("role") != "admin":
             raise HTTPException(status_code=403)
+        _require_install_scope(
+            request, user
+        )  # shared by the whole install: its owner, or this machine
         from ..agent.skills import skills_dir
 
         base = skills_dir().resolve()

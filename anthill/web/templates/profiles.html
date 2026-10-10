@@ -15,9 +15,22 @@
 </div>
 {% endif %}
 
+{% if not can_manage %}
+<p class="text-sm text-muted" style="max-width:760px;margin:0 0 16px">
+  Profiles are managed by the owner of this install, or from the machine it runs on.
+</p>
+{% endif %}
+
 <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
   {% for p in profiles %}
   <div class="card">
+    {% if not can_manage %}
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:{{ p.colour }}" aria-hidden="true"></span>
+      <b>{{ p.name }}</b>
+      {% if p.current %}<span class="badge badge-active">Active</span>{% endif %}
+    </div>
+    {% else %}
     <form method="post" action="/profiles/{{ p.id }}/edit"
           style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <input type="color" name="colour" value="{{ p.colour }}" title="Colour"
@@ -45,10 +58,12 @@
       </form>
       {% endif %}
     </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
 
+{% if can_manage %}
 <div class="card" style="max-width:760px;margin-top:20px">
   <h3 style="margin:0 0 6px">Create a profile</h3>
   <p class="text-sm text-muted" style="margin:0 0 14px">
@@ -73,6 +88,7 @@
     <button type="submit" class="btn btn-primary">Create profile</button>
   </form>
 </div>
+{% endif %}
 
 <p class="text-sm text-muted" style="max-width:760px;margin-top:16px">
   In the desktop app, <b>Open</b> switches to another profile. Having two open at once (in separate
