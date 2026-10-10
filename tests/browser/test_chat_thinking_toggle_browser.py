@@ -67,7 +67,8 @@ def live(tmp_path_factory):
     conv_id, conv2_id, conv3_id, user_id = conv.id, conv2.id, conv3.id, u.id
 
     def reset(*, thinking_on=True, web_access_on=True, seen=False):
-        """Put the user's saved defaults and notice state back, for a test that needs a known start."""
+        """Put the user's saved defaults and notice state back, for a test that needs a known start. The
+        arguments default to an account that has both switched on; a new account has both off."""
         ss = app_mod._SessionFactory()
         me = ss.query(User).filter(User.id == user_id).first()
         me.thinking_on, me.web_access_on, me.chat_defaults_notice_seen = (
@@ -123,8 +124,44 @@ def _open(p, live, conv):
     return ctx, context
 
 
+def test_a_new_account_starts_with_thinking_and_web_search_off(live):
+    live["reset"](thinking_on=False, web_access_on=False, seen=False)  # what a new account gets
+    base, c1 = live["base"], live["c1"]
+    with sync_api.sync_playwright() as p:
+        browser, context = _open(p, live, c1)
+        try:
+            page = context.new_page()
+            page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
+            # the first-use notice is there and says both are off
+            assert page.locator("#first-use-notice").is_visible()
+            assert page.locator("#fu-think-state").inner_text() == "off"
+            assert page.locator("#fu-web-state").inner_text() == "off"
+            button = page.locator("#opt-think")
+            assert button.inner_text().strip().endswith("Thinking off")
+            assert button.get_attribute("aria-pressed") == "false"
+            page.click("#opt-toggle")  # open Options
+            assert page.locator("#opt-web").is_checked() is False
+
+            button.click()  # one click turns Thinking on for this chat
+            assert button.inner_text().strip().endswith("Thinking on")
+            assert button.get_attribute("aria-pressed") == "true"
+
+            page.locator(
+                "#fu-web"
+            ).check()  # switching web search on in the notice saves the default
+            for _ in range(100):
+                if live["saved"]()[1] is True:
+                    break
+                page.wait_for_timeout(50)
+            assert live["saved"]() == (False, True, True)  # saved, and the notice counts as seen
+        finally:
+            browser.close()
+
+
 def test_thinking_button_is_per_chat_and_is_sent(live):
-    live["reset"](seen=True)  # no notice in the way
+    live["reset"](
+        seen=True
+    )  # an account with Thinking on (the helper's default), no notice in the way
     base, c1, c2 = live["base"], live["c1"], live["c2"]
     stream_urls: list[str] = []
 
@@ -145,7 +182,7 @@ def test_thinking_button_is_per_chat_and_is_sent(live):
 
             button = page.locator("#opt-think")
             assert button.is_visible()
-            assert button.inner_text().strip().endswith("Thinking on")  # the default
+            assert button.inner_text().strip().endswith("Thinking on")  # this account has it on
 
             button.click()
             assert button.inner_text().strip().endswith("Thinking off")
@@ -186,7 +223,7 @@ def test_web_search_is_per_chat_too(live):
             page = context.new_page()
             page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
             page.click("#opt-toggle")  # open Options
-            assert page.locator("#opt-web").is_checked() is True  # new accounts: web search on
+            assert page.locator("#opt-web").is_checked() is True  # this account has web search on
             page.locator("#opt-web").uncheck()  # this chat turns it off
             page.goto(f"{base}/chat/{c2}", wait_until="domcontentloaded")
             page.click("#opt-toggle")
