@@ -119,9 +119,8 @@ account creation should be a decision of the people who run it.
 - Two first sign-ups at the same moment on a fresh shared server can both pass the "no account yet" check.
 - The profile routes act on the profiles of the one database on the machine, shared by every organisation on
   it; that is why they are an install-owner matter (see `docs/specs/install-owner-controls.md`).
-- `/backup/export` and `/backup/restore` are still open to any organisation's admin on this branch. A backup
-  holds the whole install, and a restore replaces the install settings row. `backup-install-owner` closes both;
-  until it merges they stay a known limit.
+- `/backup/export` and `/backup/restore` were open to any organisation's admin; they now need the install owner
+  (see `docs/specs/backup-install-owner.md`).
 - The remaining gap above.
 
 ## Tests
