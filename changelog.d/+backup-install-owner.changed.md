@@ -1,0 +1,1 @@
+**Backup and restore are managed by the install owner.** A backup covers the whole install, not one organisation, so on a server shared by several organisations only the install owner can download one or restore one. On a desktop, the person at the machine keeps full control while Remote access is off.
