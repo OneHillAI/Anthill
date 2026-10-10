@@ -9,6 +9,14 @@
 {% if request.query_params.get('restored') %}<div class="alert alert-ok">✅ Backup restored. <b>Restart Anthill</b> for it to take effect (the running process still holds the old database open).</div>{% endif %}
 {% if request.query_params.get('error') %}<div class="alert alert-danger">⚠️ Restore failed - the file wasn't a valid Anthill backup, or it couldn't be read. Nothing was changed.</div>{% endif %}
 
+{% if not can_backup %}
+<div class="card" style="grid-column:1 / -1">
+  <h3 style="margin-bottom:6px">Backup &amp; restore</h3>
+  <p class="text-sm text-muted" style="margin:0">
+    A backup covers the whole install, not one organisation, so the install owner makes and restores them.
+  </p>
+</div>
+{% else %}
 <div class="card" style="grid-column:1 / -1">
   <h3 style="margin-bottom:6px">Download a full backup</h3>
   <p class="text-sm text-muted" style="margin-bottom:14px">
@@ -69,4 +77,5 @@
   {% endif %}
 </div>
 
+{% endif %}
 {% endblock %}

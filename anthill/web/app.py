@@ -10875,11 +10875,13 @@ def backend_info(request: Request, user: dict = Depends(_require_admin)):
 
 @app.get("/backup", response_class=HTMLResponse)
 def backup_page(request: Request, user: dict = Depends(_require_admin)):
-    """Admin page: download a full backup, see pre-migration snapshots, restore from a file."""
+    """Admin page: download a full backup, see pre-migration snapshots, restore from a file. A backup covers
+    the whole install, so the controls are shown only to someone who may use them."""
     from .. import backup as bk
 
     db = _db()
     org = _require_org(db, user)
+    can_backup = install_scope_allowed(db, request, user)
     p = bk.data_paths()
     snap_dir = p["home"] / "snapshots"
     snaps = sorted(snap_dir.glob("anthill-*.db"), reverse=True)[:10] if snap_dir.exists() else []
@@ -10890,21 +10892,26 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
             "request": request,
             "user": user,
             "org": org,
-            "data_home": str(p["home"]),
-            "models": _org_model_names(db),
+            "can_backup": can_backup,
+            "data_home": str(p["home"]) if can_backup else "",
+            "models": _org_model_names(db) if can_backup else [],
             "snapshots": [
-                {"name": s.name, "size_mb": round(s.stat().st_size / 1e6, 1)} for s in snaps
+                {"name": s.name, "size_mb": round(s.stat().st_size / 1e6, 1)}
+                for s in (snaps if can_backup else [])
             ],
         },
     )
 
 
 @app.get("/backup/export")
-def backup_export(model: int = 1, user: dict = Depends(_require_admin)):
-    """Build a full backup archive and stream it as a download (temp file cleaned up after send)."""
+def backup_export(request: Request, model: int = 1, user: dict = Depends(_require_admin)):
+    """Build a full backup archive and stream it as a download (temp file cleaned up after send). A backup
+    covers the whole install, not one organisation, so it needs the install owner."""
     from starlette.background import BackgroundTask
 
     from .. import backup as bk
+
+    _require_install_scope(request, user)
 
     db = _db()
     org = _require_org(db, user)
@@ -10928,13 +10935,18 @@ def backup_export(model: int = 1, user: dict = Depends(_require_admin)):
 
 
 @app.post("/backup/restore")
-async def backup_restore(file: UploadFile = File(...), user: dict = Depends(_require_admin)):
+async def backup_restore(
+    request: Request, file: UploadFile = File(...), user: dict = Depends(_require_admin)
+):
     """Restore the uploaded backup archive over this install (a safety copy is taken first).
-    The app must be restarted afterwards - the running process still holds the old DB open."""
+    The app must be restarted afterwards - the running process still holds the old DB open. A restore
+    replaces the whole install, not one organisation, so it needs the install owner."""
     import shutil as _shutil
     import tempfile
 
     from .. import backup as bk
+
+    _require_install_scope(request, user)
 
     db = _db()
     org = _require_org(db, user)
