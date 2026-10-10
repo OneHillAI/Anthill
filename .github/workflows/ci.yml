@@ -11,6 +11,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: these jobs only read the code, run linters and run tests, so the workflow token is
+# read-only. A job that needs more must say so in its own permissions block.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
