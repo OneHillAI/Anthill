@@ -1,9 +1,11 @@
-"""Web search defaults ON for a new account, and the page tells the truth about it.
+"""Web search defaults OFF for a new account, and the page tells the truth about it.
 
-Founder decision, 2026-10-08: most questions are about live information, so web search starts on. It
-sends the query text to a third-party search provider (anthill/search/web.py), so the Solo header says
-"Web search is on for this chat" while it is on and only claims "Nothing leaves it" while it is off. An
-account that turned web access off in Settings gets it off. Org conversations were already on.
+Founder decision, 2026-10-09: web search and Thinking both start off, so an answer does not make a new user
+wait; the first-use notice says so and lets them switch either on. (On 2026-10-08 it was on; before that off.)
+Web search sends the query text to a third-party search provider (anthill/search/web.py), so the Solo header
+says "Web search is on for this chat" while it is on and only claims "Nothing leaves it" while it is off (true again
+since 2026-10-10, when the automatic search for a live-information question was removed). An account that turned
+web access on in Settings gets it on. Org conversations were always on.
 """
 
 from sqlalchemy import create_engine
@@ -51,28 +53,27 @@ def _mkconv(app_mod, org_id, user_id, *, plane="solo", title="Chat"):
         s.close()
 
 
-def test_solo_chat_renders_web_search_checked_by_default(tmp_path, monkeypatch):
-    # Founder decision, 2026-10-08: web search is ON by default for a new account (most questions are about
-    # live information). This replaces the older Solo default of off.
+def test_solo_chat_renders_web_search_unchecked_by_default(tmp_path, monkeypatch):
+    # Founder decision, 2026-10-09: web search is OFF by default for a new account.
     client, app_mod, org_id, user_id = _app(tmp_path, monkeypatch)
     cid = _mkconv(app_mod, org_id, user_id, plane="solo")
     r = client.get(f"/chat/{cid}")
     assert r.status_code == 200
-    assert '<input type="checkbox" id="opt-web" checked>' in r.text
+    assert '<input type="checkbox" id="opt-web" >' in r.text
 
 
-def test_solo_chat_web_search_unchecked_when_user_turned_it_off(tmp_path, monkeypatch):
-    # If the user turned "Web access" off in Settings -> Privacy (User.web_access_on), a new Solo chat seeds
-    # the Web-search toggle OFF. Org chats are unaffected either way.
+def test_solo_chat_web_search_checked_when_user_turned_it_on(tmp_path, monkeypatch):
+    # If the user turned "Web access" on in Settings -> Privacy (User.web_access_on), a new Solo chat seeds
+    # the Web-search toggle ON. Org chats are unaffected either way.
     from anthill.web.db import User
 
     client, app_mod, org_id, user_id = _app(tmp_path, monkeypatch)
     s = app_mod._SessionFactory()
-    s.query(User).filter(User.id == user_id).first().web_access_on = False
+    s.query(User).filter(User.id == user_id).first().web_access_on = True
     s.commit()
     cid = _mkconv(app_mod, org_id, user_id, plane="solo")
     r = client.get(f"/chat/{cid}")
-    assert '<input type="checkbox" id="opt-web" >' in r.text
+    assert '<input type="checkbox" id="opt-web" checked>' in r.text
 
 
 def test_org_chat_still_defaults_web_search_checked(tmp_path, monkeypatch):
@@ -84,18 +85,19 @@ def test_org_chat_still_defaults_web_search_checked(tmp_path, monkeypatch):
 
 
 def test_solo_chat_trust_banner_text_matches_the_web_default_server_side(tmp_path, monkeypatch):
-    # The server-rendered text must be honest for the state it renders: web search on (the default) says so,
-    # and only an account with web access off claims "Nothing leaves it". JS then follows the live checkbox.
+    # The server-rendered text must be honest for the state it renders: a new account (web search off) claims
+    # "Nothing leaves it", and an account with web access on says web search is on. JS then follows the live
+    # checkbox.
     from anthill.web.db import User
 
     client, app_mod, org_id, user_id = _app(tmp_path, monkeypatch)
     cid = _mkconv(app_mod, org_id, user_id, plane="solo")
-    assert 'id="chat-trust-msg">Web search is on for this chat.<' in client.get(f"/chat/{cid}").text
-    s = app_mod._SessionFactory()
-    s.query(User).filter(User.id == user_id).first().web_access_on = False
-    s.commit()
     r = client.get(f"/chat/{cid}")
     assert 'id="chat-trust-msg">Running on this machine. Nothing leaves it.<' in r.text
+    s = app_mod._SessionFactory()
+    s.query(User).filter(User.id == user_id).first().web_access_on = True
+    s.commit()
+    assert 'id="chat-trust-msg">Web search is on for this chat.<' in client.get(f"/chat/{cid}").text
 
 
 def test_org_chat_shows_org_model_label_not_trust_banner(tmp_path, monkeypatch):
@@ -110,19 +112,19 @@ def test_org_chat_shows_org_model_label_not_trust_banner(tmp_path, monkeypatch):
 
 def test_project_chat_without_an_org_server_follows_the_web_default(tmp_path, monkeypatch):
     # A project chat (plane "team") in an install with no organisation server runs on the local model, so its
-    # Web search follows the account default like a Solo chat: off when the account turned it off.
+    # Web search follows the account default like a Solo chat: off for a new account, on once turned on.
     from anthill.web.db import User
 
     client, app_mod, org_id, user_id = _app(tmp_path, monkeypatch)
     cid = _mkconv(app_mod, org_id, user_id, plane="team")
     page = client.get(f"/chat/{cid}").text
-    assert '<input type="checkbox" id="opt-web" checked>' in page  # new account: on
+    assert '<input type="checkbox" id="opt-web" >' in page  # new account: off
     assert "var _WEB_FOLLOWS_DEFAULT = true" in page
     s = app_mod._SessionFactory()
-    s.query(User).filter(User.id == user_id).first().web_access_on = False
+    s.query(User).filter(User.id == user_id).first().web_access_on = True
     s.commit()
     page = client.get(f"/chat/{cid}").text
-    assert '<input type="checkbox" id="opt-web" >' in page  # follows the account default off
+    assert '<input type="checkbox" id="opt-web" checked>' in page  # follows the account default on
     assert "var _WEB_FOLLOWS_DEFAULT = true" in page
 
 
