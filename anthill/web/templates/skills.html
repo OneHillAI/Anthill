@@ -254,12 +254,14 @@
     <div style="display:flex;gap:6px;align-items:center">
       {% if s.assets %}<span class="text-sm text-muted" title="bundled files">📎 {{ s.assets|length }}</span>{% endif %}
       <button class="btn btn-outline btn-sm" onclick="editSkill('{{ s.slug }}')">Edit</button>
+      {% if s.can_delete %}
       <form method="post" action="/skills/{{ s.slug }}/delete" style="margin:0"
             data-confirm="Delete this skill?">
         <input type="hidden" name="scope" value="{{ s.tier }}">
         {% if s.team_id %}<input type="hidden" name="team_id" value="{{ s.team_id }}">{% endif %}
         <button class="btn btn-danger btn-sm">Delete</button>
       </form>
+      {% endif %}
     </div>
     {% endif %}
   </div>

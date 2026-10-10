@@ -29,7 +29,7 @@ certs:
 alpha:
 	@echo "Open http://localhost:8000 in your browser."
 	@echo "First run: you will see the setup screen."
-	.venv/bin/anthill web --port 8000
+	ANTHILL_LOCAL_ONLY=$${ANTHILL_LOCAL_ONLY-1} .venv/bin/anthill web --port 8000
 
 # Install macOS auto-start (Ollama + dashboard on login; survives reboot):
 autostart:

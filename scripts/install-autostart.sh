@@ -78,6 +78,7 @@ cat > "$DASH_PLIST" <<PLIST
   <dict>
     <key>ANTHILL_DB</key><string>$PROJECT_DIR/data/anthill.db</string>
     <key>ANTHILL_WORKSPACE</key><string>$PROJECT_DIR/workspace</string>
+    <key>ANTHILL_LOCAL_ONLY</key><string>${ANTHILL_LOCAL_ONLY-1}</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
