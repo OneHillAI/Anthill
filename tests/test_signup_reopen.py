@@ -29,7 +29,9 @@ def _fresh_app(tmp_path, monkeypatch):
     db_mod.create_tables(eng)
     app_mod._engine = eng
     app_mod._SessionFactory = sessionmaker(bind=eng, autoflush=False, autocommit=False)
-    return TestClient(app_mod.app), app_mod
+    return TestClient(
+        app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000)
+    ), app_mod
 
 
 def _with_one_account(app_mod):

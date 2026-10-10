@@ -148,6 +148,9 @@ response = client.chat.completions.create(
 | `ANTHILL_BASE_URL` | `http://localhost:11434` | inference server |
 | `ANTHILL_BACKEND` | `ollama` | `ollama` or `openai` |
 | `ANTHILL_DB` | `data/anthill.db` | dashboard database |
+| `ANTHILL_HOST` | set by the entry point | where the server listens; `anthill web`, the container entry point and the desktop app record it just before uvicorn starts |
+| `ANTHILL_LOCAL_ONLY` | unset | `1` marks a server as someone's own machine (the desktop app sets it; `start.sh` and `make alpha` do). Only then does a loopback bind count as local; anything else counts as shared. Never set it behind a reverse proxy or tunnel |
+| `ANTHILL_INSTALL_OWNER` | unset | email of an active admin to make the install owner at start-up. A one-off recovery: it overrides the recorded owner every start, so remove it once the owner is right (a warning is logged when it changes the owner). An unknown email is ignored. `anthill owner set EMAIL` does the same once |
 | `ANTHILL_WORKSPACE` | `workspace` | local (personal) wiki root |
 | `ANTHILL_ORG_WIKI` | `data/org-wiki` | consolidated org wiki root |
 | `ANTHILL_JWT_SECRET` | generated | session signing |
