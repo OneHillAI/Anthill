@@ -38,9 +38,13 @@ def main() -> None:
     configure_container_env()
     import uvicorn
 
+    host = os.environ.get("ANTHILL_HOST", "0.0.0.0")
+    os.environ["ANTHILL_HOST"] = (
+        host  # the app reads where it listens (sign-up is by invitation beyond loopback)
+    )
     uvicorn.run(
         "anthill.web.app:app",
-        host=os.environ.get("ANTHILL_HOST", "0.0.0.0"),
+        host=host,
         port=int(os.environ.get("ANTHILL_PORT", "8000")),
         log_level="warning",
     )

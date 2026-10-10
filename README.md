@@ -157,7 +157,14 @@ Passwords are bcrypt-hashed, sessions use signed JWTs backed by revocable server
 per-user authentication generations, and sensitive fields are AES-256-GCM encrypted at rest. Every login,
 wiki promotion, agent action, and data export is in the audit log. Components speak plain HTTP locally, so
 expose the dashboard only behind a TLS-terminating reverse proxy (a self-signed
-dev-cert scaffold for local mTLS is provided under `certs/`, but is not for production). Report
+dev-cert scaffold for local mTLS is provided under `certs/`, but is not for production). The desktop app
+and the launchers made for one person at one machine (`start.sh`, `make alpha`, the macOS auto-start agent,
+`scripts/start.ps1`) treat requests from the machine itself as local and trusted, and a proxy or tunnel on the
+same machine that adds no forwarding header (a default nginx `proxy_pass`, HAProxy without `forwardfor`, a
+TCP forward such as `ssh -R`, `socat` or `ngrok tcp`) makes a remote request look local. Do not put them
+behind a proxy or tunnel unless Remote access is switched on first (Settings, provider "manual"), or
+`ANTHILL_LOCAL_ONLY=0` is set (this applies to `start.sh`, `make alpha`, the auto-start agent and
+`start.ps1` only; the desktop app always marks itself local). Report
 vulnerabilities privately: email [security@onehill.org](mailto:security@onehill.org), not a public
 issue. See [`SECURITY.md`](SECURITY.md).
 

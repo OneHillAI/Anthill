@@ -417,6 +417,8 @@ def main() -> None:
         _exit_when_orphaned()
     import uvicorn
 
+    os.environ["ANTHILL_HOST"] = HOST  # where it listens, read by anthill/web/install_scope.py
+    os.environ["ANTHILL_LOCAL_ONLY"] = "1"  # the desktop app is someone's own machine
     uvicorn.run("anthill.web.app:app", host=HOST, port=port, log_level="warning")
 
 

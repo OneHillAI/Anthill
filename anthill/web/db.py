@@ -832,6 +832,19 @@ class KnowledgeItem(Base):
     last_editor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
 
+class InstallSettings(Base):
+    """Settings that belong to the whole install, not to one organisation (one row).
+
+    ``owner_user_id`` is the install owner: set by the first account, changed only by the owner (see
+    ``web/install_scope.py``). ``signup_open`` lets anyone who can reach a shared server create an account;
+    off means by invitation. New table, so ``create_all`` adds it on existing installs."""
+
+    __tablename__ = "install_settings"
+    id = Column(Integer, primary_key=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    signup_open = Column(Boolean, nullable=False, default=False)
+
+
 class QueuedUpload(Base):
     """A wiki upload made while the local model is still downloading on first run (#683 phase 5).
 

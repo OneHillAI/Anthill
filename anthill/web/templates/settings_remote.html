@@ -4,6 +4,7 @@
 {% block content %}
 
 {% if saved %}<div class="alert alert-ok">✅ Remote access settings saved.</div>{% endif %}
+{% if owner_error %}<div class="alert alert-warn">That account cannot be made the install owner. It must be an active admin of your organisation.</div>{% endif %}
 
 <p class="text-sm text-muted" style="max-width:720px;margin-bottom:18px">
   Reach this Anthill from outside your LAN (other offices, home, mobile) without opening firewall ports.
@@ -11,6 +12,7 @@
   app, so use a strong admin password and keep it on HTTPS. <a href="/settings">Back to settings</a>.
 </p>
 
+{% if is_owner %}
 <form method="post" action="/settings/remote">
   <div class="card mb-2" style="max-width:720px">
     <div class="form-group">
@@ -56,6 +58,60 @@
     <button type="button" class="btn btn-outline" onclick="raStop()">Stop tunnel</button>
   </div>
 </form>
+{% else %}
+<div class="card mb-2" style="max-width:720px">
+  <p class="text-sm text-muted" style="margin:0 0 10px">
+    Remote access opens the whole install to the network, so the install owner controls it.
+    {% if remote_on %}It is currently on for this install.{% endif %}
+  </p>
+  {% if my_org_remote_on and not in_owner_org %}
+  <form method="post" action="/settings/remote" style="margin:0">
+    <input type="hidden" name="remote_access_provider" value="off">
+    <button type="submit" class="btn btn-outline">Switch Remote access off for my organisation</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if is_owner %}
+<form method="post" action="/settings/signup">
+  <div class="card mb-2" style="max-width:720px">
+    <h3 style="margin-bottom:10px">Who can create an account</h3>
+    {% if shared_server %}
+    <p class="text-sm text-muted" style="margin-bottom:10px">
+      This server can be reached by other people, so new accounts are by invitation. Invite people from
+      Users once this organisation's backend is set up. Until then, or to let anyone who can reach this
+      server join, use the switch below.
+    </p>
+    <label class="flex gap-2 items-center">
+      <input type="checkbox" name="signup_open" value="1" {% if signup_open %}checked{% endif %}>
+      Let anyone who can reach this server create an account
+    </label>
+    <button type="submit" class="btn btn-outline" style="margin-top:10px">Save</button>
+    {% else %}
+    <p class="text-sm text-muted" style="margin:0">
+      This server is only reachable from this machine, so people using this machine can create an account.
+      This changes when the server listens beyond this machine or Remote access is switched on.
+    </p>
+    {% endif %}
+  </div>
+</form>
+{% if admins|length > 1 %}
+<form method="post" action="/settings/install-owner">
+  <div class="card mb-2" style="max-width:720px">
+    <h3 style="margin-bottom:10px">Install owner</h3>
+    <p class="text-sm text-muted" style="margin-bottom:10px">
+      The install owner controls what belongs to the whole install: who can create accounts, Remote access,
+      device profiles and the built-in skills. Only the owner can hand it to another active admin.
+    </p>
+    <select name="new_owner" aria-label="New install owner">
+      {% for a in admins %}<option value="{{ a.id }}" {% if a.id == owner_id %}selected{% endif %}>{{ a.email }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-outline" style="margin-left:8px">Make owner</button>
+  </div>
+</form>
+{% endif %}
+{% endif %}
 
 <div class="card" style="max-width:720px">
   <h3 style="margin-bottom:10px">Status</h3>
