@@ -1082,13 +1082,15 @@ def test_the_owner_commands_refuse_to_run_against_a_missing_database(app, tmp_pa
 
 
 def test_the_show_command_takes_a_profile_like_the_others():
-    from typer.testing import CliRunner
+    import typer.main
 
     from anthill import cli
 
+    # Read the declared options, not the help text: the help screen is wrapped and coloured differently in CI.
+    owner = typer.main.get_command(cli.app).commands["owner"]
     for command in ("show", "set"):
-        helptext = CliRunner().invoke(cli.app, ["owner", command, "--help"]).output
-        assert "--profile" in helptext and "--db" in helptext
+        options = {opt for param in owner.commands[command].params for opt in param.opts}
+        assert "--profile" in options and "--db" in options
 
 
 def test_the_owner_commands_read_a_named_profile_without_activating_it(app, tmp_path, monkeypatch):
