@@ -46,6 +46,11 @@ profiles_app = typer.Typer(
     help="Manage isolated profiles - separate accounts on one install (RFC-0003).",
 )
 app.add_typer(profiles_app, name="profiles")
+owner_app = typer.Typer(
+    help="The install owner: the account that controls what belongs to the whole install.",
+    no_args_is_help=True,
+)
+app.add_typer(owner_app, name="owner")
 
 
 def _profiles_base() -> Path:
@@ -1165,7 +1170,116 @@ def web(
     Path(db).parent.mkdir(parents=True, exist_ok=True)
     console.print(f"[green]anthill dashboard[/] → http://{host}:{port}")
     console.print("[dim]Open in browser. First run: /setup to create your org.[/]")
+    os.environ["ANTHILL_HOST"] = (
+        host  # the app reads where it listens (sign-up is by invitation beyond loopback)
+    )
     uvicorn.run("anthill.web.app:app", host=host, port=port, log_level="warning", reload=False)
+
+
+def _owner_session(db: str, profile: str | None):
+    """A session on the install's database for the owner commands. The database is, in order: ``--db``,
+    the database of ``--profile`` (looked up, not activated), ``$ANTHILL_DB``, ``$ANTHILL_HOME/anthill.db``,
+    ``data/anthill.db``. It must already exist: these commands
+    never create a database, so a wrong path cannot silently start an empty install."""
+    _load_dotenv()
+    profile_db = ""
+    if profile:
+        # Look the profile up in the registry; never activate it. Activating would remember it as the active
+        # profile, seed skills and touch the environment, and an unknown name would fall back to the default
+        # profile, so the command could act on the wrong install.
+        base = _profiles_base()
+        found = profiles_mod.get_profile(base, profile)
+        if found is None:
+            console.print(
+                f"[red]No profile named {profile}.[/] Nothing was changed; see `anthill profiles list`."
+            )
+            raise typer.Exit(1)
+        profile_db = str(profiles_mod.data_dir_of(base, found) / "anthill.db")
+    home = os.environ.get("ANTHILL_HOME", "")
+    default = str(Path(home) / "anthill.db") if home else "data/anthill.db"
+    db_path = db or profile_db or os.environ.get("ANTHILL_DB", "") or default
+    if not Path(db_path).is_file():
+        console.print(
+            f"[red]No database at {db_path}.[/] Nothing was changed; pass --db or --profile."
+        )
+        raise typer.Exit(1)
+    os.environ["ANTHILL_DB"] = db_path
+    from sqlalchemy.orm import sessionmaker
+
+    from .web.db import create_tables, get_engine
+
+    engine = get_engine(Path(db_path))
+    create_tables(
+        engine
+    )  # the normal start-up upgrade of an existing database, run before the owner record is read
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+
+@owner_app.command("set")
+def owner_set(
+    email: str = typer.Argument(..., help="Email of an active admin to make the install owner."),
+    db: str = typer.Option(
+        "",
+        "--db",
+        help="SQLite database path (default: $ANTHILL_DB, then $ANTHILL_HOME/anthill.db).",
+    ),
+    profile: str = typer.Option(
+        None, "--profile", envvar="ANTHILL_PROFILE", help="Profile to use."
+    ),
+):
+    """Make an active admin the install owner. Run on the machine that hosts Anthill: it is the way back when
+    the owner account is lost, and it needs no sign-in because it needs the host."""
+    from .web import audit
+    from .web.install_scope import recorded_owner_id, set_install_owner_by_email
+
+    session = _owner_session(db, profile)
+    try:
+        before = recorded_owner_id(session)
+        target = set_install_owner_by_email(session, email)
+        if target is None:
+            console.print(
+                f"[red]No active admin with the email {email}.[/] The owner is unchanged."
+            )
+            raise typer.Exit(1)
+        session.commit()
+        audit.log(
+            session,
+            "install.owner_set_by_host",
+            f"uid={target.id} previous={before}",
+            org_id=target.org_id,
+        )
+        console.print(f"[green]{target.email} is now the install owner.[/]")
+    finally:
+        session.close()
+
+
+@owner_app.command("show")
+def owner_show(
+    db: str = typer.Option(
+        "",
+        "--db",
+        help="SQLite database path (default: $ANTHILL_DB, then $ANTHILL_HOME/anthill.db).",
+    ),
+    profile: str = typer.Option(
+        None, "--profile", envvar="ANTHILL_PROFILE", help="Profile to use."
+    ),
+):
+    """Show who the install owner is."""
+    from .web.install_scope import install_owner, recorded_owner_id
+
+    session = _owner_session(db, profile)
+    try:
+        owner = install_owner(session)
+        if owner is not None:
+            console.print(f"Install owner: {owner.email}")
+        elif recorded_owner_id(session) is not None:
+            console.print(
+                "[yellow]The recorded owner is not an active admin. Run `anthill owner set EMAIL`.[/]"
+            )
+        else:
+            console.print("[yellow]No install owner is recorded yet.[/]")
+    finally:
+        session.close()
 
 
 @profiles_app.command("list")

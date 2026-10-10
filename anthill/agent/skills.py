@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..common.jsonchat import coerce_str, extract_json, json_chat
+from ..common.text import WIKILINK_RE
 
 
 @dataclass
@@ -100,7 +101,7 @@ def parse_skill_md(text: str, *, slug: str = "", path: str = "") -> Skill:
     for backward compatibility. Frontmatter is optional."""
     fm: dict = {}
     body = text
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, re.DOTALL)
+    m = re.match(r"^---[ \t]*\r?\n(.*?)\r?\n---\s*\n?(.*)$", text, re.DOTALL)
     if m:
         front, body = m.group(1), m.group(2)
         for line in front.splitlines():
@@ -518,7 +519,7 @@ def validate_skill(sk: Skill) -> dict:
         )
 
     assets = set(sk.assets or [])
-    refs = sorted(set(re.findall(r"\[\[([^\]]+)\]\]", sk.instructions or "")))
+    refs = sorted(set(WIKILINK_RE.findall(sk.instructions or "")))
     dangling = [r for r in refs if r not in assets]
     if dangling:
         warnings.append(

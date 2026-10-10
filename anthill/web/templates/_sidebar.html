@@ -43,6 +43,11 @@
 <aside class="sidebar">
   <div class="brand-block"{% if nav_profile %} style="border-top:3px solid {{ nav_profile.colour }}"{% endif %}>
     <a href="/" class="brand" title="Back to dashboard"><svg class="brand-mark" viewBox="0 0 28 24" aria-hidden="true"><use href="#ah-mound"/></svg><span class="wordmark">Anthill</span></a>
+    {# Narrow screens (browser and installed PWA, below 880px): the rail becomes a bar and the menu opens from this
+       button. The desktop app's minimum width is 880px, so it never shows. #}
+    <button type="button" id="nav-toggle" class="nav-toggle" aria-expanded="false" aria-controls="app-nav" aria-label="Menu">
+      <i data-lucide="menu" aria-hidden="true">&#9776;</i><span>Menu</span>
+    </button>
     {% if nav_org %}<div class="brand-org" title="{{ nav_org }}">{{ nav_org }}</div>{% endif %}
     {# The profile chip: the always-visible "which isolated account am I in" indicator and the
        switcher. The colour is the profile's own, so each profile looks distinct at a glance. #}
@@ -258,6 +263,17 @@
   <script>
     // Lives with the rail so it works on every page the rail appears on (base.html pages AND the
     // standalone chat page), not only where a page happened to define it.
+    // Narrow screens: open and close the menu.
+    (function () {
+      var b = document.getElementById('nav-toggle');
+      if (!b) return;
+      var rail = b.closest('.sidebar').querySelector('nav');
+      if (rail) rail.id = 'app-nav';   // set here so the rail's own markup stays as it was
+      b.addEventListener('click', function () {
+        var open = b.closest('.sidebar').classList.toggle('nav-open');
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    })();
     // Fold a nav group open/closed (workspace pages: chat / tasks / agents).
     function toggleNavGroup(header) { header.parentElement.classList.toggle('expanded'); }
     // The profile chip menu: open/close, and close on an outside click or Escape.

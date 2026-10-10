@@ -1,6 +1,6 @@
 # Spec: Anthill for Windows
 
-Status: Phases A (build and start) and B (local model) merged. Phase C in progress: C1 (merged) the installer and the shell, tested in CI and unsigned; C2 (merged) the release flow (Windows alpha in Cut Beta, a release check, the real-device checklist); C3 the self-update proof in CI; signing is held until the signing route is settled (section 6). Windows is an alpha; macOS is a beta.
+Status: Phases A (build and start) and B (local model) merged. Phase C in progress: C1 (merged) the installer and the shell, tested in CI and unsigned; C2 (merged) the release flow (Windows alpha in Cut Beta, a release check, the real-device checklist); C3 (merged) the self-update proof in CI; the Windows alpha is also added to the stable release; signing is held until the signing route is settled (section 6). Windows is an alpha; macOS is a beta.
 Lane: `pillar:platform`
 Relates to: `src-tauri/tauri.conf.json`, `src-tauri/src/lib.rs`, `scripts/build-sidecar.sh`, `anthill/desktop.py`,
 `anthill/inference/ollama.py`, `.github/workflows/desktop-release.yml`, `.github/workflows/desktop-beta.yml`,

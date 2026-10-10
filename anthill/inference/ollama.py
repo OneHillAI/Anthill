@@ -25,6 +25,50 @@ _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # (base_url, model) -> context window in tokens (0 = unknown). A model's context length is fixed, so
 # probe /api/show once and cache it across backend instances (they're created per request). (#277)
 _CTX_WINDOW_CACHE: dict[tuple[str, str], int] = {}
+# (base_url, model) -> whether the model can think before it answers, from /api/show's "capabilities".
+_CAN_THINK_CACHE: dict[tuple[str, str], bool] = {}
+
+# The window Anthill asks Ollama for on every request (issue #109). Without it Ollama picks its own default
+# and silently drops whatever does not fit. Ollama's own default depends on the machine's video memory
+# (4k below 24 GiB, 32k from 24 GiB, 256k from 48 GiB, per its documentation), so this one never goes lower
+# than that on a Mac, where video memory is the unified memory. A larger window costs memory for the model's
+# key-value cache; ANTHILL_NUM_CTX (or Ollama's own OLLAMA_CONTEXT_LENGTH) sets it by hand.
+DEFAULT_NUM_CTX = 8192
+_MIN_NUM_CTX = 4096  # below this the answer reserve and the floor of the reference no longer fit
+
+
+def _total_memory_gib() -> float:
+    """Total memory in GiB on a Mac (unified memory: what Ollama counts as video memory); 0 elsewhere or on error."""
+    if sys.platform != "darwin":
+        return 0.0
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
+    except (ValueError, OSError, AttributeError):
+        return 0.0
+
+
+def _env_ctx(name: str) -> int:
+    try:
+        value = int(os.environ.get(name, "").strip())
+    except ValueError:
+        return 0
+    return value if value >= _MIN_NUM_CTX else 0
+
+
+def configured_num_ctx() -> int:
+    """The window to request: ``ANTHILL_NUM_CTX``, else Ollama's own ``OLLAMA_CONTEXT_LENGTH``, when it is a
+    whole number of at least 4096; else the larger of 8192 and what Ollama would choose for this Mac's memory
+    (about 32k from 32 GiB of memory, about 256k from 64 GiB, taking Ollama's 24 and 48 GiB of video memory to
+    be about three quarters of it)."""
+    for name in ("ANTHILL_NUM_CTX", "OLLAMA_CONTEXT_LENGTH"):
+        if value := _env_ctx(name):
+            return value
+    memory = _total_memory_gib()
+    if memory >= 64:
+        return 262144
+    if memory >= 32:
+        return 32768
+    return DEFAULT_NUM_CTX
 
 
 def _confidence_from_ollama_response(data: dict) -> float | None:
@@ -55,7 +99,12 @@ class OllamaBackend:
     """
 
     def __init__(
-        self, base_url: str, model: str, timeout: float = 120.0, keep_alive: str | None = None
+        self,
+        base_url: str,
+        model: str,
+        timeout: float = 120.0,
+        keep_alive: str | None = None,
+        num_ctx: int | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -72,6 +121,8 @@ class OllamaBackend:
         # is unchanged, but the cached prefix is re-processed near-instantly (measured: ~1263ms -> ~56ms
         # for an identical prefix on qwen3:8b). Read by a probe / metrics; never affects behaviour.
         self.last_stats: dict = {}
+        # The window requested on every call (issue #109). Without it Ollama silently uses its own default.
+        self.num_ctx = num_ctx if num_ctx and num_ctx > 0 else configured_num_ctx()
 
     # ── non-streaming ─────────────────────────────────────────────────────────
 
@@ -200,7 +251,7 @@ class OllamaBackend:
         """Call ``/api/chat`` with tool specs and return the raw Ollama response dict
         (``{"message": {"content", "tool_calls"}}``). Connect/HTTP failures raise ``BackendError``
         with a human-readable message (the agent loop surfaces it instead of a raw errno)."""
-        options: dict = {"temperature": temperature}
+        options: dict = {"temperature": temperature, "num_ctx": self._request_num_ctx(model)}
         if num_predict is not None:
             options["num_predict"] = num_predict
         payload = {
@@ -349,10 +400,16 @@ class OllamaBackend:
         except (httpx.HTTPError, ValueError):
             return set()
 
-    def context_window(self, model: str | None = None) -> int:
-        """The model's context window in tokens, read from Ollama's ``/api/show`` ``model_info`` and
-        cached per (base_url, model). Returns 0 when it can't be read, so callers fall back to their own
-        default (issue #277). Never raises."""
+    def _request_num_ctx(self, model: str | None) -> int:
+        """The window to send for ``model``: the configured one, capped at the model's trained maximum when
+        that is already known (cached, so building a request never makes a network call)."""
+        trained = _CTX_WINDOW_CACHE.get((self.base_url, model or self.model or ""), 0)
+        return min(trained, self.num_ctx) if trained > 0 else self.num_ctx
+
+    def trained_context_window(self, model: str | None = None) -> int:
+        """The most context the model was trained for, read from Ollama's ``/api/show`` ``model_info`` and
+        cached per (base_url, model). Returns 0 when it can't be read. Never raises. This is a ceiling, not
+        the window in use: see ``context_window`` (issue #277)."""
         m = model or self.model or ""
         key = (self.base_url, m)
         if key in _CTX_WINDOW_CACHE:
@@ -370,6 +427,32 @@ class OllamaBackend:
             ctx = 0
         _CTX_WINDOW_CACHE[key] = ctx
         return ctx
+
+    def context_window(self, model: str | None = None) -> int:
+        """The context window in use, in tokens: the smaller of the model's trained maximum and the window
+        requested on every call (``num_ctx``). When the trained maximum can't be read, the requested window.
+        The budgets in ``inference/context.py`` and the prompt fit guard are built on this, so they match
+        what the model really gets (issue #109). Never raises."""
+        trained = self.trained_context_window(model)
+        return min(trained, self.num_ctx) if trained > 0 else self.num_ctx
+
+    def can_think(self, model: str | None = None) -> bool:
+        """Whether the model can think before it answers, as Ollama reports it (``capabilities`` includes
+        "thinking" in ``/api/show``), cached per (base_url, model) once it has been read. False when it cannot be
+        read (and then not cached), so a caller that wants to say "thinking" only says it for a model that
+        does. Never raises."""
+        m = model or self.model or ""
+        key = (self.base_url, m)
+        if key in _CAN_THINK_CACHE:
+            return _CAN_THINK_CACHE[key]
+        try:
+            resp = httpx.post(f"{self.base_url}/api/show", json={"model": m}, timeout=5)
+            resp.raise_for_status()
+            can = "thinking" in (resp.json().get("capabilities") or [])
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return False  # unreadable: not claimed and not remembered, so the next turn asks again
+        _CAN_THINK_CACHE[key] = can
+        return can
 
     def delete_model(self, tag: str) -> bool:
         """Uninstall a locally installed model (``ollama rm``), reclaiming its disk. Returns True on
@@ -397,7 +480,8 @@ class OllamaBackend:
         think: bool | None = None,
         logprobs: bool = False,
     ) -> dict:
-        options: dict = {"temperature": temperature}
+        # num_ctx: ask for an explicit window on every call, so Ollama does not pick its own (issue #109).
+        options: dict = {"temperature": temperature, "num_ctx": self._request_num_ctx(model)}
         if num_predict is not None:
             # Bound generation. Ollama's default (-1) is unbounded, so a reasoning model that runs
             # away (esp. under a forced-JSON grammar) can generate until the context fills - the

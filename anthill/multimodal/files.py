@@ -9,8 +9,11 @@ PDF (reportlab) and html/md/txt have no extra dependency.
 from __future__ import annotations
 
 import html as _html
+import logging
 import re
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 SUPPORTED = ("pdf", "docx", "pptx", "xlsx", "html", "md", "txt")
 
@@ -216,8 +219,9 @@ def preview_html(path: Path, *, max_rows: int = 50, max_blocks: int = 200) -> st
             return _preview_pptx(path)
     except ImportError:
         return '<div class="text-muted">Install the [docs] extra to preview Office files.</div>'
-    except Exception as e:
-        return f'<div class="text-muted">Preview unavailable: {_html.escape(str(e))}</div>'
+    except Exception:
+        log.exception("preview of %s failed", Path(path).name)  # the detail stays in the server log
+        return '<div class="text-muted">Preview unavailable - use the download link.</div>'
     return '<div class="text-muted">No inline preview for this type - use the download link.</div>'
 
 

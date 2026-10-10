@@ -20,7 +20,9 @@ is held for your approval first. Sending an email, or writing to a shared wiki: 
 silently.
 
 Results are checked automatically before you see them. Anything that doesn't hold up is flagged for
-your review, not presented as fact.
+your review, not presented as fact. If you can edit the task, choose Mark reviewed once you have
+checked that result. The Tasks list warning clears, and the page records who reviewed it and when.
+The original check stays in the run history, so a later result that needs review raises its own warning.
 
 ## Skills
 

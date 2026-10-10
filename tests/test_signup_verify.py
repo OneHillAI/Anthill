@@ -29,7 +29,7 @@ def _client(tmp_path, monkeypatch):
     db_mod.create_tables(eng)
     app_mod._engine = eng
     app_mod._SessionFactory = sessionmaker(bind=eng, autoflush=False, autocommit=False)
-    return TestClient(app_mod.app)
+    return TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
 
 
 class _Verify:

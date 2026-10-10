@@ -107,15 +107,18 @@ class User(Base):
     # chats/tasks/agent runs (existing memories are kept; recall still works). Off by default.
     auto_memory_off = Column(Boolean, nullable=False, default=False)
     # Web access (Settings -> Privacy): the user's default for whether a chat may look things up online.
-    # ON for a new account (founder decision, 2026-10-08: most questions are about live information; it
-    # supersedes docs/specs/solo-web-search-default-off.md). Existing accounts keep the value they have. It
+    # OFF for a new account (founder decision, 2026-10-09; on 2026-10-08 it was on, and before that off
+    # under docs/specs/solo-web-search-default-off.md). Existing accounts keep the value they have. It
     # seeds each chat's Web-search checkbox, and a chat can change its own. The per-turn `web` flag +
-    # decide_web() still gate each actual search.
-    web_access_on = Column(Boolean, nullable=False, default=True)
+    # decide_web() still gate each actual search. With the box off nothing is searched, except at the user's
+    # own request in plain words ("check the web", the redo button).
+    web_access_on = Column(Boolean, nullable=False, default=False)
     # Thinking (Settings -> Model, "How it answers"): the user's default for whether a model that thinks
-    # thinks before it answers. On by default (the model decides, as before). A chat can override it for
-    # itself with the Thinking button; a chat with no choice of its own follows this default.
-    thinking_on = Column(Boolean, nullable=False, default=True)
+    # thinks before it answers. Off by default for a new account, so a plain answer starts in seconds and
+    # not after half a minute. An account that existed before this default changed keeps On: _ensure_columns adds the column
+    # to an old database with DEFAULT 1. A chat can override it for itself with the Thinking button; a chat
+    # with no choice of its own follows this default.
+    thinking_on = Column(Boolean, nullable=False, default=False)
     # The one-time first-use notice (chat, agents or tasks, whichever the user opens first) that says what
     # the Thinking and Web search defaults are and where to change them. True once acknowledged.
     chat_defaults_notice_seen = Column(Boolean, nullable=False, default=False)
@@ -588,6 +591,10 @@ class ScheduledTask(Base):
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
     verify_confidence = Column(String(8), nullable=False, default="")
+    # Acknowledgement of a flagged result that predates run history. Not a verdict: a new run
+    # overwrites verify_needs_review, and the result page ignores these once a run exists.
+    result_reviewed_by = Column(Integer, nullable=True)
+    result_reviewed_at = Column(DateTime, nullable=True)
     run_count = Column(Integer, nullable=False, default=0)
     queued_inputs = Column(
         Text, nullable=False, default=""
@@ -763,6 +770,9 @@ class TaskRun(Base):
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
     verify_confidence = Column(String(8), nullable=False, default="")
+    # Who acknowledged this run's verifier flag, and when. The flag itself is left as written.
+    reviewed_by = Column(Integer, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
     claimed_inputs = Column(Text, nullable=False, default="")
     cancel_requested = Column(Boolean, nullable=False, default=False)
     scheduled_for = Column(DateTime, nullable=True)
@@ -820,6 +830,19 @@ class KnowledgeItem(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_editor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class InstallSettings(Base):
+    """Settings that belong to the whole install, not to one organisation (one row).
+
+    ``owner_user_id`` is the install owner: set by the first account, changed only by the owner (see
+    ``web/install_scope.py``). ``signup_open`` lets anyone who can reach a shared server create an account;
+    off means by invitation. New table, so ``create_all`` adds it on existing installs."""
+
+    __tablename__ = "install_settings"
+    id = Column(Integer, primary_key=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    signup_open = Column(Boolean, nullable=False, default=False)
 
 
 class QueuedUpload(Base):
@@ -1512,6 +1535,24 @@ def create_tables(engine=None):
         log.exception(
             "versioned schema migration failed; a snapshot was taken, booting current schema"
         )
+    # Migration 4 rebuilds task_runs from a fixed column list and drops anything added before it.
+    # Top up the review columns after that rebuild so an upgrade still owing migration 4 keeps them.
+    _ensure_columns(
+        engine,
+        "scheduled_tasks",
+        {
+            "result_reviewed_by": "INTEGER",
+            "result_reviewed_at": "DATETIME",
+        },
+    )
+    _ensure_columns(
+        engine,
+        "task_runs",
+        {
+            "reviewed_by": "INTEGER",
+            "reviewed_at": "DATETIME",
+        },
+    )
     # Rebuild migrations drop their old indexes; top up after every structural migration.
     _ensure_indexes(engine)
     _log_fk_violations(engine)

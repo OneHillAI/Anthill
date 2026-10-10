@@ -15,7 +15,7 @@
   <p>
     Thinking is <b id="fu-think-state">{{ 'on' if first_use_notice.thinking_on else 'off' }}</b> and web search is
     <b id="fu-web-state">{{ 'on' if first_use_notice.web_on else 'off' }}</b> in your {% if first_use_notice.org_mode %}personal {% endif %}chats.
-    {% if first_use_notice.org_mode %}Organisation chats always search the web. {% endif %}Turn either off whenever you do not want it.
+    {% if first_use_notice.org_mode %}Organisation chats always search the web. {% endif %}Switch either one whenever you like.
   </p>
   <div class="fu-row">
     <label><input type="checkbox" id="fu-think" {% if first_use_notice.thinking_on %}checked{% endif %}>
@@ -31,8 +31,6 @@
     <a href="/personalize#model" onclick="fuSave({seen: true})">Thinking</a> under Model,
     <a href="/personalize#privacy" onclick="fuSave({seen: true})">Web access</a> under Privacy.
     {% if first_use_notice.page in ('agents', 'tasks') %}Agents and scheduled tasks keep their own settings.{% endif %}
-    Anthill may still search the web on its own when a question clearly needs live information, and marks that
-    answer with a globe.
   </p>
   <div class="fu-actions"><button type="button" class="btn btn-primary btn-sm" id="fu-ok">Got it</button></div>
 </div>

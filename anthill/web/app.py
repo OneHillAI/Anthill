@@ -11,6 +11,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -56,6 +57,7 @@ from .db import (
     ContributionProposal,
     Conversation,
     DiscordApp,
+    InstallSettings,
     MCPAccessLog,
     MCPConsumer,
     MCPServer,
@@ -78,6 +80,20 @@ from .db import (
     create_tables,
     get_engine,
     normalize_topology,
+)
+from .install_scope import (
+    backfill_install_owner,
+    install_owner_id,
+    install_scope_allowed,
+    is_install_owner,
+    owner_org_id,
+    record_first_install_owner,
+    recorded_owner_id,
+    server_is_shared,
+    set_install_owner_by_email,
+    settings_row,
+    signup_is_open,
+    transfer_install_owner,
 )
 
 _HERE = Path(__file__).parent
@@ -387,6 +403,62 @@ _SessionFactory = None
 _scheduler_started = False
 
 
+def _ensure_install_owner() -> None:
+    """Start-up: make sure the install has a usable owner, and audit any change.
+
+    - ``ANTHILL_INSTALL_OWNER=<email>`` (the host-side recovery path) names the owner: that active admin
+      becomes the owner if it is not already.
+    - Otherwise an install from before the owner record, or whose recorded owner never became an active admin
+      (an account still waiting for its verification link), gets its first active admin."""
+    db = _db()
+    try:
+        wanted = os.environ.get("ANTHILL_INSTALL_OWNER", "").strip()
+        if wanted:
+            before = recorded_owner_id(db)
+            target = set_install_owner_by_email(db, wanted)
+            if target is not None:
+                if target.id != before:
+                    db.commit()
+                    if before is not None:
+                        logging.getLogger(__name__).warning(
+                            "ANTHILL_INSTALL_OWNER replaced the recorded install owner (user %s) with user %s; "
+                            "remove the variable once the owner is right",
+                            before,
+                            target.id,
+                        )
+                    audit.log(
+                        db, "install.owner_set_by_host", f"uid={target.id}", org_id=target.org_id
+                    )
+                return
+            logging.getLogger(__name__).warning(
+                "ANTHILL_INSTALL_OWNER names no active admin; falling back to the recorded owner"
+            )
+        new_id = backfill_install_owner(db)
+        if new_id is not None:
+            db.commit()
+            audit.log(
+                db,
+                "install.owner_recorded",
+                f"uid={new_id} source=start-up",
+                org_id=db.query(User.org_id).filter(User.id == new_id).scalar(),
+            )
+    finally:
+        db.close()
+
+
+def _require_install_scope(request: Request, user: dict) -> None:
+    """Allow a change that belongs to the whole install only for the install owner, or, on a server that
+    is not shared, a request from the machine itself. Everyone else, including the admin of another
+    organisation, gets 403."""
+    db = _db()
+    try:
+        if install_scope_allowed(db, request, user):
+            return
+    finally:
+        db.close()
+    raise HTTPException(status_code=403, detail="Only the install owner can do this")
+
+
 @app.on_event("startup")
 def _startup():
     global _scheduler_started
@@ -410,6 +482,10 @@ def _startup():
             _migrate_legacy_personal_wiki()  # fold a legacy single-node personal wiki into per-user
         except Exception:
             pass
+        try:
+            _ensure_install_owner()  # an install from before the owner record: its first admin owns it
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the install owner")
         try:
             _backfill_knowledge_registry()  # index any pre-existing page/skill (#683 phase 7)
         except Exception:
@@ -1412,11 +1488,12 @@ def _oauth_register_first_user(
     )
     db.add(user)
     db.flush()
+    record_first_install_owner(db, user)  # the same transaction as the user insert
     db.add(
         AuditLog(
             org_id=org.id,
             event="user.oauth_register",
-            detail=f"email={email} provider={provider}",
+            detail=f"email={email} provider={provider} install_owner={user.id == recorded_owner_id(db)}",
         )
     )
     return user
@@ -2030,7 +2107,14 @@ def setup_get(request: Request, user=Depends(_current_user)):
     resp = templates.TemplateResponse(
         request,
         "setup.html",
-        {"request": request, "error": "", "setup_step": 1, "is_first_run": is_first_run, **ctx},
+        {
+            "request": request,
+            "error": "",
+            "setup_step": 1,
+            "is_first_run": is_first_run,
+            "signup_closed": not signup_is_open(db, request),
+            **ctx,
+        },
     )
     _set_oauth_state(resp, ctx["oauth_state"])
     return resp
@@ -2055,6 +2139,21 @@ async def setup_post(
     gpu_backend: str = Form("vpc"),  # vpc (own cloud, AWS default) | onprem | endpoint (neocloud)
 ):
     db = _db()
+    if not signup_is_open(db, request):
+        # A server other people can reach: accounts after the first are created by invitation.
+        return templates.TemplateResponse(
+            request,
+            "setup.html",
+            {
+                "request": request,
+                "error": "",
+                "setup_step": 1,
+                "is_first_run": False,
+                "signup_closed": True,
+                **_sso_ctx(),
+            },
+            status_code=403,
+        )
     admin_email = admin_email.strip().lower()
     # Sign-up stays open past the very first account (see setup_get) - so, unlike the original
     # first-run-only version of this form, a duplicate email is now a real, reachable case rather
@@ -2145,6 +2244,8 @@ async def setup_post(
         invite_token=make_invite_token() if verify_required else None,
     )
     db.add(user)
+    db.flush()
+    first_account = record_first_install_owner(db, user)  # the same transaction as the user insert
     session_order = 0
     if not verify_required:
         session_order = _advance_session_order(db, request)
@@ -2153,6 +2254,10 @@ async def setup_post(
             return RedirectResponse("/login", status_code=302)
     db.commit()
     audit.log(db, "org.created", f"org={org_name}", org_id=org.id)
+    if first_account:
+        audit.log(
+            db, "install.owner_recorded", f"uid={user.id} source=first-account", org_id=org.id
+        )
 
     if verify_required:
         verify_url = str(request.base_url) + f"verify/{user.invite_token}"
@@ -3807,6 +3912,7 @@ def profile_hub(request: Request, user: dict = Depends(_require_user)):
             "org": org,
             "account": me,
             "profile": current,
+            "can_manage_profiles": install_scope_allowed(db, request, user),
             "other_count": other_count,
             "saved": request.query_params.get("saved", ""),
             "changed": request.query_params.get("changed") == "1",
@@ -3864,6 +3970,7 @@ def profiles_get(request: Request, user: dict = Depends(_require_user)):
             "request": request,
             "user": user,
             "profiles": items,
+            "can_manage": install_scope_allowed(_db(), request, user),
             "soft_cap": profiles_mod.SOFT_CAP,
             "over_cap": len(items) > profiles_mod.SOFT_CAP,
             "error": _PROFILE_ERRORS.get(request.query_params.get("error", ""), ""),
@@ -3873,11 +3980,14 @@ def profiles_get(request: Request, user: dict = Depends(_require_user)):
 
 @app.post("/profiles")
 def profiles_create(
+    request: Request,
     user: dict = Depends(_require_user),
     name: str = Form(""),
     colour: str = Form(""),
 ):
-    """Create a new isolated profile. Redirects back to /profiles (with an ?error code on failure)."""
+    """Create a new isolated profile. Redirects back to /profiles (with an ?error code on failure).
+    Install owner or this machine only: profiles belong to the device, not to one organisation."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -3892,11 +4002,14 @@ def profiles_create(
 @app.post("/profiles/{profile_id}/edit")
 def profiles_edit(
     profile_id: str,
+    request: Request,
     user: dict = Depends(_require_user),
     name: str = Form(""),
     colour: str = Form(""),
 ):
-    """Rename and/or recolour a profile in place (its id and data never change)."""
+    """Rename and/or recolour a profile in place (its id and data never change). Install owner or this
+    machine only."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -3909,9 +4022,11 @@ def profiles_edit(
 
 
 @app.post("/profiles/{profile_id}/delete")
-def profiles_delete(profile_id: str, user: dict = Depends(_require_user)):
+def profiles_delete(profile_id: str, request: Request, user: dict = Depends(_require_user)):
     """Delete a profile and its data. Guarded: never the default, never the one this backend is
-    running as (you can't pull the data dir out from under the live process)."""
+    running as (you can't pull the data dir out from under the live process). Install owner or this
+    machine only."""
+    _require_install_scope(request, user)
     from .. import profiles as profiles_mod
 
     base = _profiles_base()
@@ -3940,8 +4055,8 @@ async def account_password(
     if not me:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     # Return to whichever page hosted the form (the account page, or the profile hub), never to an
-    # external site: only an internal, single-slash path is honoured.
-    dest = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/account"
+    # external site: only a local path is honoured.
+    dest = _local_or(next_url, "/account")
 
     def reject(error: str) -> RedirectResponse:
         return RedirectResponse(f"{dest}?error={error}", status_code=302)
@@ -5243,6 +5358,8 @@ async def set_role(uid: int, role: str = Form(...), user: dict = Depends(_requir
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if role != "admin" and target.id == install_owner_id(db):
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     target.role = role
     db.commit()
     audit.log(
@@ -5257,6 +5374,8 @@ async def deactivate_user(uid: int, user: dict = Depends(_require_admin)):
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if target.id == install_owner_id(db):
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     db.execute(
         update(User)
         .where(User.id == uid, User.org_id == int(user["org"]))
@@ -5281,6 +5400,9 @@ async def admin_reset_user(request: Request, uid: int, user: dict = Depends(_req
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if target.id == recorded_owner_id(db) and not is_install_owner(db, user):
+        # A reset link signs in as that account: only the install owner may issue one for the owner.
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     if not target.active:
         return RedirectResponse("/users?error=not_active", status_code=302)
     token = _issue_reset(db, target)
@@ -5964,7 +6086,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "profile": (me.profile if me else "") or "",
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
-            "thinking_on": bool(getattr(me, "thinking_on", True)) if me else True,
+            "thinking_on": bool(getattr(me, "thinking_on", False)) if me else False,
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
@@ -6063,10 +6185,10 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     me.auto_memory_off = "memory_on" not in form
     me.web_access_on = (
         "web_access" in form
-    )  # Settings -> Privacy default for web access (a new account starts on; a ticked box keeps it on)
+    )  # Settings -> Privacy default for web access (a new account starts off; a ticked box turns it on)
     me.thinking_on = (
         "thinking_on" in form
-    )  # Settings -> Model default for Thinking (on unless unset)
+    )  # Settings -> Model default for Thinking (a new account starts off; a ticked box turns it on)
     _porg = _require_org(db, user)
     _pcfg = _cfg(db, _porg)
     if not _pcfg:
@@ -7128,10 +7250,22 @@ def _review_event(kind: str, verb: str) -> str:
     return f"{prefix}.{verb}"
 
 
+def _is_local_path(value: str) -> bool:
+    """True only for a path on this site: one leading slash, no scheme or host, no backslash (browsers
+    read ``/\\host`` as ``//host``), and no control characters (a tab or newline inside ``//`` is stripped
+    by some browsers). Anything else is not a safe redirect target."""
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return False
+    if "\\" in value or any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        return False
+    parts = urlsplit(value)
+    return not parts.scheme and not parts.netloc
+
+
 def _local_or(nxt: str, default: str) -> str:
     """Return a caller-supplied `next` redirect target only if it is a safe local path (so the
     suggestions inbox can send the user back to itself after an approve/reject); else the default."""
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
+    return nxt if _is_local_path(nxt) else default
 
 
 @app.post("/wiki/review/{rid}/approve")
@@ -8708,7 +8842,7 @@ def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
         org_mode = False
     return {
         "first_use_notice": {
-            "thinking_on": bool(getattr(me, "thinking_on", True)),
+            "thinking_on": bool(getattr(me, "thinking_on", False)),
             "web_on": bool(getattr(me, "web_access_on", False)),
             "org_mode": org_mode,
             "page": page,
@@ -9234,8 +9368,72 @@ def settings_remote_get(request: Request, user: dict = Depends(_require_admin)):
             "tunnel": tunnel.manager.status(),
             "has_token": bool(cfg.remote_access_token_enc),
             "saved": request.query_params.get("saved") == "1",
+            "is_owner": is_install_owner(db, user),
+            "shared_server": server_is_shared(db),
+            "signup_open": bool(getattr(db.get(InstallSettings, 1), "signup_open", False)),
+            "admins": (
+                db.query(User)
+                .filter(User.role == "admin", User.active.is_(True), User.org_id == user["org"])
+                .order_by(User.id)
+                .all()
+                if is_install_owner(db, user)
+                else []
+            ),
+            "remote_on": any(
+                (c.remote_access_provider or "off") != "off" for c in db.query(OrgSettings).all()
+            ),
+            "my_org_remote_on": (cfg.remote_access_provider or "off") != "off",
+            "in_owner_org": int(user["org"]) == owner_org_id(db),
+            "owner_error": request.query_params.get("error") == "owner",
+            "owner_id": int(user["sub"]),
         },
     )
+
+
+@app.post("/settings/signup")
+async def settings_signup_post(
+    request: Request,
+    signup_open: str = Form(""),
+    user: dict = Depends(_require_admin),
+):
+    """Let anyone who can reach this server create an account (on) or keep sign-up by invitation (off).
+    Only the install owner, because it decides who may join the whole install, not one organisation."""
+    db = _db()
+    if not is_install_owner(db, user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
+    row = settings_row(db)
+    row.signup_open = signup_open == "1"
+    db.commit()
+    audit.log(
+        db,
+        "settings.signup_open" if row.signup_open else "settings.signup_invite_only",
+        "",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse("/settings/remote?saved=1", status_code=302)
+
+
+@app.post("/settings/install-owner")
+async def settings_install_owner_post(
+    new_owner: int = Form(...),
+    user: dict = Depends(_require_admin),
+):
+    """Hand the install to another active admin. Only the current install owner can."""
+    db = _db()
+    if not is_install_owner(db, user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
+    if not transfer_install_owner(db, new_owner):
+        return RedirectResponse("/settings/remote?error=owner", status_code=302)
+    db.commit()
+    audit.log(
+        db,
+        "settings.install_owner_changed",
+        f"uid={new_owner}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse("/", status_code=302)
 
 
 @app.post("/settings/remote")
@@ -9249,12 +9447,24 @@ async def settings_remote_post(
     from .crypto import encrypt
 
     db = _db()
+    owner = is_install_owner(db, user)
+    # Remote access opens the whole install to the network, so only the install owner switches it on or
+    # changes it. An admin of another organisation can only switch their own organisation's setting off, and
+    # that touches nothing but the provider. An admin of the owner's organisation cannot: the owner's row is
+    # the one that keeps the install's tunnel running.
+    if not owner and (remote_access_provider != "off" or int(user["org"]) == owner_org_id(db)):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
     org = _require_org(db, user)
     cfg = _cfg_or_create(db, org)
     cfg.remote_access_provider = remote_access_provider
-    if remote_access_token.strip():  # blank keeps the saved token
-        cfg.remote_access_token_enc = encrypt(remote_access_token.strip())
-    cfg.remote_access_url = remote_access_url.strip()
+    if owner:
+        if remote_access_provider == "off":
+            # The owner's off is install-wide: another organisation's saved setting must not keep the
+            # server open.
+            db.query(OrgSettings).update({OrgSettings.remote_access_provider: "off"})
+        if remote_access_token.strip():  # blank keeps the saved token
+            cfg.remote_access_token_enc = encrypt(remote_access_token.strip())
+        cfg.remote_access_url = remote_access_url.strip()
     db.commit()
     audit.log(
         db,
@@ -9263,13 +9473,21 @@ async def settings_remote_post(
         org_id=org.id,
         user_id=user["sub"],
     )
-    _apply_remote_access(cfg, request)
+    if owner or not any(
+        (c.remote_access_provider or "off") != "off" for c in db.query(OrgSettings).all()
+    ):
+        _apply_remote_access(cfg, request)
+    # else: a non-owner switched their own organisation's setting off while another organisation's is still
+    # on. The one tunnel belongs to the install, so it keeps running; only that organisation's row changed.
     return RedirectResponse("/settings/remote?saved=1", status_code=302)
 
 
 @app.post("/settings/remote/stop")
 async def settings_remote_stop(user: dict = Depends(_require_admin)):
     from ..remote import tunnel
+
+    if not is_install_owner(_db(), user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
 
     tunnel.manager.stop()
     db = _db()
@@ -10181,6 +10399,26 @@ def _annotate_escalation_models(provider: str, models: list[str]) -> list[dict]:
     return out
 
 
+def _discovery_failure_message(provider_name: str, exc: Exception) -> str:
+    """A fixed sentence for a failed model lookup. Only the status code and the kind of failure pick it; the
+    exception text, which can carry a URL or a path, goes to the log and not to the member."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return f"{provider_name} did not accept the key. Check the key and try again."
+    if status == 429:
+        return f"{provider_name} is rate limiting requests. Wait a moment and try again."
+    names = {c.__name__ for c in type(exc).__mro__}
+    if names & {
+        "ConnectError",
+        "ConnectTimeout",
+        "TimeoutException",
+        "ReadTimeout",
+        "TimeoutError",
+    }:
+        return f"Couldn't reach {provider_name}. Check the connection and try again."
+    return f"Couldn't list the models from {provider_name}. Check the key and try again."
+
+
 @app.post("/settings/escalation/discover-models")
 async def settings_escalation_discover_models(
     escalation_provider: str = Form(""),
@@ -10208,7 +10446,8 @@ async def settings_escalation_discover_models(
     try:
         models = ep_mod.list_models(prov["base_url"], api_key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach {prov['name']}: {e}"})
+        logging.getLogger(__name__).warning("provider model discovery failed", exc_info=True)
+        return JSONResponse({"ok": False, "error": _discovery_failure_message(prov["name"], e)})
     audit.log(
         db,
         "settings.escalation_discover_models",
@@ -10511,11 +10750,13 @@ def backend_info(request: Request, user: dict = Depends(_require_admin)):
 
 @app.get("/backup", response_class=HTMLResponse)
 def backup_page(request: Request, user: dict = Depends(_require_admin)):
-    """Admin page: download a full backup, see pre-migration snapshots, restore from a file."""
+    """Admin page: download a full backup, see pre-migration snapshots, restore from a file. A backup covers
+    the whole install, so the controls are shown only to someone who may use them."""
     from .. import backup as bk
 
     db = _db()
     org = _require_org(db, user)
+    can_backup = install_scope_allowed(db, request, user)
     p = bk.data_paths()
     snap_dir = p["home"] / "snapshots"
     snaps = sorted(snap_dir.glob("anthill-*.db"), reverse=True)[:10] if snap_dir.exists() else []
@@ -10526,21 +10767,26 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
             "request": request,
             "user": user,
             "org": org,
-            "data_home": str(p["home"]),
-            "models": _org_model_names(db),
+            "can_backup": can_backup,
+            "data_home": str(p["home"]) if can_backup else "",
+            "models": _org_model_names(db) if can_backup else [],
             "snapshots": [
-                {"name": s.name, "size_mb": round(s.stat().st_size / 1e6, 1)} for s in snaps
+                {"name": s.name, "size_mb": round(s.stat().st_size / 1e6, 1)}
+                for s in (snaps if can_backup else [])
             ],
         },
     )
 
 
 @app.get("/backup/export")
-def backup_export(model: int = 1, user: dict = Depends(_require_admin)):
-    """Build a full backup archive and stream it as a download (temp file cleaned up after send)."""
+def backup_export(request: Request, model: int = 1, user: dict = Depends(_require_admin)):
+    """Build a full backup archive and stream it as a download (temp file cleaned up after send). A backup
+    covers the whole install, not one organisation, so it needs the install owner."""
     from starlette.background import BackgroundTask
 
     from .. import backup as bk
+
+    _require_install_scope(request, user)
 
     db = _db()
     org = _require_org(db, user)
@@ -10564,13 +10810,18 @@ def backup_export(model: int = 1, user: dict = Depends(_require_admin)):
 
 
 @app.post("/backup/restore")
-async def backup_restore(file: UploadFile = File(...), user: dict = Depends(_require_admin)):
+async def backup_restore(
+    request: Request, file: UploadFile = File(...), user: dict = Depends(_require_admin)
+):
     """Restore the uploaded backup archive over this install (a safety copy is taken first).
-    The app must be restarted afterwards - the running process still holds the old DB open."""
+    The app must be restarted afterwards - the running process still holds the old DB open. A restore
+    replaces the whole install, not one organisation, so it needs the install owner."""
     import shutil as _shutil
     import tempfile
 
     from .. import backup as bk
+
+    _require_install_scope(request, user)
 
     db = _db()
     org = _require_org(db, user)
@@ -11395,7 +11646,7 @@ def chat_conv(
             "web_access_on": web_access_on,
             "web_follows_default": web_follows_default,
             "web_default": web_default,
-            "thinking_on_default": bool(getattr(_me, "thinking_on", True)),
+            "thinking_on_default": bool(getattr(_me, "thinking_on", False)),
             **_first_use_notice_ctx(db, int(user["sub"])),
             # An attached inference-provider label (empty when none configured) lets chat.html offer
             # "Ask {Provider} instead" while the local model is still generating (#1 UX follow-up to
@@ -11480,8 +11731,6 @@ async def delete_conversation(conv_id: int, user: dict = Depends(_require_user))
 async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(_require_user)):
     """Toggle whether a conversation is pinned to the top of the chat list. Returns to the page the
     action came from (the rail on any chat, or the history page), preserving its query string."""
-    from urllib.parse import urlparse
-
     db = _db()
     conv = (
         db.query(Conversation)
@@ -11491,12 +11740,7 @@ async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(
     if conv:
         conv.pinned = not conv.pinned
         db.commit()
-    # Only ever redirect to a local path (drop the referer's host) so this cannot be an open redirect.
-    ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else "/chat"
-    if ref.query:
-        dest = f"{dest}?{ref.query}"
-    return RedirectResponse(dest, status_code=302)
+    return _back_to_local(request)
 
 
 @app.post("/chat/{conv_id}/rename")
@@ -11520,12 +11764,11 @@ async def rename_conversation(
 
 
 def _back_to_local(request: Request, fallback: str = "/chat") -> RedirectResponse:
-    """Redirect to the referer's local path + query only (host dropped, so never an open redirect)."""
-    from urllib.parse import urlparse
-
+    """Redirect to the referer's local path + query only (host dropped, so never an open redirect). A path
+    that is not a plain local path (``//host``, a backslash, control characters) falls back."""
     ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else fallback
-    if ref.query:
+    dest = ref.path if _is_local_path(ref.path) else fallback
+    if ref.query and dest == ref.path:
         dest = f"{dest}?{ref.query}"
     return RedirectResponse(dest, status_code=302)
 
@@ -11872,8 +12115,9 @@ async def chat_stream(
         # Intent routing (P1): a plain question streams an answer as usual; a make/do or
         # schedule request returns a *proposal* the user confirms in chat. Explicit
         # agent/web toggles, a confirmed proposal, and redo (prior) all bypass this.
-        # P4 also auto-enables the web for plain questions that clearly need live info, so the
-        # user doesn't have to flip a toggle (it stays available under Options as an override).
+        # The chat's Web search box decides (founder, 2026-10-10): a question that clearly needs live information
+        # no longer turns the web on by itself. The user's own plain-words follow-up ("check the web") below is
+        # an explicit request and still does.
         # An image turn is a question ABOUT the image: force the vision answer path - no web search
         # (the web composer can't see the image), no artifact/schedule proposal, no agent executor.
         web_effective = web and not images_b64
@@ -11888,9 +12132,6 @@ async def chat_stream(
             # Deterministic multi-hop signal; harmful stays on the normal answer path (model safety),
             # never handed the tool-wielding agent.
             agent_auto = _intent.looks_deep(message) and not _intent.looks_harmful(message)
-            if not web and _intent.needs_web_hint(message):
-                web_effective = True
-                auto_web = True
             # Whether to actually search + the query are finalised in the normal-chat branch by
             # intent.decide_web (agent-first: a capable model plans it; otherwise a deterministic
             # rule skips turns spoken to the assistant). Here we only set the preliminary toggle.
@@ -11992,7 +12233,9 @@ async def chat_stream(
                     return
                 # Thinking off reaches the classifier too: it runs before the first word on action-style turns.
                 # Sent only when off, so the call is unchanged (and any substitute classifier still fits) when on.
-                cls = _intent.classify(message, backend, **({} if think else {"think": False}))
+                cls = await run_in_threadpool(
+                    _intent.classify, message, backend, **({} if think else {"think": False})
+                )
                 if cls.get("harmful"):
                     # Protected safety path: a harmful create request is refused HERE, at intent
                     # routing - never routed to the create-artifact ("do") proposal, which would
@@ -12023,7 +12266,9 @@ async def chat_stream(
 
                     try:
                         # Thinking off reaches this second structured call too (sent only when off).
-                        draft = parse_task(message, backend, **({} if think else {"think": False}))
+                        draft = await run_in_threadpool(
+                            parse_task, message, backend, **({} if think else {"think": False})
+                        )
                     except Exception:
                         draft = {}
                     proposal = {
@@ -12208,7 +12453,9 @@ async def chat_stream(
                 if not prior:  # a redo already carries its own augmented prompt
                     from ..agent import intent as _intent
 
-                    web_effective, search_query = _intent.decide_web(
+                    # The planner is a model call: run it off the event loop so the server stays responsive.
+                    web_effective, search_query = await run_in_threadpool(
+                        _intent.decide_web,
                         message,
                         history,
                         backend,
@@ -12275,7 +12522,7 @@ async def chat_stream(
                     is_org=is_org,
                 )
                 from ..cache import DEFAULT_THRESHOLD, SemanticCache
-                from ..wiki.ask import ask_stream  # `ask` is imported above in this branch
+                from ..wiki.ask import Stage, ask_stream  # `ask` is imported above in this branch
 
                 try:
                     # Read the org's live cache_threshold (a raise to e.g. 1.01 must disable the cache
@@ -12290,8 +12537,9 @@ async def chat_stream(
 
                 # A cache hit short-circuits (instant). The plain local-generate path then streams REAL
                 # tokens (Fix b: true TTFT, and never a long zero-byte window that the client times out
-                # on). The richer ask() branches - vision, web blend, org central index, cloud
-                # escalation - stay on the blocking call; they are not the hang and need ask()'s logic.
+                # on). A web-search turn streams too: ask_stream yields Stage markers (searching, reading,
+                # writing) and then the answer. The richer ask() branches - vision, org central index, cloud
+                # escalation - stay on the blocking call, which now runs off the event loop.
                 from ..wiki.ask import has_injection_imperative
 
                 org_url = os.environ.get("ANTHILL_ORG_URL", "")
@@ -12300,11 +12548,7 @@ async def chat_stream(
                 # check the answer for a hijack and re-run the hardened prompt BEFORE it is shown (a
                 # streamed answer can't be un-said once the tokens are out). See the injection finding.
                 can_stream = not (
-                    images_b64
-                    or web_effective
-                    or cloud_on
-                    or org_url
-                    or has_injection_imperative(effective_message)
+                    images_b64 or cloud_on or org_url or has_injection_imperative(effective_message)
                 )
                 # Privacy: never send the personal profile to the org model, and never serve or store
                 # a team-/profile-personalized answer in the SHARED org-plane cache - it would leak
@@ -12313,13 +12557,25 @@ async def chat_stream(
                 org_cache_shared = not plane_inf.use_personal_context
                 profile_used = profile if plane_inf.use_personal_context else ""
                 skip_shared_cache = org_cache_shared and (bool(extra_ws) or bool(profile_used))
+                if web_effective:
+                    # A turn that searches the web is answered fresh: a cached answer must not stand in for the
+                    # search, and a web answer is never stored (ask() and ask_stream() skip the store).
+                    skip_shared_cache = True
 
                 hit = None
                 if not images_b64 and not skip_shared_cache:
                     try:
-                        hit = SemanticCache(db_path=ws.root / ".cache", threshold=cache_thr).lookup(
-                            effective_message
-                        )
+                        # A bare greeting or thank-you is never served from the cache: an entry stored before
+                        # small talk stopped being grounded would replay an answer with unrelated pages as
+                        # its sources.
+                        from ..agent.intent import is_acknowledgement_reply, is_small_talk
+
+                        if not is_small_talk(effective_message, history) and not (
+                            is_acknowledgement_reply(effective_message, history)
+                        ):
+                            hit = SemanticCache(
+                                db_path=ws.root / ".cache", threshold=cache_thr
+                            ).lookup(effective_message)
                     except Exception:
                         hit = None
 
@@ -12352,6 +12608,8 @@ async def chat_stream(
                             provider_available=_provider_available,
                             # Only an explicit "off" is sent; on leaves the choice to the model.
                             think=None if think else False,
+                            web_search=web_effective,
+                            search_query=search_query,
                         )
                     ):
                         # The client abandons this EventSource when "Ask {Provider} instead" fires
@@ -12365,11 +12623,19 @@ async def chat_stream(
                         if await request.is_disconnected():
                             _client_abandoned_this_turn = True
                             break
+                        if isinstance(
+                            token, Stage
+                        ):  # progress of a web turn, not part of the answer
+                            yield f"data: {json.dumps({'meta': {'stage': token.name, 'count': token.count}})}\n\n"
+                            continue
                         full_response.append(token)
                         yield f"data: {json.dumps({'token': token})}\n\n"
                     slugs = grabbed
                 else:
-                    answer, slugs, cache_hit = ask(
+                    # The blocking path (image, cloud, organisation server, injection-suspect question) is a
+                    # long model call: run it off the event loop so one slow turn does not stall the server.
+                    answer, slugs, cache_hit = await run_in_threadpool(
+                        ask,
                         ws,
                         effective_message,
                         backend,
@@ -13044,10 +13310,15 @@ async def chat_download(
     out = _files_dir(_files_owner(user)) / _safe_name(doc_title, fmt, ["." + fmt])
     try:
         create(text, fmt, out, title=doc_title)
-    except ImportError as e:  # an optional office lib (docx) isn't installed
-        return JSONResponse({"error": str(e)}, status_code=500)
-    except Exception as e:
-        return JSONResponse({"error": f"could not create the document: {e}"}, status_code=500)
+    except ImportError:  # an optional office lib (docx) isn't installed
+        logging.getLogger(__name__).exception("document export needs a missing library")
+        return JSONResponse(
+            {"error": "this format needs an optional library that is not installed on this server"},
+            status_code=500,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("document export failed")
+        return JSONResponse({"error": "could not create the document"}, status_code=500)
     db = _db()
     audit.log(
         db,
@@ -13678,6 +13949,9 @@ def skills_page(request: Request, user: dict = Depends(_require_user)):
     owned_team_ids = {t.id for t in teams}
     # enrich each loaded skill with its scope's delete target + whether this user may edit it
     enriched = []
+    # The built-in skills are shared by the whole install, so deleting one follows the same rule as the
+    # route: the install owner, or someone on the machine itself on a server that is not shared.
+    can_delete_builtin = is_admin and install_scope_allowed(db, request, user)
     for sk in load_skills(scoped=[(tier, ws) for tier, _label, ws in scoped]):
         tid = None
         if sk.tier == "personal":
@@ -13701,6 +13975,7 @@ def skills_page(request: Request, user: dict = Depends(_require_user)):
                 "tier": sk.tier,
                 "team_id": tid,
                 "can_edit": can_edit,
+                "can_delete": can_delete_builtin if sk.tier == "builtin" else can_edit,
                 "scopes": sk.scopes,
             }
         )
@@ -14350,9 +14625,12 @@ async def skills_delete(
     db = _db()
     org = _require_org(db, user)
     safe = os.path.basename(slug)
-    if scope == "builtin":  # the global starter skills (admin-managed)
+    if scope == "builtin":  # the starter skills every organisation on this install shares
         if user.get("role") != "admin":
             raise HTTPException(status_code=403)
+        _require_install_scope(
+            request, user
+        )  # shared by the whole install: its owner, or this machine
         from ..agent.skills import skills_dir
 
         base = skills_dir().resolve()
@@ -14866,15 +15144,20 @@ def _task_visible(db, task_id: int, org, user):
     return None
 
 
+def _task_writable(task, user) -> bool:
+    """Creator, or an admin for an org-plane task. Shared viewers and project operators are not writers."""
+    return task.created_by == int(user["sub"]) or (
+        task.plane == "org" and user.get("role") == "admin"
+    )
+
+
 def _task_for_write(db, task_id: int, org, user):
-    """The task the user may MODIFY (edit / cancel): its creator, or an admin for an org-plane task.
-    Mirrors _agent_for_write."""
+    """The task the user may MODIFY (edit / cancel / acknowledge a result): its creator, or an admin
+    for an org-plane task. Mirrors _agent_for_write."""
     t = _task_in_org(db, task_id, org)
-    if t is None:
+    if t is None or not _task_writable(t, user):
         return None
-    if t.created_by == int(user["sub"]) or (t.plane == "org" and user.get("role") == "admin"):
-        return t
-    return None
+    return t
 
 
 def _task_for_operate(db, task_id: int, org, user):
@@ -15060,6 +15343,7 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             # #278: only offer the per-task escalation checkbox when there's actually something to
             # escalate to - otherwise it's a setting that can't do anything.
             "escalation_available": _escalation_available(db, org),
+            "review_actions": _list_review_actions(db, tasks, user),
         },
     )
 
@@ -15322,6 +15606,191 @@ def review_task_cadence(task_id: int, user: dict = Depends(_require_user)):
     return RedirectResponse("/tasks", status_code=302)
 
 
+def _task_review_serializer():
+    """Signs the Mark reviewed form so a cross-site post cannot forge it. Same idea as the Slack
+    OAuth state: a timed signature over the acting user and the exact result, no server-side store."""
+    from itsdangerous import URLSafeTimedSerializer
+
+    from .crypto import _JWT_SECRET
+
+    return URLSafeTimedSerializer(_JWT_SECRET, salt="task-result-review")
+
+
+def _task_review_token(user_id: int, task_id: int, run_id: int) -> str:
+    return _task_review_serializer().dumps(
+        {"uid": int(user_id), "task": int(task_id), "run": int(run_id)}
+    )
+
+
+def _task_review_token_ok(token: str, user_id: int, task_id: int, run_id: int) -> bool:
+    from itsdangerous import BadSignature, SignatureExpired
+
+    try:
+        data = _task_review_serializer().loads(token, max_age=SESSION_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return False
+    return (
+        data.get("uid") == int(user_id)
+        and data.get("task") == int(task_id)
+        and data.get("run") == int(run_id)
+    )
+
+
+def _latest_completed_runs(db, task_ids: list[int]) -> dict[int, TaskRun]:
+    """Newest completed run per task, by id. A higher id is a later claim, which is how a review
+    decides whether a newer result now owns the list warning."""
+    if not task_ids:
+        return {}
+    from sqlalchemy import func
+
+    latest = (
+        db.query(TaskRun.task_id, func.max(TaskRun.id).label("max_id"))
+        .filter(TaskRun.task_id.in_(task_ids), TaskRun.status != "running")
+        .group_by(TaskRun.task_id)
+        .subquery()
+    )
+    rows = db.query(TaskRun).join(latest, TaskRun.id == latest.c.max_id).all()
+    return {row.task_id: row for row in rows}
+
+
+def _review_target_run_id(task, latest: TaskRun | None) -> int | None:
+    """Run id whose acknowledgement may clear the list warning. 0 is a legacy flag with no run."""
+    if not task.verify_needs_review:
+        return None
+    if latest is None:
+        return 0
+    if latest.verify_needs_review:
+        return latest.id
+    return None
+
+
+def _list_review_actions(db, tasks, user) -> dict[int, dict]:
+    writable = [task for task in tasks if task.verify_needs_review and _task_writable(task, user)]
+    if not writable:
+        return {}
+    latest = _latest_completed_runs(db, [task.id for task in writable])
+    uid = int(user["sub"])
+    actions = {}
+    for task in writable:
+        run_id = _review_target_run_id(task, latest.get(task.id))
+        if run_id is None:
+            continue
+        actions[task.id] = {
+            "run_id": run_id,
+            "token": _task_review_token(uid, task.id, run_id),
+        }
+    return actions
+
+
+def _acknowledge_task_result(db, task, run_id: int, user_id: int) -> bool:
+    """Record who reviewed a flagged result. Clear the list warning only if that result still owns it.
+
+    The verifier columns are not rewritten. A newer completed run that lands between the page render
+    and this update keeps its own warning: the clear is one statement that re-checks that no later
+    completed run exists.
+    """
+    now = datetime.now(timezone.utc)
+    uid = int(user_id)
+    if run_id == 0:
+        completed = (
+            db.query(TaskRun.id)
+            .filter(TaskRun.task_id == task.id, TaskRun.status != "running")
+            .exists()
+        )
+        cleared = (
+            db.query(ScheduledTask)
+            .filter(
+                ScheduledTask.id == task.id,
+                ScheduledTask.verify_needs_review.is_(True),
+                ~completed,
+            )
+            .update(
+                {
+                    ScheduledTask.verify_needs_review: False,
+                    ScheduledTask.result_reviewed_by: uid,
+                    ScheduledTask.result_reviewed_at: now,
+                },
+                synchronize_session=False,
+            )
+        )
+        return bool(cleared)
+
+    recorded = (
+        db.query(TaskRun)
+        .filter(
+            TaskRun.id == run_id,
+            TaskRun.task_id == task.id,
+            TaskRun.verify_needs_review.is_(True),
+            TaskRun.status != "running",
+            TaskRun.reviewed_at.is_(None),
+        )
+        .update(
+            {TaskRun.reviewed_by: uid, TaskRun.reviewed_at: now},
+            synchronize_session=False,
+        )
+    )
+    newer = (
+        db.query(TaskRun.id)
+        .filter(
+            TaskRun.task_id == task.id,
+            TaskRun.status != "running",
+            TaskRun.id > run_id,
+        )
+        .exists()
+    )
+    still_flagged = (
+        db.query(TaskRun.id)
+        .filter(
+            TaskRun.id == run_id,
+            TaskRun.task_id == task.id,
+            TaskRun.verify_needs_review.is_(True),
+            TaskRun.status != "running",
+        )
+        .exists()
+    )
+    cleared = (
+        db.query(ScheduledTask)
+        .filter(
+            ScheduledTask.id == task.id,
+            ScheduledTask.verify_needs_review.is_(True),
+            still_flagged,
+            ~newer,
+        )
+        .update({ScheduledTask.verify_needs_review: False}, synchronize_session=False)
+    )
+    return bool(recorded or cleared)
+
+
+@app.post("/tasks/{task_id}/review-result")
+def review_task_result(
+    task_id: int,
+    request: Request,
+    run_id: int = Form(0),
+    csrf_token: str = Form(""),
+    user: dict = Depends(_require_user),
+):
+    """Acknowledge a flagged result. Writers only; the signed token binds the exact run."""
+    db = _db()
+    org = _require_org(db, user)
+    if _task_visible(db, task_id, org, user) is None:
+        raise HTTPException(status_code=404)
+    task = _task_for_write(db, task_id, org, user)
+    if task is None:
+        raise HTTPException(status_code=403)
+    if not _task_review_token_ok(csrf_token, int(user["sub"]), task.id, run_id):
+        raise HTTPException(status_code=403)
+    if _acknowledge_task_result(db, task, run_id, int(user["sub"])):
+        audit.log(
+            db,
+            "task.result_reviewed",
+            f"id={task.id} run={run_id}",
+            org_id=org.id,
+            user_id=int(user["sub"]),
+            ip=request.client.host if request.client else "",
+        )
+    return _back_to_local(request, fallback=f"/tasks/{task.id}/result")
+
+
 @app.post("/tasks/create")
 async def create_task(
     request: Request,
@@ -15491,7 +15960,10 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     # default fills the None that task_occurrences passes), so it already sorts as the newest. A stored NULL,
     # which the app does not create, is ordered first as well, as a guard. `id` breaks ties between runs
     # that finished at the same instant, so in a history that is not changing each run appears exactly
-    # once. Paging is by offset: a run that finishes between two page loads shifts the later pages by one.
+    # once. Paging is by offset, like the Tasks list. A task has at most one running run (a task with a running
+    # run is never claimed again, see task_occurrences.claim), and a run's row is created when it is claimed, so
+    # it is already the newest and finishing moves no row. Only a claim between two page loads (a scheduled
+    # run, or a manual Run now) adds a row and shifts the later pages by one.
     # The total counts the recorded runs themselves, not the task's run_count, which can differ for tasks
     # that ran before history was kept.
     history_q = db.query(TaskRun).filter(TaskRun.task_id == task.id)
@@ -15511,6 +15983,38 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     live = bool(
         db.query(TaskRun.id).filter(TaskRun.task_id == task.id, TaskRun.status == "running").first()
     )
+    latest_completed = _latest_completed_runs(db, [task.id]).get(task.id)
+    can_write = _task_writable(task, user)
+    review_tokens: dict[int, str] = {}
+    legacy_review_token = ""
+    if can_write:
+        uid = int(user["sub"])
+        flagged_runs = [
+            run
+            for run in runs
+            if run.verify_needs_review and run.reviewed_at is None and run.status != "running"
+        ]
+        if (
+            latest_completed is not None
+            and latest_completed.verify_needs_review
+            and latest_completed.reviewed_at is None
+            and latest_completed not in flagged_runs
+        ):
+            flagged_runs.append(latest_completed)
+        review_tokens = {run.id: _task_review_token(uid, task.id, run.id) for run in flagged_runs}
+        if latest_completed is None and task.verify_needs_review:
+            legacy_review_token = _task_review_token(uid, task.id, 0)
+    reviewer_ids = {run.reviewed_by for run in runs if run.reviewed_by}
+    if latest_completed is not None and latest_completed.reviewed_by:
+        reviewer_ids.add(latest_completed.reviewed_by)
+    if task.result_reviewed_by:
+        reviewer_ids.add(task.result_reviewed_by)
+    reviewer_labels = {}
+    if reviewer_ids:
+        for row in db.query(User.id, User.display_name, User.email).filter(
+            User.id.in_(reviewer_ids)
+        ):
+            reviewer_labels[row.id] = row.display_name or row.email or f"user {row.id}"
     return templates.TemplateResponse(
         request,
         "task_result.html",
@@ -15521,6 +16025,11 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
             "task": task,
             "runs": runs,
             "live": live,
+            "can_write": can_write,
+            "latest_completed": latest_completed,
+            "review_tokens": review_tokens,
+            "legacy_review_token": legacy_review_token,
+            "reviewer_labels": reviewer_labels,
             "history_total": history_total,
             "history_page": history_page,
             "history_pages": history_pages,

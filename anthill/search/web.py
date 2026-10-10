@@ -307,35 +307,44 @@ def enrich_wiki_page(
     return updated
 
 
-def search_and_answer(
+def read_pages(results: list[SearchResult]) -> None:
+    """Fetch the first part of each result page into ``result.body`` (never raises). Split out of
+    ``web_search(fetch_bodies=True)`` so a streamed turn can tell the user it is reading the pages."""
+    for r in results:
+        r.body = _fetch_body(r.url)
+
+
+def drop_injected(results: list[SearchResult]) -> tuple[list[SearchResult], int]:
+    """Leave out a result whose text (as it would go into the prompt) carries an instruction-override
+    pattern, and say how many were left out. A streamed answer cannot be taken back once the words are out,
+    and the blocking path's output check does not look at web text, so a hostile page is kept out of the
+    prompt instead of being trusted to the model."""
+    from ..wiki.ask import has_injection_imperative
+
+    kept = [r for r in results if not has_injection_imperative(_result_line(r))]
+    return kept, len(results) - len(kept)
+
+
+def _result_line(r: SearchResult) -> str:
+    return f"[{r.title}]({r.url}): {r.snippet} {r.body[:300]}"
+
+
+def web_messages(
     question: str,
+    results: list[SearchResult],
     *,
     backend,
     wiki_context: str = "",
     memory_context: str = "",
-    max_results: int = 5,
-    history: list[tuple[str, str]]
-    | None = None,  # prior (role, content) turns of THIS conversation
-    search_query: str = "",  # what to actually search for; defaults to the question
-) -> str:
-    """Answer a question using both the wiki and live web results.
-
-    Used when the wiki doesn't have the answer and internet enrichment is enabled, and when the user
-    asks to "redo with web search" on a previous answer. In that redo case ``question`` carries the
-    earlier answer to improve, so ``search_query`` is passed separately - the CLEAN original question -
-    to keep the web search on topic (searching the augmented blob made the results drift). ``history``
-    gives the follow-up the memory of the conversation.
-    """
+    history: list[tuple[str, str]] | None = None,
+) -> list:
+    """The messages for a web-grounded answer: the wiki (primary source), the fenced web results
+    (secondary, for current information), the memory, the earlier turns and the question. Fitted to the
+    model's window (#109). Shared by the blocking ``search_and_answer`` and the streamed answer."""
     from ..inference.base import Message
     from ..wiki.prompts import UNTRUSTED_DATA_RULE
 
-    results = web_search(search_query or question, max_results=max_results, fetch_bodies=True)
-    web_ctx = (
-        "\n\n".join(
-            f"[{r.title}]({r.url}): {r.snippet} {r.body[:300]}" for r in results if r.snippet
-        )
-        or "(no web results found)"
-    )
+    web_ctx = "\n\n".join(_result_line(r) for r in results if r.snippet) or "(no web results found)"
 
     system = (
         "Answer the question using the organization wiki (primary source) "
@@ -361,9 +370,64 @@ def search_and_answer(
     )
     user_parts.append(f"QUESTION: {question}")
 
+    # Fit the prompt to the model's window (#109): the wiki context and the older turns give way first; the
+    # system message, the memory, the web results and the question stay. A prompt that fits is unchanged.
+    from ..inference.context import known_window
+    from ..inference.fit import cost, fit_prompt
+
+    window = known_window(backend)
+    if window and wiki_context:
+        fixed = system + "\n\n".join(p for p in user_parts if not p.startswith("WIKI CONTEXT:\n"))
+        wiki_context, history = fit_prompt(
+            fixed_cost=cost(fixed) + cost("WIKI CONTEXT:\n"),
+            reference=wiki_context,
+            history=list(history or []),
+            window=window,
+        )
+        user_parts = [
+            (f"WIKI CONTEXT:\n{wiki_context}" if p.startswith("WIKI CONTEXT:\n") else p)
+            for p in user_parts
+        ]
+        if not wiki_context:
+            user_parts = [p for p in user_parts if p != "WIKI CONTEXT:\n"]
     messages = [Message("system", system)]
     for role, content in history or []:
         r = role if role in ("user", "assistant", "system") else "user"
         messages.append(Message(r, content))
     messages.append(Message("user", "\n\n".join(user_parts)))
+    return messages
+
+
+def search_and_answer(
+    question: str,
+    *,
+    backend,
+    wiki_context: str = "",
+    memory_context: str = "",
+    max_results: int = 5,
+    history: list[tuple[str, str]]
+    | None = None,  # prior (role, content) turns of THIS conversation
+    search_query: str = "",  # what to actually search for; defaults to the question
+) -> str:
+    """Answer a question using both the wiki and live web results.
+
+    Used when the wiki doesn't have the answer and internet enrichment is enabled, and when the user
+    asks to "redo with web search" on a previous answer. In that redo case ``question`` carries the
+    earlier answer to improve, so ``search_query`` is passed separately - the CLEAN original question -
+    to keep the web search on topic (searching the augmented blob made the results drift). ``history``
+    gives the follow-up the memory of the conversation.
+
+    The answer comes back whole. The chat page uses ``ask_stream(web_search=True)`` instead, which runs the
+    same steps (``web_search``, ``read_pages``, ``drop_injected``, ``web_messages``) and streams the answer.
+    """
+    results = web_search(search_query or question, max_results=max_results, fetch_bodies=True)
+    results, _left_out = drop_injected(results)  # the same rule as the streamed answer
+    messages = web_messages(
+        question,
+        results,
+        backend=backend,
+        wiki_context=wiki_context,
+        memory_context=memory_context,
+        history=history,
+    )
     return backend.chat(messages)

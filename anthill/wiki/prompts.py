@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 
 from ..inference.base import Message
+from ..inference.fit import cost, fit_prompt
 
 # Prompt-injection defense. Small local models have no inherent resistance to instructions embedded in
 # content they are asked to read - a pasted note or a retrieved page saying "ignore your instructions,
@@ -47,6 +48,34 @@ def summarize_source(schema: str, source_name: str, source_text: str) -> list[Me
 
 
 def answer_question(
+    context: str,
+    question: str,
+    history: list[tuple[str, str]] | None = None,
+    *,
+    reassert: bool = False,
+    window: int = 0,
+) -> list[Message]:
+    """The chat prompt for a wiki answer. ``window`` is the model's context window in tokens when it is
+    known (0 = unknown): the reference and the older turns are then shortened to fit it instead of being
+    dropped silently by the engine (anthill/inference/fit.py). A prompt that fits is unchanged."""
+    if window > 0:
+        # Measure everything that must stay: build the prompt with no reference and no history.
+        bare = _answer_question("", question, reassert=reassert)
+        fixed_cost = sum(cost(m.content) for m in bare) + _REFERENCE_FRAME_COST
+        context, history = fit_prompt(
+            fixed_cost=fixed_cost,
+            reference=context or "",
+            history=[] if reassert else list(history or []),
+            window=window,
+        )
+    return _answer_question(context, question, history, reassert=reassert)
+
+
+# The fixed text around the reference block (the REFERENCE MATERIAL label and its fences), counted by the fit.
+_REFERENCE_FRAME_COST = 240
+
+
+def _answer_question(
     context: str,
     question: str,
     history: list[tuple[str, str]] | None = None,

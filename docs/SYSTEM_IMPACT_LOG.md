@@ -32,6 +32,48 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 **User-visible:** yes: Run now or choose a future date/time; editing preserves the task timezone and seconds, with inline validation errors.
 **Footprint:** additive; ambiguous and nonexistent DST times are rejected, and active scheduled one-shots cannot be rescheduled until they finish. Chat and recurring scheduling are unchanged.
 
+### PR #102 - Tasks: render results as safe Markdown and page the run history - merged 2026-10-09
+**System impact:** a task's result is now shown as formatted Markdown (headings, lists, tables, links, code) cleaned with a strict allow-list: no images (they show as links, nothing is fetched), forms, styles, ids or `#` links, links only to same-site paths, `http(s):` and `mailto:`, and "Save as snippet" still sends the stored text. The run history is paged and states the real run counts. Results come from unattended tasks and are shown to everyone who can see the task, so the policy keeps injected output from loading remote content or changing the page.
+**Surface:** `anthill/web/templates/task_result.html`, `anthill/web/app.py`, `docs/specs/89-task-result-markdown.md`, `docs/specs/96-task-run-history-pagination.md`, browser and unit tests.
+**User-visible:** yes: task results read as formatted text and long histories page. A doubled `\uXXXX` escape in a result stays visible as an escape with one backslash, because Markdown reads a doubled backslash as one (the Unicode decoder was dropped after review).
+**Footprint:** additive; no schema change. It merged with the advisory ASDD review red (it objected to the new dependencies, offset paging, reliance on scripts and, in an earlier round, the Unicode decoder), and the founder merged it with that review red. Offset paging can shift the later pages by one when a run is claimed between two page loads (a run's row is created at claim and is already the newest).
+
+### PR #104 - Chat: render answers under a strict Markdown policy, no remote images - merged 2026-10-08
+**System impact:** chat answers are cleaned with a strict allow-list, and only `/files/<name>` on this app can be an image, so injected text can no longer make the browser load an image from another site or hit an app route (such as `/logout`). File links are linkified before sanitising and nothing edits the HTML afterwards; the preview button is built with DOM calls.
+**Surface:** `anthill/web/templates/chat.html`, `docs/specs/chat-markdown-policy.md`, `tests/browser/test_chat_markdown.py`.
+**User-visible:** yes: images from other sites in answers now show as links; a table column's alignment attribute is kept but the page forces left alignment.
+**Footprint:** additive; closes a data-exfiltration path found in review. The inline previews are still built from a string, safe only because the address is checked first.
+
+### PR #103 - fix(chat): declare the previewable file types before the first preview pass - merged 2026-10-08
+**System impact:** reopening a chat whose history links a `/files/` path no longer throws at start-up (a variable was read before it was assigned), so previews appear and the message input is set up.
+**Surface:** `anthill/web/templates/chat.html`, `docs/specs/chat-history-file-links.md`, a browser test.
+**User-visible:** yes: such chats load and can be used again.
+**Footprint:** additive fix; a one-line move plus a test that fails without it.
+
+### PR #101 - Chat: Thinking button, per-chat Thinking and web choices, defaults in Settings - merged 2026-10-08
+**System impact:** chat gets a Thinking button and a per-chat web search choice, with defaults in Settings and a one-time notice. Both start on for new accounts, existing accounts keep their web value. Turning Thinking off asks a model running on this machine to skip hidden thinking in the answer, the intent classifier, the history summariser and the task parser, so the first word shows sooner. The web-search planner now never thinks, for every user, whatever the toggle says.
+**Surface:** `anthill/web/templates/chat.html`, `anthill/web/app.py` (including the new `POST /settings/chat-defaults` route and the `think` parameter of the chat stream route), `anthill/agent/intent.py`, `anthill/agent/taskgen.py`, `anthill/common/jsonchat.py`, `anthill/wiki/ask.py`, `anthill/web/db.py` (two new columns), `anthill/web/templates/_first_use_notice.html`, the Settings page, user guide and specs.
+**User-visible:** yes: a Thinking button, new Settings rows and a first-use notice. Only models running on this machine are affected; models that always think ignore it.
+**Footprint:** migration (two columns added with defaults); web search is now on by default for new accounts only.
+
+### PR #100 - Wiki: keep a persistent page-vector index, built before the first question - merged 2026-10-08
+**System impact:** each wiki page is embedded once and its vector kept in an index file; a page is re-embedded only when its text or the model changes. The index is built in the background at app start and when a page is saved, so a question to a 60-page wiki ranks in about 2 milliseconds with a warm index instead of about 10 seconds (the PR's own measurement with the real `bge-m3`). Which pages are picked does not change.
+**Surface:** `anthill/wiki/page_index.py`, `anthill/cache/page_vectors.py`, `anthill/wiki/ask.py`, `anthill/wiki/workspace.py`, `anthill/web/app.py` (start-up hook), spec and tests.
+**User-visible:** yes: wiki questions answer faster.
+**Footprint:** additive; the index is a disposable cache that is backed up with the wiki. Until the warm-up has run, a question embeds the pages that are still missing; with no embedding model nothing changes.
+
+### PR #86 - deps: docs-site shell-quote 1.10.0 to 1.12.0 - merged 2026-10-06
+**System impact:** the docs site's `shell-quote` moves to the patched version, replacing Dependabot's own PR, which cannot pass intake. Docs site only, not shipped in the app.
+**Surface:** `docs-site/package-lock.json`.
+**User-visible:** no: internal only.
+**Footprint:** additive; three lines.
+
+### PR #85 - windows: close the app politely in the installer check - merged 2026-10-06
+**System impact:** the Windows installer check now waits for the app window to show and then repeats the close request, instead of sending it once straight after the backend answers (a plain `taskkill` only reaches a visible window). The update check already did this, and both now share one helper, `close_politely`. The check had failed intermittently.
+**Surface:** `scripts/windows_installer_check.py`, `scripts/windows_update_check.py`, `tests/test_windows_installer_check.py`, `docs/SYSTEM_IMPACT_LOG.md` (the #83 entry).
+**User-visible:** no: CI scripts only.
+**Footprint:** refactor of a test helper; no app change.
+
 ### PR #83 - deps and ci: patched libraries, SBOM built from the lock, pinned actions, browser check in the beta lane - merged 2026-10-06
 **System impact:** the packaged app is now built from a lock that matches `pyproject.toml`: 17 missing packages added (notably `sigstore`, which the signed model catalog check needs) and 36 unused ones dropped (the torch tree, `scikit-learn`, `scipy` and others). Seven shipped libraries moved to patched versions (`pypdf`, `pyjwt`, `cryptography`, `urllib3`, `anyio`, `h2`, `soupsieve`), `rustls` in the desktop shell and four docs-site libraries too, and the audit workflows no longer carry the old `ecdsa` exception. The SBOM is built from the same lock, `ci.yml`, `supply-chain.yml` and `sbom.yml` use pinned actions, and Cut Beta and Promote Beta now refuse a commit with a red `browser` check.
 **Surface:** `requirements.lock`, `src-tauri/Cargo.lock`, `docs-site/package.json` and `package-lock.json`, `scripts/beta_release.py`, `scripts/build-sidecar.sh` (comment only), `tests/test_beta_release_lane.py`, and the workflows `ci`, `supply-chain`, `sbom`, `pr-validation`, `security-audit` and `desktop-promote` (a comment) under `.github/workflows/`; `.github/workflows/changelog-fragment.yml` is deleted. Two new specs, four amended, two changelog fragments.
@@ -86,6 +128,30 @@ and used (spec section 5).
 `openspec/changes/beta-release-lane/`.
 **User-visible:** no: nothing changes for the live app; the beta is a separate app for testers.
 **Footprint:** additive; one tag-filter change on the stable workflows (stable tags still fire them) and one small change to how the data folder is named (the live app's folder is the same).
+### PR #82 - Session tokens use PyJWT instead of python-jose - merged 2026-10-06
+**System impact:** login session tokens are signed and checked with PyJWT (HS256 only, 10 seconds of clock tolerance) instead of `python-jose`, which had a CVE with no fix. Existing tokens stay valid, so nobody is signed out, and the dependency audit no longer fails on every PR.
+**Surface:** `anthill/web/crypto.py`, `anthill/web/app.py` (import), `pyproject.toml`, `requirements.lock`, `tests/test_session_token_pyjwt.py`.
+**User-visible:** no: no one is signed out.
+**Footprint:** refactor; `python-jose`, `ecdsa`, `rsa` removed (`pyasn1` returned later through `sigstore`, see PR #83).
+
+### PR #80 - ci: build the Windows sidecar once and share it - merged 2026-10-06
+**System impact:** three Windows workflows that each rebuilt the backend are now one workflow, Windows CI, that builds and smoke-tests the sidecar once and shares it with the backend, installer and update jobs; a first job runs only the jobs a change needs. The installer cleanup now kills `anthill-desktop.exe`.
+**Surface:** `.github/workflows/windows-ci.yml`, `scripts/windows_ci_areas.py`, tests.
+**User-visible:** no: CI only.
+**Footprint:** refactor; the Windows installer job is intermittent (see PR #85).
+
+### PR #78 - Catalog publish step adds only the catalog and its signature - merged 2026-10-06
+**System impact:** the daily model-catalog job publishes only `model-catalog.json` and its signature to the deploy repo and stops before committing if anything else is staged. It had mirrored a whole folder with `rsync --delete` and wiped the live landing site on 2026-10-04.
+**Surface:** `.github/workflows/refresh-model-catalog.yml`, `tests/test_catalog_publish_keeps_the_site.py`, `docs/specs/model-catalog-trust.md`.
+**User-visible:** no: the website no longer disappears.
+**Footprint:** additive guard; what clients verify does not change.
+
+### PR #77 - platform: Windows phase C3, prove the app updates itself - merged 2026-10-06
+**System impact:** a new Windows CI check, named Windows update, builds two installers (0.9.1 and 0.9.2) with a throwaway update-signing key, serves a local update feed and requires that the old app finds, downloads and installs the new version and that nothing is left running after a normal close. It uses no real signing key and no real feed.
+**Surface:** `.github/workflows/windows-update.yml` (later folded into Windows CI), `scripts/windows_update_check.py`.
+**User-visible:** no: CI proof only.
+**Footprint:** additive; no app change.
+
 ### PR #58 - Chat folders are gone: a project is the one way to group chats - merged 2026-10-03
 **System impact:** a chat is now grouped one way only, by project. The standalone folder (a bare "+ New folder"
 box, your own chats only) is removed, so a project created from the Projects page no longer goes missing in the

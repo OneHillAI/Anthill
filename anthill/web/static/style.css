@@ -33,6 +33,11 @@
   --primary:#2F6B4F; --primary-dk:#255A41;
   --danger:#B23B3B; --success:#2F8D5B; --warn:#B0721C;
   --text:#20201E; --muted:#5C5A55;
+  /* AA-safe ink and control tokens (#92). Each is measured against the surfaces it is drawn on in
+     tests/browser/test_tasks_contrast.py. The plain --danger/--warn/--success stay for fills and icons. */
+  --btn-primary-bg:#2F6B4F; --btn-primary-hover:#255A41;
+  --danger-text:#B23B3B; --warn-text:#8A5A12; --clay-text:#8B5E3C;
+  --info-dot:#1F6FB2; --control-border:#767B84;
 
   /* light sidebar - one bright world, no dark rail */
   --sidebar-bg:#FFFFFF; --sidebar-text:#3B3B39; --sidebar-active:#2F6B4F;
@@ -58,6 +63,9 @@
     --bg:#141619; --surface:#1D2024; --bg-subtle:#24282D;
     --border:rgba(235,238,242,.11); --border-strong:rgba(235,238,242,.20);
     --text:#EAECEF; --muted:#9BA1A9;
+    --btn-primary-bg:#2F7A57; --btn-primary-hover:#2C6F4F;
+    --danger-text:#E89A9A; --warn-text:#E8B87A; --clay-text:#D2A67C;
+    --info-dot:#8AB4F8; --control-border:#737A85;
     --accent:#4E9E78; --accent-dk:#3E8A66; --accent-soft:rgba(78,158,120,.16);
     --clay-soft:rgba(200,160,120,.16); --warn-soft:rgba(217,154,70,.16);
     --primary:#4E9E78; --primary-dk:#3E8A66; --success:#57B37E;
@@ -91,6 +99,9 @@
   --bg:#141619; --surface:#1D2024; --bg-subtle:#24282D;
   --border:rgba(235,238,242,.11); --border-strong:rgba(235,238,242,.20);
   --text:#EAECEF; --muted:#9BA1A9;
+  --btn-primary-bg:#2F7A57; --btn-primary-hover:#2C6F4F;
+  --danger-text:#E89A9A; --warn-text:#E8B87A; --clay-text:#D2A67C;
+  --info-dot:#8AB4F8; --control-border:#737A85;
   --accent:#4E9E78; --accent-dk:#3E8A66; --accent-soft:rgba(78,158,120,.16);
   --clay-soft:rgba(200,160,120,.16); --warn-soft:rgba(217,154,70,.16);
   --primary:#4E9E78; --primary-dk:#3E8A66; --success:#57B37E;
@@ -520,8 +531,9 @@ input:focus, select:focus, textarea:focus {
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px;
   border-radius: 8px; border: none; cursor: pointer; font-size: 15px;
   font-weight: 600; font-family: inherit; transition: .15s; }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent-dk); text-decoration: none; color: #fff; }
+/* White text on the primary fill needs 4.5:1; the dark theme's lighter accent gave 3.2:1, so the fill has its own token. */
+.btn-primary { background: var(--btn-primary-bg, var(--accent)); color: #fff; }
+.btn-primary:hover { background: var(--btn-primary-hover, var(--accent-dk)); text-decoration: none; color: #fff; }
 .btn-danger  { background: var(--danger); color: #fff; }
 .btn-danger:hover { background: #8A2424; text-decoration: none; color: #fff; }
 .btn-success { background: var(--success); color: #fff; }
@@ -629,8 +641,58 @@ pre.wiki-content { white-space: pre-wrap; font-family: var(--font-mono);
 .items-center { align-items: center; }
 .justify-between { justify-content: space-between; }
 
-@media (max-width: 720px) {            /* mobile / installed PWA */
-  :root { --sidebar-w: 180px; }
-  .content { padding: 18px; }
-  .sidebar nav a { padding: 8px 14px; font-size: 14px; }
+/* The menu button exists for narrow screens only. */
+.nav-toggle { display: none; }
+
+@media (max-width: 879px) {            /* phone and tablet in a browser or installed PWA: below the desktop app's 880px minimum width */
+  /* The side rail becomes a bar across the top; the menu opens from a button instead of taking a 180px column. */
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; }
+  .sidebar .brand-block { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; padding-right: 12px; }
+  .sidebar .brand-org { padding: 0 0 0 4px; }
+  .nav-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-height: 40px; padding: 6px 12px;
+    background: transparent; color: var(--sidebar-active); border: 1px solid var(--sidebar-border); border-radius: var(--radius-sm);
+    font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .sidebar nav, .sidebar .sidebar-footer { display: none; }
+  .sidebar.nav-open nav, .sidebar.nav-open .sidebar-footer { display: block; }
+  .content { padding: 14px; }
+  .topbar { flex-wrap: wrap; }
+  .main { min-width: 0; }
 }
+
+/* Tasks list on narrow screens: one stacked card per task instead of a seven-column table (#94). */
+@media (max-width: 879px) {
+  .tasks-list, .tasks-list tbody, .tasks-list tr, .tasks-list td { display: block; width: 100%; }
+  .tasks-list thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tasks-list tbody tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .tasks-list td { display: block; padding: 3px 0; border: 0; }
+  .tasks-list td[data-label] { display: flex; gap: 10px; align-items: baseline; }
+  .tasks-list td[data-label]::before { content: attr(data-label); flex: 0 0 76px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .tasks-list td > .cell { flex: 1 1 0; min-width: 0; }
+  .tasks-list td b { overflow-wrap: anywhere; }
+  .tasks-list .btn-sm { min-height: 40px; }
+  .tasks-list tr[id^="q-"] td { display: block; padding: 3px 4px; }  /* room for the field's focus ring */
+  .tasks-list tr[id^="q-"] form { flex-direction: column; align-items: stretch; }
+  .tasks-list tr[id^="q-"] input[type="text"] { min-width: 0; width: 100%; }
+  .tasks-page .modal-card { margin: 3vh 12px; width: auto; max-width: none; }
+}
+
+/* Tasks: AA ink, control borders and a scope marker that is not colour alone (#92) */
+.ink-clay { color: var(--clay-text); }
+.ink-warn { color: var(--warn-text); }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--info-dot); margin-right: 6px; }
+.tasks-page :is(input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="submit"], [type="button"], [type="file"], [type="range"], [type="color"]), select, textarea) {
+  border-color: var(--control-border); }
+/* Same specificity as the rule above and later, so a focused field still takes the accent border (input:focus above). */
+.tasks-page :is(input, select, textarea):focus { border-color: var(--accent); }
+/* A field with no type attribute (the time zone box) is skipped by the base field rule, so in dark it kept the browser's
+   white background; the muted placeholder below would then sit on white. Give it the same surface as the other fields. */
+.tasks-page input:not([type]) { background: var(--surface); color: var(--text); }
+/* Placeholder text is text: the browser default (#757575) is 3.55:1 on the dark field background. */
+.tasks-page ::placeholder { color: var(--muted); opacity: 1; }
+/* A visible ring on keyboard and text-field focus, in addition to the accent border (the border alone changes little). */
+.tasks-page :is(input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Scope: the word is always shown; the marker differs in shape (round for Solo, square for Org) as well as colour. */
+.tasks-page .plane-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; background: var(--muted); border-radius: 50%; }
+.tasks-page .plane-dot-org { background: var(--accent); border-radius: 2px; }
+.tasks-page .plane-dot-solo { background: var(--clay-text); }

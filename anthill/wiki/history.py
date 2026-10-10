@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ..inference.fit import SUMMARY_PREFIX
+
 Turn = tuple[str, str]  # (role, content) where role is "user" | "assistant" | "system"
 
 
@@ -52,7 +54,7 @@ def prepare_history(
             digest = ""
 
     if digest:
-        note: Turn = ("system", f"Earlier in this conversation (summary): {digest}")
+        note: Turn = ("system", f"{SUMMARY_PREFIX}: {digest}")
         return [note, *recent]
 
     # No usable summary: keep as many recent turns as the budget allows (newest first).

@@ -3,8 +3,12 @@ from __future__ import annotations
 import re
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
-_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
-_MDLINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# A [[wiki link]]: one line, at most 200 characters, no brackets inside. The bounds keep the match linear on
+# text a member controls (a run of "[[" cannot make it rescan to the end of the text from every position).
+WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]{1,200})\]\]")
+# A [label](target) link: label on one line up to 200 characters, target up to 500 characters with no
+# parentheses. Bounded for the same reason as WIKILINK_RE (a run of "[" or "](" cannot rescan the whole text).
+_MDLINK = re.compile(r"\[[^\[\]\n]{0,200}\]\(([^()\n]{1,500})\)")
 
 
 def slugify(text: str, max_len: int = 60) -> str:
@@ -79,7 +83,7 @@ def outbound_links(markdown: str) -> set[str]:
     External URLs are ignored; only intra-wiki .md targets count.
     """
     body = strip_frontmatter(markdown)
-    links = set(_WIKILINK.findall(body))
+    links = set(WIKILINK_RE.findall(body))
     for target in _MDLINK.findall(body):
         if "://" not in target and target.endswith(".md"):
             links.add(target[:-3].split("/")[-1])

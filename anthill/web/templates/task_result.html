@@ -2,6 +2,7 @@
 {% block title %}Task result{% endblock %}
 {% block page_title %}Task result{% endblock %}
 {% block content %}
+<div class="tasks-page">
 
 <div class="flex justify-between items-center mb-2">
   <a href="/tasks" class="btn btn-outline btn-sm">← All tasks</a>
@@ -12,7 +13,7 @@
 
 {% if live %}
 <div class="alert alert-running text-sm" style="margin-bottom:12px">
-  <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2E86C1;margin-right:6px"></span>
+  <span class="live-dot" aria-hidden="true"></span>
   This task is running now. This page refreshes automatically until it finishes.
 </div>
 {% endif %}
@@ -24,7 +25,7 @@
       {{ task.status }}
     </span>
   </div>
-  <div style="font-size:14px;color:var(--clay);margin-bottom:16px;line-height:1.8">
+  <div class="ink-clay" style="font-size:14px;margin-bottom:16px;line-height:1.8">
     <b>Schedule:</b> {{ task.schedule }} &nbsp;·&nbsp;
     <b>Runs:</b> {{ history_total }} &nbsp;·&nbsp;
     <b>Last run:</b>
@@ -40,6 +41,51 @@
               font-size:13px;color:var(--text);margin-bottom:16px">
     <b>Goal:</b> {{ task.goal }}
   </div>
+  {% if latest_completed and latest_completed.verify_needs_review %}
+  <div style="margin-bottom:12px">
+    {% if latest_completed.reviewed_at %}
+    <span class="badge badge-member">reviewed</span>
+    <span class="text-sm text-muted">by {{ reviewer_labels.get(latest_completed.reviewed_by, "user") }}
+      <span data-utc="{{ latest_completed.reviewed_at|utc_iso }}">{{ latest_completed.reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span></span>
+    {% else %}
+    <span class="badge badge-warning">&#9888; needs review</span>
+    {% endif %}
+    {% if latest_completed.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin-top:6px">
+      &#9888; Verifier (confidence {{ latest_completed.verify_confidence }}): {{ latest_completed.verify_reason }}
+    </div>
+    {% endif %}
+    {% if can_write and not latest_completed.reviewed_at and latest_completed.id in review_tokens %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
+      <input type="hidden" name="run_id" value="{{ latest_completed.id }}">
+      <input type="hidden" name="csrf_token" value="{{ review_tokens[latest_completed.id] }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
+    {% endif %}
+  </div>
+  {% elif not latest_completed and (task.verify_needs_review or task.result_reviewed_at) %}
+  <div style="margin-bottom:12px">
+    {% if task.result_reviewed_at and not task.verify_needs_review %}
+    <span class="badge badge-member">reviewed</span>
+    <span class="text-sm text-muted">by {{ reviewer_labels.get(task.result_reviewed_by, "user") }}
+      <span data-utc="{{ task.result_reviewed_at|utc_iso }}">{{ task.result_reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span></span>
+    {% elif task.verify_needs_review %}
+    <span class="badge badge-warning">&#9888; needs review</span>
+    {% endif %}
+    {% if task.verify_reason %}
+    <div class="text-sm" style="color:var(--warn);margin-top:6px">
+      &#9888; Verifier (confidence {{ task.verify_confidence }}): {{ task.verify_reason }}
+    </div>
+    {% endif %}
+    {% if can_write and task.verify_needs_review and legacy_review_token %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
+      <input type="hidden" name="run_id" value="0">
+      <input type="hidden" name="csrf_token" value="{{ legacy_review_token }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
   <h3 style="margin-bottom:10px">Last result</h3>
   {% if task.last_result %}
   {# The stored result, untouched: "Save as snippet" sends this, not the rendered view.
@@ -77,6 +123,8 @@
       <span class="badge badge-running">running&hellip;</span>
       {% elif r.status == 'error' %}
       <span class="badge badge-danger">error</span>
+      {% elif r.verify_needs_review and r.reviewed_at %}
+      <span class="badge badge-member">reviewed</span>
       {% elif r.verify_needs_review %}
       <span class="badge badge-warning">&#9888; needs review</span>
       {% else %}
@@ -85,9 +133,21 @@
       {% if r.duration_ms %}<span class="text-sm text-muted">{{ (r.duration_ms / 1000)|round(1) }}s</span>{% endif %}
     </summary>
     {% if r.verify_needs_review and r.verify_reason %}
-    <div class="text-sm" style="color:var(--warn);margin:8px 0 2px">
+    <div class="text-sm ink-warn" style="margin:8px 0 2px">
       &#9888; Verifier (confidence {{ r.verify_confidence }}): {{ r.verify_reason }}
     </div>
+    {% endif %}
+    {% if r.reviewed_at %}
+    <div class="text-sm text-muted" style="margin:6px 0 2px">
+      Reviewed by {{ reviewer_labels.get(r.reviewed_by, "user") }}
+      <span data-utc="{{ r.reviewed_at|utc_iso }}">{{ r.reviewed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+    </div>
+    {% elif can_write and r.verify_needs_review and r.status != 'running' and r.id in review_tokens %}
+    <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin:8px 0 2px">
+      <input type="hidden" name="run_id" value="{{ r.id }}">
+      <input type="hidden" name="csrf_token" value="{{ review_tokens[r.id] }}">
+      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+    </form>
     {% endif %}
     {% if r.status == 'running' %}
     <div class="text-sm text-muted" style="margin:8px 0 0">The task is running now. This page refreshes automatically.</div>
@@ -127,7 +187,7 @@
   .task-md code { font-size:13px; }
   .task-md table { border-collapse:collapse; display:block; overflow-x:auto; }
   .task-md th, .task-md td { border:1px solid var(--border); padding:4px 8px; }
-  .task-error { color:var(--danger, inherit); }
+  .task-error { color:var(--danger-text, inherit); }
 </style>
 {# Result text is Markdown from a model or a tool, often written unattended from web, email or other
    content, and shown to everyone who can see the task. So it gets a strict policy, not Chat's: only the
@@ -193,4 +253,5 @@ async function saveResultSnippet() {
   } catch (e) { status.innerText = '⚠️ save failed'; }
 }
 </script>
+</div>
 {% endblock %}

@@ -13,6 +13,13 @@
     {% include "_setup_steps.html" %}
     {% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
 
+    {% if signup_closed %}
+    <div class="alert alert-err">Sign-up is by invitation on this server. Ask an administrator to invite you.</div>
+    <p class="text-sm text-muted" style="margin-top:14px;text-align:center">
+      Already have an account? <a href="/login" style="color:var(--muted)">Sign in</a>
+    </p>
+    {% else %}
+
     {# OAuth sign-up only ever creates the FIRST account on an install (oauth_login_outcome rejects
        any other unknown email as not_invited, by design - an org stays invite-only over OAuth). Once
        is_first_run is false this page is still open for a new *password* account, so hide the OAuth
@@ -62,6 +69,7 @@
     <p class="text-sm text-muted" style="margin-top:14px;text-align:center">
       Already have an account? <a href="/login" style="color:var(--muted)">Sign in</a>
     </p>
+    {% endif %}
     {% endif %}
   </div>
 </div>

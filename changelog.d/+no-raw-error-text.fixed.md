@@ -1,0 +1,1 @@
+**A failed chat export, document preview, model lookup or MCP call no longer shows server details.** You get a plain message instead, and the technical detail is kept in the server log for the person who runs it. A few other places still show the detail of a failure (chat generation errors, agent tool errors, OKGF bundle import and the node agent); they are listed in the spec.
