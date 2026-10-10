@@ -57,6 +57,7 @@ def _plane_tools(db, agent, plane_inf):
         team_id=getattr(agent, "team_id", None),
         member_user_id=agent.created_by,
         personal_user_id=agent.created_by,
+        org_id=agent.org_id,
     )
     from .mcp_store import mcp_client_tools
 

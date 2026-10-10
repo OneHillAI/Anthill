@@ -34,7 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import __version__
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
-from ..wiki.workspace import workspace_for
+from ..wiki.workspace import org_wiki_root, workspace_for
 from . import audit, metrics
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -479,6 +479,14 @@ def _startup():
         except Exception:
             pass
         try:
+            _claim_legacy_org_wiki()  # the first admin's org keeps the existing org wiki folder
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the org wiki folder owner")
+        try:
+            _note_shared_org_wiki_upgrade()  # an install with several organisations: tell them, once
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the shared org wiki notice")
+        try:
             _migrate_legacy_personal_wiki()  # fold a legacy single-node personal wiki into per-user
         except Exception:
             pass
@@ -573,6 +581,116 @@ def _autostart_local_serving() -> None:
         db.close()
 
 
+def _claim_legacy_org_wiki() -> None:
+    """Record which organisation owns the legacy org wiki folder (``ANTHILL_ORG_WIKI``), once, so an
+    existing install keeps its pages. It is the organisation of the first admin (the same account the
+    registry backfill has always attributed the folder to), else the oldest organisation. A fresh install
+    records its first organisation here after that organisation is committed. A failure is logged, never
+    raised: sign-up and start-up carry on."""
+    from ..wiki.workspace import claim_legacy_org_wiki, legacy_org_wiki_owner
+
+    if legacy_org_wiki_owner() is not None:
+        return
+    db = _db()
+    try:
+        admin = db.query(User).filter(User.role == "admin").order_by(User.id).first()
+        org_id = admin.org_id if admin else None
+        if org_id is None:
+            first = db.query(Organization).order_by(Organization.id).first()
+            org_id = first.id if first else None
+        if org_id is not None:
+            if claim_legacy_org_wiki(org_id):
+                # The check for a folder that several organisations shared runs once, here, at the moment
+                # of the claim. On a fresh install the claim is the first sign-up: there is nothing from
+                # before the upgrade, so later organisations are never told about a shared folder.
+                _note_shared_org_wiki_upgrade(fresh=db.query(Organization).count() <= 1)
+            elif legacy_org_wiki_owner() is None:
+                logging.getLogger(__name__).warning(
+                    "org wiki folder owner not recorded (organisation %s)", org_id
+                )
+    except Exception:
+        logging.getLogger(__name__).exception("could not record the org wiki folder owner")
+    finally:
+        db.close()
+
+
+UPGRADE_NOTICE_MARKER = ".upgrade-notice"
+
+
+def _note_shared_org_wiki_upgrade(fresh: bool = False) -> None:
+    """Once, on an install that had several organisations when it was upgraded: the org wiki folder every
+    organisation used to share stays with the organisation recorded as its owner, and the other organisations
+    start with an empty org wiki. Nothing is moved or deleted. Record that in the folder (counts only, so
+    the owner's admin sees a notice on the org wiki page) and write one audit row per organisation, with its
+    ``org_id``, so each organisation's admins can see what happened. Names of pages are never logged.
+
+    It runs once: the marker is created exclusively, before any audit row is written, so two processes cannot
+    both write the rows. ``fresh`` is True when the folder's owner was just recorded for the install's first
+    organisation, which has nothing from before the upgrade."""
+    from ..wiki.workspace import legacy_org_wiki_owner, legacy_org_wiki_workspace
+
+    owner = legacy_org_wiki_owner()
+    legacy = legacy_org_wiki_workspace()
+    marker = legacy.root / UPGRADE_NOTICE_MARKER
+    if owner is None or marker.exists() or not legacy.root.exists():
+        return
+    db = _db()
+    try:
+        orgs = db.query(Organization).order_by(Organization.id).all()
+        pages = len(legacy.pages())
+        if len(orgs) > 1 and pages and not fresh:
+            if not _create_notice_marker(marker, f"organisations={len(orgs)} pages={pages}\n"):
+                return  # another process got there first and wrote the rows
+            for org in orgs:
+                role = "owner" if org.id == owner else "other"
+                audit.log(
+                    db,
+                    "org_wiki.shared_before_upgrade",
+                    f"role={role} pages_in_the_previous_shared_folder={pages}",
+                    org_id=org.id,
+                )
+            logging.getLogger(__name__).info(
+                "org wiki: %d organisations shared one folder (%d pages); it stays with organisation %s",
+                len(orgs),
+                pages,
+                owner,
+            )
+        else:
+            # Nothing to tell: a fresh install, a single organisation, or an empty folder. Remember it so
+            # this runs once.
+            _create_notice_marker(
+                marker,
+                "organisations=1 fresh=1\n" if fresh else f"organisations={len(orgs)} pages=0\n",
+            )
+    finally:
+        db.close()
+
+
+def _create_notice_marker(marker, text: str) -> bool:
+    """Create the once-only marker exclusively. False when it already exists."""
+    try:
+        with open(marker, "x") as fh:
+            fh.write(text)
+    except FileExistsError:
+        return False
+    return True
+
+
+def org_wiki_upgrade_notice(org_id: int) -> bool:
+    """True when this organisation owns a folder that several organisations shared before the upgrade."""
+    import re
+
+    from ..wiki.workspace import legacy_org_wiki_owner, legacy_org_wiki_workspace
+
+    marker = legacy_org_wiki_workspace().root / UPGRADE_NOTICE_MARKER
+    try:
+        text = marker.read_text()
+    except OSError:
+        return False
+    found = re.search(r"organisations=(\d+)", text)
+    return bool(found and int(found.group(1)) > 1 and legacy_org_wiki_owner() == org_id)
+
+
 def _migrate_legacy_personal_wiki() -> None:
     """Fold a legacy single-node personal wiki (ANTHILL_WORKSPACE) into the creator/admin's per-user
     wiki, once. Plain chat now resolves the personal wiki per-user (user-<id>), so without this an
@@ -595,22 +713,19 @@ def _backfill_knowledge_registry() -> None:
     is safe and cheap to run on every boot: an already-backfilled install does a set of existence
     checks and writes nothing.
 
-    Every personal (per-user) and team workspace maps 1:1 to a real row, so those are exact. The org
-    workspace is a single shared directory today (``workspace_for("org")`` takes no org_id - a
-    pre-existing, install-wide assumption this backfill does not change), so it is attributed to one
-    canonical org: the first admin's, matching ``_migrate_legacy_personal_wiki``'s own convention just
-    above. Best-effort per workspace: one bad workspace must never stop the rest from being indexed."""
+    Every personal (per-user), team and org workspace maps 1:1 to a real row. The legacy org wiki folder
+    belongs to the organisation recorded as its owner, so everything found there is registered under that
+    organisation. Best-effort per workspace: one bad workspace must never stop the rest from being indexed."""
     from ..wiki.workspace import workspace_for
     from .knowledge_registry import backfill_workspace
 
     db = _db()
     try:
-        admin = db.query(User).filter(User.role == "admin").order_by(User.id).first()
-        if admin:
+        for org_row in db.query(Organization).order_by(Organization.id).all():
             try:
-                ws = workspace_for("org")
+                ws = workspace_for("org", org_id=org_row.id)
                 if ws.exists():
-                    backfill_workspace(db, ws, org_id=admin.org_id, scope="org")
+                    backfill_workspace(db, ws, org_id=org_row.id, scope="org")
             except Exception:
                 pass
         for team in db.query(Team).all():
@@ -1624,7 +1739,7 @@ def propose_wiki_write(
     if not provenance_hash:
         provenance_hash = hashlib.sha256((content or "").encode()).hexdigest()
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-    ws = workspace_for(target_scope, team_id=team_id, user_id=proposed_by)
+    ws = workspace_for(target_scope, team_id=team_id, user_id=proposed_by, org_id=org_id)
     if not ws.exists():
         ws.init()
     from ..wiki.review import outline_change
@@ -2253,6 +2368,7 @@ async def setup_post(
             db.rollback()
             return RedirectResponse("/login", status_code=302)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install: the first organisation owns the org wiki folder
     audit.log(db, "org.created", f"org={org_name}", org_id=org.id)
     if first_account:
         audit.log(
@@ -4248,7 +4364,7 @@ def _org_plane_answer(db, org, member, question, *, history=None):
     principles, _sk = agent_context_for(
         db, user_id=member.id, org_id=org.id, plane="org", is_org=True
     )
-    base_ws = workspace_for("org")
+    base_ws = workspace_for("org", org_id=org.id)
     if not base_ws.exists():
         base_ws.init()
     extra_ws = [
@@ -4648,6 +4764,7 @@ async def google_auth(request: Request, code: str = "", error: str = "", state: 
 
     u.last_seen = datetime.now(timezone.utc)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install's first account: its org owns the org wiki folder
     audit.log(
         db, "user.login", f"email={email} provider=google", org_id=u.org_id, user_id=u.id, ip=ip
     )
@@ -4751,6 +4868,7 @@ async def microsoft_auth(request: Request, code: str = "", error: str = "", stat
 
     u.last_seen = datetime.now(timezone.utc)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install's first account: its org owns the org wiki folder
     audit.log(
         db, "user.login", f"email={email} provider=microsoft", org_id=u.org_id, user_id=u.id, ip=ip
     )
@@ -5075,7 +5193,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
         if not solo:
             members = db.query(User).filter(User.org_id == org.id).count()
             try:
-                ws = workspace_for("org")
+                ws = workspace_for("org", org_id=org.id)
                 wiki_pages = len(ws.pages()) if ws.exists() else 0
             except Exception:
                 wiki_pages = 0
@@ -5204,7 +5322,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
         )
     else:
         try:
-            _ws = workspace_for("org")
+            _ws = workspace_for("org", org_id=org.id)
             wiki_pages_list = _ws.pages() if _ws.exists() else []
         except Exception:
             wiki_pages_list = []
@@ -7288,7 +7406,9 @@ async def approve_review(
         rev.content = content
 
     # Write to the destination wiki resolved from the review's scope.
-    ws = workspace_for(rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by)
+    ws = workspace_for(
+        rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
+    )
     if not ws.exists():
         ws.init()
     kind = getattr(rev, "kind", "page") or "page"
@@ -7496,7 +7616,12 @@ def _wiki_can_edit(db, user, scope, team_id) -> bool:
 
 def _wiki_ws(user, scope, team_id):
     uid = int(user["sub"])
-    return workspace_for(scope, team_id=team_id, user_id=uid if scope == "personal" else None)
+    return workspace_for(
+        scope,
+        team_id=team_id,
+        user_id=uid if scope == "personal" else None,
+        org_id=user.get("org"),
+    )
 
 
 def _pdf_confirmation_dir(ws):
@@ -7673,9 +7798,9 @@ def wiki_personal(request: Request, user: dict = Depends(_require_user)):
 def wiki_org(request: Request, user: dict = Depends(_require_admin)):
     db = _db()
     org = _require_org(db, user)
-    return templates.TemplateResponse(
-        request, "wiki.html", _wiki_ctx(request, db, user, org, "org")
-    )
+    ctx = _wiki_ctx(request, db, user, org, "org")
+    ctx["shared_before_upgrade"] = org_wiki_upgrade_notice(org.id)
+    return templates.TemplateResponse(request, "wiki.html", ctx)
 
 
 @app.get("/wiki/export.okgf.tgz")
@@ -7701,7 +7826,7 @@ def wiki_export_okgf(
         raise HTTPException(status_code=403, detail="Org wiki export is admin-only")
     if scope == "team" and (team_id is None or _team_role(db, int(user["sub"]), team_id) is None):
         raise HTTPException(status_code=403, detail="Not a member of this team")
-    ws = workspace_for(scope, team_id=team_id, user_id=int(user["sub"]))
+    ws = workspace_for(scope, team_id=team_id, user_id=int(user["sub"]), org_id=user.get("org"))
     pages: list[tuple[str, str, float]] = []
     if ws.exists():
         for p in ws.pages():
@@ -10741,7 +10866,7 @@ def backend_info(request: Request, user: dict = Depends(_require_admin)):
             "dashboard_url": str(request.base_url).rstrip("/"),
             "data_home": str(p["home"]),
             "db_path": str(p["db"]),
-            "org_wiki": os.environ.get("ANTHILL_ORG_WIKI", str(p["home"] / "org-wiki")),
+            "org_wiki": str(org_wiki_root(org.id)),
             "wiki_hosting": getattr(cfg, "wiki_hosting", "local") or "local",
             "wiki_vpc_url": getattr(cfg, "wiki_vpc_url", "") or "",
         },
@@ -10835,14 +10960,19 @@ async def backup_restore(
         return RedirectResponse("/backup?error=1", status_code=302)
     finally:
         tmp.unlink(missing_ok=True)
+    aside = result.moved_aside.name if result.moved_aside else ""
     audit.log(
         db,
         "backup.restore",
-        f"restored={result.restored} models={result.models}",
+        f"restored={result.restored} models={result.models}"
+        + (f" moved_aside={aside}" if aside else ""),
         org_id=org.id,
         user_id=user["sub"],
     )
-    return RedirectResponse("/backup?restored=1", status_code=302)
+    from urllib.parse import quote
+
+    suffix = f"&aside={quote(aside)}" if aside else ""
+    return RedirectResponse(f"/backup?restored=1{suffix}", status_code=302)
 
 
 def _now_stamp_safe(filename: str | None) -> str:
@@ -12006,7 +12136,12 @@ async def chat_stream(
         and is_active_member(db, _uid, _conv_tid)
     )
     ws_path = run_wiki_workspace(
-        db, plane_inf=plane_inf, team_id=_conv_tid, member_user_id=_uid, personal_user_id=_uid
+        db,
+        plane_inf=plane_inf,
+        team_id=_conv_tid,
+        member_user_id=_uid,
+        personal_user_id=_uid,
+        org_id=user["org"],
     )
 
     # `confirm` runs an already-shown proposal (the user message is already saved); don't
@@ -12433,7 +12568,7 @@ async def chat_stream(
                 elif plane_inf.use_personal_context:
                     ws = workspace_for("personal", user_id=int(user["sub"]))
                 else:
-                    ws = workspace_for("org")
+                    ws = workspace_for("org", org_id=user["org"])
                 if not ws.exists():
                     ws.init()
                 # Prior conversation turns, so the model has memory of this chat (it used to fetch
@@ -12500,11 +12635,12 @@ async def chat_stream(
                                 use_personal_context=plane_inf.use_personal_context,
                                 wiki_scope=wiki_scope,
                                 user_id=int(user["sub"]),
+                                org_id=user["org"],
                             )
                         )
                     else:
                         if plane_inf.use_personal_context and wiki_scope in ("all", "org"):
-                            extra_ws.append(workspace_for("org"))
+                            extra_ws.append(workspace_for("org", org_id=user["org"]))
                         if wiki_scope in ("all", "team"):
                             for tid in user_team_ids(db, int(user["sub"])):
                                 extra_ws.append(workspace_for("team", team_id=tid))
@@ -14808,6 +14944,8 @@ async def skills_gallery_adopt(
             user_id=int(user["sub"]),
             assets=assets,
             license=entry.license,
+            db=db,
+            org_id=org.id,
         )
     else:  # team/org route through the agent review gate, same as a hand-authored skill
         md = skill_md(*args, tier=scope, license=entry.license)
@@ -14828,6 +14966,8 @@ async def skills_gallery_adopt(
                 user_id=int(user["sub"]),
                 assets=assets,
                 license=entry.license,
+                db=db,
+                org_id=org.id,
             )
         db.commit()
     audit.log(

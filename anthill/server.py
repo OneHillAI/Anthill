@@ -30,6 +30,7 @@ def configure_container_env() -> Path:
     os.environ.setdefault("ANTHILL_SKILLS_DIR", str(home / "skills"))
     os.environ.setdefault("ANTHILL_WIKI_ROOT", str(home / "wikis"))
     os.environ.setdefault("ANTHILL_ORG_WIKI", str(home / "org-wiki"))
+    os.environ.setdefault("ANTHILL_ORG_WIKIS", str(home / "org-wikis"))
     _ensure_secrets(home)
     return home
 

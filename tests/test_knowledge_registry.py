@@ -270,7 +270,7 @@ def test_skills_delete_removes_the_registry_row(tmp_path, monkeypatch):
     client, ids = _app_client(tmp_path, monkeypatch)
     from anthill.wiki.workspace import workspace_for
 
-    ws = workspace_for("org", user_id=ids["admin"])
+    ws = workspace_for("org", org_id=ids["org"])
     ws.init()
     (ws.skills / "demo").mkdir(parents=True, exist_ok=True)
     (ws.skills / "demo" / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n\nbody\n")

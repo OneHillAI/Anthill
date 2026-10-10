@@ -70,7 +70,10 @@ def test_solo_deployment_has_no_org_wiki(tmp_path):
 
 def test_a2a_org_no_user_is_org_only(tmp_path):
     s, _uid = _db_with_team(tmp_path)
-    assert _tiers(context_workspaces(s, user_id=None, plane="org", is_org=True)) == ["org"]
+    # A system run has no user, so the organisation is named explicitly (agent_context_for passes it).
+    assert _tiers(context_workspaces(s, user_id=None, plane="org", is_org=True, org_id=1)) == [
+        "org"
+    ]
 
 
 def test_agent_context_for_org_plane_excludes_personal(tmp_path, monkeypatch):
