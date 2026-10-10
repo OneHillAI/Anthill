@@ -73,7 +73,7 @@ def test_a_failed_agent_tool_call_returns_a_fixed_message_and_logs_the_detail(ca
 
 def test_a_bad_request_to_an_agent_tool_keeps_its_reason():
     def bad(name, args):
-        raise ValueError("'goal' is required")
+        raise mcp_server.ToolInvalid("'goal' is required")
 
     payload = {
         "jsonrpc": "2.0",
@@ -88,9 +88,32 @@ def test_a_bad_request_to_an_agent_tool_keeps_its_reason():
     assert out["error"]["message"] == "Invalid params: 'goal' is required"
 
 
+def test_an_internal_value_error_or_permission_error_is_not_passed_on(caplog):
+    for exc in (
+        ValueError("Expecting ',' delimiter: line 1"),
+        PermissionError(13, "Permission denied", SERVER_PATH),
+    ):
+
+        def boom(name, args, exc=exc):
+            raise exc
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "t", "arguments": {}},
+        }
+        with caplog.at_level(logging.ERROR):
+            out = mcp_server.handle_jsonrpc(
+                payload, _cfg(), run_tool=boom, a2a_tools=[{"name": "t"}], a2a_call=boom
+            )
+        assert out["error"]["message"] == "Tool failed."
+        assert SERVER_PATH not in str(out)
+
+
 def test_a_refusal_from_our_own_check_keeps_its_reason():
     def deny(name, args):
-        raise PermissionError("scope 'files.read' not granted")
+        raise mcp_server.ToolDenied("scope 'files.read' not granted")
 
     payload = {
         "jsonrpc": "2.0",

@@ -59,6 +59,30 @@ A2A_TOOLS = [
 ]
 
 
+class ToolRefused(Exception):
+    """A tool call we refuse, or a bad request, with a reason that we wrote ourselves. Only this class carries its
+    text to the caller; any other exception becomes the fixed "Tool failed." and is logged."""
+
+    def __init__(self, code: int, reason: str):
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+
+
+class ToolInvalid(ToolRefused, ValueError):
+    """A bad request ("'goal' is required")."""
+
+    def __init__(self, reason: str):
+        super().__init__(-32602, f"Invalid params: {reason}")
+
+
+class ToolDenied(ToolRefused, PermissionError):
+    """A refusal by our own permission check."""
+
+    def __init__(self, reason: str):
+        super().__init__(-32001, f"Not allowed: {reason}")
+
+
 def exposed_resources(cfg) -> list:
     """Enabled resource keys for this org ([] if the MCP server is off)."""
     if not getattr(cfg, "mcp_server_enabled", False):
@@ -144,10 +168,8 @@ def handle_jsonrpc(payload: dict, cfg, *, run_tool, a2a_tools=None, a2a_call=Non
         if a2a_call is not None and name in {t["name"] for t in (a2a_tools or [])}:
             try:
                 text = a2a_call(name, args)
-            except PermissionError as e:
-                return err(-32001, f"Not allowed: {e}")
-            except ValueError as e:  # our own message for a bad request ("'goal' is required")
-                return err(-32602, f"Invalid params: {e}")
+            except ToolRefused as e:  # a refusal or a bad request that we worded ourselves, never an internal failure
+                return err(e.code, e.reason)
             except Exception:
                 log.exception("A2A tool %s failed", name)
                 return err(-32603, "Tool failed.")
