@@ -4,7 +4,9 @@
 
 Ask a question and Anthill answers from your own wiki, with citations, not from the open internet.
 It remembers the conversation. It also judges on its own how hard to think. A simple question gets
-a fast answer. A multi-step one runs deeper automatically. Ask in plain words for more, like "go
+a fast answer. A multi-step one runs deeper automatically. A bare greeting, thank-you or short
+acknowledgement ("hi", "thanks", "ok", "yes") is answered without looking anything up in your wiki, so it
+comes back quickly; "yes", "ok" or "yes thanks" after a question of its own is treated as a normal message, not as a greeting. Ask in plain words for more, like "go
 deeper" or "check the web". Or ask it to do research and get back a cited report from several
 sources.
 
