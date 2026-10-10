@@ -1,6 +1,6 @@
 # Spec: Thinking and web-search controls in chat
 
-Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 2026-10-08.
+Status: implemented; revised 2026-10-09 (Thinking and web search are both off by default for a new account). Lane: `pillar:feature`. Source: founder, 2026-10-07, 2026-10-08 and 2026-10-09.
 
 ## Problem
 
@@ -13,16 +13,33 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
    another and a later change of the Settings default has no effect.
 3. The founder decided that most questions are about live information, so web search should be on by default.
    That reverses the older Solo default of off (`docs/specs/solo-web-search-default-off.md`, now superseded), and
-   the pages must then say honestly that a search sends the question to a search provider.
+   the pages must then say honestly that a search sends the question to a search provider. The founder reversed
+   this decision on 2026-10-09: see Problem 5.
 4. A new user is not told that thinking and web search exist, what they are set to, or where to change them.
+5. With both defaults on, a new user can wait minutes (revision of 2026-10-09). Measured on an M4 Mac with 16 GB,
+   Ollama 0.24.0 and qwen3.5:9b, one run each, before issue #108 made web answers stream (see
+   `docs/specs/108-web-turn-stream.md`, added in the same change as this revision). A plain question shows its
+   first word after about 2.6 s with Thinking off and after 29 to 31 s with it on (through the app). A question
+   that searched the web was then answered in one piece, so the user saw nothing until the whole answer was
+   written. Through the app, Thinking off: 59.9 s for a short question and 136 s for a long one (a four-day trip
+   plan), with the first word at the end; earlier app runs of the trip plan took 117 s with Thinking off and 131 s
+   with it on. In a script run of the same code with no wiki: 42.8 s for a short question with Thinking off (3.1 s
+   to plan the search, 4.7 s to search and read five pages, 35 s to write the answer) and 311 s with Thinking left
+   to the model. How long the thinking runs varies from run to run. Searching costs seconds; thinking costs
+   seconds to minutes; writing a long answer costs about a minute. The founder's decision on 2026-10-09: nobody
+   should wait minutes by default, so web search and Thinking both start off. The first-use notice (Problem 4) is
+   unchanged: it appears once per account, says that both are off, and lets the user switch either on right
+   there. A user who turns web search on gets the streamed web answer of issue #108.
 
 ## Requirements
 
 1. The chat box shows a Thinking button next to Options. The label reads "Thinking on" or "Thinking off", and the
    button is highlighted while it is off.
 2. Defaults live in Settings. Thinking is under Model, in a card "How it answers". Web access stays under Privacy.
-   New accounts start with both ON. Existing accounts keep the web value they have. Organisation chats were
-   already on.
+   New accounts start with web search OFF and Thinking OFF. Existing accounts keep the values they have, which is
+   how they have behaved until now: the web column is added to an old database as off and the Thinking column as
+   on, so the change reaches new accounts only. A user turns either on in Settings or, for one chat, with the
+   Thinking button and the Web search checkbox. Organisation chats were always on for web search.
 3. Each chat can change both for itself: the Thinking button and the Web search checkbox in Options save the
    choice for that chat only, in the browser, keyed by the chat. A chat with no choice of its own follows the
    Settings default, so changing the default applies to it at once. For web search the chats that follow the
@@ -35,7 +52,8 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
    that browser keeps it off. A stored "on" is only removed, never promoted: it would turn web search on for the
    account on every device. The key is removed either way, so the old value never overrides anything again.
 5. Where Thinking off takes effect. The chat page sends the choice with each message as the `think` query
-   parameter on `GET /chat/{id}/stream` (default on). Off:
+   parameter on `GET /chat/{id}/stream` (default on, so a caller that sends nothing keeps the model's own
+   behaviour; the chat page always sends the user's choice). Off:
    - makes the streamed local answer ask Ollama for `think: false` for that turn;
    - reaches the intent classifier (`classify`), which runs before the first word on every turn whose text looks
      like an action ("make", "report", "every" ...), and the history summariser, which runs on each turn of a chat
@@ -54,8 +72,9 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
 6. The web-search planning call (`plan_web_query`, which decides whether to search and writes the query) never
    thinks, for every user. It is a small structured decision under a token cap, so hidden thinking only adds delay
    and can use up the cap and leave no JSON.
-7. A turn that searches the web is answered in one piece and its words appear when the answer is ready, instead
-   of word by word. Thinking off shortens that wait, but the first word is not immediate on such a turn.
+7. A turn that searches the web shows its steps and streams its answer (issue #108,
+   `docs/specs/108-web-turn-stream.md`). Before #108 it was answered in one piece. Thinking off still shortens
+   the wait for the first word, because a model that thinks does so before the first word.
 8. The first time a user opens chat, agents or tasks (whichever comes first) a one-time notice states the current
    Thinking and Web search defaults, lets the user change either right there (saved at once as the default), says
    how to change them for one chat (Thinking button and Options) or for every chat (Settings, with a link to each
@@ -66,11 +85,16 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
    survives the navigation. Existing users see it once after the update.
 9. `POST /settings/chat-defaults` (signed-in users only) accepts JSON with `thinking_on` and `web_access`
    booleans and `seen: true`, ignores anything that is not a real boolean, and returns the saved values.
-10. Honest wording. Where web search is on, the Solo header says "Web search is on for this chat" and the Settings
-    card "What leaves your setup" says that the text of a question is sent to a search provider (and keeps "Your
-    cloud" when that applies). "Nothing leaves it" is claimed only while web search is off for the chat. Even then
-    the existing automatic web search for a question that clearly needs live information, and the "check the web"
-    follow-up, can still send a question out, so the claim was never absolute; this is unchanged here.
+10. Honest wording, and the box decides. Where web search is on, the Solo header says "Web search is on for this
+    chat" and the Settings card "What leaves your setup" says that the text of a question is sent to a search
+    provider (and keeps "Your cloud" when that applies). "Nothing leaves it" is claimed only while web search is
+    off for the chat, and since 2026-10-10 that is true of web search: a question that clearly needs live
+    information no longer turns the web on by itself (founder decision, 2026-10-10; the `needs_web_hint` branch of
+    `chat_stream` was removed, and with the box off the agent path gets no web tools, as before). The one way a
+    question can still be searched with the box off is the user asking for it in plain words as a follow-up
+    ("check the web", `redo_mode` "web"), which is an explicit request. A cloud escalation still needs its own
+    consent. Agents and scheduled tasks keep their own settings, and organisation chats keep their own rule (web
+    search always on); neither is described by the Solo header.
 
 ## Out of scope
 
@@ -78,8 +102,7 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
   behaviour, and an agent's web access stays with its own permissions. Applying the defaults there is a follow-up.
   Some chat turns are handed by Anthill itself to its multi-step agent ("Looking into this more thoroughly",
   `looks_deep`); those are agent runs and ignore Thinking.
-- Streaming the answer of a turn that searches the web (requirement 7) is a follow-up.
-- Making an explicit "web search off" final (no automatic search) is a separate decision.
+- Streaming the answer of a turn that searches the web (requirement 7) is issue #108, `docs/specs/108-web-turn-stream.md`.
 - No extra "Thinking..." indicator: the chat already shows its own progress animation.
 - Adaptive thinking chosen by the task router.
 
@@ -96,13 +119,16 @@ Status: implemented. Lane: `pillar:feature`. Source: founder, 2026-10-07 and 202
   never rewritten.
 - `ask(...)` passes `think=False` to the web-composed answer and to the local answer, and sends nothing when
   `think` is unset.
-- A new user has Thinking on, Web access on and has not seen the notice. The notice renders on chat, agents and
+- A new user has Thinking off, Web access off and has not seen the notice. The notice renders on chat, agents and
   tasks until acknowledged, then never again, and the Agents and Tasks versions say that agents and tasks keep
   their own settings.
 - `POST /settings/chat-defaults` saves booleans, ignores other types, rejects bad JSON, and needs a session.
 - The chat page seeds the Thinking button and the Web search checkbox from the saved defaults; an organisation chat
   stays on for web search and follows the Thinking default.
 - An existing database gains the two new columns with their defaults and keeps its web value.
+- A new account has Thinking off and web search off; an old database keeps Thinking on and its web value; the chat
+  page, its Thinking button, its Web search checkbox, the Solo header and the first-use notice all show both off for
+  a new account, and on once they are turned on.
 - In a real browser: a chat remembers its own Thinking and Web choices across reloads, another chat is
   unaffected, a chat without a choice follows the default, and the next message is requested with `think=false`
   when Thinking is off. The notice appears once, saves the default it changes, hides on "Got it", and still saves

@@ -496,24 +496,24 @@
           <span id="send-icon">➤</span>
         </button>
       </div>
-      <!-- Single box by default. Web search starts ON for a new account (most questions are about live
-           information) and ON for Org; the account default lives in Settings and this chat can change its
-           own. A search sends the question to a search provider, so the header says "Web search is on" while
-           it is on and only claims "Nothing leaves it" while it is off. A capable model still decides when
-           to search once it's on; a question that clearly needs live info can also turn it on for that turn,
-           flagged with a visible "🌐 web" badge on that answer. Options let you flip it for this chat or set
-           a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
+      <!-- Single box by default. Web search starts OFF for a new account and ON for Org; the account default
+           lives in Settings and this chat can change its own. A search sends the question to a search
+           provider, so the header says "Web search is on" while it is on and only claims "Nothing leaves it"
+           while it is off. A capable model still decides when to search once it's on; with the box off nothing
+           is searched unless the user asks for it in plain words as a follow-up ("check the web"). Options let
+           you flip it for this chat or set a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
            forces it on a follow-up. -->
       <div class="input-options-bar">
         <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
                 title="Switch to local + wiki only, or set a knowledge scope">
           <i data-lucide="sliders-horizontal">⚙</i> Options
         </button>
-        {# Thinking button: on (default) leaves it to the model; off asks a model that thinks to answer without
-           its hidden thinking, so the answer comes sooner. Only affects local models that think. #}
-        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="true"
+        {# Thinking button: on leaves it to the model; off asks a model that thinks to answer without its
+           hidden thinking, so the answer comes sooner. Only affects local models that think. The page script
+           repaints it from the account default and this chat's own choice. #}
+        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="{{ 'true' if thinking_on_default else 'false' }}"
                 title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
-          <i data-lucide="brain">🧠</i> <span id="opt-think-label">Thinking on</span>
+          <i data-lucide="brain">🧠</i> <span id="opt-think-label">{{ 'Thinking on' if thinking_on_default else 'Thinking off' }}</span>
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>

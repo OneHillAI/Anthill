@@ -5964,7 +5964,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "profile": (me.profile if me else "") or "",
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
-            "thinking_on": bool(getattr(me, "thinking_on", True)) if me else True,
+            "thinking_on": bool(getattr(me, "thinking_on", False)) if me else False,
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
@@ -6063,10 +6063,10 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     me.auto_memory_off = "memory_on" not in form
     me.web_access_on = (
         "web_access" in form
-    )  # Settings -> Privacy default for web access (a new account starts on; a ticked box keeps it on)
+    )  # Settings -> Privacy default for web access (a new account starts off; a ticked box turns it on)
     me.thinking_on = (
         "thinking_on" in form
-    )  # Settings -> Model default for Thinking (on unless unset)
+    )  # Settings -> Model default for Thinking (a new account starts off; a ticked box turns it on)
     _porg = _require_org(db, user)
     _pcfg = _cfg(db, _porg)
     if not _pcfg:
@@ -8708,7 +8708,7 @@ def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
         org_mode = False
     return {
         "first_use_notice": {
-            "thinking_on": bool(getattr(me, "thinking_on", True)),
+            "thinking_on": bool(getattr(me, "thinking_on", False)),
             "web_on": bool(getattr(me, "web_access_on", False)),
             "org_mode": org_mode,
             "page": page,
@@ -11395,7 +11395,7 @@ def chat_conv(
             "web_access_on": web_access_on,
             "web_follows_default": web_follows_default,
             "web_default": web_default,
-            "thinking_on_default": bool(getattr(_me, "thinking_on", True)),
+            "thinking_on_default": bool(getattr(_me, "thinking_on", False)),
             **_first_use_notice_ctx(db, int(user["sub"])),
             # An attached inference-provider label (empty when none configured) lets chat.html offer
             # "Ask {Provider} instead" while the local model is still generating (#1 UX follow-up to
@@ -11872,8 +11872,9 @@ async def chat_stream(
         # Intent routing (P1): a plain question streams an answer as usual; a make/do or
         # schedule request returns a *proposal* the user confirms in chat. Explicit
         # agent/web toggles, a confirmed proposal, and redo (prior) all bypass this.
-        # P4 also auto-enables the web for plain questions that clearly need live info, so the
-        # user doesn't have to flip a toggle (it stays available under Options as an override).
+        # The chat's Web search box decides (founder, 2026-10-10): a question that clearly needs live information
+        # no longer turns the web on by itself. The user's own plain-words follow-up ("check the web") below is
+        # an explicit request and still does.
         # An image turn is a question ABOUT the image: force the vision answer path - no web search
         # (the web composer can't see the image), no artifact/schedule proposal, no agent executor.
         web_effective = web and not images_b64
@@ -11888,9 +11889,6 @@ async def chat_stream(
             # Deterministic multi-hop signal; harmful stays on the normal answer path (model safety),
             # never handed the tool-wielding agent.
             agent_auto = _intent.looks_deep(message) and not _intent.looks_harmful(message)
-            if not web and _intent.needs_web_hint(message):
-                web_effective = True
-                auto_web = True
             # Whether to actually search + the query are finalised in the normal-chat branch by
             # intent.decide_web (agent-first: a capable model plans it; otherwise a deterministic
             # rule skips turns spoken to the assistant). Here we only set the preliminary toggle.

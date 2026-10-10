@@ -863,7 +863,10 @@ def _conv_for(app_mod, ids):
     return conv.id
 
 
-def test_stream_auto_enables_web_for_live_question(tmp_path, monkeypatch):
+def test_stream_does_not_turn_web_on_by_itself_for_a_live_question(tmp_path, monkeypatch):
+    # The chat's Web search box decides (docs/specs/chat-thinking-toggle.md, requirement 10): with it off, a
+    # question that clearly needs live information is answered without a web search, and the page is not told
+    # that one was added. With it on, the same question is searched.
     import anthill.web.app as app_mod
     import anthill.wiki.ask as ask_mod
 
@@ -874,14 +877,26 @@ def test_stream_auto_enables_web_for_live_question(tmp_path, monkeypatch):
     captured = {}
 
     def _fake_ask(ws, msg, backend, **kw):
-        captured["web"] = kw.get("web_search")
+        captured["blocking_web"] = kw.get("web_search")
         return ("ok", [], False)
 
+    def _fake_ask_stream(ws, msg, backend, **kw):
+        captured["stream_web"] = kw.get("web_search")
+        yield "ok"
+
     monkeypatch.setattr(ask_mod, "ask", _fake_ask)
+    monkeypatch.setattr(ask_mod, "ask_stream", _fake_ask_stream)
     r = client.get(f"/chat/{conv_id}/stream", params={"message": "what's the latest AI news"})
     assert r.status_code == 200
-    assert captured.get("web") is True  # web auto-enabled
-    assert '"auto_web": true' in r.text  # and the UI is told
+    assert captured.get("stream_web") is not True and captured.get("blocking_web") is not True
+    assert "auto_web" not in r.text
+
+    captured.clear()
+    r = client.get(
+        f"/chat/{conv_id}/stream", params={"message": "what's the latest AI news", "web": "true"}
+    )
+    assert r.status_code == 200
+    assert captured.get("stream_web") is True or captured.get("blocking_web") is True
 
 
 def test_stream_no_auto_web_for_internal_question(tmp_path, monkeypatch):

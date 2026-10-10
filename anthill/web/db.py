@@ -107,15 +107,18 @@ class User(Base):
     # chats/tasks/agent runs (existing memories are kept; recall still works). Off by default.
     auto_memory_off = Column(Boolean, nullable=False, default=False)
     # Web access (Settings -> Privacy): the user's default for whether a chat may look things up online.
-    # ON for a new account (founder decision, 2026-10-08: most questions are about live information; it
-    # supersedes docs/specs/solo-web-search-default-off.md). Existing accounts keep the value they have. It
+    # OFF for a new account (founder decision, 2026-10-09; on 2026-10-08 it was on, and before that off
+    # under docs/specs/solo-web-search-default-off.md). Existing accounts keep the value they have. It
     # seeds each chat's Web-search checkbox, and a chat can change its own. The per-turn `web` flag +
-    # decide_web() still gate each actual search.
-    web_access_on = Column(Boolean, nullable=False, default=True)
+    # decide_web() still gate each actual search. With the box off nothing is searched, except at the user's
+    # own request in plain words ("check the web", the redo button).
+    web_access_on = Column(Boolean, nullable=False, default=False)
     # Thinking (Settings -> Model, "How it answers"): the user's default for whether a model that thinks
-    # thinks before it answers. On by default (the model decides, as before). A chat can override it for
-    # itself with the Thinking button; a chat with no choice of its own follows this default.
-    thinking_on = Column(Boolean, nullable=False, default=True)
+    # thinks before it answers. Off by default for a new account, so a plain answer starts in seconds and
+    # not after half a minute. An account that existed before this default changed keeps On: _ensure_columns adds the column
+    # to an old database with DEFAULT 1. A chat can override it for itself with the Thinking button; a chat
+    # with no choice of its own follows this default.
+    thinking_on = Column(Boolean, nullable=False, default=False)
     # The one-time first-use notice (chat, agents or tasks, whichever the user opens first) that says what
     # the Thinking and Web search defaults are and where to change them. True once acknowledged.
     chat_defaults_notice_seen = Column(Boolean, nullable=False, default=False)

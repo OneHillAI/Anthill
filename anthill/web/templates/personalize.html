@@ -231,7 +231,7 @@
     <div class="set-cardh"><h3>How it answers</h3></div>
     <div class="setlist">
       <div class="setrow">
-        <div class="setrow-main"><span class="setrow-name">Thinking</span><span class="setrow-d">Some models think before they answer: better on hard questions, slower to start. On by default; you can change it for each chat with the Thinking button. Only affects models running on this machine. Web search has its own default under Privacy.</span></div>
+        <div class="setrow-main"><span class="setrow-name">Thinking</span><span class="setrow-d">Some models think before they answer: better on hard questions, slower to start. Off by default for a new account, so answers start sooner; you can change it for each chat with the Thinking button. Only affects models running on this machine. Web search has its own default under Privacy.</span></div>
         <label class="tog"><input type="checkbox" name="thinking_on" {% if thinking_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
     </div>
@@ -349,7 +349,7 @@
         <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
       <div class="setrow">
-        <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. On by default; you can change it for each chat in the chat box.</span></div>
+        <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. Off by default for a new account; you can change it for each chat in the chat box.</span></div>
         <label class="tog"><input type="checkbox" name="web_access" {% if web_access_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
     </div>

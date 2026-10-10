@@ -522,10 +522,10 @@ def redo_mode(message: str) -> str:
 
 
 def needs_web_hint(message: str) -> bool:
-    """Cheap, model-free signal that a question should auto-enable the web (P4): either it asks for
-    live/current information (``_NEEDS_WEB``), OR it asks for sourced/cited research (``_WANTS_SOURCES``)
-    - which should fetch and cite real sources instead of answering from the model's memory. A capable
-    model still gets the final say via the planner in ``decide_web``; this only turns the web ON."""
+    """Cheap, model-free signal that a question asks for live/current information (``_NEEDS_WEB``) or for
+    sourced/cited research (``_WANTS_SOURCES``). Since 2026-10-10 the chat no longer uses it to turn the web
+    on by itself: the Web search box decides, and a user who wants a search with the box off asks for it in
+    plain words (``redo_mode``). Kept as a signal for callers that want to suggest turning web search on."""
     m = message or ""
     return bool(_NEEDS_WEB.search(m) or _WANTS_SOURCES.search(m))
 
