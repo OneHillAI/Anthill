@@ -144,6 +144,21 @@ _INJECTION_IMPERATIVE = re.compile(
 )
 
 
+def _is_small_talk(message: str, history: list[tuple[str, str]] | None = None) -> bool:
+    """A bare greeting, thank-you or acknowledgement (see ``agent.intent.is_small_talk``). Imported lazily."""
+    from ..agent.intent import is_small_talk
+
+    return is_small_talk(message, history)
+
+
+def _is_ack_reply(message: str, history: list[tuple[str, str]] | None = None) -> bool:
+    """An acknowledgement that answers the assistant's question ("yes thanks"): retrieved as before, but never
+    looked up in or stored to a cache, because what it means depends on this conversation."""
+    from ..agent.intent import is_acknowledgement_reply
+
+    return is_acknowledgement_reply(message, history)
+
+
 def has_injection_imperative(text: str) -> bool:
     """Does the text contain an instruction-override pattern typical of a data-embedded prompt injection?
     The caller routes such a turn to the non-streaming, hardened answer path (so the output can be checked
@@ -345,11 +360,16 @@ def ask(
     # None when embeddings are unavailable (slim app / offline model). Retrieval then
     # falls back to keyword search and the semantic cache + org index are skipped, so a
     # missing optional dep degrades gracefully instead of breaking the answer.
-    q_vec = emb.safe_embed(question)
+    # A bare greeting or thank-you has nothing to look up and nothing worth caching: no question embedding, no
+    # cache read (so an answer cached before this check existed is not replayed with its stale slugs), no
+    # org-index lookup, no wiki pages and no cache write.
+    small_talk = _is_small_talk(question, history)
+    no_cache = small_talk or _is_ack_reply(question, history)
+    q_vec = None if small_talk else emb.safe_embed(question)
 
     # ── 1. local cache ────────────────────────────────────────────────────────
     if (
-        not has_img and not _skip_shared
+        not has_img and not _skip_shared and not no_cache
     ):  # don't cache vision queries or personalized shared answers
         hit = cache.lookup(question)
         if hit:
@@ -358,7 +378,7 @@ def ask(
             return hit.answer, hit.slugs, True
 
     # ── 2. org central index ──────────────────────────────────────────────────
-    if org_url and q_vec is not None and not has_img and not _skip_shared:
+    if org_url and q_vec is not None and not has_img and not _skip_shared and not no_cache:
         org_answer = _central_lookup(org_url, q_vec, question)
         if org_answer:
             if _is_cacheable_answer(org_answer):
@@ -375,7 +395,7 @@ def ask(
 
     # ── 4. wiki retrieval (blend personal + any team/org wikis) ───────────────
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = _merge_relevant(spaces, question, k, q_vec)
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
     context = build_reference(pages, question) if pages else ""
@@ -553,7 +573,7 @@ def ask(
     # ── 6. cache + publish ────────────────────────────────────────────────────
     # Skip non-answers (a deflection / "no info"): caching or publishing one would serve the same
     # dead-end to every near-identical question - and publishing it spreads that to the whole org.
-    cacheable = _is_cacheable_answer(answer) and not _skip_shared
+    cacheable = _is_cacheable_answer(answer) and not _skip_shared and not no_cache
     if not has_img and cacheable:
         cache.store(
             question, answer, slugs=[p.stem for p in pages]
@@ -625,7 +645,9 @@ def ask_stream(
     streamed answer cannot be taken back; a turn whose question or wiki context carries one is handed to the
     blocking ``ask()`` as before. If the search itself fails the turn answers from the wiki and the model.
     """
-    q_vec = emb.safe_embed(question)
+    small_talk = _is_small_talk(question, history)  # see ask(): nothing to embed, look up or cache
+    no_cache = small_talk or _is_ack_reply(question, history)
+    q_vec = None if small_talk else emb.safe_embed(question)
     from ..inference.ollama import OllamaBackend
 
     model_override = (
@@ -634,7 +656,7 @@ def ask_stream(
         else None
     )
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = _merge_relevant(spaces, question, k, q_vec)
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
     context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
@@ -752,7 +774,7 @@ def ask_stream(
 
     answer = "".join(chunks)
     _skip_shared = shared_cache and (bool(extra_workspaces) or bool(profile))
-    if _is_cacheable_answer(answer) and not _skip_shared:
+    if _is_cacheable_answer(answer) and not _skip_shared and not no_cache:
         try:
             SemanticCache(db_path=ws.root / ".cache").store(
                 question, answer, slugs=[p.stem for p in pages]
