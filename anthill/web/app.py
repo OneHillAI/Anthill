@@ -10194,6 +10194,26 @@ def _annotate_escalation_models(provider: str, models: list[str]) -> list[dict]:
     return out
 
 
+def _discovery_failure_message(provider_name: str, exc: Exception) -> str:
+    """A fixed sentence for a failed model lookup. Only the status code and the kind of failure pick it; the
+    exception text, which can carry a URL or a path, goes to the log and not to the member."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return f"{provider_name} did not accept the key. Check the key and try again."
+    if status == 429:
+        return f"{provider_name} is rate limiting requests. Wait a moment and try again."
+    names = {c.__name__ for c in type(exc).__mro__}
+    if names & {
+        "ConnectError",
+        "ConnectTimeout",
+        "TimeoutException",
+        "ReadTimeout",
+        "TimeoutError",
+    }:
+        return f"Couldn't reach {provider_name}. Check the connection and try again."
+    return f"Couldn't list the models from {provider_name}. Check the key and try again."
+
+
 @app.post("/settings/escalation/discover-models")
 async def settings_escalation_discover_models(
     escalation_provider: str = Form(""),
@@ -10221,7 +10241,8 @@ async def settings_escalation_discover_models(
     try:
         models = ep_mod.list_models(prov["base_url"], api_key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach {prov['name']}: {e}"})
+        logging.getLogger(__name__).warning("provider model discovery failed", exc_info=True)
+        return JSONResponse({"ok": False, "error": _discovery_failure_message(prov["name"], e)})
     audit.log(
         db,
         "settings.escalation_discover_models",
@@ -13049,10 +13070,15 @@ async def chat_download(
     out = _files_dir(_files_owner(user)) / _safe_name(doc_title, fmt, ["." + fmt])
     try:
         create(text, fmt, out, title=doc_title)
-    except ImportError as e:  # an optional office lib (docx) isn't installed
-        return JSONResponse({"error": str(e)}, status_code=500)
-    except Exception as e:
-        return JSONResponse({"error": f"could not create the document: {e}"}, status_code=500)
+    except ImportError:  # an optional office lib (docx) isn't installed
+        logging.getLogger(__name__).exception("document export needs a missing library")
+        return JSONResponse(
+            {"error": "this format needs an optional library that is not installed on this server"},
+            status_code=500,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("document export failed")
+        return JSONResponse({"error": "could not create the document"}, status_code=500)
     db = _db()
     audit.log(
         db,
