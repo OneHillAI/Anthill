@@ -18,6 +18,7 @@
   otherwise use <b>Copy reset link</b> on their row and send it to them (valid for one hour).
 </div>
 {% endif %}
+{% if uerr == 'owner_protected' %}<div class="alert alert-warn">The install owner cannot be demoted or deactivated. Hand the install to another admin first (Settings, Remote access).</div>{% endif %}
 {% if uerr == 'already_exists' %}<div class="alert alert-warn">That email is already a member or has a pending invite.</div>{% endif %}
 {% if uerr == 'not_active' %}<div class="alert alert-warn">That member hasn't activated their account yet - use their <b>Copy invite link</b> instead.</div>{% endif %}
 {% if uerr == 'not_activated' %}<div class="alert alert-warn">Connect your organization backend first - you cannot invite a team until it is set up.</div>{% endif %}

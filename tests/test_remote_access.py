@@ -90,7 +90,7 @@ def _app(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     import anthill.web.app as app_mod
-    from anthill.web.db import Organization, User
+    from anthill.web.db import InstallSettings, Organization, User
 
     monkeypatch.setenv("ANTHILL_WIKI_ROOT", str(tmp_path / "wikis"))
     monkeypatch.setenv("ANTHILL_ORG_WIKI", str(tmp_path / "org"))
@@ -107,6 +107,8 @@ def _app(tmp_path, monkeypatch):
     admin = User(org_id=org.id, email="admin@acme.com", role="admin", active=True)
     member = User(org_id=org.id, email="m@acme.com", role="member", active=True)
     s.add_all([admin, member])
+    s.flush()
+    s.add(InstallSettings(owner_user_id=admin.id))  # Remote access is the install owner's to change
     s.commit()
     return TestClient(app_mod.app), app_mod, {"org": org.id, "admin": admin.id, "member": member.id}
 

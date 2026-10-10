@@ -144,3 +144,12 @@ def _no_live_ollama(monkeypatch):
     # through OllamaBackend.chat.
     monkeypatch.setattr(httpx.Client, "send", _blocked_send)
     monkeypatch.setattr(httpx.AsyncClient, "send", _blocked_asend)
+
+
+@pytest.fixture(autouse=True)
+def _local_server_by_default(monkeypatch):
+    """Tests run as a server that listens on loopback only, unless a test says otherwise. The app treats a
+    server that does not say where it listens as reachable by others (sign-up by invitation, install-wide
+    controls for the owner only), so the hermetic default names the loopback address, as the desktop app does."""
+    monkeypatch.setenv("ANTHILL_HOST", "127.0.0.1")
+    monkeypatch.setenv("ANTHILL_LOCAL_ONLY", "1")
