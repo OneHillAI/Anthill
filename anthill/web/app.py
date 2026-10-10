@@ -56,6 +56,7 @@ from .db import (
     ContributionProposal,
     Conversation,
     DiscordApp,
+    InstallSettings,
     MCPAccessLog,
     MCPConsumer,
     MCPServer,
@@ -78,6 +79,20 @@ from .db import (
     create_tables,
     get_engine,
     normalize_topology,
+)
+from .install_scope import (
+    backfill_install_owner,
+    install_owner_id,
+    install_scope_allowed,
+    is_install_owner,
+    owner_org_id,
+    record_first_install_owner,
+    recorded_owner_id,
+    server_is_shared,
+    set_install_owner_by_email,
+    settings_row,
+    signup_is_open,
+    transfer_install_owner,
 )
 
 _HERE = Path(__file__).parent
@@ -387,6 +402,62 @@ _SessionFactory = None
 _scheduler_started = False
 
 
+def _ensure_install_owner() -> None:
+    """Start-up: make sure the install has a usable owner, and audit any change.
+
+    - ``ANTHILL_INSTALL_OWNER=<email>`` (the host-side recovery path) names the owner: that active admin
+      becomes the owner if it is not already.
+    - Otherwise an install from before the owner record, or whose recorded owner never became an active admin
+      (an account still waiting for its verification link), gets its first active admin."""
+    db = _db()
+    try:
+        wanted = os.environ.get("ANTHILL_INSTALL_OWNER", "").strip()
+        if wanted:
+            before = recorded_owner_id(db)
+            target = set_install_owner_by_email(db, wanted)
+            if target is not None:
+                if target.id != before:
+                    db.commit()
+                    if before is not None:
+                        logging.getLogger(__name__).warning(
+                            "ANTHILL_INSTALL_OWNER replaced the recorded install owner (user %s) with user %s; "
+                            "remove the variable once the owner is right",
+                            before,
+                            target.id,
+                        )
+                    audit.log(
+                        db, "install.owner_set_by_host", f"uid={target.id}", org_id=target.org_id
+                    )
+                return
+            logging.getLogger(__name__).warning(
+                "ANTHILL_INSTALL_OWNER names no active admin; falling back to the recorded owner"
+            )
+        new_id = backfill_install_owner(db)
+        if new_id is not None:
+            db.commit()
+            audit.log(
+                db,
+                "install.owner_recorded",
+                f"uid={new_id} source=start-up",
+                org_id=db.query(User.org_id).filter(User.id == new_id).scalar(),
+            )
+    finally:
+        db.close()
+
+
+def _require_install_scope(request: Request, user: dict) -> None:
+    """Allow a change that belongs to the whole install only for the install owner, or, on a server that
+    is not shared, a request from the machine itself. Everyone else, including the admin of another
+    organisation, gets 403."""
+    db = _db()
+    try:
+        if install_scope_allowed(db, request, user):
+            return
+    finally:
+        db.close()
+    raise HTTPException(status_code=403, detail="Only the install owner can do this")
+
+
 @app.on_event("startup")
 def _startup():
     global _scheduler_started
@@ -410,6 +481,10 @@ def _startup():
             _migrate_legacy_personal_wiki()  # fold a legacy single-node personal wiki into per-user
         except Exception:
             pass
+        try:
+            _ensure_install_owner()  # an install from before the owner record: its first admin owns it
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the install owner")
         try:
             _backfill_knowledge_registry()  # index any pre-existing page/skill (#683 phase 7)
         except Exception:
@@ -1412,11 +1487,12 @@ def _oauth_register_first_user(
     )
     db.add(user)
     db.flush()
+    record_first_install_owner(db, user)  # the same transaction as the user insert
     db.add(
         AuditLog(
             org_id=org.id,
             event="user.oauth_register",
-            detail=f"email={email} provider={provider}",
+            detail=f"email={email} provider={provider} install_owner={user.id == recorded_owner_id(db)}",
         )
     )
     return user
@@ -2030,7 +2106,14 @@ def setup_get(request: Request, user=Depends(_current_user)):
     resp = templates.TemplateResponse(
         request,
         "setup.html",
-        {"request": request, "error": "", "setup_step": 1, "is_first_run": is_first_run, **ctx},
+        {
+            "request": request,
+            "error": "",
+            "setup_step": 1,
+            "is_first_run": is_first_run,
+            "signup_closed": not signup_is_open(db, request),
+            **ctx,
+        },
     )
     _set_oauth_state(resp, ctx["oauth_state"])
     return resp
@@ -2055,6 +2138,21 @@ async def setup_post(
     gpu_backend: str = Form("vpc"),  # vpc (own cloud, AWS default) | onprem | endpoint (neocloud)
 ):
     db = _db()
+    if not signup_is_open(db, request):
+        # A server other people can reach: accounts after the first are created by invitation.
+        return templates.TemplateResponse(
+            request,
+            "setup.html",
+            {
+                "request": request,
+                "error": "",
+                "setup_step": 1,
+                "is_first_run": False,
+                "signup_closed": True,
+                **_sso_ctx(),
+            },
+            status_code=403,
+        )
     admin_email = admin_email.strip().lower()
     # Sign-up stays open past the very first account (see setup_get) - so, unlike the original
     # first-run-only version of this form, a duplicate email is now a real, reachable case rather
@@ -2145,6 +2243,8 @@ async def setup_post(
         invite_token=make_invite_token() if verify_required else None,
     )
     db.add(user)
+    db.flush()
+    first_account = record_first_install_owner(db, user)  # the same transaction as the user insert
     session_order = 0
     if not verify_required:
         session_order = _advance_session_order(db, request)
@@ -2153,6 +2253,10 @@ async def setup_post(
             return RedirectResponse("/login", status_code=302)
     db.commit()
     audit.log(db, "org.created", f"org={org_name}", org_id=org.id)
+    if first_account:
+        audit.log(
+            db, "install.owner_recorded", f"uid={user.id} source=first-account", org_id=org.id
+        )
 
     if verify_required:
         verify_url = str(request.base_url) + f"verify/{user.invite_token}"
@@ -5243,6 +5347,8 @@ async def set_role(uid: int, role: str = Form(...), user: dict = Depends(_requir
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if role != "admin" and target.id == install_owner_id(db):
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     target.role = role
     db.commit()
     audit.log(
@@ -5257,6 +5363,8 @@ async def deactivate_user(uid: int, user: dict = Depends(_require_admin)):
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if target.id == install_owner_id(db):
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     db.execute(
         update(User)
         .where(User.id == uid, User.org_id == int(user["org"]))
@@ -5281,6 +5389,9 @@ async def admin_reset_user(request: Request, uid: int, user: dict = Depends(_req
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
         raise HTTPException(status_code=404)
+    if target.id == recorded_owner_id(db) and not is_install_owner(db, user):
+        # A reset link signs in as that account: only the install owner may issue one for the owner.
+        return RedirectResponse("/users?error=owner_protected", status_code=302)
     if not target.active:
         return RedirectResponse("/users?error=not_active", status_code=302)
     token = _issue_reset(db, target)
@@ -9234,8 +9345,72 @@ def settings_remote_get(request: Request, user: dict = Depends(_require_admin)):
             "tunnel": tunnel.manager.status(),
             "has_token": bool(cfg.remote_access_token_enc),
             "saved": request.query_params.get("saved") == "1",
+            "is_owner": is_install_owner(db, user),
+            "shared_server": server_is_shared(db),
+            "signup_open": bool(getattr(db.get(InstallSettings, 1), "signup_open", False)),
+            "admins": (
+                db.query(User)
+                .filter(User.role == "admin", User.active.is_(True), User.org_id == user["org"])
+                .order_by(User.id)
+                .all()
+                if is_install_owner(db, user)
+                else []
+            ),
+            "remote_on": any(
+                (c.remote_access_provider or "off") != "off" for c in db.query(OrgSettings).all()
+            ),
+            "my_org_remote_on": (cfg.remote_access_provider or "off") != "off",
+            "in_owner_org": int(user["org"]) == owner_org_id(db),
+            "owner_error": request.query_params.get("error") == "owner",
+            "owner_id": int(user["sub"]),
         },
     )
+
+
+@app.post("/settings/signup")
+async def settings_signup_post(
+    request: Request,
+    signup_open: str = Form(""),
+    user: dict = Depends(_require_admin),
+):
+    """Let anyone who can reach this server create an account (on) or keep sign-up by invitation (off).
+    Only the install owner, because it decides who may join the whole install, not one organisation."""
+    db = _db()
+    if not is_install_owner(db, user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
+    row = settings_row(db)
+    row.signup_open = signup_open == "1"
+    db.commit()
+    audit.log(
+        db,
+        "settings.signup_open" if row.signup_open else "settings.signup_invite_only",
+        "",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse("/settings/remote?saved=1", status_code=302)
+
+
+@app.post("/settings/install-owner")
+async def settings_install_owner_post(
+    new_owner: int = Form(...),
+    user: dict = Depends(_require_admin),
+):
+    """Hand the install to another active admin. Only the current install owner can."""
+    db = _db()
+    if not is_install_owner(db, user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
+    if not transfer_install_owner(db, new_owner):
+        return RedirectResponse("/settings/remote?error=owner", status_code=302)
+    db.commit()
+    audit.log(
+        db,
+        "settings.install_owner_changed",
+        f"uid={new_owner}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse("/", status_code=302)
 
 
 @app.post("/settings/remote")
@@ -9249,12 +9424,24 @@ async def settings_remote_post(
     from .crypto import encrypt
 
     db = _db()
+    owner = is_install_owner(db, user)
+    # Remote access opens the whole install to the network, so only the install owner switches it on or
+    # changes it. An admin of another organisation can only switch their own organisation's setting off, and
+    # that touches nothing but the provider. An admin of the owner's organisation cannot: the owner's row is
+    # the one that keeps the install's tunnel running.
+    if not owner and (remote_access_provider != "off" or int(user["org"]) == owner_org_id(db)):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
     org = _require_org(db, user)
     cfg = _cfg_or_create(db, org)
     cfg.remote_access_provider = remote_access_provider
-    if remote_access_token.strip():  # blank keeps the saved token
-        cfg.remote_access_token_enc = encrypt(remote_access_token.strip())
-    cfg.remote_access_url = remote_access_url.strip()
+    if owner:
+        if remote_access_provider == "off":
+            # The owner's off is install-wide: another organisation's saved setting must not keep the
+            # server open.
+            db.query(OrgSettings).update({OrgSettings.remote_access_provider: "off"})
+        if remote_access_token.strip():  # blank keeps the saved token
+            cfg.remote_access_token_enc = encrypt(remote_access_token.strip())
+        cfg.remote_access_url = remote_access_url.strip()
     db.commit()
     audit.log(
         db,
@@ -9263,13 +9450,21 @@ async def settings_remote_post(
         org_id=org.id,
         user_id=user["sub"],
     )
-    _apply_remote_access(cfg, request)
+    if owner or not any(
+        (c.remote_access_provider or "off") != "off" for c in db.query(OrgSettings).all()
+    ):
+        _apply_remote_access(cfg, request)
+    # else: a non-owner switched their own organisation's setting off while another organisation's is still
+    # on. The one tunnel belongs to the install, so it keeps running; only that organisation's row changed.
     return RedirectResponse("/settings/remote?saved=1", status_code=302)
 
 
 @app.post("/settings/remote/stop")
 async def settings_remote_stop(user: dict = Depends(_require_admin)):
     from ..remote import tunnel
+
+    if not is_install_owner(_db(), user):
+        raise HTTPException(status_code=403, detail="Only the install owner can change this")
 
     tunnel.manager.stop()
     db = _db()

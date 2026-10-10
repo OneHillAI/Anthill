@@ -44,7 +44,7 @@ if [ -f ".env" ] && grep -q ANTHILL_JWT_SECRET .env && grep -q ANTHILL_ENCRYPTIO
 say "3. dashboard starts"
 lsof -ti :$PORT 2>/dev/null | xargs kill 2>/dev/null || true
 rm -f "$DB"; rm -rf "$WS"
-ANTHILL_WORKSPACE="$WS" .venv/bin/anthill web --port $PORT --host 127.0.0.1 --db "$DB" \
+ANTHILL_LOCAL_ONLY="${ANTHILL_LOCAL_ONLY-1}" ANTHILL_WORKSPACE="$WS" .venv/bin/anthill web --port $PORT --host 127.0.0.1 --db "$DB" \
   > /tmp/anthill-setup-test.log 2>&1 &
 PID=$!
 up=0

@@ -113,7 +113,7 @@ fi
 mkdir -p data
 # nohup so the server outlives this script in --no-wait mode (Anthill.app launch),
 # while still being a child we can `wait` on in normal foreground mode.
-ANTHILL_DB="$DB" nohup .venv/bin/anthill web --port $PORT --host 127.0.0.1 \
+ANTHILL_LOCAL_ONLY="${ANTHILL_LOCAL_ONLY-1}" ANTHILL_DB="$DB" nohup .venv/bin/anthill web --port $PORT --host 127.0.0.1 \
   > /tmp/anthill-web.log 2>&1 &
 DASHBOARD_PID=$!
 echo "  ✓ Dashboard PID $DASHBOARD_PID"
