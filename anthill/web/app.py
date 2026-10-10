@@ -11,6 +11,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -4054,8 +4055,8 @@ async def account_password(
     if not me:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     # Return to whichever page hosted the form (the account page, or the profile hub), never to an
-    # external site: only an internal, single-slash path is honoured.
-    dest = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/account"
+    # external site: only a local path is honoured.
+    dest = _local_or(next_url, "/account")
 
     def reject(error: str) -> RedirectResponse:
         return RedirectResponse(f"{dest}?error={error}", status_code=302)
@@ -7249,10 +7250,22 @@ def _review_event(kind: str, verb: str) -> str:
     return f"{prefix}.{verb}"
 
 
+def _is_local_path(value: str) -> bool:
+    """True only for a path on this site: one leading slash, no scheme or host, no backslash (browsers
+    read ``/\\host`` as ``//host``), and no control characters (a tab or newline inside ``//`` is stripped
+    by some browsers). Anything else is not a safe redirect target."""
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return False
+    if "\\" in value or any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        return False
+    parts = urlsplit(value)
+    return not parts.scheme and not parts.netloc
+
+
 def _local_or(nxt: str, default: str) -> str:
     """Return a caller-supplied `next` redirect target only if it is a safe local path (so the
     suggestions inbox can send the user back to itself after an approve/reject); else the default."""
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
+    return nxt if _is_local_path(nxt) else default
 
 
 @app.post("/wiki/review/{rid}/approve")
@@ -10386,6 +10399,26 @@ def _annotate_escalation_models(provider: str, models: list[str]) -> list[dict]:
     return out
 
 
+def _discovery_failure_message(provider_name: str, exc: Exception) -> str:
+    """A fixed sentence for a failed model lookup. Only the status code and the kind of failure pick it; the
+    exception text, which can carry a URL or a path, goes to the log and not to the member."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return f"{provider_name} did not accept the key. Check the key and try again."
+    if status == 429:
+        return f"{provider_name} is rate limiting requests. Wait a moment and try again."
+    names = {c.__name__ for c in type(exc).__mro__}
+    if names & {
+        "ConnectError",
+        "ConnectTimeout",
+        "TimeoutException",
+        "ReadTimeout",
+        "TimeoutError",
+    }:
+        return f"Couldn't reach {provider_name}. Check the connection and try again."
+    return f"Couldn't list the models from {provider_name}. Check the key and try again."
+
+
 @app.post("/settings/escalation/discover-models")
 async def settings_escalation_discover_models(
     escalation_provider: str = Form(""),
@@ -10413,7 +10446,8 @@ async def settings_escalation_discover_models(
     try:
         models = ep_mod.list_models(prov["base_url"], api_key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach {prov['name']}: {e}"})
+        logging.getLogger(__name__).warning("provider model discovery failed", exc_info=True)
+        return JSONResponse({"ok": False, "error": _discovery_failure_message(prov["name"], e)})
     audit.log(
         db,
         "settings.escalation_discover_models",
@@ -11685,8 +11719,6 @@ async def delete_conversation(conv_id: int, user: dict = Depends(_require_user))
 async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(_require_user)):
     """Toggle whether a conversation is pinned to the top of the chat list. Returns to the page the
     action came from (the rail on any chat, or the history page), preserving its query string."""
-    from urllib.parse import urlparse
-
     db = _db()
     conv = (
         db.query(Conversation)
@@ -11696,12 +11728,7 @@ async def pin_conversation(conv_id: int, request: Request, user: dict = Depends(
     if conv:
         conv.pinned = not conv.pinned
         db.commit()
-    # Only ever redirect to a local path (drop the referer's host) so this cannot be an open redirect.
-    ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else "/chat"
-    if ref.query:
-        dest = f"{dest}?{ref.query}"
-    return RedirectResponse(dest, status_code=302)
+    return _back_to_local(request)
 
 
 @app.post("/chat/{conv_id}/rename")
@@ -11725,12 +11752,11 @@ async def rename_conversation(
 
 
 def _back_to_local(request: Request, fallback: str = "/chat") -> RedirectResponse:
-    """Redirect to the referer's local path + query only (host dropped, so never an open redirect)."""
-    from urllib.parse import urlparse
-
+    """Redirect to the referer's local path + query only (host dropped, so never an open redirect). A path
+    that is not a plain local path (``//host``, a backslash, control characters) falls back."""
     ref = urlparse(request.headers.get("referer") or "")
-    dest = ref.path if ref.path.startswith("/") else fallback
-    if ref.query:
+    dest = ref.path if _is_local_path(ref.path) else fallback
+    if ref.query and dest == ref.path:
         dest = f"{dest}?{ref.query}"
     return RedirectResponse(dest, status_code=302)
 
@@ -13272,10 +13298,15 @@ async def chat_download(
     out = _files_dir(_files_owner(user)) / _safe_name(doc_title, fmt, ["." + fmt])
     try:
         create(text, fmt, out, title=doc_title)
-    except ImportError as e:  # an optional office lib (docx) isn't installed
-        return JSONResponse({"error": str(e)}, status_code=500)
-    except Exception as e:
-        return JSONResponse({"error": f"could not create the document: {e}"}, status_code=500)
+    except ImportError:  # an optional office lib (docx) isn't installed
+        logging.getLogger(__name__).exception("document export needs a missing library")
+        return JSONResponse(
+            {"error": "this format needs an optional library that is not installed on this server"},
+            status_code=500,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("document export failed")
+        return JSONResponse({"error": "could not create the document"}, status_code=500)
     db = _db()
     audit.log(
         db,

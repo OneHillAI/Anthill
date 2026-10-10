@@ -13,7 +13,7 @@ from itertools import chain
 from math import ceil
 from pathlib import Path
 
-from ..common.text import first_h1, normalize_wiki_page, slugify
+from ..common.text import WIKILINK_RE, first_h1, normalize_wiki_page, slugify
 from ..inference.base import InferenceBackend
 from ..multimodal import read_file
 from ..multimodal.reader import PDF_HARD_PROCESSING_SECONDS
@@ -163,10 +163,10 @@ def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str =
 
     def _section_sub(m: re.Match) -> str:
         body = m.group("body")
-        links = re.findall(r"\[\[([^\]]+)\]\]", body)
+        links = WIKILINK_RE.findall(body)
         if not links:
             return m.group(0)  # no links here at all - not this fix's concern, leave it alone
-        residual = re.sub(r"\[\[[^\]]+\]\]", "", body)
+        residual = WIKILINK_RE.sub("", body)
         residual = re.sub(r"[-*,\s]+", "", residual)
         if residual:
             return m.group(0)  # real prose mixed in alongside the links - keep the section
@@ -175,7 +175,7 @@ def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str =
         return m.group(0)
 
     page_md = section_re.sub(_section_sub, page_md)
-    return re.sub(r"\[\[([^\]]+)\]\]", _sub, page_md)
+    return WIKILINK_RE.sub(_sub, page_md)
 
 
 def ingest(
@@ -574,7 +574,9 @@ def _append_visual_facts(page: str, vision_summary: str) -> str:
         return page
     visual_section = f"## Visual facts\n{details}"
     before_related = page.partition("## Related")[0].rstrip()
-    related_links = list(dict.fromkeys(re.findall(r"\[\[[^\]]+\]\]", page + vision_summary)))
+    related_links = list(
+        dict.fromkeys(m.group(0) for m in WIKILINK_RE.finditer(page + vision_summary))
+    )
     result = f"{before_related}\n\n{visual_section}"
     if related_links:
         result += "\n\n## Related\n" + " ".join(related_links)

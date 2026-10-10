@@ -10,6 +10,10 @@ OFF by default and per-resource; the web layer gates auth and records every call
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 PROTOCOL_VERSION = "2024-11-05"
 
 # resource key -> (exposed tool name, description)
@@ -133,16 +137,20 @@ def handle_jsonrpc(payload: dict, cfg, *, run_tool, a2a_tools=None, a2a_call=Non
         if kind and kind in exposed_resources(cfg):
             try:
                 text = run_tool(kind, str(args.get("query", "")))
-            except Exception as e:
-                return err(-32603, f"Tool failed: {e}")
+            except Exception:
+                log.exception("MCP tool %s failed", name)  # the detail stays in the server log
+                return err(-32603, "Tool failed.")
             return ok({"content": [{"type": "text", "text": text}], "isError": False})
         if a2a_call is not None and name in {t["name"] for t in (a2a_tools or [])}:
             try:
                 text = a2a_call(name, args)
             except PermissionError as e:
                 return err(-32001, f"Not allowed: {e}")
-            except Exception as e:
-                return err(-32603, f"Tool failed: {e}")
+            except ValueError as e:  # our own message for a bad request ("'goal' is required")
+                return err(-32602, f"Invalid params: {e}")
+            except Exception:
+                log.exception("A2A tool %s failed", name)
+                return err(-32603, "Tool failed.")
             return ok({"content": [{"type": "text", "text": text}], "isError": False})
         return err(-32601, f"Tool not available: {name}")
     return err(-32601, f"Method not found: {method}")

@@ -1,0 +1,1 @@
+**Links that send you back to a page now only ever stay on this site.** The pages that return you to where you were (review actions, skills, password change, pinning and renaming a chat) accept only a plain path on the same site.

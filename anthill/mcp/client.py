@@ -11,9 +11,12 @@ real SDK-backed `list_tools_raw` / `call_tool_raw`.
 
 from __future__ import annotations
 
+import logging
 import re
 
 from ..agent.tools import Tool
+
+log = logging.getLogger(__name__)
 
 
 def mcp_available() -> bool:
@@ -122,13 +125,25 @@ def list_tools_raw(server, headers=None) -> list[dict]:
     return _run_sync(_alist(server, headers))
 
 
+def _remote_message(exc: Exception) -> str:
+    """The error message the remote MCP server itself sent (the SDK raises McpError for a JSON-RPC error
+    answer), or "" for anything raised locally, whose text can name a path or a host on this server."""
+    if any(c.__name__ == "McpError" for c in type(exc).__mro__):
+        message = getattr(getattr(exc, "error", None), "message", "")
+        if isinstance(message, str):
+            return message.strip()[:500]
+    return ""
+
+
 def call_tool_raw(server, headers, name, arguments) -> str:
     """Live `tools/call`. Returns an error string rather than raising, so a failed
     call never crashes the agent loop."""
     try:
         return _run_sync(_acall(server, headers, name, arguments))
     except Exception as e:
-        return f"MCP call failed ({name}): {e}"
+        log.exception("MCP call %s failed", name)  # the detail stays in the server log
+        remote = _remote_message(e)
+        return f"MCP call failed ({name}): {remote}" if remote else f"MCP call failed ({name})."
 
 
 def mcp_tools_for(server, headers=None, *, lister=None, caller=None) -> list[Tool]:

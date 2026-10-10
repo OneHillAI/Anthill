@@ -455,7 +455,9 @@ def looks_like_remember(message: str) -> bool:
     is saved to memory immediately rather than waiting for chat distillation. Deterministic - the store
     phrase must lead the message, so 'do you remember ...', 'I don't remember', and 'remember when ...'
     do not match."""
-    return bool(_REMEMBER.match(message or ""))
+    # Stripped first: with trailing whitespace gone the pattern's two whitespace runs cannot overlap on a
+    # long run of spaces (which made it quadratic).
+    return bool(_REMEMBER.match((message or "").strip()))
 
 
 def parse_remember(message: str) -> str:
@@ -488,7 +490,7 @@ _DEEP = re.compile(
     r"trade[-\s]?offs?|step[-\s]?by[-\s]?step|walk\s+me\s+through|"
     r"across\s+(?:all|our|the|multiple|several|every)|for\s+each\b|each\s+of\s+(?:the|our|these)|"
     r"relationship\s+between|reconcile|cross[-\s]?reference|synthesi[sz]e|"
-    r"how\s+(?:do|does|did|can|would)\s+.+\b(?:relate|affect|impact|interact|compare|differ)\b"
+    r"how\s+(?:do|does|did|can|would)\s+\S.{0,200}?\b(?:relate|affect|impact|interact|compare|differ)\b"
     r")\b",
     re.I,
 )
