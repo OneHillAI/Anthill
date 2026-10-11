@@ -26,7 +26,13 @@ class _Backend:
 
 def test_search_uses_clean_query_not_the_augmented_blob(monkeypatch):
     seen = {}
-    monkeypatch.setattr(web, "web_search", lambda q, **k: seen.update(q=q) or [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda q, **k: (
+            seen.update(q=q) or [web.SearchResult("Page", "https://example.org/page", "A page.")]
+        ),
+    )
     augmented = (
         "What is a reverse merger?\n\n[An earlier answer was:]\nSomething about Reddit and LLMs"
     )
@@ -36,7 +42,13 @@ def test_search_uses_clean_query_not_the_augmented_blob(monkeypatch):
 
 def test_search_query_defaults_to_question(monkeypatch):
     seen = {}
-    monkeypatch.setattr(web, "web_search", lambda q, **k: seen.update(q=q) or [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda q, **k: (
+            seen.update(q=q) or [web.SearchResult("Page", "https://example.org/page", "A page.")]
+        ),
+    )
     web.search_and_answer("plain question", backend=_Backend())  # no search_query
     assert seen["q"] == "plain question"
 
@@ -69,7 +81,11 @@ def test_web_citation_prompt_demands_real_urls_not_a_placeholder(monkeypatch):
 
 
 def test_web_answer_includes_conversation_history(monkeypatch):
-    monkeypatch.setattr(web, "web_search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda *a, **k: [web.SearchResult("Page", "https://example.org/page", "A page.")],
+    )
     b = _Backend()
     web.search_and_answer(
         "what's my name?",

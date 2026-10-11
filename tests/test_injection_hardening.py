@@ -45,7 +45,11 @@ def test_retrieved_context_is_fenced_as_untrusted():
 
 
 def test_web_answer_fences_untrusted_results(monkeypatch):
-    monkeypatch.setattr(web, "web_search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda *a, **k: [web.SearchResult("News", "https://example.org/news", "A news page.")],
+    )
     captured = {}
 
     class _BE:

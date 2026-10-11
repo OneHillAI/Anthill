@@ -2099,7 +2099,12 @@ def _distil_memory_from_chat(db, org_id, user_id, conv, backend) -> None:
         .limit(8)
         .all()
     )[::-1]
-    transcript = "\n".join(f"{m.role}: {m.content}" for m in recent)
+    from ..wiki.ask import strip_web_note
+
+    transcript = "\n".join(
+        f"{m.role}: {strip_web_note(m.content) if m.role == 'assistant' else m.content}"
+        for m in recent
+    )
     items = mem.extract(transcript, backend)
     if items:
         rows = (
@@ -12624,8 +12629,10 @@ async def chat_stream(
                 # Prior conversation turns, so the model has memory of this chat (it used to fetch
                 # and discard them - hence re-asking answered questions). Exclude the just-saved
                 # current message; ask() reconciles to the context budget.
+                from ..wiki.ask import strip_web_note
+
                 history = [
-                    (m.role, m.content)
+                    (m.role, strip_web_note(m.content) if m.role == "assistant" else m.content)
                     for m in conv.messages
                     if m.id != user_msg_id
                     and m.role in ("user", "assistant")
@@ -12893,6 +12900,7 @@ async def chat_stream(
                 ):
                     try:
                         from ..inference.base import ChatResult, Message
+                        from ..wiki.ask import strip_web_note
                         from .escalation import (
                             escalation_cap_reached,
                             record_escalation_used,
@@ -12900,7 +12908,7 @@ async def chat_stream(
                         )
                         from .plane_routing import PlaneInference
 
-                        local_answer = "".join(full_response)
+                        local_answer = strip_web_note("".join(full_response))
                         if local_answer.strip() and not escalation_cap_reached(cfg):
                             attachment_backend = _build_attachment_backend(cfg, _safe_decrypt)
                             if attachment_backend and should_escalate_automated(
@@ -13066,11 +13074,12 @@ async def chat_stream(
             and auto_memory_on(db, int(user["sub"]))
         ):
             from ..training.collect import record_example
+            from ..wiki.ask import strip_web_note
 
             record_example(
                 db,
                 instruction=message,
-                output=full_text,
+                output=strip_web_note(full_text),  # the note is for the page, not for training
                 model=config.model,
                 source="chat",
                 org_id=org.id,

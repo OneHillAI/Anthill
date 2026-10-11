@@ -435,6 +435,10 @@ def web_messages(
     return messages
 
 
+class NoWebPages(RuntimeError):
+    """The search worked but left no page to answer from (none found, or every one left out)."""
+
+
 def search_and_answer(
     question: str,
     *,
@@ -459,6 +463,8 @@ def search_and_answer(
     """
     results = web_search(search_query or question, max_results=max_results, fetch_bodies=True)
     results, _left_out = drop_injected(results)  # the same rule as the streamed answer
+    if not results:
+        raise NoWebPages("the search left no page to answer from")
     messages = web_messages(
         question,
         results,

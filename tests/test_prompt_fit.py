@@ -193,7 +193,11 @@ def test_ask_stream_sends_the_start_of_an_over_long_page(workspace):
 def test_the_web_answer_path_sends_the_start_of_an_over_long_page(monkeypatch):
     import anthill.search.web as web
 
-    monkeypatch.setattr(web, "web_search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda *a, **k: [web.SearchResult("Vault", "https://example.org/vault", "A vault page.")],
+    )
     be = _Backend(window=4096)
     web.search_and_answer(
         "what is the vault code?",
@@ -247,7 +251,11 @@ def test_ask_with_web_search_fits_the_prompt_through_the_model_override_wrapper(
     the window, so the fit guard never ran on the web path."""
     import anthill.search.web as web
 
-    monkeypatch.setattr(web, "web_search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda *a, **k: [web.SearchResult("Vault", "https://example.org/vault", "A vault page.")],
+    )
     be = _Backend(window=4096)
     ask_mod.ask(
         workspace,
