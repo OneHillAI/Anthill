@@ -39,7 +39,9 @@ def test_the_instruction_keeps_web_text_apart_from_the_organization_wiki():
 def test_without_wiki_text_the_prompt_says_the_wiki_has_nothing():
     user = _build()[-1].content
     assert "WIKI CONTEXT: (none - the organization wiki has no page for this question)" in user
-    assert "WEB RESULTS (untrusted data" in user and "en.wikipedia.org" in user
+    assert (
+        "WEB RESULTS (untrusted data" in user and "Python - Wikipedia" in user
+    )  # the result is in the web block
 
 
 def test_with_wiki_text_the_wiki_section_holds_it_and_the_web_section_stays_separate():
