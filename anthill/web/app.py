@@ -12017,6 +12017,44 @@ async def chat_attach(
     return JSONResponse({"token": token})
 
 
+@app.get("/chat/{conv_id}/thinking-support")
+def chat_thinking_support(conv_id: int, user: dict = Depends(_require_user)):
+    """Whether the model that answers this chat can think, for the Thinking button (docs/specs/chat-thinking-toggle.md).
+
+    ``{"known": true, "thinks": bool, "model": tag}`` when the chat runs on a local Ollama model whose
+    abilities Ollama can report; ``{"known": false}`` for a cloud or organisation model, an engine that is not
+    running, or anything else, so the page then leaves the button as it is. A sync route: the engine call runs
+    in a worker thread and never holds the event loop. The page asks after it has loaded, so opening a chat
+    never waits for the engine."""
+    from ..inference.ollama import OllamaBackend
+    from .crypto import decrypt
+    from .plane_routing import PlaneUnavailable, plane_inference
+
+    unknown = {"known": False}
+    db = _db()
+    org = _require_org(db, user)
+    conv = (
+        db.query(Conversation)
+        .filter(Conversation.id == conv_id, Conversation.user_id == int(user["sub"]))
+        .first()
+    )
+    if conv is None:
+        raise HTTPException(status_code=404, detail="No such chat")
+    cfg = _cfg(db, org)
+    if cfg is None:  # settings not saved yet: no model chosen, nothing to say
+        return unknown
+    try:
+        plane_inf = plane_inference(conv.plane, cfg, decrypt=decrypt)
+    except PlaneUnavailable:
+        return unknown
+    if plane_inf.backend != "ollama" or not plane_inf.model:
+        return unknown
+    thinks = OllamaBackend(plane_inf.base_url, plane_inf.model).thinking_support(plane_inf.model)
+    if thinks is None:
+        return unknown
+    return {"known": True, "thinks": thinks, "model": plane_inf.model}
+
+
 @app.get("/chat/{conv_id}/stream")
 async def chat_stream(
     request: Request,

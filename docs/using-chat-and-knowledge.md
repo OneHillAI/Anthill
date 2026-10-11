@@ -21,8 +21,9 @@ seconds or more on a laptop, and minutes when a web search is involved. Thinking
 a new account, so a plain answer starts in seconds. The **Thinking** button under the message box turns it on for
 a chat: click it to read "Thinking on" and the model reasons more carefully on hard questions, at the
 cost of a longer wait. Click again to turn it back off. It only changes models that run on this machine and
-that can think. Other models answer the same either way, and so do models that always think (gpt-oss,
-for one, cannot turn thinking fully off). A question that searches the web shows what it is doing ("Searching
+that can think. For a model that cannot (Gemma and Mistral, for example) the button reads "No thinking
+mode", is greyed out and does nothing, because the answer is the same either way. Models that always think
+(gpt-oss, for one) cannot turn thinking fully off. A question that searches the web shows what it is doing ("Searching
 the web", "Reading 5 pages", "Writing the answer") and then streams its answer word by word, like any other. With
 Thinking on, the first word still waits until the model has finished thinking. If a web result carries an
 instruction to the assistant, Anthill leaves it out of the answer and says how many it left out under the answer.
