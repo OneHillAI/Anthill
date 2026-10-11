@@ -23,7 +23,7 @@
     <div class="form-group" style="margin:0;flex:1">
       <label for="task-desc" class="sr-only">Describe the task in your own words</label>
       <textarea id="task-desc" rows="2"
-        placeholder="e.g. Every weekday morning at 8, summarise my unread email and post the digest to Slack"></textarea>
+        placeholder="{% if no_tools_model %}e.g. Every Monday at 8, turn my attached notes into a short plan for the week{% else %}e.g. Every weekday morning at 8, summarise my unread email and post the digest to Slack{% endif %}"></textarea>
     </div>
     <button type="button" class="mic-btn" onclick="anthillDictate('task-desc', this)"
             aria-label="Dictate the description"
@@ -41,6 +41,9 @@
     <button type="button" class="modal-x" aria-label="Close task dialog"
             onclick="closeTaskModal()">&times;</button>
   </div>
+  {% if no_tools_model %}
+  <p class="text-sm alert alert-warn" id="no-tools-note" style="margin:0 0 12px">Your local model ({{ no_tools_model }}) can't use tools. A task on it still runs and answers from your description and the files you attach. It can't search the web, open other files or take actions such as writing to the wiki, and the result says so. A model that supports tools does more.</p>
+  {% endif %}
   <form id="task-form" method="post" action="/tasks/create">
     <div class="grid-2">
       <div class="form-group">
@@ -74,7 +77,7 @@
     <div class="form-group">
       <label for="task-goal">Goal / instruction for the agent</label>
       <textarea id="task-goal" name="goal" rows="3" required
-                placeholder="e.g. Read my unread emails and write a summary wiki page with action items"></textarea>
+                {% if no_tools_model %}aria-describedby="no-tools-note" {% endif %}placeholder="{% if no_tools_model %}e.g. Each Monday, turn the notes I attach into a short plan for the week{% else %}e.g. Read my unread emails and write a summary wiki page with action items{% endif %}"></textarea>
     </div>
     {% if escalation_available %}
     <div class="form-group">
@@ -478,7 +481,17 @@ document.addEventListener('focusin', event => {
     document.getElementById('task-title').focus();
   }
 });
+function showNoToolsNote(show) {
+  // The note is about creating a task; an existing task is being edited, not started.
+  const note = document.getElementById('no-tools-note');
+  if (!note) return;
+  note.style.display = show ? '' : 'none';
+  const goal = document.getElementById('task-goal');
+  if (show) goal.setAttribute('aria-describedby', 'no-tools-note');
+  else goal.removeAttribute('aria-describedby');
+}
 function resetFormToCreate() {
+  showNoToolsNote(true);
   const form = document.getElementById('task-form');
   form.action = '/tasks/create';
   document.getElementById('task-form-title').textContent = 'Create a task';
@@ -521,6 +534,7 @@ async function draftTask() {
   }
 }
 function editTask(btn) {
+  showNoToolsNote(false);
   const d = btn.dataset;
   const form = document.getElementById('task-form');
   form.action = '/tasks/' + d.id + '/edit';
