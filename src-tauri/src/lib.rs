@@ -17,6 +17,7 @@
 //! The check is best-effort: an unreachable server never blocks startup. The updater only reaches
 //! installs once the repo's releases are public (at launch); see engineering-plans/TAURI_AUTOUPDATE.md.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
@@ -66,6 +67,15 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }));
+    }
+    // Remember the window's size, position and maximized state between launches (`window_state_flags`).
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags())
+                .build(),
+        );
     }
     builder
         .plugin(tauri_plugin_shell::init())
@@ -226,11 +236,69 @@ async fn spawn_backend<R: Runtime>(
     Ok((port, child))
 }
 
+/// What the window-state plugin saves and restores: size, position and whether it was maximized.
+/// Deliberately NOT `VISIBLE` (this shell keeps the window hidden until the backend answers and shows it
+/// itself, see `show_on`: a restored "visible" would show the splash early), and not `FULLSCREEN` or
+/// `DECORATIONS` either: restoring those calls `set_fullscreen` on every launch while the window is
+/// hidden, and the plugin would then store the fullscreen frame as the window's normal size.
+#[cfg(desktop)]
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
+}
+
+/// A size no bigger than the monitor it is shown on. The plugin applies a saved size as it is, so one
+/// saved on a large display would overflow a small one after that display is disconnected.
+fn clamp_size(size: (u32, u32), monitor: (u32, u32)) -> (u32, u32) {
+    (size.0.min(monitor.0), size.1.min(monitor.1))
+}
+
+/// First time this process shows the window: with no saved state (a first launch) fill the screen;
+/// otherwise the plugin has already restored the last size, so only make sure it fits the monitor.
+/// Done here, on the hidden window just before it is shown, rather than as `maximized` in the config: a
+/// window created maximized and then hidden can flash or take focus on some platforms. A later call
+/// (switching profile reuses `show_on`) changes nothing.
+#[cfg(desktop)]
+fn prepare_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
+    static FIRST_SHOW: AtomicBool = AtomicBool::new(true);
+    if !FIRST_SHOW.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let saved = app
+        .path()
+        .app_config_dir()
+        .map(|dir| dir.join(tauri_plugin_window_state::DEFAULT_FILENAME).exists())
+        .unwrap_or(false);
+    if !saved {
+        let _ = window.maximize();
+        return;
+    }
+    if window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    if let (Some(monitor), Ok(size)) = (monitor, window.inner_size()) {
+        let fitted = clamp_size(
+            (size.width, size.height),
+            (monitor.size().width, monitor.size().height),
+        );
+        if fitted != (size.width, size.height) {
+            let _ = window.set_size(tauri::PhysicalSize::new(fitted.0, fitted.1));
+        }
+    }
+}
+
 /// Point the main window at the backend on `port` and reveal it.
 fn show_on<R: Runtime>(app: &AppHandle<R>, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("http://127.0.0.1:{port}/");
     let window: WebviewWindow<R> = app.get_webview_window("main").ok_or("no `main` window")?;
     window.navigate(tauri::Url::parse(&url)?)?;
+    #[cfg(desktop)]
+    prepare_window(app, &window);
     window.show()?;
     Ok(())
 }
@@ -531,7 +599,28 @@ mod acl_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_data_name, parse_port_line};
+    use super::{app_data_name, clamp_size, parse_port_line};
+
+    #[test]
+    fn a_saved_size_is_clamped_to_the_monitor_it_is_shown_on() {
+        assert_eq!(clamp_size((1200, 820), (3440, 1440)), (1200, 820));
+        assert_eq!(clamp_size((3000, 1300), (1440, 900)), (1440, 900));
+        assert_eq!(clamp_size((1000, 1300), (1440, 900)), (1000, 900));
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn the_window_state_flags_never_include_visible_fullscreen_or_decorations() {
+        use tauri_plugin_window_state::StateFlags;
+        let flags = super::window_state_flags();
+        assert_eq!(
+            flags.bits(),
+            (StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED).bits()
+        );
+        for banned in [StateFlags::VISIBLE, StateFlags::FULLSCREEN, StateFlags::DECORATIONS] {
+            assert!(!flags.intersects(banned));
+        }
+    }
 
     #[test]
     fn parses_a_port_line() {
