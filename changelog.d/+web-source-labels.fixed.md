@@ -1,0 +1,1 @@
+**Web answers no longer pass off web text as your organization wiki.** The model is now told plainly which text comes from your wiki and which from the web, so a web page (Wikipedia, for example) is no longer labelled as wiki knowledge or cited with an invented wiki link.
