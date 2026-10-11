@@ -38,14 +38,14 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
 
 ## Requirements
 
-1. The chat box shows a Thinking button next to Options. The label reads "Thinking on" or "Thinking off", and the
-   button is highlighted while it is off.
+1. The chat box shows a Thinking button next to the Web search button. The label reads "Thinking on" or "Thinking off",
+   and the button is highlighted while it is on.
 2. Defaults live in Settings. Thinking is under Model, in a card "How it answers". Web access stays under Privacy.
    New accounts start with web search OFF and Thinking OFF. Existing accounts keep the values they have, which is
    how they have behaved until now: the web column is added to an old database as off and the Thinking column as
    on, so the change reaches new accounts only. A user turns either on in Settings or, for one chat, with the
    Thinking button and the Web search checkbox. Organisation chats were always on for web search.
-3. Each chat can change both for itself: the Thinking button and the Web search checkbox in Options save the
+3. Each chat can change both for itself: the Thinking button and the Web search button save the
    choice for that chat only, in the browser, keyed by the chat. A chat with no choice of its own follows the
    Settings default, so changing the default applies to it at once. For web search the chats that follow the
    default are the ones that run on the local model: a Solo chat, and a project chat (plane "team") in an
@@ -82,7 +82,7 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
    the wait for the first word, because a model that thinks does so before the first word.
 8. The first time a user opens chat, agents or tasks (whichever comes first) a one-time notice states the current
    Thinking and Web search defaults, lets the user change either right there (saved at once as the default), says
-   how to change them for one chat (Thinking button and Options) or for every chat (Settings, with a link to each
+   how to change them for one chat (the Thinking and Web search buttons) or for every chat (Settings, with a link to each
    tab), and notes that Anthill may still search the web by itself for a question that clearly needs live
    information. In an organisation account the web part says "in your personal chats", because organisation chats
    always search the web. On the Agents and Tasks pages it also says that agents and scheduled tasks keep their own settings.

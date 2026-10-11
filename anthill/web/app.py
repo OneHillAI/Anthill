@@ -302,7 +302,7 @@ templates = Jinja2Templates(directory=str(_HERE / "templates"), context_processo
 logger = logging.getLogger("anthill.web")
 
 # Branded error pages. Every error a person can land on (a bad URL, a broken tunnel) renders the
-# fleeing-ant scene in error.html - the mirror of the working "antstreet" - instead of a bare JSON
+# fleeing-ant scene in error.html - the mirror of the chat's working ants - instead of a bare JSON
 # blob. Kept warm on purpose: an error is where trust is easiest to lose. API/JSON clients still get
 # JSON (content-negotiated on Accept), and redirects (e.g. the 303 to /login) pass through untouched.
 _RESCUE = (

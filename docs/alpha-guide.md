@@ -67,7 +67,7 @@ On first launch you land on a short **setup wizard** (three steps).
   paragraph."*
 - **You should see** the answer stream in, word by word. The header reads "Running on this machine. Nothing
   leaves it." (Web search and Thinking are off by default for a new account, and a notice on your first
-  visit says so. Turn web search on for one chat under **Options**, or for every chat under **Settings,
+  visit says so. Turn web search on for one chat with the **Web search** button under the message box, or for every chat under **Settings,
   Privacy**; while it is on the header reads "Web search is on for this chat." because a search sends the
   question to a search engine.)
 

@@ -34,7 +34,7 @@ changed keeps the values it had. Set
 the defaults in **Settings**: Thinking under **Model**, Web access under **Privacy**. A web search
 sends the text of your question to a search provider, so turn it off if a question must not leave
 your machine.
-In a chat, the Thinking button and the **Options** button change them for that chat only, and Anthill
+In a chat, the Thinking button and the Web search button under the message box change them for that chat only, and Anthill
 remembers the choice for that chat. A chat you have not changed follows the default, so changing the
 default changes those chats too. The first time you open Chat, Agents or Tasks, a short notice tells you
 what the defaults are and lets you change them. With web search off, nothing is searched on the web unless

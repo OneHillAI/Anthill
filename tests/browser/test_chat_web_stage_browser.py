@@ -1,8 +1,8 @@
-"""Browser checks: the line under the ants names the real steps of a web-search turn
+"""Browser checks: the line beside the ants names the real steps of a web-search turn
 (docs/specs/108-web-turn-stream.md).
 
 The server sends `meta.stage` events (searching, reading N pages, thinking or writing) before the first word of
-a web answer. The page turns them into one honest line under the ants and clears it when the words arrive. The
+a web answer. The page turns them into one honest line beside the ants and clears it when the words arrive. The
 stream response is faked, so no model and no network are needed. Runs in its own CI job; skipped without
 Playwright.
 """
@@ -160,7 +160,7 @@ def test_the_stage_line_follows_the_steps_and_is_gone_once_the_words_arrive(live
             page.evaluate("window.__push({token: '140,000 people.'})")
             page.evaluate("window.__push('[DONE]')")
             page.wait_for_selector(".msg.assistant:has-text('140,000 people.')")
-            assert status.inner_text().strip() == ""
+            assert page.locator(".build-row").count() == 0  # the working row goes with the stream
         finally:
             browser.close()
 
@@ -188,6 +188,106 @@ def test_the_page_says_how_many_web_results_were_left_out(live):
             page.click("#send-btn")
             page.wait_for_selector(".msg.assistant:has-text('Here is what the other pages say.')")
             page.wait_for_selector(".msg.assistant .meta:has-text('2 web results left out')")
-            assert page.locator("#build-status").inner_text().strip() == ""
+            assert page.locator(".build-row").count() == 0
+        finally:
+            browser.close()
+
+
+def test_the_ants_work_inside_the_reply_bubble_and_wear_capes_for_the_provider(live):
+    """One working indicator, in the bubble where the answer appears (no strip above the message box). While the
+    attached inference provider answers, the same ants swap to the caped symbol; they keep running as words arrive."""
+    base, token, conv_id = live
+    with sync_api.sync_playwright() as p:
+        browser, page = _page(p, base, token, conv_id, _HAND_FED_STREAM)
+        try:
+            page.fill("#msg-input", "a hard question")
+            page.click("#send-btn")
+            page.wait_for_function("window.__streams.length === 1")
+
+            # no strip above the box; the ants are in the assistant bubble, with the line beside them
+            assert page.locator("#build-indicator, .antstreet").count() == 0
+            row = page.locator(".msg.assistant .bubble .build-row")
+            assert row.count() == 1
+            assert row.locator(".rant").count() == 3
+            assert row.locator(".rant use").first.get_attribute("href") == "#ah-ant"
+            assert page.locator("#build-status").inner_text().strip() == "Thinking, locally."
+
+            # the provider takes over: capes, a warm glow, and its name
+            page.evaluate("window.__push({meta: {escalating: true, provider_label: 'Infercom'}})")
+            assert page.locator(".build-row.escalating").count() == 1
+            assert row.locator(".rant use").first.get_attribute("href") == "#ah-ant-cape"
+            assert page.locator("#build-status").inner_text().strip() == "Checking with Infercom…"
+
+            # words arrive: the same ants stay (the node is not re-created, so they keep running)
+            page.evaluate("window.__ant = document.querySelector('.build-row .rant')")
+            page.evaluate("window.__push({token: 'Here is the answer.'})")
+            page.wait_for_selector(".msg.assistant:has-text('Here is the answer.')")
+            assert page.evaluate("window.__ant.isConnected") is True
+            assert page.locator(".build-row").count() == 1
+
+            page.evaluate("window.__push('[DONE]')")
+            page.wait_for_selector(".msg.assistant .meta")
+            assert page.locator(".build-row").count() == 0
+        finally:
+            browser.close()
+
+
+def test_each_working_row_keeps_its_own_state(live):
+    """A provider call waiting in one row and a local turn in another never read or overwrite each other: ending or
+    changing one leaves the other's capes and line as they were."""
+    base, token, conv_id = live
+    with sync_api.sync_playwright() as p:
+        browser, page = _page(p, base, token, conv_id, _HAND_FED_STREAM)
+        try:
+            page.evaluate(
+                """() => {
+                    window.__a = appendMsg('assistant', buildRowHTML(true, 'Checking with Infercom…'));
+                    window.__b = appendMsg('assistant', buildRowHTML(false, 'Thinking, locally.'));
+                }"""
+            )
+            a = page.locator(".build-row").nth(0)
+            b = page.locator(".build-row").nth(1)
+            assert a.get_attribute("class").count("escalating") == 1
+            assert b.get_attribute("class").count("escalating") == 0
+
+            # the local turn's line changes and then its row is cleared: the provider row is untouched
+            page.evaluate("setBuildStatus('Writing the answer…', rowEl(window.__b))")
+            page.evaluate("setEscalating(false, '', rowEl(window.__b))")
+            assert a.locator(".build-status").inner_text().strip() == "Checking with Infercom…"
+            assert a.locator(".rant use").first.get_attribute("href") == "#ah-ant-cape"
+            assert b.locator(".rant use").first.get_attribute("href") == "#ah-ant"
+
+            # and the other way round: the provider row finishes, the local row keeps its line
+            page.evaluate("setBuildStatus('Writing the answer…', rowEl(window.__b))")
+            page.evaluate("setEscalating(false, '', rowEl(window.__a))")
+            assert b.locator(".build-status").inner_text().strip() == "Writing the answer…"
+            assert a.locator(".build-status").inner_text().strip() == ""
+        finally:
+            browser.close()
+
+
+def test_the_confirmation_card_stops_saying_nothing_left_once_the_question_is_sent(live):
+    """The card says "Nothing has left this device yet" until you answer it. After "Just this once" the question is
+    on its way, so that line is replaced before the working row (with the capes) appears in the same card."""
+    base, token, conv_id = live
+    with sync_api.sync_playwright() as p:
+        browser, page = _page(p, base, token, conv_id, _HAND_FED_STREAM)
+        try:
+            # hold the provider request open so the card stays in its "sending" state
+            page.route("**/escalate-confirm", lambda route: None)
+            page.evaluate(
+                """() => {
+                    const answer = appendMsg('assistant', 'A local answer.');
+                    renderEscalationOffer(answer, {provider_label: 'Infercom', consented: false, message_id: 1}, 'A local answer.');
+                }"""
+            )
+            card = page.locator(".msg.assistant:has(.proposal)")
+            assert "Nothing has left this device yet" in card.inner_text()
+            card.locator(".btn-once").click()
+            page.wait_for_selector(".msg.assistant:has(.build-row.escalating)")
+            text = card.inner_text()
+            assert "Nothing has left this device" not in text
+            assert "Sending this question to Infercom" in text
+            assert card.locator(".build-status").inner_text().strip() == "Checking with Infercom…"
         finally:
             browser.close()

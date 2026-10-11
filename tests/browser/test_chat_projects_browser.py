@@ -119,7 +119,9 @@ def test_attach_to_a_project_after_history_then_remove(live):
             assert page.locator("text=New folder").count() == 0
             select = page.locator("#chat-project-select")
             assert select.is_visible()
-            assert page.locator("label[for=chat-project-select]").inner_text().strip() == "Project"
+            # The top bar is just the dropdown: no "Project" label and no "Create a project" link beside it.
+            assert page.locator("label[for=chat-project-select]").count() == 0
+            assert page.locator(".chat-header a[href='/teams?new=1']").count() == 0
             assert select.locator("option").all_inner_texts() == ["No project (Unfiled)", "Roadmap"]
             assert page.locator("a.rail-newproject").is_visible()
 
