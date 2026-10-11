@@ -281,7 +281,9 @@ def test_the_confirmation_card_stops_saying_nothing_left_once_the_question_is_se
                     renderEscalationOffer(answer, {provider_label: 'Infercom', consented: false, message_id: 1}, 'A local answer.');
                 }"""
             )
-            card = page.locator(".msg.assistant:has(.proposal)")
+            # the offer is one quiet button; the question (with its "Nothing has left" line) opens on a click
+            page.locator(".escalation-offer .escalation-offer-trigger").click()
+            card = page.locator(".escalation-offer")
             assert "Nothing has left this device yet" in card.inner_text()
             card.locator(".btn-once").click()
             page.wait_for_selector(".msg.assistant:has(.build-row.escalating)")
