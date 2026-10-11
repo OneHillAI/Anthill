@@ -523,7 +523,7 @@ def test_ollama_reports_whether_a_model_can_think(monkeypatch):
     from anthill.inference import ollama as ollama_mod
     from anthill.inference.ollama import OllamaBackend
 
-    ollama_mod._CAN_THINK_CACHE.clear()
+    ollama_mod._CAPABILITIES_CACHE.clear()
     answers = {"thinker": ["completion", "thinking"], "plain": ["completion"]}
 
     def fake_post(url, json=None, timeout=None):
@@ -548,13 +548,13 @@ def test_ollama_reports_whether_a_model_can_think(monkeypatch):
     assert (
         be.base_url,
         "thinker-later",
-    ) not in ollama_mod._CAN_THINK_CACHE  # ... and not remembered
+    ) not in ollama_mod._CAPABILITIES_CACHE  # ... and not remembered
     monkeypatch.setattr(httpx, "post", fake_post)
     answers["thinker-later"] = ["completion", "thinking"]
     assert (
         be.can_think("thinker-later") is True
     )  # the next turn asks again and gets the real answer
-    ollama_mod._CAN_THINK_CACHE.clear()
+    ollama_mod._CAPABILITIES_CACHE.clear()
 
 
 def test_the_route_forwards_left_out_and_never_serves_the_cache_to_a_web_turn(

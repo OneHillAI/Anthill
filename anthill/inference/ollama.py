@@ -18,15 +18,18 @@ import httpx
 from platformdirs import user_data_dir
 
 from ..platform_layer import detached_process_kwargs
-from .base import BackendError, ChatResult, Message, _mean_logprob
+from .base import BackendError, ChatResult, Message, ToolsUnsupported, _mean_logprob
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 # (base_url, model) -> context window in tokens (0 = unknown). A model's context length is fixed, so
 # probe /api/show once and cache it across backend instances (they're created per request). (#277)
 _CTX_WINDOW_CACHE: dict[tuple[str, str], int] = {}
-# (base_url, model) -> whether the model can think before it answers, from /api/show's "capabilities".
-_CAN_THINK_CACHE: dict[tuple[str, str], bool] = {}
+# (base_url, model) -> (when it was read, /api/show's "capabilities" list). One read serves can_think and
+# can_use_tools. Entries expire after _CAPABILITIES_TTL seconds (a model pulled or replaced under the same tag
+# is seen again) and are dropped when a model is deleted. A 400 "does not support tools" removes "tools" here.
+_CAPABILITIES_CACHE: dict[tuple[str, str], tuple[float, list[str] | None]] = {}
+_CAPABILITIES_TTL = 300.0
 
 # The window Anthill asks Ollama for on every request (issue #109). Without it Ollama picks its own default
 # and silently drops whatever does not fit. Ollama's own default depends on the machine's video memory
@@ -272,6 +275,9 @@ class OllamaBackend:
                 "Install it from https://ollama.com, then run `ollama serve`."
             ) from e
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400 and "does not support tools" in e.response.text:
+                self._forget_tools(model)
+                raise ToolsUnsupported(f"{model or self.model} does not support tools.") from e
             raise BackendError(
                 f"Ollama returned {e.response.status_code}: {e.response.text[:300]}"
             ) from e
@@ -436,22 +442,48 @@ class OllamaBackend:
         trained = self.trained_context_window(model)
         return min(trained, self.num_ctx) if trained > 0 else self.num_ctx
 
-    def thinking_support(self, model: str | None = None) -> bool | None:
-        """Whether the model can think before it answers, as Ollama reports it (``capabilities`` includes
-        "thinking" in ``/api/show``): True or False, cached per (base_url, model) once it has been read. None
-        when it cannot be read (not remembered, so the next call asks again). Never raises."""
-        m = model or self.model or ""
-        key = (self.base_url, m)
-        if key in _CAN_THINK_CACHE:
-            return _CAN_THINK_CACHE[key]
+    def _capabilities(self, model: str | None, timeout: float = 5) -> list[str] | None:
+        """The model's ``capabilities`` from ``/api/show``, cached per (base_url, model) for a few minutes.
+        None when Ollama cannot be read (not remembered, so the next ask reads again). An older Ollama that
+        reports none gives an empty list (remembered). Never raises."""
+        key = (self.base_url, model or self.model or "")
+        hit = _CAPABILITIES_CACHE.get(key)
+        if hit is not None and time.monotonic() - hit[0] < _CAPABILITIES_TTL:
+            return hit[1]
         try:
-            resp = httpx.post(f"{self.base_url}/api/show", json={"model": m}, timeout=5)
+            resp = httpx.post(f"{self.base_url}/api/show", json={"model": key[1]}, timeout=timeout)
             resp.raise_for_status()
-            can = "thinking" in (resp.json().get("capabilities") or [])
+            capabilities = resp.json().get("capabilities")
         except (httpx.HTTPError, ValueError, AttributeError):
             return None
-        _CAN_THINK_CACHE[key] = can
-        return can
+        if not isinstance(capabilities, list):
+            capabilities = []
+        _CAPABILITIES_CACHE[key] = (time.monotonic(), capabilities)
+        return capabilities
+
+    def _forget_tools(self, model: str | None) -> None:
+        """A request was refused because the model has no tools: remember that for this model."""
+        key = (self.base_url, model or self.model or "")
+        known = _CAPABILITIES_CACHE.get(key, (0.0, []))[1] or []
+        kept = [c for c in known if c != "tools"] or ["completion"]
+        _CAPABILITIES_CACHE[key] = (time.monotonic(), kept)
+
+    def thinking_support(self, model: str | None = None) -> bool | None:
+        """Whether the model can think before it answers, as Ollama reports it (``capabilities`` includes
+        "thinking" in ``/api/show``): True or False once it has been read. None when it cannot be read (not
+        remembered, so the next call asks again). Never raises."""
+        capabilities = self._capabilities(model)
+        return None if capabilities is None else "thinking" in capabilities
+
+    def can_use_tools(self, model: str | None = None, *, timeout: float = 5) -> bool:
+        """Whether the model can call tools, as Ollama reports it (``capabilities`` includes "tools" in
+        ``/api/show``). True when it cannot be read, so a model that is merely unreachable keeps its old
+        behaviour (the request itself then reports the real problem); a 400 "does not support tools" on a
+        request also records False. Never raises."""
+        capabilities = self._capabilities(model, timeout)
+        if not capabilities:  # unreadable, or an older Ollama that reports none
+            return True
+        return "tools" in capabilities
 
     def can_think(self, model: str | None = None) -> bool:
         """``thinking_support`` as a plain yes/no: False when it cannot be read, so a caller that wants to say
@@ -466,6 +498,7 @@ class OllamaBackend:
                 "DELETE", f"{self.base_url}/api/delete", json={"name": tag}, timeout=30
             )
             resp.raise_for_status()
+            _CAPABILITIES_CACHE.clear()
             return True
         except httpx.HTTPError:
             return False

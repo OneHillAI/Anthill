@@ -137,7 +137,7 @@ def test_it_needs_a_signed_in_user(tmp_path, monkeypatch):
 def test_thinking_support_is_true_false_or_unknown_and_only_the_answers_are_remembered(
     monkeypatch,
 ):
-    ollama_mod._CAN_THINK_CACHE.clear()
+    ollama_mod._CAPABILITIES_CACHE.clear()
     answers = {"thinker": ["completion", "thinking"], "plain": ["completion", "vision"]}
 
     def fake_post(url, json=None, timeout=None):
@@ -161,5 +161,5 @@ def test_thinking_support_is_true_false_or_unknown_and_only_the_answers_are_reme
 
     monkeypatch.setattr(httpx, "post", down)
     assert be.thinking_support("later") is None and be.can_think("later") is False
-    assert (be.base_url, "later") not in ollama_mod._CAN_THINK_CACHE  # not remembered
-    ollama_mod._CAN_THINK_CACHE.clear()
+    assert (be.base_url, "later") not in ollama_mod._CAPABILITIES_CACHE  # not remembered
+    ollama_mod._CAPABILITIES_CACHE.clear()

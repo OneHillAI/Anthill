@@ -12493,6 +12493,18 @@ async def chat_stream(
                     auto_web = True
 
         try:
+            # The model the agent path would use. A router pick is made once, here, and reused below.
+            agent_model_tag = None
+            if (agent_mode or agent_auto) and not research and not images_b64:
+                agent_model_tag = router.route(message)[0] if router is not None else config.model
+                if agent_auto and not agent_mode:
+                    from ..agent.executor import backend_can_use_tools
+
+                    # A silent detour into the agent on a model that cannot call tools would give one plain
+                    # chat with no wiki, web or history: worse than the normal answer. Only an explicit
+                    # agent mode gets that (with its note).
+                    if not await run_in_threadpool(backend_can_use_tools, backend, agent_model_tag):
+                        agent_auto = False
             if research:
                 # Deep-research mode: stream the cited report AS it is produced - a search status line
                 # (immediate bytes), then the synthesized body token-by-token, then the Sources. The old
@@ -12529,7 +12541,7 @@ async def chat_stream(
                 ) + mcp_client_tools(
                     db, org.id
                 )  # builtin tools + approved MCP servers; files scoped per-user (owner=org/user)
-                model_tag = router.route(message)[0] if router is not None else config.model
+                model_tag = agent_model_tag
                 ident = get_or_create_identity(db, org.id, "chat-agent", agent_type="chat")
                 principles, skills = agent_context_for(
                     db,
@@ -15396,6 +15408,23 @@ async def _retry_task_mutation(db, mutation, *, busy_detail: str):
         await asyncio.sleep(min(0.01 * attempts, max(0, remaining)))
 
 
+def _local_model_without_tools(db, org) -> str:
+    """The name of the local model a Solo task runs on when it cannot call tools, else "". The Tasks form
+    uses it to say, before anyone writes a task, what such a task can and cannot do. Never raises."""
+    try:
+        from ..inference.ollama import OllamaBackend
+        from .crypto import decrypt
+        from .plane_routing import plane_inference
+
+        inf = plane_inference("solo", _cfg(db, org), decrypt=decrypt)
+        if inf.backend != "ollama" or not inf.model:
+            return ""
+        # A short wait: the page must not hang on an Ollama that does not answer (a read is cached for minutes).
+        return "" if OllamaBackend(inf.base_url, inf.model).can_use_tools(timeout=2) else inf.model
+    except Exception:
+        return ""
+
+
 def _escalation_available(db, org) -> bool:
     """#278: is there a connected org/RunPod/inference-provider backend this org's tasks could
     escalate to? Gates whether the per-task "escalate on uncertainty" checkbox is even offered."""
@@ -15529,6 +15558,7 @@ def tasks_page(
             # #278: only offer the per-task escalation checkbox when there's actually something to
             # escalate to - otherwise it's a setting that can't do anything.
             "escalation_available": _escalation_available(db, org),
+            "no_tools_model": _local_model_without_tools(db, org),
             "review_actions": _list_review_actions(db, tasks, user),
         },
     )

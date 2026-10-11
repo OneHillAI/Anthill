@@ -13,6 +13,12 @@ skipped and the task waits for its next scheduled time, and follow-ups you queue
 that run too. You can reactivate a task once any run you cancelled has finished. **Run now** and **Add follow-up**
 are not available on a cancelled task; reactivate it first.
 
+A task needs a model that can use tools to search the web, open files or take actions. If your model cannot (a
+small model such as gemma3:4b, for example), the task still runs and answers from its description and the files
+you attached, and the result begins with a note saying no tools were used. Because it did not do any work outside
+the answer itself, the run is marked "needs review" and you are notified each time. Choose a model that supports
+tools for work that needs them.
+
 ## Agents
 
 An **agent** is a named worker with a standing job, like an employee with a role. It runs toward

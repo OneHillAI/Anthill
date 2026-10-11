@@ -15,6 +15,11 @@ class BackendError(RuntimeError):
     """
 
 
+class ToolsUnsupported(BackendError):
+    """The model does not support tool calling (Ollama answers 400 "does not support tools"). The agent
+    executor catches it and answers without tools instead of failing the run."""
+
+
 @dataclass
 class Message:
     role: str  # "system" | "user" | "assistant"

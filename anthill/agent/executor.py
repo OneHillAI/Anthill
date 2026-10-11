@@ -5,13 +5,41 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from ..inference.base import BackendError, Message
+from ..inference.base import BackendError, Message, ToolsUnsupported
 from .tools import Tool
 
 # Cap on a single agent step's generation (a tool-call decision or the final answer). Generous - it
 # never truncates a real step, incl. a reasoning model's think phase - but it bounds a runaway so one
 # step can't blow a task's whole time budget (the chat-hang runaway, on the tool-calling path).
 STEP_MAX_TOKENS = 4096
+
+# Said at the top of an answer that was given without tools, because the model cannot call them.
+NO_TOOLS_NOTE = (
+    "Note: this model can't use tools, so this run answered without searching the web, reading files or "
+    "using any other tool. For work that needs them, switch to a model that supports tools.\n\n"
+)
+# Why a run that answered without tools is flagged for the owner (the "needs your review" notice).
+NO_TOOLS_REVIEW_REASON = (
+    "Answered without tools: this model can't use them, so nothing outside the answer itself "
+    "(searching, reading files, writing to the wiki) was done."
+)
+
+
+def strip_no_tools_note(text: str) -> str:
+    """The text without the leading NO_TOOLS_NOTE (unchanged when it has none)."""
+    return text[len(NO_TOOLS_NOTE) :] if text.startswith(NO_TOOLS_NOTE) else text
+
+
+def backend_can_use_tools(backend, model: str | None) -> bool:
+    """False only when the backend says the model cannot call tools. A backend that cannot say (the cloud
+    backends), or any failure to ask, counts as able."""
+    check = getattr(backend, "can_use_tools", None)
+    if check is None:
+        return True
+    try:
+        return bool(check(model or None))
+    except Exception:
+        return True
 
 
 @dataclass
@@ -32,6 +60,9 @@ class AgentResult:
     steps: list[StepResult] = field(default_factory=list)
     aborted: bool = False
     abort_reason: str = ""
+    # The model cannot call tools, so the answer is one plain chat (it starts with NO_TOOLS_NOTE). A caller
+    # that runs unattended should treat the run as one that may not have done what the goal asked.
+    answered_without_tools: bool = False
 
     @property
     def used_tools(self) -> list[str]:
@@ -143,14 +174,68 @@ class AgentExecutor:
             return (verdict.reason or "flagged")[:200]
         return ""
 
+    def _model_can_use_tools(self) -> bool:
+        """False only when there are tools to offer and the backend says the model cannot call them."""
+        return not self.tools or backend_can_use_tools(self.backend, self.model)
+
+    def _answer_without_tools(self, goal: str, context: str) -> str:
+        """One plain chat over the goal and context, for a model that cannot call tools. The answer starts
+        with a note saying so, so nobody takes it for a researched one. Asks the same model and bounds the
+        generation the same way as a tool step."""
+        messages = self._build_initial_messages(goal, context, with_tools=False)
+        try:
+            try:
+                answer = self.backend.chat(
+                    messages, model=self.model or None, num_predict=STEP_MAX_TOKENS
+                )
+            except TypeError:  # a backend whose chat doesn't accept a model or a bound
+                answer = self.backend.chat(messages)
+        except BackendError:
+            raise
+        except Exception as e:
+            raise BackendError(f"Backend error: {e}") from e
+        return NO_TOOLS_NOTE + answer
+
+    def _stream_answer_without_tools(self, goal: str, context: str) -> Iterator[str]:
+        """Like ``_answer_without_tools`` but the note comes at once and the answer as it is written."""
+        stream = getattr(self.backend, "chat_stream", None)
+        if stream is None:
+            yield self._answer_without_tools(goal, context)
+            return
+        messages = self._build_initial_messages(goal, context, with_tools=False)
+        yield NO_TOOLS_NOTE
+        try:
+            try:
+                tokens = stream(messages, model=self.model or None, num_predict=STEP_MAX_TOKENS)
+            except TypeError:
+                tokens = stream(messages)
+            yield from tokens
+        except BackendError:
+            raise
+        except Exception as e:
+            raise BackendError(f"Backend error: {e}") from e
+
     def run(self, goal: str, *, context: str = "") -> AgentResult:
         """Run the agent synchronously and return the full result."""
+        if not self._model_can_use_tools():
+            return AgentResult(
+                answer=self._answer_without_tools(goal, context), answered_without_tools=True
+            )
         messages = self._build_initial_messages(goal, context)
         steps: list[StepResult] = []
 
         for step_num in range(self.max_steps):
             messages = self._maybe_compact(messages)
-            response = self._chat_with_tools(messages)
+            try:
+                response = self._chat_with_tools(messages)
+            except (
+                ToolsUnsupported
+            ):  # the capability could not be read up front; the request told us
+                return AgentResult(
+                    answer=self._answer_without_tools(goal, context),
+                    steps=steps,
+                    answered_without_tools=True,
+                )
 
             # Check for tool calls
             tool_calls = self._parse_tool_calls(response)
@@ -227,13 +312,20 @@ class AgentExecutor:
         what the agent is doing in real time.
         """
 
+        if not self._model_can_use_tools():
+            yield from self._stream_answer_without_tools(goal, context)
+            return
         messages = self._build_initial_messages(goal, context)
 
         for step_num in range(self.max_steps):
             yield f"\n🔍 **Step {step_num + 1}** - thinking...\n"
 
             messages = self._maybe_compact(messages)
-            response = self._chat_with_tools(messages)
+            try:
+                response = self._chat_with_tools(messages)
+            except ToolsUnsupported:
+                yield from self._stream_answer_without_tools(goal, context)
+                return
             tool_calls = self._parse_tool_calls(response)
 
             if not tool_calls:
@@ -281,15 +373,25 @@ class AgentExecutor:
 
     # ── internals ─────────────────────────────────────────────────────────────
 
-    def _build_initial_messages(self, goal: str, context: str) -> list[Message]:
-        system = (
-            "You are a capable AI assistant with access to tools. "
-            "Use tools to gather information before answering. "
-            "When you have enough information, give a clear, complete answer. "
-            "Always cite your sources (URLs, wiki slugs). "
-            "For tasks requiring action (sending email, writing to wiki), "
-            "draft the action and describe what you did."
-        )
+    def _build_initial_messages(
+        self, goal: str, context: str, *, with_tools: bool = True
+    ) -> list[Message]:
+        if with_tools:
+            system = (
+                "You are a capable AI assistant with access to tools. "
+                "Use tools to gather information before answering. "
+                "When you have enough information, give a clear, complete answer. "
+                "Always cite your sources (URLs, wiki slugs). "
+                "For tasks requiring action (sending email, writing to wiki), "
+                "draft the action and describe what you did."
+            )
+        else:
+            system = (
+                "You are a capable AI assistant. You have no tools in this run: you cannot search "
+                "the web, read files or take actions. Answer from the task and the context given, "
+                "say plainly what you could not check, and do not claim to have done anything you "
+                "could not do."
+            )
         # Guiding principles: always-on directives for this org/team/user. Injected
         # before skills so they take precedence in the system prompt.
         if self.principles:
