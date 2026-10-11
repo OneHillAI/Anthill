@@ -245,6 +245,11 @@
        the same warm escalation color used everywhere else (.badge-escalated, .build-row.escalating)
        to actually catch the eye once waiting has gone on a while. */
     .ask-provider-now { margin-top:4px; font-size:12px; }
+    .escalation-offer { margin-top:4px; font-size:12px; }
+    .escalation-offer .proposal { font-size:14px; }
+    .escalation-offer button.ask-provider-now-link { background:none; border:0; padding:0 2px; font:inherit;
+      min-height:24px; text-decoration:underline; }
+    .escalation-offer .ask-provider-now-link:hover { color:var(--warn-text); }
     .ask-provider-now-link { color:var(--muted); text-decoration:none; cursor:pointer; }
     .ask-provider-now-link:hover { color:var(--warn,#b0721c); text-decoration:underline; }
     .ask-provider-now.highlighted .ask-provider-now-link { color:var(--warn,#8a5a10); font-weight:600; }
@@ -282,6 +287,7 @@
       .msg .thumbs.selected-down { color: #E8A0A0; background: rgba(200,90,90,.20); }
       .msg.assistant.escalated .avatar { background: rgba(176,114,28,.18); color: #E8B87A; border-color: #E8B87A; }
       .ask-provider-now.highlighted .ask-provider-now-link { color: #E8B87A; }
+      :root:not([data-theme="light"]) .escalation-offer .btn-doit { color: #08140D; }
     }
     :root[data-theme="dark"] body { background: var(--bg); }
     :root[data-theme="dark"] .chat-header { background: var(--surface); border-bottom-color: var(--border); }
@@ -303,6 +309,7 @@
     :root[data-theme="dark"] .msg .thumbs.selected-down { color: #E8A0A0; background: rgba(200,90,90,.20); }
     :root[data-theme="dark"] .msg.assistant.escalated .avatar { background: rgba(176,114,28,.18); color: #E8B87A; border-color: #E8B87A; }
     :root[data-theme="dark"] .ask-provider-now.highlighted .ask-provider-now-link { color: #E8B87A; }
+    :root[data-theme="dark"] .escalation-offer .btn-doit { color: #08140D; }
   </style>
 </head>
 <body>
@@ -1401,6 +1408,7 @@ function fireRedoWithProvider(el, container, msgId, remember) {
       metaRowFor(bubble).innerHTML += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
       container.closest('.msg')?.classList.add('escalated');
       enhancePreviews(bubble);
+      container.querySelectorAll('.escalation-offer').forEach(o => o.remove());   // already checked: the offer would only repeat it
       status.remove();
     } else {
       status.textContent = '⚠️ ' + ((d && d.error) || 'could not reach the inference provider');
@@ -1697,30 +1705,30 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   };
 }
 
-// Appends a small card AFTER the already-finished local answer - never replacing it, since that
-// answer already rendered successfully. Two shapes (#820 follow-up: under-escalation can't be fixed
-// by a better self-assessment signal - see the SSE-handling comment above - so the human is always
-// given a way to check, on every turn, not just the ones Automated mode's grader happened to flag):
-//   - not yet consented (first use, or "just this once" last time): the existing 3-button consent
-//     card, asking to approve sending this question onward at all.
-//   - already consented ("Always"): a single one-tap "Check with {provider}" button - no need to
-//     ask again, the human already decided that once; this is purely "do I want an expert opinion
-//     on THIS answer", independent of whether Automated mode's grader would have fired on its own.
+// Offers a check with the attached inference provider AFTER the already-finished local answer - never
+// replacing it, since that answer already rendered successfully. Under-escalation can't be fixed by a better
+// self-assessment signal (see the SSE-handling comment above), so the human is always given a way to check, on
+// every turn. That offer is ONE quiet link under the answer, the same low-key style as "Ask {Provider} instead":
+//   - already consented ("Always"): the click checks the answer straight away.
+//   - not yet consented (first use, or "just this once" last time): the click opens the question that asks
+//     to approve sending this question onward (Always / Just this once / Not now). Nothing here claims the
+//     answer was not good enough: a big card after every reply, even "hi", was noise.
+// The link sits in the answer's own message (a sibling of the bubble, like the "Ask {Provider} instead" link)
+// and is removed on its own, so it never takes the answer with it.
 function renderEscalationOffer(answerBubble, offer, localAnswer) {
   const label = offer.provider_label || 'your inference provider';
   const consented = offer.consented === true;
-  const card = appendMsg('assistant', consented
-    ? `<div class="meta"><button class="btn-doit">⚡ Check with ${escapeHtml(label)}</button></div>`
-    : `<div class="proposal"><b>⚡ This needs more than your local model</b>` +
-      `<div class="text-muted" style="font-size:13px;margin-top:4px">Send this question to <b>${escapeHtml(label)}</b>? ` +
-      `Nothing has left this device yet.</div></div>` +
-      `<div class="meta" style="margin-top:8px">` +
-      `<button class="btn-doit">Always</button>` +
-      `<button class="thumbs btn-once">Just this once</button>` +
-      `<button class="thumbs btn-cancel">Not now</button></div>`);
+  const card = document.createElement('div');
+  card.className = 'escalation-offer';
+  card.innerHTML = `<button type="button" class="ask-provider-now-link escalation-offer-trigger"><span aria-hidden="true">⚡</span> Check with ${escapeHtml(label)}</button>`;
+  answerBubble.parentElement.appendChild(card);
 
+  let sent = false;   // one check per offer: a second activation while the provider is answering must not send a second request
   const go = (remember) => {
+    if (sent) return;
+    sent = true;
     card.querySelectorAll('button').forEach(b => b.disabled = true);
+    card.querySelectorAll('.escalation-offer-trigger').forEach(b => b.remove());   // the working row takes its place
     // The card said "Nothing has left this device yet". Once the question is on its way that is no longer
     // true, so the card's own line changes before the working row (with the capes) appears next to it.
     const proposal = card.querySelector('.proposal');
@@ -1733,6 +1741,7 @@ function renderEscalationOffer(answerBubble, offer, localAnswer) {
     }).then(r => r.json()).then(d => {
       setEscalating(false, '', cardRow);
       if (d && d.ok) {
+        if (remember) ESCALATION_CONSENTED = true;   // "Always" is the same decision the other provider controls read
         const merged = localAnswer + '\n\n' + d.text;
         answerBubble.innerHTML = renderMd(merged);
         metaRowFor(answerBubble).innerHTML =
@@ -1740,7 +1749,9 @@ function renderEscalationOffer(answerBubble, offer, localAnswer) {
         answerBubble.dataset.md = merged;
         answerBubble.closest('.msg')?.classList.add('escalated');
         enhancePreviews(answerBubble);
-        card.closest('.msg')?.remove();
+        // This answer has now been checked: its "Redo with {Provider}" control would only repeat it.
+        answerBubble.parentElement.querySelectorAll('button[title^="Redo with"]').forEach(b => b.remove());
+        card.remove();
       } else {
         card.innerHTML = `⚠️ ${escapeHtml((d && d.error) || 'could not reach the inference provider')}`;
       }
@@ -1749,11 +1760,25 @@ function renderEscalationOffer(answerBubble, offer, localAnswer) {
       card.innerHTML = '⚠️ could not reach the server';
     });
   };
-  card.querySelector('.btn-doit').onclick = () => go(true);
-  if (!consented) {
+  // First use: ask before anything leaves the device, in place of the link.
+  const askConsent = () => {
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', 'Check this answer with ' + label);
+    card.innerHTML = `<div class="proposal"><b>Check this answer with ${escapeHtml(label)}?</b>` +
+      `<div class="text-muted" style="font-size:13px;margin-top:4px">This sends your question to <b>${escapeHtml(label)}</b>. ` +
+      `Nothing has left this device yet.</div></div>` +
+      `<div class="meta" style="margin-top:8px">` +
+      `<button class="btn-doit">Always</button>` +
+      `<button class="thumbs btn-once">Just this once</button>` +
+      `<button class="thumbs btn-cancel">Not now</button></div>`;
+    card.querySelector('.btn-doit').onclick = () => go(true);
     card.querySelector('.btn-once').onclick = () => go(false);
-    card.querySelector('.btn-cancel').onclick = () => card.closest('.msg')?.remove();
-  }
+    card.querySelector('.btn-cancel').onclick = () => card.remove();
+    card.querySelector('.btn-doit').focus();   // the trigger just left the page: keep keyboard focus in the question
+  };
+  card.querySelector('.escalation-offer-trigger').onclick = () => {
+    if (consented) go(true); else askConsent();
+  };
 }
 
 // #1 UX follow-up to #820/#824: offered from the moment generation starts (see runStream), so a slow

@@ -36,13 +36,16 @@ Automated mode's own grader-gated consent offer.
   invites a click that `/chat/{id}/escalate-confirm` would just reject.
 
 ### R2 - The offer's shape reflects prior consent
-- WHERE the account has never consented (or last chose "just this once"), THE SYSTEM SHALL show the
-  existing 3-choice first-use consent card (Always / Just this once / Not now) - unchanged from before
-  this spec, since a not-yet-trusted attachment still needs an explicit decision about trusting it
-  going forward, not just this one answer.
-- WHERE the account already chose "Always", THE SYSTEM SHALL show a single one-tap "Check with
-  {Provider}" button instead - the trust decision is already made; this is purely "do I want a second
-  opinion on this specific answer."
+> Presentation changed by `docs/specs/chat-escalation-offer-quiet.md`: the offer is now one quiet link under the answer, and the
+> three-choice card below opens only after a click on it. The consent rules in this section are unchanged.
+
+- WHERE the account has never consented (or last chose "just this once"), a click on the offer SHALL open
+  the 3-choice first-use consent question (Always / Just this once / Not now), since a not-yet-trusted
+  attachment still needs an explicit decision about trusting it going forward, not just this one answer.
+  (Presentation superseded by `docs/specs/chat-escalation-offer-quiet.md`: the offer itself is one quiet
+  button, and the question appears only after it is clicked.)
+- WHERE the account already chose "Always", a click on the offer SHALL check the answer straight away - the
+  trust decision is already made; this is purely "do I want a second opinion on this specific answer."
 
 ### R3 - No new backend call path
 - THE SYSTEM SHALL reuse the existing `/chat/{id}/escalate-confirm` endpoint unchanged for both shapes
@@ -58,11 +61,10 @@ Automated mode's own grader-gated consent offer.
   (`cfg.escalation_consented`) the client uses for R2. The existing not-yet-consented Automated offer
   now also sets `"consented": False` explicitly (previously implicit - that branch only ever ran when
   false), for a uniform payload shape.
-- **`chat.html`'s `renderEscalationOffer`**: branches its rendered markup on `offer.consented` - the
-  existing 3-button card verbatim when false, a single `.btn-doit` "Check with {Provider}" button
-  (reusing the same CSS, no new styles) when true. Both wire the same click handler
-  (`/chat/{id}/escalate-confirm`, same success/failure rendering) - only the initial markup and which
-  buttons get listeners differs.
+- **`chat.html`'s `renderEscalationOffer`**: renders one quiet "Check with {Provider}" button under the
+  answer in both cases (see `docs/specs/chat-escalation-offer-quiet.md`). `offer.consented` decides what a
+  click does: check straight away when true, open the 3-choice consent question when false. Both end in the
+  same call (`/chat/{id}/escalate-confirm`, same success/failure rendering).
 - Grader cost (#820's second finding item): left unchanged. QA measured it as sub-second and opt-in
   (Automated mode only); the founder did not separately ask for a change there, and the new
   always-available manual offer makes the grader's own recall even less load-bearing than before.
