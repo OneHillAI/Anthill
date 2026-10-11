@@ -800,22 +800,29 @@ def test_chat_rail_merges_conversations_and_folds_groups(live):
             browser.close()
 
 
-def test_options_panel_hidden_by_default(live):
-    """P4: chat is a single box - the Web-search + scope overrides live under an Options disclosure.
+def test_composer_toolbar_has_web_search_and_knowledge_buttons(live):
+    """Under the message box: Web search and Knowledge are buttons like Thinking (no Options panel).
     The Agent-mode toggle is retired (#421): the router picks depth, so it is gone entirely."""
     base, token, conv_id, _asst_id = live
     with sync_api.sync_playwright() as p:
         browser, page = _page(p, base, token, conv_id)
         try:
-            page.wait_for_selector("#opt-toggle")
-            # the Web-search override is off the default surface...
-            assert page.locator("#opt-panel").is_visible() is False
+            page.wait_for_selector("#opt-web-btn")
+            # the old Options button and its panel no longer exist
+            assert page.locator("#opt-toggle").count() == 0
+            assert page.locator("#opt-panel").count() == 0
+            # the three controls are visible buttons; the web-search checkbox is only the hidden state holder
+            assert page.locator("#opt-web-btn").is_visible() is True
+            assert page.locator(".opt-scope-btn").is_visible() is True
+            assert page.locator("#opt-think").is_visible() is True
             assert page.locator("#opt-web").is_visible() is False
             # ...and the manual "Agent mode" toggle no longer exists at all (#421)
             assert page.locator("#opt-agent").count() == 0
-            # Options reveals the remaining overrides (web search + knowledge scope)
-            page.locator("#opt-toggle").click()
-            assert page.locator("#opt-panel").is_visible() is True
-            assert page.locator("#opt-web").is_visible() is True
+            # Web search flips from its own button; the knowledge button shows the chosen scope
+            before = page.locator("#opt-web").is_checked()
+            page.locator("#opt-web-btn").click()
+            assert page.locator("#opt-web").is_checked() is (not before)
+            page.locator("#opt-scope").select_option("personal")
+            assert page.locator("#opt-scope-label").inner_text().strip() == "Personal only"
         finally:
             browser.close()

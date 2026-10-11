@@ -128,44 +128,41 @@
       vertical-align:text-bottom; border-radius:1px; }
     @keyframes blink { 50% { opacity:0; } }
 
-    /* build indicator: an ant-street - small ants march to the anthill, which grows as it works */
-    #build-indicator.antstreet { position:relative; height:44px; width:100%; margin:6px 0 2px;
-      border-bottom:1px solid var(--border); padding:0; }
-    .antstreet .ant { position:absolute; top:26px; width:15px; height:9px; color:#3A2A1C;
-      will-change:left; animation:antmarch 8s linear infinite; }
-    .antstreet .ant svg { width:100%; height:100%; display:block; }
-    .antstreet-hill { position:absolute; right:2px; bottom:-3px; width:56px; height:35px;
-      transform-origin:50% 100%; animation:anthill-grow 2.6s ease-in-out infinite; }
-    @keyframes antmarch { from { left:-5%; } to { left:calc(100% - 62px); } }
-    @keyframes anthill-grow { 0%,100% { transform:scale(.9); } 50% { transform:scale(1.06); } }
-    @media (prefers-reduced-motion:reduce){ .antstreet .ant{animation:none;} .antstreet-hill{animation:none;transform:scale(1);} }
-    @media (prefers-color-scheme:dark){ .antstreet .ant{ color:#C9BBA8; } }
-    /* Escalating: this turn is being answered by the attached inference provider, not the lead. The
-       marching ants swap to the caped symbol (#ah-ant-cape, _sidebar.html) and pick up a warm glow -
-       the SAME motif carries the meaning rather than a competing new indicator. Colour-only change, so
-       it stays visible under prefers-reduced-motion (which only disables the marching/pulse animation
-       above, not this). */
-    .antstreet.escalating .ant { color:var(--warn,#b0721c); filter:drop-shadow(0 0 3px rgba(176,114,28,.55)); }
-    .antstreet.escalating .antstreet-hill { filter:drop-shadow(0 0 4px rgba(176,114,28,.4)); }
-    /* One honest line under the ants naming the real stage (thinking/escalating/escalated) - the
-       labor-illusion research this pairs with only works when the narration reflects a real signal,
-       never a decorative timed sequence, so this is driven entirely by real SSE meta events
-       (setBuildStatus), not a client-side script. Kept separate from the ants rather than replacing
-       them - the mascot is doing real work reading it as "still alive"; the text carries the "why". */
-    #build-status { font-size:12px; color:var(--muted); margin:-4px 0 6px; min-height:15px; }
-    #build-status.escalating { color:var(--warn,#b0721c); font-weight:500; }
-    /* in-bubble "thinking" indicator (BUILD_ROW): a short trail of dots marching to a SMALL anthill
-       mark. The mark PNG is 512x512 - without these rules the <img> renders at full size and fills the
-       whole reply bubble (a giant logo). Keep it to a compact inline row, ~22px tall. */
-    .build-row { display:inline-flex; align-items:center; gap:8px; padding:2px 0; }
-    .ant-trail { display:inline-flex; align-items:center; gap:5px; }
-    .ant-trail span { width:5px; height:5px; border-radius:50%; background:var(--muted,#B7A78F);
-      display:inline-block; animation:ant-trail-pulse 1.4s ease-in-out infinite; }
-    @keyframes ant-trail-pulse { 0%,100%{opacity:.25;transform:translateY(0);} 50%{opacity:1;transform:translateY(-2px);} }
-    .build-anthill { width:22px; height:22px; object-fit:contain; flex:none;
-      animation:build-anthill-bob 2.6s ease-in-out infinite; transform-origin:50% 100%; }
-    @keyframes build-anthill-bob { 0%,100%{transform:scale(.94);} 50%{transform:scale(1.06);} }
-    @media (prefers-reduced-motion:reduce){ .ant-trail span,.build-anthill{animation:none;} }
+    /* Working row, inside the reply bubble where the answer will appear: three small ants run toward a
+       small anthill, with one honest line beside them naming the real stage. That line is set only from
+       real SSE signals (setBuildStatus), never a decorative timed sequence: the narration only helps when
+       it reflects genuine work. While the attached inference provider answers (setEscalating) the SAME ants
+       swap to the caped symbol (#ah-ant-cape, _sidebar.html) and glow warm - one indicator, one place.
+       The colour change is not an animation, so it stays under prefers-reduced-motion. */
+    .build-row { --rant:#3A2A1C; display:flex; align-items:center; gap:10px; padding:4px 0; min-height:28px; }
+    .build-row.escalating { --rant:var(--warn,#b0721c); }
+    @media (prefers-color-scheme:dark){
+      :root:not([data-theme="light"]) .build-row { --rant:#C9BBA8; }
+      :root:not([data-theme="light"]) .build-row.escalating { --rant:#E8B87A; }
+    }
+    :root[data-theme="dark"] .build-row { --rant:#C9BBA8; }
+    :root[data-theme="dark"] .build-row.escalating { --rant:#E8B87A; }
+    .build-lane { position:relative; width:112px; height:20px; overflow:hidden; flex:none; }
+    .rant { position:absolute; top:3px; left:-26px; width:24px; height:14px; color:var(--rant);
+      animation:rant-run 2.4s linear infinite; }
+    .rant:nth-child(2) { animation-delay:-.8s; }
+    .rant:nth-child(3) { animation-delay:-1.6s; }
+    .rant svg { width:100%; height:100%; display:block; animation:rant-bob .3s steps(2) infinite; }
+    @keyframes rant-run { from { left:-26px; } to { left:114px; } }
+    @keyframes rant-bob { from { transform:translateY(0); } to { transform:translateY(-1px); } }
+    .build-row.escalating .rant { filter:drop-shadow(0 0 3px rgba(176,114,28,.55)); }
+    .build-hill { width:38px; height:24px; flex:none; transform-origin:50% 100%;
+      animation:anthill-grow 2.6s ease-in-out infinite; }
+    @keyframes anthill-grow { 0%,100% { transform:scale(.92); } 50% { transform:scale(1.06); } }
+    .build-row.escalating .build-hill { filter:drop-shadow(0 0 4px rgba(176,114,28,.4)); }
+    .build-status { font-size:12px; color:var(--muted); }
+    .build-status:empty { display:none; }
+    .build-row.escalating .build-status { color:var(--warn-text,#8A5A12); font-weight:500; }
+    .msg .bubble .stream-text > :first-child { margin-top:0; }
+    @media (prefers-reduced-motion:reduce){
+      .rant, .rant svg, .build-hill { animation:none; }
+      .rant { left:4px; } .rant:nth-child(2) { left:42px; } .rant:nth-child(3) { left:80px; }
+    }
     /* trust line in the chat header (plane-accurate: shown for local/solo chats) */
     .chat-trust { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--muted); font-weight:500; white-space:nowrap; }
     .chat-trust-dot { width:7px; height:7px; border-radius:50%; background:var(--success); flex-shrink:0; }
@@ -205,7 +202,13 @@
       background:none; border:1px solid var(--border); border-radius:6px; padding:2px 8px;
       font:inherit; font-size:13px; color:var(--clay); }
     .opt-toggle:hover { background:var(--bg-subtle); }
-    .opt-toggle.active { background:var(--bg-subtle); color:#5A3520; }
+    .opt-scope-btn { position:relative; display:inline-flex; margin:0; }
+    .opt-scope-btn select { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;
+      font:inherit; }
+    .opt-toggle.active { background:var(--bg-subtle); color:var(--text); font-weight:600; }
+    .opt-toggle { color:var(--clay-text,#8B5E3C); }
+    /* The knowledge control is a transparent select over a label: show the focus ring on the label. */
+    .opt-scope-btn:focus-within { outline:2px solid var(--accent); outline-offset:1px; }
     .opt-toggle.unavailable { opacity:.55; cursor:default; }
     .opt-toggle.unavailable:hover { background:none; }
 
@@ -239,7 +242,7 @@
     /* "Ask {Provider} instead", offered from the moment local generation starts (#1 UX follow-up to
        #820/#824) - not gated behind waiting for a slow local answer to finish first. Starts as a
        quiet, low-emphasis link (most turns don't need it); after 15s of still generating it picks up
-       the same warm escalation color used everywhere else (.badge-escalated, .antstreet.escalating)
+       the same warm escalation color used everywhere else (.badge-escalated, .build-row.escalating)
        to actually catch the eye once waiting has gone on a while. */
     .ask-provider-now { margin-top:4px; font-size:12px; }
     .ask-provider-now-link { color:var(--muted); text-decoration:none; cursor:pointer; }
@@ -300,7 +303,6 @@
     :root[data-theme="dark"] .msg .thumbs.selected-down { color: #E8A0A0; background: rgba(200,90,90,.20); }
     :root[data-theme="dark"] .msg.assistant.escalated .avatar { background: rgba(176,114,28,.18); color: #E8B87A; border-color: #E8B87A; }
     :root[data-theme="dark"] .ask-provider-now.highlighted .ask-provider-now-link { color: #E8B87A; }
-    :root[data-theme="dark"] .antstreet .ant { color: #C9BBA8; }
   </style>
 </head>
 <body>
@@ -335,17 +337,15 @@
       {% endif %}
       {# Attach this chat to a project, now or later: before its first prompt, or after it already has
          messages (they stay as they are). "No project" leaves it Unfiled. An Organization chat keeps its
-         plane, so it gets no control. Create a project from the Projects page (+ New project). #}
+         plane, so it gets no control. Projects are created from the Projects page (+ New project). #}
       {% if active_conv.plane != 'org' %}
       <form method="post" action="/chat/{{ active_conv.id }}/project" style="margin:0;display:flex;align-items:center;gap:6px">
-        <label for="chat-project-select" class="text-sm text-muted">Project</label>
         <select id="chat-project-select" name="team_id" class="btn btn-outline btn-sm" onchange="this.form.submit()" title="Put this chat in a project" aria-label="Project for this chat">
           <option value="" {% if not active_conv.team_id %}selected{% endif %}>No project (Unfiled)</option>
           {% for t in my_teams | default([]) %}
           <option value="{{ t.id }}" {% if active_conv.team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
           {% endfor %}
         </select>
-        {% if not my_teams %}<a href="/teams?new=1" class="text-sm" style="white-space:nowrap" title="A project groups chats with their own wiki and memory">Create a project</a>{% endif %}
       </form>
       {% endif %}
       {# Rename/Delete moved to the conversation's own row in the sidebar (pin/rename/delete icons) -
@@ -462,16 +462,6 @@
     {% if active_conv %}
     <div class="chat-input-area">
       <div id="plane-banner" class="plane-banner" style="display:none"></div>
-      <div id="build-indicator" class="antstreet" style="display:none" aria-label="Working" role="status">
-        <span class="ant" style="left:6%;animation-delay:-.2s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <span class="ant" style="left:20%;top:28px;animation-delay:-1.6s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <span class="ant" style="left:34%;animation-delay:-3s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <span class="ant" style="left:48%;top:27px;animation-delay:-4.3s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <span class="ant" style="left:62%;animation-delay:-5.6s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <span class="ant" style="left:76%;top:28px;animation-delay:-6.9s"><svg viewBox="0 0 24 14"><use href="#ah-ant"/></svg></span>
-        <svg class="antstreet-hill" viewBox="0 0 200 126"><use href="#ah-logo"/></svg>
-      </div>
-      <div id="build-status" style="display:none" aria-live="polite"></div>
       <div id="prompt-queue" style="display:none;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 6px"></div>
       {# Attached-image chip (shown once an image is picked; cleared when the turn is sent). #}
       <div id="image-attach" style="display:none;align-items:center;gap:8px;margin:0 0 6px">
@@ -502,33 +492,22 @@
            lives in Settings and this chat can change its own. A search sends the question to a search
            provider, so the header says "Web search is on" while it is on and only claims "Nothing leaves it"
            while it is off. A capable model still decides when to search once it's on; with the box off nothing
-           is searched unless the user asks for it in plain words as a follow-up ("check the web"). Options let
-           you flip it for this chat or set a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
+           is searched unless the user asks for it in plain words as a follow-up ("check the web"). The Web search
+           and knowledge buttons let you flip it for this chat or set a scope. Agent mode is no longer a toggle (#421): the router picks depth, and "go deeper" in words
            forces it on a follow-up. -->
       <div class="input-options-bar">
-        <button type="button" id="opt-toggle" class="opt-toggle" onclick="toggleOptions()"
-                title="Switch to local + wiki only, or set a knowledge scope">
-          <i data-lucide="sliders-horizontal">⚙</i> Options
+        {# Web search: a button like Thinking. The checkbox below stays as the single source of truth the
+           send code and the saved per-chat choice read; it is only hidden, never removed. #}
+        <button type="button" id="opt-web-btn" class="opt-toggle" onclick="toggleWeb()" aria-pressed="{{ 'true' if web_default else 'false' }}"
+                title="Search the web to help answer - sends your question to a search provider.">
+          <i data-lucide="globe">🌐</i> <span id="opt-web-label">{{ 'Web search on' if web_default else 'Web search off' }}</span>
         </button>
-        {# Thinking button: on leaves it to the model; off asks a model that thinks to answer without its
-           hidden thinking, so the answer comes sooner. Only affects local models that think. The page script
-           repaints it from the account default and this chat's own choice. #}
-        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="{{ 'true' if thinking_on_default else 'false' }}"
-                title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
-          <i data-lucide="brain">🧠</i> <span id="opt-think-label">{{ 'Thinking on' if thinking_on_default else 'Thinking off' }}</span>
-        </button>
-        <span class="text-muted">Shift+Enter for a new line</span>
-      </div>
-      <div class="input-options" id="opt-panel" style="display:none">
-        <label class="toggle-opt" id="opt-web-label"
-               title="Search the web to help answer - sends your question to a search provider.">
-          <input type="checkbox" id="opt-web" {% if web_default %}checked{% endif %}> <i data-lucide="globe">🌐</i> Web search
-        </label>
-        {# Agent-mode toggle retired (#421): the router auto-escalates to the multi-step agent when a
-           question needs depth, and saying "go deeper" on a follow-up forces it. No manual button. #}
-        <label class="toggle-opt" title="Which wikis to draw on for the answer">
-          <i data-lucide="layers">🗂️</i>
-          <select id="opt-scope" style="font:inherit;border:1px solid var(--border);border-radius:6px;padding:2px 6px;background:var(--surface);color:var(--text)">
+        <span hidden><input type="checkbox" id="opt-web" {% if web_default %}checked{% endif %}></span>
+        {# Knowledge scope: a button like the others. A transparent native select sits over it, so a click
+           opens the system picker (keyboard and screen readers work), and the label shows the choice. #}
+        <label class="opt-toggle opt-scope-btn" title="Which wikis to draw on for the answer">
+          <i data-lucide="layers">🗂️</i> <span id="opt-scope-label">All knowledge</span> <i data-lucide="chevron-down">▾</i>
+          <select id="opt-scope" aria-label="Knowledge to draw on" onchange="paintScope()">
             <option value="all">All knowledge</option>
             <option value="personal">Personal only</option>
             {% if my_teams %}
@@ -539,17 +518,21 @@
             {% endif %}
           </select>
         </label>
+        {# Thinking button: on leaves it to the model; off asks a model that thinks to answer without its
+           hidden thinking, so the answer comes sooner. Only affects local models that think. The page script
+           repaints it from the account default and this chat's own choice. #}
+        <button type="button" id="opt-think" class="opt-toggle" onclick="toggleThinking()" aria-pressed="{{ 'true' if thinking_on_default else 'false' }}"
+                title="Thinking on: some models think before they answer (better on hard questions, slower to start). Thinking off: faster answers. Only affects models running on this machine.">
+          <i data-lucide="brain">🧠</i> <span id="opt-think-label">{{ 'Thinking on' if thinking_on_default else 'Thinking off' }}</span>
+        </button>
+        <span class="text-muted">Shift+Enter for a new line</span>
       </div>
     </div>
     <script>
-      // Show/hide the Options panel (web search and scope options) - chat is a single box by default.
-      function toggleOptions() {
-        var p = document.getElementById('opt-panel');
-        if (!p) return;
-        var open = (p.style.display === 'none' || !p.style.display);
-        p.style.display = open ? 'flex' : 'none';
-        var t = document.getElementById('opt-toggle');
-        if (t) t.classList.toggle('active', open);
+      // Knowledge button: show the chosen scope on the button face.
+      function paintScope() {
+        var sel = document.getElementById('opt-scope'), l = document.getElementById('opt-scope-label');
+        if (sel && l && sel.selectedIndex >= 0) l.textContent = sel.options[sel.selectedIndex].text;
       }
       // Thinking and Web search, per chat. Settings holds the DEFAULT for every chat. Changing a switch here
       // changes it for THIS chat only (kept in this browser, keyed by the chat). A chat with no choice of its
@@ -609,7 +592,7 @@
         if (_thinkTitle) b.title = _thinkTitle;
         if (l) l.textContent = window._thinkOn ? 'Thinking on' : 'Thinking off';
         b.setAttribute('aria-pressed', window._thinkOn ? 'true' : 'false');
-        b.classList.toggle('active', !window._thinkOn);  // highlighted while off
+        b.classList.toggle('active', window._thinkOn);  // highlighted while on, like Web search
       }
       function toggleThinking() {
         if (thinkUnavailable()) return;
@@ -625,10 +608,26 @@
           .catch(function () {});
       }
       paintThinking();
+      paintScope();
       // Web search: the checkbox starts from this chat's own choice, else the default. The Solo trust banner
       // is kept honest: it only claims "nothing leaves it" while web search is actually off for this chat.
       var _webBox = document.getElementById('opt-web');
+      // The Web search button mirrors the checkbox: label and pressed state follow it.
+      function paintWeb() {
+        var b = document.getElementById('opt-web-btn');
+        if (!b || !_webBox) return;
+        var l = document.getElementById('opt-web-label');
+        if (l) l.textContent = _webBox.checked ? 'Web search on' : 'Web search off';
+        b.setAttribute('aria-pressed', _webBox.checked ? 'true' : 'false');
+        b.classList.toggle('active', _webBox.checked);  // highlighted while on: a search leaves the machine
+      }
+      function toggleWeb() {
+        if (!_webBox) return;
+        _webBox.checked = !_webBox.checked;
+        _webBox.dispatchEvent(new Event('change'));
+      }
       function syncTrustBanner() {
+        paintWeb();
         var msg = document.getElementById('chat-trust-msg');
         if (!msg || !_webBox) return;  // not rendered on an Org conversation
         msg.textContent = _webBox.checked
@@ -1084,10 +1083,7 @@ function setStreaming(on) {
   if (stop) stop.style.display = on ? 'flex' : 'none';
   const send = document.getElementById('send-btn');
   if (send) send.title = on ? 'Queue follow-up (Enter)' : 'Send (Enter)';
-  const ind = document.getElementById('build-indicator');   // run-in bar + pulsing anthill
-  if (ind) ind.style.display = on ? 'flex' : 'none';
-  if (on) setBuildStatus('Thinking, locally.'); else setBuildStatus('');
-  if (!on) setEscalating(false);   // never leave the caped state stuck across turns
+  if (!on && _streamRow) setEscalating(false, '', _streamRow);   // never leave the caped state stuck on this turn's row
   // When a response finishes, start the next queued prompt. Stop clears the queue
   // first, so a user-initiated stop never auto-continues.
   if (!on) drainQueue();
@@ -1096,11 +1092,8 @@ function setStreaming(on) {
 // One honest line under the ants naming the real stage - driven only by real SSE signals
 // (chat_stream's meta events), never a decorative timed sequence: the labor-illusion research this
 // implements only holds up when the narration reflects genuine work (see DESIGN-slow-local-model-ux.md).
-function setBuildStatus(text) {
-  const el = document.getElementById('build-status');
-  if (!el) return;
-  el.textContent = text || '';
-  el.style.display = text ? 'block' : 'none';
+function setBuildStatus(text, row) {
+  if (row) paintRow(row, row.dataset.esc === '1', text);
 }
 
 // A web-search turn reports its real steps (chat_stream's meta.stage: searching, reading N pages, then
@@ -1116,29 +1109,61 @@ function stageText(meta) {
   }
 }
 
-// This turn is being answered by the attached inference provider, not the lead - swap the marching
-// ants to the caped symbol (#ah-ant-cape, _sidebar.html) for the duration of the call, and name it.
-// providerLabel is included on the SSE meta event that turns this on; omitted (e.g. turning it back
-// off) just clears the text.
-function setEscalating(on, providerLabel) {
-  const ind = document.getElementById('build-indicator');
-  if (ind) ind.classList.toggle('escalating', on);
-  document.querySelectorAll('#build-indicator .ant use').forEach(function (u) {
-    u.setAttribute('href', on ? '#ah-ant-cape' : '#ah-ant');
-  });
-  const status = document.getElementById('build-status');
-  if (status) status.classList.toggle('escalating', on);
-  if (on) setBuildStatus(providerLabel ? `Checking with ${providerLabel}…` : 'Checking with your inference provider…');
-  else setBuildStatus('');   // never leave "Checking..."/"Answered via..." stuck once the call ends
+// This turn is being answered by the attached inference provider, not the lead - the ants in the working
+// row swap to the caped symbol (#ah-ant-cape, _sidebar.html) for the duration of the call, and the line
+// beside them names it. providerLabel is included on the SSE meta event that turns this on; turning it off
+// just clears the line (never leave "Checking..." stuck once the call ends).
+function setEscalating(on, providerLabel, row) {
+  if (!row) return;
+  paintRow(row, !!on, on
+    ? (providerLabel ? `Checking with ${providerLabel}…` : 'Checking with your inference provider…')
+    : '');
 }
 
-// Build indicator markup shown inside the streaming bubble while it grows.
-const BUILD_ROW = '<div class="build-row"><span class="ant-trail">' +
-  '<span style="animation-delay:0s"></span><span style="animation-delay:.34s"></span>' +
-  '<span style="animation-delay:.68s"></span><span style="animation-delay:1.03s"></span>' +
-  '<span style="animation-delay:1.37s"></span><span style="animation-delay:1.71s"></span>' +
-  '<span style="animation-delay:2.06s"></span></span>' +
-  '<img src="/static/anthill-mark-light.png" alt="" class="build-anthill"></div>';
+// The working row (ants running to a small anthill + one status line). Each row keeps its OWN state in its
+// data attributes (esc, status), so a provider call waiting in a confirmation card and a local turn that is
+// being written never read or overwrite each other's line.
+let _streamRow = null;   // the working row of the turn that is streaming right now
+
+function buildRowHTML(esc, status) {
+  const sym = esc ? '#ah-ant-cape' : '#ah-ant';
+  const ant = '<span class="rant"><svg viewBox="0 0 24 14" aria-hidden="true"><use href="' + sym + '"/></svg></span>';
+  return '<div class="build-row' + (esc ? ' escalating' : '') + '" role="status" aria-label="Working"' +
+    ' data-esc="' + (esc ? '1' : '') + '" data-status="' + escapeHtml(status || '') + '">' +
+    '<span class="build-lane">' + ant + ant + ant + '</span>' +
+    '<svg class="build-hill" viewBox="0 0 200 126" aria-hidden="true"><use href="#ah-logo"/></svg>' +
+    '<span id="build-status" class="build-status">' + escapeHtml(status || '') + '</span></div>';
+}
+
+function rowEl(container) {
+  return container ? container.querySelector('.build-row') : null;
+}
+
+function paintRow(row, esc, status) {
+  row.dataset.esc = esc ? '1' : '';
+  row.dataset.status = status || '';
+  row.classList.toggle('escalating', !!esc);
+  row.querySelectorAll('.rant use').forEach(function (u) {
+    u.setAttribute('href', esc ? '#ah-ant-cape' : '#ah-ant');
+  });
+  const st = row.querySelector('.build-status');
+  if (st) st.textContent = status || '';
+}
+
+function ensureBuildRow(container, esc, status) {
+  if (!container.querySelector('.build-row')) container.insertAdjacentHTML('beforeend', buildRowHTML(esc, status));
+}
+
+// Paint the streamed text ABOVE the working row without touching the row itself - re-writing the whole
+// bubble every few milliseconds would restart the ants' animation each time and freeze them mid-stride.
+function paintStreamText(bubble, header, buffer) {
+  let body = bubble.querySelector('.stream-text');
+  if (!body) {
+    bubble.innerHTML = (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, 'Thinking, locally.');
+    body = bubble.querySelector('.stream-text');
+  }
+  body.innerHTML = renderMd(buffer);
+}
 
 function stopStream() {
   promptQueue = []; renderQueue();   // Stop also abandons anything queued behind it
@@ -1563,7 +1588,8 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
     renderIcons();
   }
 
-  const bubble = appendMsg('assistant', (header || '') + BUILD_ROW);
+  const bubble = appendMsg('assistant', (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, 'Thinking, locally.'));
+  _streamRow = rowEl(bubble);
   let buffer = '', metaHtml = '', lastRender = 0;
   let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
 
@@ -1617,17 +1643,17 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill left these web results out of the answer because their text carried an instruction to the assistant.">🛡 ${n} web ${n === 1 ? 'result' : 'results'} left out</span>`;
       } else if (d.meta?.stage) {   // a step of a web-search turn, before the first word
         const t = stageText(d.meta);
-        if (t) { stageShown = true; setBuildStatus(t); }
+        if (t) { stageShown = true; setBuildStatus(t, rowEl(bubble)); }
       }
       if (d.token) {
-        if (stageShown) { stageShown = false; setBuildStatus(''); }   // the words are the signal now
+        if (stageShown) { stageShown = false; setBuildStatus('', rowEl(bubble)); }   // the words are the signal now
         buffer += d.token;
         // Throttle the markdown re-render to ~16 fps (marked parses the whole buffer each
         // time); the final, complete render happens in _finalize on [DONE].
         const now = Date.now();
         if (now - lastRender > 60) {
           lastRender = now;
-          bubble.innerHTML = (header || '') + renderMd(buffer) + BUILD_ROW;
+          paintStreamText(bubble, header, buffer);
         }
         scrollBottom();
       }
@@ -1637,11 +1663,11 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
       }
       if (d.meta?.escalating === true) {   // interim signal: en route to the provider
         escalatingLabel = d.meta.provider_label || '';
-        setEscalating(true, escalatingLabel);
+        setEscalating(true, escalatingLabel, rowEl(bubble));
       }
       if (d.meta?.escalation_failed === true) {   // the provider call itself failed (#820) - don't
-        setEscalating(false);                     // just let "Checking with..." vanish unexplained
-        setBuildStatus(escalatingLabel ? `Couldn't reach ${escalatingLabel}` : 'Expert check unavailable');
+        setEscalating(false, '', rowEl(bubble));  // just let "Checking with..." vanish unexplained
+        setBuildStatus(escalatingLabel ? `Couldn't reach ${escalatingLabel}` : 'Expert check unavailable', rowEl(bubble));
       }
       if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
       if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)">📖 ${d.meta.wiki_slugs.join(', ')}</span>`;
@@ -1649,13 +1675,13 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
       if (d.meta?.escalated === true) {
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
         bubble.closest('.msg')?.classList.add('escalated');
-        setBuildStatus(escalatingLabel ? `Answered via ${escalatingLabel}` : 'Answered via your inference provider');
+        setBuildStatus(escalatingLabel ? `Answered via ${escalatingLabel}` : 'Answered via your inference provider', rowEl(bubble));
       } else if (d.meta?.answered_locally === true)  metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>';
       else if (d.meta?.answered_locally === false) metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered over the network">☁️ remote</span>';
       if (d.escalation_offer) pendingEscalationOffer = d.escalation_offer;   // rendered once [DONE] arrives
       if (d.error) {
         buffer += `${buffer ? '\n\n' : ''}⚠️ ${d.error}`;
-        bubble.innerHTML = (header || '') + renderMd(buffer) + BUILD_ROW;
+        paintStreamText(bubble, header, buffer);
         scrollBottom();
       }
     } catch(_) {}
@@ -1695,15 +1721,17 @@ function renderEscalationOffer(answerBubble, offer, localAnswer) {
 
   const go = (remember) => {
     card.querySelectorAll('button').forEach(b => b.disabled = true);
-    const ind = document.getElementById('build-indicator');
-    if (ind) ind.style.display = 'flex';
-    setEscalating(true, label);
+    // The card said "Nothing has left this device yet". Once the question is on its way that is no longer
+    // true, so the card's own line changes before the working row (with the capes) appears next to it.
+    const proposal = card.querySelector('.proposal');
+    if (proposal) proposal.innerHTML = '<b>⚡ Sending this question to ' + escapeHtml(label) + '</b>';
+    ensureBuildRow(card, true, 'Checking with ' + label + '…');
+    const cardRow = rowEl(card);
     fetch(`/chat/${convId}/escalate-confirm`, {
       method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: new URLSearchParams({message_id: offer.message_id, remember: remember ? 'true' : 'false'}),
     }).then(r => r.json()).then(d => {
-      setEscalating(false);
-      if (ind) ind.style.display = 'none';
+      setEscalating(false, '', cardRow);
       if (d && d.ok) {
         const merged = localAnswer + '\n\n' + d.text;
         answerBubble.innerHTML = renderMd(merged);
@@ -1717,8 +1745,7 @@ function renderEscalationOffer(answerBubble, offer, localAnswer) {
         card.innerHTML = `⚠️ ${escapeHtml((d && d.error) || 'could not reach the inference provider')}`;
       }
     }).catch(() => {
-      setEscalating(false);
-      if (ind) ind.style.display = 'none';
+      setEscalating(false, '', cardRow);
       card.innerHTML = '⚠️ could not reach the server';
     });
   };
@@ -1777,15 +1804,14 @@ function fireAskProviderNow(el, bubble, message, remember) {
   if (currentSrc) { currentSrc.close(); currentSrc = null; }
   _finalize = null;
   setStreaming(false);
-  const ind = document.getElementById('build-indicator');
-  if (ind) ind.style.display = 'flex';
-  setEscalating(true, ESCALATION_PROVIDER_LABEL);
+  ensureBuildRow(bubble, true, 'Checking with ' + ESCALATION_PROVIDER_LABEL + '…');
+  const askRow = rowEl(bubble);
+  setEscalating(true, ESCALATION_PROVIDER_LABEL, askRow);
   fetch(`/chat/${convId}/ask-provider-now`, {
     method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
     body: new URLSearchParams({remember: remember ? 'true' : 'false'}),
   }).then(r => r.json()).then(d => {
-    setEscalating(false);
-    if (ind) ind.style.display = 'none';
+    setEscalating(false, '', askRow);
     if (d && d.ok) {
       if (remember) ESCALATION_CONSENTED = true;
       bubble.innerHTML = renderMd(d.text);
@@ -1801,8 +1827,7 @@ function fireAskProviderNow(el, bubble, message, remember) {
       bubble.innerHTML = `⚠️ ${escapeHtml((d && d.error) || 'could not reach the inference provider')}`;
     }
   }).catch(() => {
-    setEscalating(false);
-    if (ind) ind.style.display = 'none';
+    setEscalating(false, '', askRow);
     bubble.innerHTML = '⚠️ could not reach the server';
   });
 }

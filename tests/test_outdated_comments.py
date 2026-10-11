@@ -59,4 +59,7 @@ def test_chat_options_comment_omits_retired_agent_override():
         encoding="utf-8"
     )
     assert "the web/agent/scope overrides" not in chat_html
-    assert "web search and scope options" in chat_html
+    # The Options button and its panel are gone (Web search and knowledge are buttons now), so no comment
+    # or code may describe them.
+    assert "toggleOptions" not in chat_html
+    assert "Options panel" not in chat_html
