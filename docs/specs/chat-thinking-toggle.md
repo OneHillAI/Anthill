@@ -1,6 +1,6 @@
 # Spec: Thinking and web-search controls in chat
 
-Status: implemented; revised 2026-10-09 (Thinking and web search are both off by default for a new account). Lane: `pillar:feature`. Source: founder, 2026-10-07, 2026-10-08 and 2026-10-09.
+Status: implemented; revised 2026-10-09 (Thinking and web search are both off by default for a new account) and 2026-10-11 (the button knows when the model cannot think). Lane: `pillar:feature`. Source: founder, 2026-10-07, 2026-10-08 and 2026-10-09.
 
 ## Problem
 
@@ -30,6 +30,11 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
    should wait minutes by default, so web search and Thinking both start off. The first-use notice (Problem 4) is
    unchanged: it appears once per account, says that both are off, and lets the user switch either on right
    there. A user who turns web search on gets the streamed web answer of issue #108.
+6. The button offered a choice that did nothing for a model with no thinking mode. Found on 2026-10-11 by the
+   founder, testing Gemma on his own machine: Thinking on or off made no difference to the speed. Ollama reports
+   what a model can do in `/api/show` (`capabilities`); `gemma3:4b` lists `completion` and `vision`,
+   `mistral:7b` lists `completion` and `tools`, and `qwen3.5:9b` lists `completion`, `vision`, `tools` and `thinking`. The page showed
+   "Thinking on" or "Thinking off" for all of them.
 
 ## Requirements
 
@@ -95,6 +100,19 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
     ("check the web", `redo_mode` "web"), which is an explicit request. A cloud escalation still needs its own
     consent. Agents and scheduled tasks keep their own settings, and organisation chats keep their own rule (web
     search always on); neither is described by the Solo header.
+11. The Thinking button says when the model of the chat cannot think. After the page has loaded it asks
+    `GET /chat/{id}/thinking-support` (signed-in users, their own chats only; another user's chat is a 404). The
+    answer is `{"known": true, "thinks": <bool>, "model": <tag>}` when the chat runs on a local Ollama model and
+    Ollama reports its abilities (`OllamaBackend.thinking_support`, read once per model and remembered), and
+    `{"known": false}` in every other case: a cloud or organisation model (never asked as Ollama), an engine that
+    is not running or does not answer, a model that is not installed, no saved settings yet, or an unreachable
+    organisation server. For `thinks: false` the button reads "No thinking mode" (about as wide as "Thinking off", so the row does not
+    shift when the answer arrives), is marked `aria-disabled` and greyed with no hover highlight, its tooltip names
+    the model and says that Thinking makes no difference to it, and a click does nothing, so no choice is stored for a model that cannot use it and the saved default and the chat's
+    own choice stay as they were for the day a model that thinks is used. For `thinks: true` and for `known:
+    false` the button is exactly as before. The question is asked after the page loaded and never blocks it. The
+    model is the one the account has chosen, which answers every text message (the router keeps a chosen model
+    that is installed); an image question is answered by a vision model, which this does not look at.
 
 ## Out of scope
 
@@ -129,6 +147,15 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
 - A new account has Thinking off and web search off; an old database keeps Thinking on and its web value; the chat
   page, its Thinking button, its Web search checkbox, the Solo header and the first-use notice all show both off for
   a new account, and on once they are turned on.
+- `GET /chat/{id}/thinking-support` returns what Ollama reports for the model of the chat (`gemma3:4b` no,
+  `qwen3.5:9b` yes, checked against a real Ollama), `{"known": false}` when it cannot be read, for a cloud or
+  organisation model (which is never asked as Ollama), when the plane has no backend and when no settings are
+  saved yet, a 404 for another user's chat, and nothing without a session. `thinking_support` is True, False or
+  None and remembers only a real answer; `can_think` is unchanged.
+- In a real browser: with `thinks: false` the button reads "No thinking mode", is `aria-disabled`, names the
+  model in its tooltip and a click changes neither the chat's choice nor anything stored; with `thinks: true` or
+  `known: false` it works as before (`tests/browser/test_chat_thinking_support_browser.py`; fails without the page
+  change).
 - In a real browser: a chat remembers its own Thinking and Web choices across reloads, another chat is
   unaffected, a chat without a choice follows the default, and the next message is requested with `think=false`
   when Thinking is off. The notice appears once, saves the default it changes, hides on "Got it", and still saves

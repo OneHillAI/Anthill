@@ -436,11 +436,10 @@ class OllamaBackend:
         trained = self.trained_context_window(model)
         return min(trained, self.num_ctx) if trained > 0 else self.num_ctx
 
-    def can_think(self, model: str | None = None) -> bool:
+    def thinking_support(self, model: str | None = None) -> bool | None:
         """Whether the model can think before it answers, as Ollama reports it (``capabilities`` includes
-        "thinking" in ``/api/show``), cached per (base_url, model) once it has been read. False when it cannot be
-        read (and then not cached), so a caller that wants to say "thinking" only says it for a model that
-        does. Never raises."""
+        "thinking" in ``/api/show``): True or False, cached per (base_url, model) once it has been read. None
+        when it cannot be read (not remembered, so the next call asks again). Never raises."""
         m = model or self.model or ""
         key = (self.base_url, m)
         if key in _CAN_THINK_CACHE:
@@ -450,9 +449,14 @@ class OllamaBackend:
             resp.raise_for_status()
             can = "thinking" in (resp.json().get("capabilities") or [])
         except (httpx.HTTPError, ValueError, AttributeError):
-            return False  # unreadable: not claimed and not remembered, so the next turn asks again
+            return None
         _CAN_THINK_CACHE[key] = can
         return can
+
+    def can_think(self, model: str | None = None) -> bool:
+        """``thinking_support`` as a plain yes/no: False when it cannot be read, so a caller that wants to say
+        "thinking" only says it for a model that does. Never raises."""
+        return bool(self.thinking_support(model))
 
     def delete_model(self, tag: str) -> bool:
         """Uninstall a locally installed model (``ollama rm``), reclaiming its disk. Returns True on

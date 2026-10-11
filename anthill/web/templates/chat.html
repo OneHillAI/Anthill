@@ -206,6 +206,8 @@
       font:inherit; font-size:13px; color:var(--clay); }
     .opt-toggle:hover { background:var(--bg-subtle); }
     .opt-toggle.active { background:var(--bg-subtle); color:#5A3520; }
+    .opt-toggle.unavailable { opacity:.55; cursor:default; }
+    .opt-toggle.unavailable:hover { background:none; }
 
     /* canvas pane */
     .canvas-pane { position:fixed; top:0; right:0; height:100vh; width:min(560px,46vw);
@@ -578,20 +580,49 @@
         } catch (e) {}
       }
       // The Thinking button: on leaves thinking to the model; off sends think=false with each message so a
-      // reasoning model answers without its hidden thinking.
+      // reasoning model answers without its hidden thinking. A model with no thinking mode (Gemma, Mistral ...)
+      // answers the same either way, so once the server says the model of this chat cannot think the button
+      // says so and does nothing; the saved choice is left alone for a model that does think.
       window._thinkOn = (_chatOpt('think') === null) ? _defaults.think : _chatOpt('think');
+      window._thinkSupport = null;  // {known, thinks, model} from /chat/<id>/thinking-support
+      var _thinkTitle = (document.getElementById('opt-think') || {}).title || '';
+      function thinkUnavailable() {
+        var s = window._thinkSupport;
+        return !!(s && s.known === true && s.thinks === false);
+      }
       function paintThinking() {
         var b = document.getElementById('opt-think');
         if (!b) return;
         var l = document.getElementById('opt-think-label');
+        if (thinkUnavailable()) {
+          if (l) l.textContent = 'No thinking mode';
+          b.setAttribute('aria-disabled', 'true');
+          b.removeAttribute('aria-pressed');
+          b.classList.remove('active');
+          b.classList.add('unavailable');
+          b.title = (window._thinkSupport.model || 'This model') + ' has no thinking mode, so Thinking makes no ' +
+            'difference to it. Models that think, such as Qwen, use this.';
+          return;
+        }
+        b.removeAttribute('aria-disabled');
+        b.classList.remove('unavailable');
+        if (_thinkTitle) b.title = _thinkTitle;
         if (l) l.textContent = window._thinkOn ? 'Thinking on' : 'Thinking off';
         b.setAttribute('aria-pressed', window._thinkOn ? 'true' : 'false');
         b.classList.toggle('active', !window._thinkOn);  // highlighted while off
       }
       function toggleThinking() {
+        if (thinkUnavailable()) return;
         window._thinkOn = !window._thinkOn;
         _setChatOpt('think', window._thinkOn);
         paintThinking();
+      }
+      // Ask the server after the page has loaded (it asks the engine, which can be slow): never holds up the chat.
+      if (_CHAT_KEY !== null) {
+        fetch('/chat/' + _CHAT_KEY + '/thinking-support', {headers: {'Accept': 'application/json'}})
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { if (d && d.known === true) { window._thinkSupport = d; paintThinking(); } })
+          .catch(function () {});
       }
       paintThinking();
       // Web search: the checkbox starts from this chat's own choice, else the default. The Solo trust banner
