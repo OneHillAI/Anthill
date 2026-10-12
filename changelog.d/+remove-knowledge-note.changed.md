@@ -1,0 +1,1 @@
+**One less confusing line in the "Choose your AI" step.** The grey note under the Your machine and Your cloud cards ("Your wiki, memory and files are stored on this device either way") is gone. It sat next to the cloud card's own line, "Knowledge base: Sent to your cloud when used", and read as the opposite. The two cards now say what stays and what is sent.

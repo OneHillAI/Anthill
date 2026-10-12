@@ -92,9 +92,9 @@ def _ids_inside(body: str, root_id: str) -> set[str]:
 
 
 def _panel(body: str) -> str:
-    """The text of the tier panel: from its opening tag to the knowledge note that follows it."""
+    """The text of the tier panel: from its opening tag to the hidden compute input that follows it."""
     start = re.search(r'<div class="cc-attach" id="cc-attach"[^>]*>', body).start()
-    return body[start : body.index('<div class="cc-knowledge-note">', start)]
+    return body[start : body.index('<input type="hidden" name="compute"', start)]
 
 
 def test_setup_puts_the_models_and_the_cloud_provider_inside_the_tier_panel(tmp_path):
@@ -371,3 +371,15 @@ def test_an_installed_model_outside_the_catalog_is_disabled_with_the_machine_lis
         assert len(rows) == 1 and "csel-local" in rows[0]["class"], rows
         assert ("disabled" in rows[0]) is disabled, compute
         assert rows[0].get("form") == "compute-form"  # and it saves with the Settings form
+
+
+def test_the_grey_note_about_storage_is_gone_from_both_screens(tmp_path):
+    # It sat under the cards next to "Knowledge base: Sent to your cloud when used" and read as the opposite
+    # (founder, 2026-10-12). The cards' own privacy lines are the one statement about the knowledge base.
+    for name, url in (("setup", "/setup/model"), ("settings", "/personalize")):
+        folder = tmp_path / name
+        folder.mkdir()
+        body = _client(folder, chosen=name == "settings").get(url).text
+        assert "stored on this device either way" not in body, name
+        assert "cc-knowledge-note" not in body, name
+        assert "Sent to your cloud when used" in body, name
