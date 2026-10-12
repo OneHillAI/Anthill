@@ -18,7 +18,7 @@
 //! installs once the repo's releases are public (at launch); see engineering-plans/TAURI_AUTOUPDATE.md.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -71,11 +71,7 @@ pub fn run() {
     // Remember the window's size, position and maximized state between launches (`window_state_flags`).
     #[cfg(desktop)]
     {
-        builder = builder.plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_state_flags(window_state_flags())
-                .build(),
-        );
+        builder = builder.plugin(window_state_plugin());
     }
     builder
         .plugin(tauri_plugin_shell::init())
@@ -83,6 +79,8 @@ pub fn run() {
         .manage(Backend(Mutex::new(BackendState::default())))
         .invoke_handler(tauri::generate_handler![open_profile])
         .setup(|app| {
+            #[cfg(desktop)]
+            remember_launch_window_state(app.handle());
             let handle = app.handle().clone();
             // Off the UI thread so the splash window paints immediately. Check for an update first
             // (a release auto-installs and the app restarts into it); then boot the local backend so
@@ -113,7 +111,11 @@ pub fn run() {
                 event: tauri::WindowEvent::CloseRequested { .. },
                 ..
             } => stop_backend(app_handle),
-            tauri::RunEvent::Exit => stop_backend(app_handle),
+            tauri::RunEvent::Exit => {
+                stop_backend(app_handle);
+                #[cfg(desktop)]
+                undo_unprepared_window_save(app_handle);
+            }
             _ => {}
         });
 }
@@ -142,6 +144,8 @@ fn show_startup_error(app: &AppHandle, detail: &str) {
          <pre style=\"background:#000;color:#ff9a8a;padding:1rem;border-radius:8px;overflow:auto;\
          white-space:pre-wrap;font-size:12px;margin:0\">{safe}</pre></div>`;"
     );
+    #[cfg(desktop)]
+    prepare_window(app, &window);
     let _ = window.show();
     let _ = window.eval(&js);
 }
@@ -241,55 +245,156 @@ async fn spawn_backend<R: Runtime>(
 /// itself, see `show_on`: a restored "visible" would show the splash early), and not `FULLSCREEN` or
 /// `DECORATIONS` either: restoring those calls `set_fullscreen` on every launch while the window is
 /// hidden, and the plugin would then store the fullscreen frame as the window's normal size.
+/// The window-state plugin, as the app and the ACL tests both build it. The window is NOT restored when it is
+/// created (it is hidden then, and maximizing a hidden window shows and activates it on Windows):
+/// `prepare_window` restores it just before the shell shows the window itself.
+#[cfg(desktop)]
+fn window_state_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(window_state_flags())
+        .skip_initial_state("main")
+        .build()
+}
+
 #[cfg(desktop)]
 fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
     use tauri_plugin_window_state::StateFlags;
     StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
 }
 
-/// A size no bigger than the monitor it is shown on. The plugin applies a saved size as it is, so one
-/// saved on a large display would overflow a small one after that display is disconnected.
-fn clamp_size(size: (u32, u32), monitor: (u32, u32)) -> (u32, u32) {
-    (size.0.min(monitor.0), size.1.min(monitor.1))
+/// The window-state file as it was when this process started (`None`: there was none). Kept so that an exit
+/// before the window was prepared can put it back (see `undo_unprepared_window_save`).
+#[cfg(desktop)]
+static LAUNCH_STATE: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+
+/// Set once `prepare_window` has restored (or, on a first launch, maximized) the window, i.e. once the window
+/// the plugin would save is the one the person will actually see.
+#[cfg(desktop)]
+static WINDOW_PREPARED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+fn window_state_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(tauri_plugin_window_state::DEFAULT_FILENAME))
 }
 
-/// First time this process shows the window: with no saved state (a first launch) fill the screen;
-/// otherwise the plugin has already restored the last size, so only make sure it fits the monitor.
-/// Done here, on the hidden window just before it is shown, rather than as `maximized` in the config: a
-/// window created maximized and then hidden can flash or take focus on some platforms. A later call
-/// (switching profile reuses `show_on`) changes nothing.
 #[cfg(desktop)]
-fn prepare_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
-    static FIRST_SHOW: AtomicBool = AtomicBool::new(true);
-    if !FIRST_SHOW.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    let saved = app
-        .path()
-        .app_config_dir()
-        .map(|dir| dir.join(tauri_plugin_window_state::DEFAULT_FILENAME).exists())
-        .unwrap_or(false);
-    if !saved {
-        let _ = window.maximize();
-        return;
-    }
-    if window.is_maximized().unwrap_or(false) {
-        return;
-    }
+fn remember_launch_window_state<R: Runtime>(app: &AppHandle<R>) {
+    let saved = window_state_path(app).and_then(|path| std::fs::read(path).ok());
+    let _ = LAUNCH_STATE.set(saved);
+}
+
+/// Is this a first launch? Only when the saved file is missing, unreadable, or has no usable `main` entry (a
+/// size above zero): a file that exists but holds nothing for this window is still a first launch.
+fn has_saved_main_state(saved: Option<&[u8]>) -> bool {
+    let Some(bytes) = saved else { return false };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let size = |key: &str| value["main"][key].as_u64().unwrap_or(0);
+    size("width") > 0 && size("height") > 0
+}
+
+/// Where a window of `inner` size (content area) at `position`, whose frame (title bar and borders) adds
+/// `outer - inner`, must be so that its whole frame lies inside `area` (x, y, width, height of a monitor's work
+/// area, i.e. without the menu bar, Dock or taskbar). Returns the new content size and position. A size saved
+/// on a large display would otherwise overflow a smaller one after that display is disconnected.
+fn fit_to_work_area(
+    position: (i32, i32),
+    inner: (u32, u32),
+    outer: (u32, u32),
+    area: (i32, i32, u32, u32),
+) -> ((i32, i32), (u32, u32)) {
+    let frame = (outer.0.saturating_sub(inner.0), outer.1.saturating_sub(inner.1));
+    let fitted = (
+        inner.0.min(area.2.saturating_sub(frame.0)),
+        inner.1.min(area.3.saturating_sub(frame.1)),
+    );
+    let (width, height) = (fitted.0 + frame.0, fitted.1 + frame.1);
+    let place = |at: i32, start: i32, room: u32, extent: u32| {
+        let max = start + room as i32 - extent as i32;
+        at.min(max).max(start)
+    };
+    (
+        (
+            place(position.0, area.0, area.2, width),
+            place(position.1, area.1, area.3, height),
+        ),
+        fitted,
+    )
+}
+
+#[cfg(desktop)]
+fn fit_window_to_its_monitor<R: Runtime>(window: &WebviewWindow<R>) {
     let monitor = window
         .current_monitor()
         .ok()
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten());
-    if let (Some(monitor), Ok(size)) = (monitor, window.inner_size()) {
-        let fitted = clamp_size(
-            (size.width, size.height),
-            (monitor.size().width, monitor.size().height),
-        );
-        if fitted != (size.width, size.height) {
-            let _ = window.set_size(tauri::PhysicalSize::new(fitted.0, fitted.1));
-        }
+    let (Some(monitor), Ok(position), Ok(inner), Ok(outer)) = (
+        monitor,
+        window.outer_position(),
+        window.inner_size(),
+        window.outer_size(),
+    ) else {
+        return;
+    };
+    let area = monitor.work_area();
+    let (new_position, new_inner) = fit_to_work_area(
+        (position.x, position.y),
+        (inner.width, inner.height),
+        (outer.width, outer.height),
+        (area.position.x, area.position.y, area.size.width, area.size.height),
+    );
+    if new_inner != (inner.width, inner.height) {
+        let _ = window.set_size(tauri::PhysicalSize::new(new_inner.0, new_inner.1));
     }
+    if new_position != (position.x, position.y) {
+        let _ = window.set_position(tauri::PhysicalPosition::new(new_position.0, new_position.1));
+    }
+}
+
+/// Make the window the one the person should see, once per process, on the still-hidden window just before
+/// the shell shows it (the plugin was told not to restore it at creation, see `run`): restore the saved size,
+/// position and maximized state; on a first launch, fill the screen. A window created maximized and then
+/// hidden, or maximized while hidden at creation, can flash or take focus on some platforms, which is why none
+/// of this happens at creation. Calling the plugin's `restore_state` on a first launch also records the
+/// window's own 1200 x 820 as its normal size, so un-maximizing later gives that size and not the screen's.
+/// A later call (switching profile reuses `show_on`) changes nothing.
+#[cfg(desktop)]
+fn prepare_window<R: Runtime>(_app: &AppHandle<R>, window: &WebviewWindow<R>) {
+    use tauri_plugin_window_state::WindowExt;
+    if WINDOW_PREPARED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let saved = has_saved_main_state(LAUNCH_STATE.get().and_then(|s| s.as_deref()));
+    let _ = window.restore_state(window_state_flags());
+    if !saved {
+        let _ = window.maximize();
+    } else if !window.is_maximized().unwrap_or(false) {
+        fit_window_to_its_monitor(window);
+    }
+}
+
+/// The plugin saves the window's state when the app exits. If that happens before `prepare_window` (an update
+/// that restarts the app before the backend is up, or quitting during the boot wait), the window is still the
+/// unrestored 1200 x 820 and the save would overwrite what the person had. The plugin saves before this
+/// callback runs, so put the file back as it was at launch (or remove it if there was none, so the next launch
+/// is still a first launch).
+#[cfg(desktop)]
+fn undo_unprepared_window_save<R: Runtime>(app: &AppHandle<R>) {
+    if WINDOW_PREPARED.load(Ordering::SeqCst) {
+        return;
+    }
+    let (Some(path), Some(launch)) = (window_state_path(app), LAUNCH_STATE.get()) else {
+        return;
+    };
+    let _ = match launch {
+        Some(bytes) => std::fs::write(path, bytes),
+        None => std::fs::remove_file(path),
+    };
 }
 
 /// Point the main window at the backend on `port` and reveal it.
@@ -502,6 +607,7 @@ mod acl_tests {
         let _sidecar = SidecarStandIn::install(sidecar_script);
         let app = tauri::test::mock_builder()
             .plugin(tauri_plugin_shell::init())
+            .plugin(super::window_state_plugin())
             .manage(Backend(Mutex::new(BackendState::default())))
             .invoke_handler(tauri::generate_handler![open_profile])
             .build(super::app_context())
@@ -599,13 +705,50 @@ mod acl_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_data_name, clamp_size, parse_port_line};
+    use super::{app_data_name, fit_to_work_area, has_saved_main_state, parse_port_line};
 
     #[test]
-    fn a_saved_size_is_clamped_to_the_monitor_it_is_shown_on() {
-        assert_eq!(clamp_size((1200, 820), (3440, 1440)), (1200, 820));
-        assert_eq!(clamp_size((3000, 1300), (1440, 900)), (1440, 900));
-        assert_eq!(clamp_size((1000, 1300), (1440, 900)), (1000, 900));
+    fn a_window_that_fits_the_work_area_is_left_alone() {
+        let fitted = fit_to_work_area((100, 80), (1200, 788), (1200, 820), (0, 30, 3440, 1410));
+        assert_eq!(fitted, ((100, 80), (1200, 788)));
+    }
+
+    #[test]
+    fn a_window_bigger_than_the_work_area_is_shrunk_allowing_for_its_title_bar() {
+        // 3000 x 1300 saved on a big display, shown on a 1440 x 900 work area: the 32 px title bar stays inside.
+        let ((x, y), (w, h)) =
+            fit_to_work_area((0, 0), (3000, 1300), (3000, 1332), (0, 25, 1440, 875));
+        assert_eq!((w, h), (1440, 843));
+        assert_eq!((x, y), (0, 25));
+    }
+
+    #[test]
+    fn a_window_off_the_work_area_is_moved_inside_it() {
+        // saved at the right edge of a display that is gone; a second display left of the first has a negative x
+        let (position, size) =
+            fit_to_work_area((3000, 2000), (900, 618), (900, 650), (-1440, 0, 1440, 900));
+        assert_eq!(size, (900, 618));
+        assert_eq!(position, (-900, 250));
+        let (position, _) =
+            fit_to_work_area((-5000, -40), (900, 618), (900, 650), (0, 30, 1440, 870));
+        assert_eq!(position, (0, 30));
+    }
+
+    #[test]
+    fn only_a_file_with_a_sized_main_entry_counts_as_a_saved_state() {
+        let saved = br#"{"main":{"width":900,"height":650,"x":10,"y":20,"maximized":false}}"#;
+        assert!(has_saved_main_state(Some(saved)));
+        assert!(!has_saved_main_state(None)); // no file: a first launch
+        assert!(!has_saved_main_state(Some(b""))); // empty file
+        assert!(!has_saved_main_state(Some(b"{ not json"))); // half-written or corrupt
+        assert!(!has_saved_main_state(Some(b"{}"))); // parses, but nothing for this window
+        assert!(!has_saved_main_state(Some(
+            br#"{"other":{"width":900,"height":650}}"#
+        )));
+        // the plugin's own "no state"
+        assert!(!has_saved_main_state(Some(
+            br#"{"main":{"width":0,"height":0}}"#
+        )));
     }
 
     #[cfg(desktop)]
@@ -617,7 +760,11 @@ mod tests {
             flags.bits(),
             (StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED).bits()
         );
-        for banned in [StateFlags::VISIBLE, StateFlags::FULLSCREEN, StateFlags::DECORATIONS] {
+        for banned in [
+            StateFlags::VISIBLE,
+            StateFlags::FULLSCREEN,
+            StateFlags::DECORATIONS,
+        ] {
             assert!(!flags.intersects(banned));
         }
     }

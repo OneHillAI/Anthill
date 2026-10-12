@@ -38,7 +38,7 @@ This replaces `webbrowser.open` with a native WKWebView (macOS) / WebView2 (Wind
 | Path | Purpose |
 | --- | --- |
 | `Cargo.toml` | Rust crate + Tauri/plugin deps. Versions are semver ranges; `Cargo.lock` pins what is built. `tauri-plugin-window-state` is held at `~2.4` because 2.5 needs Tauri 2.12. |
-| `tauri.conf.json` | Window (hidden until the backend answers; the shell maximizes it on a first launch and `tauri-plugin-window-state` then remembers its size and position, see `docs/specs/desktop-window-size.md`), `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
+| `tauri.conf.json` | Window (hidden until the backend answers; just before showing it the shell restores the saved size and position with `tauri-plugin-window-state`, or on a first launch maximizes it, see `docs/specs/desktop-window-size.md`), `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
 | `src/lib.rs` | Sidecar boot: spawn -> read `PORT=` -> health-poll -> navigate + show, plus the `open_profile` command. Unit tests for the port parser, and `acl_tests` that drive `open_profile` through the real capabilities (see below). |
 | `build.rs` | Runs `tauri-build` with an **app manifest** that lists every app command (`open_profile`). Add each new `#[tauri::command]` here too, or the packaged app cannot call it (see "Adding a command"). |
 | `src/main.rs` | Thin binary entry that calls `run()`. |
