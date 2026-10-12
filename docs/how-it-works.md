@@ -12,7 +12,7 @@
   <li><strong>Your machine.</strong> The model runs on this device. Small-to-mid open models, full offline privacy, no monthly bill.</li>
   <li><strong>Your cloud.</strong> Anthill provisions your chosen model on a private GPU in your own cloud account; you connect once with an API key. This is for models bigger than a laptop can hold. Only the model runs there. Your wiki, memory, and files are never uploaded by that choice.</li>
 </ul>
-<p>A <strong>council</strong> can run up to three open models in parallel and combine them into one stronger answer. The first you pick is the lead, which synthesizes the rest. Even a rented GPU can't hold today's frontier-scale open models, so you can also optionally <strong>attach an inference provider</strong>, Berget, Groq, or Infercom, that hosts those. Only your hardest questions escalate to it. It either asks you first each time or escalates automatically. Everything else keeps running on your machine or cloud. Attaching one is off by default.</p>
+<p>A <strong>council</strong> can run up to three open models in parallel and combine them into one stronger answer. The first you pick is the lead, which synthesises the rest. Even a rented GPU can't hold today's frontier-scale open models, so you can also optionally <strong>attach an inference provider</strong>, Berget, Groq, or Infercom, that hosts those. Only your hardest questions go to it, and only when you allow it: a quiet <strong>Check with</strong> button under an answer sends that one question, or, if you set it to escalate automatically and have chosen <strong>Always</strong>, Anthill escalates on its own. Everything else keeps running on your machine or cloud. Attaching one is off by default.</p>
 
 ## The chat is the front door
 <p>Chat is one box. You type what you want, and Anthill reads it and picks the approach. There are no modes to choose first:</p>
@@ -35,7 +35,7 @@
 
 ## Work that runs itself
 <ul>
-  <li><strong>Agent.</strong> When a request needs tools, the assistant runs a multi-step agent. It can search the wiki and the web, read and draft, create files, and call approved connectors, under a governed identity with scoped permissions and a full audit trail.</li>
+  <li><strong>Agent.</strong> When a request needs tools, the assistant runs a multi-step agent. It can search the wiki and the web, read and draft, create files, and call approved connectors, under a governed identity with scoped permissions and a full audit trail. On a model that cannot use tools, an agent run or a task answers without them and says so.</li>
   <li><strong>Tasks.</strong> The same agent, on a schedule or on events. A daily inbox digest, weekly competitor research, a report filed to the wiki. You describe it in plain words and confirm.</li>
   <li><strong>Skills.</strong> Reusable instruction sets the agent loads on its own when a task matches. Scoped Organization, Team, or Personal, so your organization's way of doing something is followed consistently.</li>
   <li><strong>Proactive maintenance.</strong> In the background, the agent drains the <code>inbox/</code> folder (drop a file, it gets ingested), lints for broken links and orphan or duplicate pages, and proposes wiki promotions into the review queue.</li>
@@ -46,7 +46,7 @@
 
 ## When it reaches out, and when it does not
 <ul>
-  <li><strong>Web search</strong> blends current web results into an answer, and they can be filed back into the wiki. Only the search query leaves your perimeter; the answer is written locally.</li>
+  <li><strong>Web search</strong> blends current web results into an answer and lists the pages it was given as sources. The results can be filed back into the wiki. If the search cannot be used, the answer says so. Only the search query leaves your perimeter; the answer is written locally.</li>
   <li><strong>Inference-provider escalation</strong> can send a single question, stripped of personal information, to a hosted, frontier-scale open model (Berget, Groq, or Infercom) for your hardest turns. It's off unless you attach a provider, question-only, and it never sends your documents.</li>
 </ul>
 <p>With both off, Anthill runs fully offline. Chat, wiki, cache, and local generation all keep working with the internet down.</p>

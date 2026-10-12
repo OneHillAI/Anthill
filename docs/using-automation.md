@@ -17,14 +17,16 @@ A task needs a model that can use tools to search the web, open files or take ac
 small model such as gemma3:4b, for example), the task still runs and answers from its description and the files
 you attached, and the result begins with a note saying no tools were used. Because it did not do any work outside
 the answer itself, the run is marked "needs review" and you are notified each time. Choose a model that supports
-tools for work that needs them.
+tools for work that needs them. When your local model cannot use tools, the **New task** dialog says so before you
+create the task and suggests an example that needs none.
 
 ## Agents
 
 An **agent** is a named worker with a standing job, like an employee with a role. It runs toward
 that job on its own, using your wiki, memory, and skills, and reports back. Anything consequential
 is held for your approval first. Sending an email, or writing to a shared wiki: none of it happens
-silently.
+silently. An agent on a model that cannot use tools works like a task on one: it answers without tools, the
+result starts with a note saying so, and the run is marked "needs review".
 
 Results are checked automatically before you see them. Anything that doesn't hold up is flagged for
 your review, not presented as fact. If you can edit the task, choose Mark reviewed once you have

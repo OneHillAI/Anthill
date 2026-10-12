@@ -1,6 +1,6 @@
 # Get started
 
-<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On first launch, enter an org name, your email, and a password, then choose how you'll use it:</p>
+<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On a Mac the window fills the screen the first time; after that it opens at the size and place you left it. On first launch, enter an org name, your email, and a password, then choose how you'll use it:</p>
 
 <ul>
   <li><strong>Just for yourself.</strong> Pick <strong>Just evaluating (solo)</strong>. You're in, with your own private space, nothing else to set up. Skip to <a href="/USING_ANTHILL">Using Anthill</a> whenever you're ready. Everything past this point is for standing up a shared team or organization.</li>
@@ -12,6 +12,7 @@
 ## 1. Where it runs
 <p>By default your organization runs on your local machine, and each teammate's. Chat, wiki, cache, and model all run on-device. No cloud needed to start. Under <strong>Cloud &amp; model</strong> you can instead run the model on a GPU in <strong>your own cloud</strong> account, turn on a <strong>council</strong> (up to three models answering together), or attach an <strong>inference provider</strong> so only your hardest questions escalate to a larger hosted model. This is off by default, and your documents are never sent.</p>
 <p>To keep the shared wiki available even when your own laptop is off, you can also host the backend on a dedicated machine, on-prem or a VM in your own cloud, and point your team at it under <strong>Cloud &amp; model &rarr; Wiki</strong>.</p>
+<p>When a connection check in <strong>Settings</strong> fails, for example the test of an AWS account, a mailbox, a training backend or your org's model server, it says in a short, plain sentence what to check, such as the key, the address or the connection.</p>
 
 ## 2. Seed the wiki
 <p>The wiki is your org's knowledge. Fill it by uploading documents, dropping files in a watched <code>inbox/</code> folder, or asking Anthill to <strong>research topics into wiki pages</strong>. Research is the fastest way to go from empty to useful. Everything goes through <strong>Wiki &rarr; Review</strong> before it becomes shared knowledge.</p>

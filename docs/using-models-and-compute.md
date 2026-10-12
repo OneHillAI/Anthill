@@ -2,6 +2,15 @@
 
 ## Choosing your model
 
+You choose in setup, at **Choose your AI**, and later under **Settings**, on the **Model** tab, with
+**Change where it runs**. Both look the same. First pick **Your machine** or **Your cloud**. The card you
+pick opens into a panel right below it with its own choices: for your machine, the models that fit it; for
+your cloud, the cloud provider, its API key and the cloud models. Below the panel, the inference provider
+has a card of its own, marked **Optional**, with **Don't use one** selected unless you pick a provider. In
+setup the three steps are numbered, and image understanding sits under **Advanced**, folded away. It is on
+by default and starts a download of about 2.4 GB in the background; the **Advanced** line says whether it
+is on or off.
+
 Anthill lists the current open models, ranked by how smart a model your hardware can actually run.
 Not just the biggest name: an efficient model can beat a larger one. Each one is marked **fits**,
 **runs but slower**, or **too big**, based on your machine's memory. The list refreshes on demand,
@@ -46,11 +55,16 @@ inference-provider escalation below. Your cloud model runs every answer, not jus
 
 ## Escalating your hardest questions
 
-Attach an inference provider, Berget, Groq, or Infercom, and only the questions your local or cloud
-model can't handle well escalate to a larger hosted open model. It either asks you first each time
-or escalates automatically. You choose. Your documents are never sent, only the single question,
-stripped of personal information first. Every escalation is logged. It's off until you attach a
-provider.
+Attach an inference provider, Berget, Groq, or Infercom, to send your hardest questions to a larger
+hosted open model. Nothing goes to it until you ask or allow it. After an answer from your own model, one
+quiet button sits under it, for example **Check with Infercom**. While an answer is still being written, a
+link such as **Ask Infercom instead** lets you skip the wait. Until you have chosen **Always**, a click
+first asks whether to send the question: **Always**, **Just this once** or **Not now**. Under
+**Settings** you also choose what happens when your model is unsure: **Ask me each time**, or **Escalate
+automatically**, which lets Anthill send a question it judges too hard on its own once you have chosen
+**Always**. You can turn **Always** off again in **Settings**. Your documents are never sent, only the
+single question, stripped of personal information first. Every escalation is logged. It's off until you
+attach a provider.
 
 ## Training your own model
 
