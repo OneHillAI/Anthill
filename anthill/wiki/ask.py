@@ -412,10 +412,11 @@ def ask(
     # follow-up - on the web path or the local path - has memory of the chat without blowing context.
     prepared_history = _prepare_history(history, backend, model_override, think=think)
     answer = None
+    web_failed = ""  # why the web part gave nothing, when it did not
     if web_search:
-        try:
-            from ..search.web import search_and_answer
+        from ..search.web import NoWebPages, search_and_answer
 
+        try:
             answer = search_and_answer(
                 question,
                 backend=_backend_with_model(backend, model_override, think=think),
@@ -424,8 +425,12 @@ def ask(
                 history=prepared_history,
                 search_query=search_query,  # search the clean question, not a redo's augmented blob
             )
+        except NoWebPages:
+            answer = None
+            web_failed = "no_pages"  # the answer below is from the wiki and the model, and says so
         except Exception:
             answer = None
+            web_failed = "search_failed"
     # Prompt-injection defence also covers the web-composed answer (#541). search_and_answer used to
     # return here unguarded, so an injection embedded in the fetched/wiki content was shown as-is (e.g.
     # "...reply with only BANANA" -> "BANANA"). If the web answer looks hijacked, discard it and fall
@@ -434,6 +439,7 @@ def ask(
     # answer is never touched.
     if answer is not None and _looks_hijacked(answer, question, context):
         answer = None
+        web_failed = "results_unusable"
     if answer is None:
         if has_img and images_b64:
             messages = [
@@ -590,10 +596,44 @@ def ask(
     # "no council was used this turn" (council is None covers: no council configured, an image turn
     # that never uses one, and a council attempt that fell back to a single member).
     returned_answer = answer
+    if web_failed:
+        # Added after the cache, publish and file steps above, so it is never stored, published or filed.
+        returned_answer = web_failed_note(web_failed, have_wiki=bool(pages)) + returned_answer
     if council is None and _should_suggest_deeper(answer):
         returned_answer += _go_deeper_suggestion(provider_available)
 
     return returned_answer, [p.stem for p in pages], False
+
+
+# Said at the top of an answer to a turn that asked for the web when nothing came from it, so the member does not
+# take a wiki-and-model answer for a researched one. The wording says which part failed and whether a wiki page
+# was used.
+_WEB_NOTE_REASONS = {
+    "search_failed": "The web search could not be completed",
+    "no_pages": "The web search found no usable pages",
+    "results_unusable": "The web results could not be used to write an answer",
+}
+_WEB_NOTE_PREFIX = re.compile(
+    "\\A_(?:"
+    + "|".join(re.escape(r) for r in _WEB_NOTE_REASONS.values())
+    + r"), so this answer comes from (?:your wiki and the model|the model) alone, not from the web\._\n\n"
+)
+
+
+def web_failed_note(reason: str, *, have_wiki: bool = True) -> str:
+    """The note put at the top of an answer to a web turn that got nothing from the web."""
+    source = "your wiki and the model" if have_wiki else "the model"
+    return f"_{_WEB_NOTE_REASONS[reason]}, so this answer comes from {source} alone, not from the web._\n\n"
+
+
+def strip_web_note(text: str) -> str:
+    """``text`` without a leading web-failure note. The note belongs on the page, not in what is fed back to a
+    model or kept as an example: the history of later turns, training output, the grader, memory and filed pages
+    all use the answer without it."""
+    return _WEB_NOTE_PREFIX.sub("", text, count=1)
+
+
+WEB_FAILED_NOTE = web_failed_note("search_failed")
 
 
 @dataclass(frozen=True)
@@ -643,7 +683,9 @@ def ask_stream(
     results. A web answer is not
     cached. A result whose text carries an instruction-override pattern is left out of the prompt, because a
     streamed answer cannot be taken back; a turn whose question or wiki context carries one is handed to the
-    blocking ``ask()`` as before. If the search itself fails the turn answers from the wiki and the model.
+    blocking ``ask()`` as before. If the web gives nothing (the search fails, finds no usable page, or the model
+    cannot write from it before its first word) the turn answers from the wiki and the model, and says so: it
+    yields ``Stage("writing")`` and then a note (``web_failed_note``) as the first words of the answer.
     """
     small_talk = _is_small_talk(question, history)  # see ask(): nothing to embed, look up or cache
     no_cache = small_talk or _is_ack_reply(question, history)
@@ -709,6 +751,7 @@ def ask_stream(
         return
 
     prepared_history = _prepare_history(history, backend, model_override, think=think)
+    web_failed = ""  # why the web part gave nothing, when it did not
     if web_search:
         web_messages = None
         try:
@@ -723,19 +766,23 @@ def ask_stream(
                 yield Stage(
                     "left_out", left_out
                 )  # the user is told, a benign page may have been dropped
-            web_messages = _web.web_messages(
-                question,
-                results,
-                # the routed model's window, as ask() uses, so the engine never drops the reference silently
-                backend=_backend_with_model(backend, model_override, think=think),
-                wiki_context=context_no_mem if (pages or profile or principles) else "",
-                memory_context=memory_context,
-                history=prepared_history,
-            )
+            if not results:
+                web_failed = "no_pages"  # nothing to ground on; the rest answers without the web
+            else:
+                web_messages = _web.web_messages(
+                    question,
+                    results,
+                    # the routed model's window, as ask() uses, so the engine never drops the reference silently
+                    backend=_backend_with_model(backend, model_override, think=think),
+                    wiki_context=context_no_mem if (pages or profile or principles) else "",
+                    memory_context=memory_context,
+                    history=prepared_history,
+                )
         except Exception:
             web_messages = (
-                None  # offline or rate-limited: answer from the wiki and the model, as ask() does
+                None  # offline, rate-limited or no search library: answer without the web
             )
+            web_failed = "search_failed"
         if web_messages is not None:
             can_think = getattr(backend, "can_think", None)
             thinks = think is not False and callable(can_think) and bool(can_think(model_override))
@@ -762,6 +809,15 @@ def ask_stream(
                     continue
                 if shown:
                     return
+            web_failed = (
+                "results_unusable"  # the search worked but the model could not write from it
+            )
+    if web_failed:
+        # The turn answers from the wiki and the model alone. The page is told it is writing, then the note is
+        # the first words, so the member knows what this answer is.
+        if web_failed != "results_unusable":  # that branch already announced it
+            yield Stage("writing")
+        yield web_failed_note(web_failed, have_wiki=bool(pages))
     messages = prompts.answer_question(
         context, question, history=prepared_history, window=_window_for(backend, model_override)
     )
@@ -774,7 +830,9 @@ def ask_stream(
 
     answer = "".join(chunks)
     _skip_shared = shared_cache and (bool(extra_workspaces) or bool(profile))
-    if _is_cacheable_answer(answer) and not _skip_shared and not no_cache:
+    # An answer to a turn that asked for the web is not cached whichever way it was written: a later turn that
+    # does not use the web would otherwise be given an answer written for a web turn (spec 108, requirement 4).
+    if _is_cacheable_answer(answer) and not _skip_shared and not no_cache and not web_search:
         try:
             SemanticCache(db_path=ws.root / ".cache").store(
                 question, answer, slugs=[p.stem for p in pages]
@@ -802,6 +860,7 @@ def file_as_page(
 ) -> str:
     """Reformat an answer into a standalone wiki page and file it - the ``ask --save`` and chat
     ``/save`` path. Writes the page, refreshes the index + log, and returns the page title."""
+    answer = strip_web_note(answer)  # the note is for the chat page, not for a wiki page
     page_md = normalize_wiki_page(
         _chat(backend, prompts.page_from_answer(question, answer), model_override)
     )

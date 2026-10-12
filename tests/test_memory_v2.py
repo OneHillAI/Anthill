@@ -104,7 +104,11 @@ def test_corroborate_noop_for_single_user(tmp_path):
 def test_search_and_answer_includes_memory(monkeypatch):
     import anthill.search.web as web
 
-    monkeypatch.setattr(web, "web_search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        web,
+        "web_search",
+        lambda *a, **k: [web.SearchResult("Page", "https://example.org/page", "A page.")],
+    )
     seen = {}
 
     class B:
