@@ -650,8 +650,10 @@ def web_failed_note(reason: str, *, have_wiki: bool = True) -> str:
 
 
 # Only at the very end of the text, where code puts it: a block of the same shape inside the answer is left alone.
+# Each part of a line is bounded by characters the part before cannot contain (a title has no brackets, an address
+# no parenthesis or space), so one line can only be read one way and a long input cannot backtrack.
 _WEB_LIST_SUFFIX = re.compile(
-    r"\n\n\*\*(?:Web sources consulted|News pages found)\*\*\n(?:- (?:\[)[^\n]*(?:\])\([^\n)]*\) - [^\n]*(?:\n|\Z))+\s*\Z"
+    r"\n\n\*\*(?:Web sources consulted|News pages found)\*\*\n(?:- (?:\[)[^\n\[\]]*\]\([^\s()]*\) - [^\n]*(?:\n|\Z))+\s*\Z"
 )
 
 

@@ -735,6 +735,18 @@ def test_the_list_goes_after_the_go_deeper_suggestion_and_is_stripped_at_the_end
     assert "Web sources consulted" not in stripped and "deeper" in stripped
 
 
+def test_stripping_the_list_does_not_backtrack_on_a_hostile_text():
+    """CodeQL: a text of many near-list lines must be read in linear time, and a real list is still stripped."""
+    import time
+
+    hostile = "\n\n**News pages found**\n" + "- [](]() - \n" * 3000 + "- [x](" + "](" * 3000
+    started = time.perf_counter()
+    assert ask_mod.strip_web_note(hostile) == hostile
+    assert time.perf_counter() - started < 2
+    real = "Answer.\n\n**Web sources consulted**\n- [Iceland](https://a.example/i) - a.example\n"
+    assert ask_mod.strip_web_note(real) == "Answer."
+
+
 def test_a_redo_is_decided_from_the_members_question_not_the_earlier_answer(tmp_path, monkeypatch):
     redo = (
         "What did Apple announce at its event?\n\n[An earlier answer was:]\nI don't have access to "
