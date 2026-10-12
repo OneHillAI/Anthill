@@ -48,10 +48,13 @@ Status: implemented. Lane: `pillar:feature`. Source: issue #108; founder, 2026-1
    look the question up in the cache when the turn searches the web, so a cached answer never stands in for the
    search. The streamed web answer gets no "go deeper" suggestion; the blocking `ask()` may still append one to
    a web answer, as before.
-5. If the search fails (offline, rate-limited), the turn answers from the wiki and the model, as `ask()` does.
+5. If the search fails (offline, rate-limited, no search library) or leaves no usable page, the turn answers from the
+   wiki and the model, as `ask()` does, and says so: `Stage("writing")`, then a note as the first words of the
+   answer (see `web-search-failure-notice`).
    If the model fails before the first word of a web answer (the engine refuses the call, or a reasoning model
    spends its whole answer budget thinking and says nothing), the same prompt is tried once more with Thinking
-   off, as `ask()` does; if that fails too, the turn answers from the wiki and the model without the web. An
+   off, as `ask()` does; if that fails too, the turn answers from the wiki and the model without the web, with the
+   note. An
    error after the first word is raised, because words are already on the page. The answer budget
    (`ANSWER_MAX_TOKENS`) counts thinking tokens, so this retry is what keeps a long thinking phase from leaving
    the user with nothing.
@@ -83,7 +86,7 @@ Status: implemented. Lane: `pillar:feature`. Source: issue #108; founder, 2026-1
   wiki context, go to `ask()` with `web_search` and `search_query`.
 - A turn that searches the web does not read or write the semantic cache or the organisation index in `ask()`, does
   not store a streamed web answer, and the route does not read the cache for it (while a local turn still does).
-  A failed search answers from the wiki and the model without a web block. A model error or an empty answer
+  A failed search answers from the wiki and the model without a web block, and says so. A model error or an empty answer
   before the first word is retried without thinking and then falls back to the wiki answer; an error after the
   first word is raised. Leaving during the steps ends the turn before the model is called.
 - Thinking off reaches the streamed web answer; `search_and_answer` still returns a whole answer.

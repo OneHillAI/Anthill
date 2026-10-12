@@ -1,0 +1,1 @@
+**A web answer now says when the web could not be used.** If the search fails, finds nothing usable, or the model cannot write from the results, the answer starts with a short note saying it comes from your wiki and the model alone, not from the web, instead of looking like a researched answer.
