@@ -68,28 +68,13 @@
     {% if is_solo %}
 
     <form method="post" action="/setup/model">
-      {# Step 1: the 2-tier ownership chooser (provides name="compute" + cloud_provider + provider_api_key).
-         Below it, step-2 model selection (council / specific model). One form, one submit. #}
+      {# Steps 1 and 2: the 2-tier ownership chooser (provides name="compute" + cloud_provider +
+         provider_api_key) with the model selection (council / specific model) in its panel, then step 3,
+         the optional inference provider, and a collapsed Advanced. One form, one submit. #}
       {% set in_setup = true %}
       {% include "_compute_chooser.html" %}
 
-      {% include "_council_builder.html" %}
-
       {% include "_inference_provider.html" %}
-
-      <div class="mp-vision" style="margin-top:var(--sp-4);border:1.5px solid var(--border);border-radius:10px;padding:4px 14px">
-          <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
-            <input type="checkbox" name="enable_vision" value="on" checked>
-            <span>Enable image understanding</span>
-            <button type="button" class="help" aria-label="What this downloads">?<span class="help-pop">Also downloads a small, licence-clean vision model (granite3.2-vision:2b, ~2.4 GB) in the background so you can analyze screenshots and images. Change this later on the Models page.</span></button>
-          </label>
-          <div style="border-top:1px solid var(--border)"></div>
-          <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
-            <input type="checkbox" name="vision_max_accuracy" value="on">
-            <span>Maximum accuracy vision (advanced)</span>
-            <button type="button" class="help" aria-label="What this changes">?<span class="help-pop">Uses Qwen3-VL instead (qwen3-vl:8b, ~6.1 GB) - higher accuracy, but a larger, non-EU/US model. Leave off to keep the fully-local, licence-clean default.</span></button>
-          </label>
-      </div>
 
       <button type="submit" id="mp-continue" class="btn btn-primary" disabled style="width:100%;margin-top:var(--sp-4);padding:12px;font-size:var(--fs-2);font-weight:600">Continue with this council</button>
     </form>
@@ -113,5 +98,5 @@
     </form>
     {% endif %}
 </div>
-{# mpFilter (origin filter) is defined in _council_builder.html, which this page includes. #}
+{# mpFilter (origin filter) is defined in _council_builder.html, which _compute_chooser.html includes. #}
 {% endblock %}

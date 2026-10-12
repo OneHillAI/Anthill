@@ -1,9 +1,10 @@
 {# The optional inference-provider escalation attachment (docs/specs/expert-tier-compound-compute-and-
    escalation.md) - a hosted, frontier-scale open model (Berget/Groq/Infercom) attached ON TOP of
    whichever base tier _compute_chooser.html picked, for hard questions only, never the sole/primary
-   backend. Always included LAST of the three setup/Settings partials (after _compute_chooser.html and
-   _council_builder.html) - founder correction (2026-09-28): this used to sit BETWEEN the tier pick and
-   the model pick, reading as an interruption in the middle of one decision. It is now a separate, later,
+   backend. Always included AFTER _compute_chooser.html (which itself includes _council_builder.html in the
+   panel under the tier cards) - founder correction (2026-09-28): this used to sit BETWEEN the tier pick and
+   the model pick, reading as an interruption in the middle of one decision. It is still its own card,
+   deliberately not part of that panel (founder, 2026-10-12). It is now a separate, later,
    skippable step - continuing without a key is expected and fine; an account that selects a provider but
    never pastes a key just has nothing attached, surfaced later as a Dashboard setup-checklist item
    instead of blocking the rest of this form.
@@ -32,9 +33,14 @@
     color:var(--warn,#b0721c);display:flex;align-items:center;justify-content:center;flex:none}
   .cc-infer-icon svg{width:20px;height:20px}
   .cc-infer-name{font-family:var(--font-sans);font-weight:700;font-size:var(--fs-4)}
-  .cc-infer-sub{font-size:var(--fs-1);color:var(--muted);margin-top:2px}
-  .cc-infer-badge{background:var(--warn,#b0721c);color:#fff;font-size:11px;font-weight:700;
-    padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .cc-infer-sub{font-size:15px;color:var(--muted);margin-top:2px;line-height:1.45}
+  /* White on the warm accent is only 4.0:1 (light) and worse in dark: the darker text colour for the fill in
+     light, and dark text on the light amber in dark, both above 5:1. */
+  .cc-infer-badge{background:var(--warn-text,#8A5A12);color:#fff;font-size:11px;font-weight:700;
+    padding:4px 10px;border-radius:999px;white-space:nowrap;vertical-align:middle;margin-left:6px}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .cc-infer-badge{color:#08140D}}
+  :root[data-theme="dark"] .cc-infer-badge{color:#08140D}
+  .cc-adv-state{font-weight:400;margin-left:6px}
   /* "Don't use one" is a real 4th card in the provider grid (cc-prov), same size/weight as the
      providers - not a grayed-out text link (founder ask, 2026-09-29). */
   .cc-prov.none{color:var(--muted);display:flex;align-items:center;justify-content:center;text-align:center}
@@ -71,7 +77,7 @@
 <input type="hidden" name="escalation_mode" id="cc-escalation-mode" value="{{ cur_escalation_mode }}"{% if cf %} form="{{ cf }}"{% endif %}>
 
 {% if in_setup %}
-<div class="cc-step-title" style="margin-top:28px">Which inference provider to connect?</div>
+<div class="cc-step-title" style="margin-top:28px"><span class="cc-num">3</span>Which inference provider to connect?</div>
 {% endif %}
 
 {# Clicking a provider card both selects AND attaches it (no separate checkbox); the "Don't use one"
@@ -81,10 +87,9 @@
   <div class="cc-infer-top">
     <div class="cc-infer-head">
       <span class="cc-infer-icon"><i data-lucide="zap"></i></span>
-      <div><div class="cc-infer-name">Your inference provider</div>
-        <div class="cc-infer-sub">Choose an inference provider to have access to frontier-scale open models for your hardest work.</div></div>
+      <div><div class="cc-infer-name">Your inference provider <span class="cc-infer-badge">Optional</span></div>
+        <div class="cc-infer-sub">Your model may not be strong enough for your hardest work. A provider adds frontier-scale open models.</div></div>
     </div>
-    <span class="cc-infer-badge">Recommended for most people</span>
   </div>
   <div class="cc-prefer" style="margin-top:14px">
     <span class="cc-prefer-l">Filter</span>
@@ -135,7 +140,25 @@
 </div>
 
 <details class="cc-adv">
-  <summary>Advanced setups</summary>
+  <summary>{% if in_setup %}Advanced <span class="cc-adv-state" id="cc-vision-state">Image understanding on</span>{% else %}Advanced setups{% endif %}</summary>
+  {% if in_setup %}
+  {# Image understanding lives here in the wizard, collapsed with the other advanced choices (founder ask,
+     2026-10-12): the default (on, the small licence-clean model) is unchanged, it just no longer sits
+     between the provider card and Continue as if it were part of the three steps. #}
+  <div class="mp-vision" style="margin-top:var(--sp-2);border:1.5px solid var(--border);border-radius:10px;padding:4px 14px">
+    <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
+      <input type="checkbox" name="enable_vision" value="on" checked onchange="ccVisionState()">
+      <span>Enable image understanding</span>
+      <button type="button" class="help" aria-label="What this downloads">?<span class="help-pop">Also downloads a small, licence-clean vision model (granite3.2-vision:2b, ~2.4 GB) in the background so you can analyze screenshots and images. Change this later on the Models page.</span></button>
+    </label>
+    <div style="border-top:1px solid var(--border)"></div>
+    <label style="display:flex;align-items:center;gap:var(--sp-2);padding:10px 0;font-size:var(--fs-1);color:var(--text);cursor:pointer">
+      <input type="checkbox" name="vision_max_accuracy" value="on">
+      <span>Maximum accuracy vision (advanced)</span>
+      <button type="button" class="help" aria-label="What this changes">?<span class="help-pop">Uses Qwen3-VL instead (qwen3-vl:8b, ~6.1 GB) - higher accuracy, but a larger, non-EU/US model. Leave off to keep the fully-local, licence-clean default.</span></button>
+    </label>
+  </div>
+  {% endif %}
   <div class="cc-advrow"><div><div class="cc-advrow-n">Self-hosted server or device</div><div class="cc-advrow-d">Already run a GPU box or a model server? Point Anthill at its endpoint (a URL + key).</div></div><span class="cc-soon">Coming soon</span></div>
   <div class="cc-advrow"><div><div class="cc-advrow-n">Your own cloud account</div><div class="cc-advrow-d">Provision into your AWS, GCP, Azure or IBM VPC - full control of the infrastructure.</div></div><span class="cc-soon">Coming soon</span></div>
 </details>
@@ -352,6 +375,16 @@ function ccLoadEscalationModels(){
     if (this.value && document.getElementById('cc-escalation-provider').value) ccLoadEscalationModels();
   });
 })();
+// The collapsed Advanced block hides the image-understanding download (it starts unless unticked), so its
+// summary says whether it is on.
+function ccVisionState(){
+  var box=document.querySelector('input[name="enable_vision"]'), st=document.getElementById('cc-vision-state');
+  if(box&&st) st.textContent='Image understanding '+(box.checked?'on':'off');
+}
+// Browsers may restore a ticked or unticked box after the page loaded (back/forward, a reload in Firefox), so the
+// summary is set from the box once the script runs and again whenever the page is shown.
+ccVisionState();
+window.addEventListener('pageshow', ccVisionState);
 ccRenderEscalationProvs();
 ccHydrate('{{ cur_compute }}', '{{ cur_cloud_provider }}', '{{ cur_escalation_provider }}', '{{ cur_escalation_mode }}');
 // Reveal the model picker on load when a provider is already attached (#854), and load its catalogue

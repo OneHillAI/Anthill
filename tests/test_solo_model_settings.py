@@ -178,12 +178,21 @@ def test_settings_intelligence_has_persona_and_no_personal_knowledge_bar(tmp_pat
     # second card just repeating that was pure noise). Mock hardware that fits a council so this
     # incidental assertion stays meaningful and independent of the real test-runner's specs.
     monkeypatch.setattr(sizing, "local_hardware", lambda: (48.0, "gpu"))
+    # With the hardware mocked to 48 GB the catalog's three strongest models do not all fit together in memory
+    # (onprem_council_fits), so the real suggestion is a single model here; fix it so a three-member council shows.
+    # The stub also keeps the test off any ~/.anthill/model_catalog.json override on the machine running it.
+    monkeypatch.setattr(
+        sizing,
+        "suggest_local_setup",
+        lambda *a, **k: sizing.LocalSetupSuggestion("council", [object()] * 3, "48 GB GPU"),
+    )
     c, _ = _client(tmp_path, monkeypatch)
     body = c.get("/personalize").text
     assert (
         "How your AI sounds" in body and 'name="profile"' in body
     )  # the persona editor (Personality)
-    assert "Your council" in body  # the council card (Model tab; self-tuning is gated on tune)
+    # the council card itself (Model tab; self-tuning is gated on tune), not just the words in a comment
+    assert "<h3>Your council<button" in body
     assert 'href="/snippets"' not in body  # the confusing personal-knowledge link bar is gone
 
 
