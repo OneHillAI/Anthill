@@ -678,3 +678,93 @@ def test_deactivated_user_is_redirected_from_a_protected_page(tmp_path):
     _set(app_mod, uid, active=False)
     r = c.get("/teams", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login"  # now bounced to login
+
+
+def test_only_the_order_cookie_names_this_server_writes_are_read():
+    """The name of the newest order cookie is set again on renewal, so only the exact form this server
+    writes (`session_order_<n>`, ASCII digits, no leading zero) is read; other spellings that int() would
+    accept are ignored (docs/specs/bounded-text-and-failure-messages-followup.md)."""
+    from types import SimpleNamespace
+
+    import anthill.web.app as app_mod
+
+    cookies = {
+        "session_order_3": "three",
+        "session_order_12": "twelve",
+        "session_order_05": "leading zero",
+        "session_order_+7": "plus sign",
+        "session_order_9_0": "underscore",
+        "session_order_" + chr(0x665): "non-ASCII digit",  # ARABIC-INDIC DIGIT FIVE
+        "session_order_ 8": "space",
+        "session_order_0": "zero",
+        "session_order_" + "9" * 13: "too long",
+        "session_order_": "empty",
+        "session_token": "not an order cookie",
+    }
+    read = app_mod._session_order_cookies(SimpleNamespace(cookies=cookies))
+    assert read == [(12, "session_order_12", "twelve"), (3, "session_order_3", "three")]
+
+
+def _aged_ordered_session(app_mod, uid, org_id, *, order=5, device="test-device-000005"):
+    """An aged (renewable) session signed for ``order`` on ``device``, with the server's order record."""
+    s = app_mod._SessionFactory()
+    s.add(BrowserSessionOrder(id=device, high_water=order))
+    s.commit()
+    s.close()
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": str(uid),
+        "org": org_id,
+        "role": "member",
+        "sid": "aged-ordered-session",
+        "ver": 0,
+        "ord": order,
+        "dev": device,
+        "iat": now - timedelta(hours=2),
+        "exp": now + timedelta(hours=1),
+    }
+    return jwt.encode(claims, crypto._JWT_SECRET, algorithm=crypto._ALGORITHM), device
+
+
+def _set_cookie_names(response):
+    names = set()
+    for header in response.headers.get_list("set-cookie"):
+        parsed = SimpleCookie()
+        parsed.load(header)
+        names.update(parsed)
+    return names
+
+
+def test_renewal_sets_only_the_canonical_order_cookie_again(tmp_path):
+    """A request carrying the same aged session under `session_order_5` and `session_order_05` is renewed
+    under `session_order_5` only (docs/specs/bounded-text-and-failure-messages-followup.md)."""
+    app_mod, uid, org_id = _setup(tmp_path)
+    aged, device = _aged_ordered_session(app_mod, uid, org_id)
+    c = TestClient(app_mod.app)
+    c.cookies.set("session_device", device)
+    c.cookies.set("session_order_5", aged)
+    c.cookies.set("session_order_05", aged)
+
+    response = c.get("/teams", follow_redirects=False)
+
+    assert response.status_code == 200
+    names = _set_cookie_names(response)
+    assert {"session_renewal", "session_order_5"} <= names  # renewed ...
+    assert "session_order_05" not in names  # ... under the canonical name only
+    renewed = _response_cookie(response, "session_order_5").value
+    assert renewed != aged and crypto.decode_token(renewed)["ord"] == 5
+
+
+@pytest.mark.parametrize("spelling", ["session_order_05", "session_order_+5"])
+def test_an_order_cookie_under_another_spelling_is_neither_read_nor_set_again(tmp_path, spelling):
+    """Before, `int()` read these names, and renewal set the session again under the same spelling."""
+    app_mod, uid, org_id = _setup(tmp_path)
+    aged, device = _aged_ordered_session(app_mod, uid, org_id)
+    c = TestClient(app_mod.app)
+    c.cookies.set("session_device", device)
+    c.cookies.set(spelling, aged)
+
+    response = c.get("/teams", follow_redirects=False)
+
+    assert response.status_code == 303 and response.headers["location"] == "/login"
+    assert spelling not in _set_cookie_names(response)

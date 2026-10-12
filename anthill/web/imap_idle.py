@@ -14,6 +14,7 @@ validation against a real IMAP server; the poll fallback runs on 3.10/3.11.
 from __future__ import annotations
 
 import imaplib
+import logging
 import os
 import threading
 import time
@@ -24,6 +25,8 @@ from sqlalchemy.orm import sessionmaker
 
 from . import ingest_push
 from .db import OrgSettings
+
+log = logging.getLogger(__name__)
 
 _worker_started = False
 _RECHECK_S = 20  # poll-fallback cadence + IDLE re-arm safety net
@@ -68,6 +71,7 @@ def test_connection(
     """
     if not (host and user and password):
         return False, "host, user, and password are required"
+    client = None
     try:
         client = connect(host, port, user, password, factory=factory)
         try:
@@ -81,7 +85,36 @@ def test_connection(
             except Exception:
                 pass
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {exc}"
+        return False, _failure_message("IMAP connection test", exc, logged_in=client is not None)
+
+
+class InboxWriteError(OSError):
+    """Saving a new message into ``inbox/`` failed: a problem on this device, not with the mail server."""
+
+
+def _failure_message(what: str, exc: Exception, *, logged_in: bool) -> str:
+    """A fixed sentence per kind of mailbox failure, for the page and the stored status detail.
+
+    The sentence depends on the phase as well as the kind of error: ``logged_in`` is False while the
+    connection and the login are made and True for the commands after it (SELECT, SEARCH, FETCH, STORE),
+    and a failed save into ``inbox/`` arrives as an ``InboxWriteError``.
+
+    Only the class of the error and the phase go to the server log: the text of an error from the login
+    can carry part of the password (a password character imaplib cannot send is quoted in a
+    ``UnicodeEncodeError``) or the server's own answer, so it is never logged or shown.
+    """
+    phase = "inbox" if isinstance(exc, InboxWriteError) else ("command" if logged_in else "login")
+    log.warning("%s failed: %s (%s)", what, type(exc).__name__, phase)
+    if phase == "inbox":
+        return "Could not save the new mail on this device. Check the free space and the workspace folder."
+    # imaplib's "abort" (a dropped connection) is a kind of its "error", so it is checked first.
+    if isinstance(exc, (imaplib.IMAP4.abort, OSError)):
+        return "Could not reach the mail server. Check the host and the port."
+    if isinstance(exc, imaplib.IMAP4.error):
+        if phase == "command":
+            return "The mail server refused a command. Check the folder name."
+        return "The mail server refused the login. Check the user and the password."
+    return "Could not connect to the mailbox. Check the settings and try again."
 
 
 def fetch_unseen(client, folder: str = "INBOX") -> list[bytes]:
@@ -116,7 +149,10 @@ def _write_unseen(client, folder: str, *, on_event=None) -> int:
     for raw in fetch_unseen(client, folder):
         title, body = ingest_push.email_to_doc(ingest_push.parse_email_bytes(raw))
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        ingest_push.write_event(inbox_dir, "email", title, body, stamp=stamp)
+        try:
+            ingest_push.write_event(inbox_dir, "email", title, body, stamp=stamp)
+        except OSError as exc:
+            raise InboxWriteError(exc.errno, exc.strerror) from exc
         written += 1
     if written and on_event:
         on_event()
@@ -217,7 +253,8 @@ def _loop(engine):
                     break
                 _idle_or_sleep(client, _RECHECK_S)
         except Exception as exc:
-            _set_status(Session, org_id, "error", f"{type(exc).__name__}: {exc}")
+            message = _failure_message("IMAP mailbox watch", exc, logged_in=client is not None)
+            _set_status(Session, org_id, "error", message)
             time.sleep(min(300, _RECHECK_S * 3))  # backoff before reconnecting
         finally:
             if client is not None:

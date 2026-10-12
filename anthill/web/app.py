@@ -950,13 +950,17 @@ def _session_order_cookies(request: Request) -> list[tuple[int, str, str]]:
     for name, value in request.cookies.items():
         if not name.startswith(_SESSION_ORDER_COOKIE_PREFIX):
             continue
-        try:
-            order = int(name.removeprefix(_SESSION_ORDER_COOKIE_PREFIX))
-        except ValueError:
+        # The name is set again on renewal, so only the exact form this server writes is read: 1 to 12 ASCII
+        # digits with no leading zero. int() alone would also take "+5", "05", "5_0" or non-ASCII digits.
+        suffix = name.removeprefix(_SESSION_ORDER_COOKIE_PREFIX)
+        if not (
+            1 <= len(suffix) <= 12
+            and suffix.isascii()
+            and suffix.isdigit()
+            and not suffix.startswith("0")
+        ):
             continue
-        if order <= 0:
-            continue
-        cookies.append((order, name, value))
+        cookies.append((int(suffix), name, value))
     return sorted(cookies, reverse=True)
 
 
@@ -9083,7 +9087,12 @@ async def settings_training_test(user: dict = Depends(_require_admin)):
     try:
         ok, detail = get_backend(cfg).validate(cfg)
     except Exception as e:
-        ok, detail = False, str(e)
+        # Only the class: the check calls the backend's service, and that error text can carry a URL or key.
+        logging.getLogger(__name__).warning("training backend check failed: %s", type(e).__name__)
+        ok, detail = (
+            False,
+            "Could not check the training backend. Check its settings and try again.",
+        )
     cfg.training_status = "validated" if ok else "error"
     cfg.training_status_detail = detail[:255]
     db.commit()
@@ -10463,7 +10472,15 @@ async def settings_org_discover_models(
     try:
         models = ep_mod.list_models(url, api_key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach {url}: {e}"})
+        # The admin typed this URL, so it is not logged (it could carry a key); the class and the status
+        # code are enough to tell the kinds of failure apart.
+        logging.getLogger(__name__).warning(
+            "server model discovery failed: %s (status %s)",
+            type(e).__name__,
+            getattr(getattr(e, "response", None), "status_code", None),
+        )
+        message = _discovery_failure_message("the model server", e)
+        return JSONResponse({"ok": False, "error": message[0].upper() + message[1:]})
     audit.log(
         db,
         "settings.org_discover_models",
@@ -10538,6 +10555,8 @@ def _discovery_failure_message(provider_name: str, exc: Exception) -> str:
     if status == 429:
         return f"{provider_name} is rate limiting requests. Wait a moment and try again."
     names = {c.__name__ for c in type(exc).__mro__}
+    if names & {"UnsupportedProtocol", "InvalidURL"}:
+        return f"Couldn't reach {provider_name}. Check the address (it should start with http:// or https://)."
     if names & {
         "ConnectError",
         "ConnectTimeout",
@@ -11290,7 +11309,18 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
                 {"ok": False, "error": "The catalog is not signed; refusing to trust it."}
             )
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach the catalog service: {e}"})
+        # The class and the HTTP status only: httpx's text for a refused fetch quotes the URL.
+        logging.getLogger(__name__).warning(
+            "catalog fetch failed: %s (status %s)",
+            type(e).__name__,
+            getattr(getattr(e, "response", None), "status_code", None),
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Could not reach the catalog service. Check the connection and try again.",
+            }
+        )
 
     # Authenticity first, over the exact bytes served and before they are parsed: was this published by our
     # workflow? Owning the host, the CDN or DNS does not get you past this.
@@ -11303,20 +11333,27 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
             org_id=org.id,
             user_id=user["sub"],
         )
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    f"Refused: this catalog is not from the expected publisher ({reason}). "
-                    "Your current models are unchanged."
-                ),
-            }
-        )
+        logging.getLogger(__name__).warning("catalog signature refused: %s", reason)
+        if catalog_trust.cannot_check(reason):
+            # This server's own setup, not the catalog: no signer is pinned or the verifier is missing.
+            message = "This server cannot check the catalog signature. The catalog was not used."
+        else:
+            message = (
+                "Refused: this catalog is not from the expected publisher. "
+                "Your current models are unchanged."
+            )
+        return JSONResponse({"ok": False, "error": message})
 
     try:
         data = r.json()
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"The catalog is unreadable: {e}"})
+        logging.getLogger(__name__).warning("catalog could not be read: %s", type(e).__name__)
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "The catalog is unreadable. Your current models are unchanged.",
+            }
+        )
 
     # Freshness: a signature proves WHO published a catalog, not WHICH one. Whoever controls the host can
     # replay an older, still-validly-signed catalog to bring back a model we have since dropped.
@@ -11386,7 +11423,18 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
         Path(override).parent.mkdir(parents=True, exist_ok=True)
         Path(override).write_text(json.dumps(doc))
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't save the refreshed catalog: {e}"})
+        logging.getLogger(__name__).warning(
+            "refreshed catalog could not be saved: %s: %s", type(e).__name__, e
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Couldn't save the refreshed catalog. Check that the Anthill folder is writable; "
+                    "the server log has the detail."
+                ),
+            }
+        )
 
     audit.log(
         db,

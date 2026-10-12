@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import httpx
 
 from ..inference.base import BackendError, Message
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -185,7 +188,17 @@ def validate_provider(
     except httpx.ConnectError:
         return False, f"Can't reach {provider.name} at {provider.base_url}."
     except httpx.HTTPError as e:
-        return False, f"Network error reaching {provider.name}: {e}"
+        # A fixed message for the page and only the class of the error in the log: httpx quotes the whole
+        # Authorization header (the key) when the key holds a character a header cannot carry.
+        log.warning("provider key check failed for %s: %s", provider.name, type(e).__name__)
+        return False, f"Network error reaching {provider.name}. Check the connection and try again."
+    except UnicodeError as e:
+        # A key with a non-ASCII character cannot go into a header at all; the error quotes that character.
+        log.warning("provider key check failed for %s: %s", provider.name, type(e).__name__)
+        return (
+            False,
+            f"The {provider.name} key has a character that cannot be sent. Paste it again.",
+        )
     else:
         if resp.status_code in (200, 201):
             return True, f"Authenticated with {provider.name}."
