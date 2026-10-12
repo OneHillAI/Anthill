@@ -5,6 +5,7 @@ Pure verification/parsing is tested directly; IMAP uses a fake client (no live m
 the webhook routes are tested through the app with seeded, encrypted secrets.
 """
 
+import imaplib
 import json
 import time
 from types import SimpleNamespace
@@ -289,3 +290,213 @@ def test_settings_imap_test_requires_config(tmp_path, monkeypatch):
     r = client.post("/settings/events/imap/test")
     body = r.json()
     assert body["ok"] is False and "required" in body["detail"]
+
+
+# ── a failed mailbox check gives a fixed message (docs/specs/bounded-text-and-failure-messages-followup.md)
+# The page and the stored status get a fixed sentence per kind of failure; the log gets only the class of
+# the error, since the text of a login error can carry part of the password or the server's answer.
+
+MARKER = "SECRET-MARKER-123"
+
+
+def test_imap_test_connection_gives_a_fixed_message_per_kind_and_logs_only_the_class(caplog):
+    import imaplib
+    import logging
+
+    def refused(host, port):
+        raise imaplib.IMAP4.error(f"[AUTHENTICATIONFAILED] {MARKER}")
+
+    def unreachable(host, port):
+        raise OSError(f"connection refused by {MARKER}")
+
+    def dropped(host, port):
+        raise imaplib.IMAP4.abort(f"socket error: EOF {MARKER}")
+
+    def other(host, port):
+        raise RuntimeError(f"unexpected {MARKER}")
+
+    with caplog.at_level(logging.WARNING):
+        results = [
+            imap_idle.test_connection("imap.x", 993, "u", "p", factory=f)
+            for f in (refused, unreachable, dropped, other)
+        ]
+    assert [ok for ok, _ in results] == [False, False, False, False]
+    assert "refused the login" in results[0][1]
+    assert "Could not reach the mail server" in results[1][1]
+    assert (
+        "Could not reach the mail server" in results[2][1]
+    )  # a dropped connection is not a refusal
+    assert "Could not connect to the mailbox" in results[3][1]
+    assert all(MARKER not in detail for _, detail in results)
+    assert MARKER not in caplog.text
+    for name in ("error", "OSError", "abort", "RuntimeError"):
+        assert f"IMAP connection test failed: {name}" in caplog.text
+
+
+def test_imap_password_character_is_neither_shown_nor_logged(caplog):
+    """imaplib sends the login in ASCII; a password it cannot encode raises an error that quotes the
+    character."""
+    import logging
+
+    password = "dummy-pass\u00e9word-\u00e4"
+
+    class _Client:
+        def login(self, user, pw):
+            pw.encode("ascii")  # what imaplib does, and the error it raises
+
+    with caplog.at_level(logging.WARNING):
+        ok, detail = imap_idle.test_connection(
+            "imap.x", 993, "u", password, factory=lambda host, port: _Client()
+        )
+    assert ok is False and "Could not connect to the mailbox" in detail
+    assert "UnicodeEncodeError" in caplog.text
+    assert (
+        "\u00e9" not in caplog.text and "\\xe9" not in caplog.text and "\u00e4" not in caplog.text
+    )
+
+
+def _imap_org(app_mod):
+    from anthill.web.crypto import encrypt
+    from anthill.web.db import OrgSettings
+
+    s = app_mod._SessionFactory()
+    cfg = s.query(OrgSettings).first()
+    cfg.imap_enabled = True
+    cfg.imap_host, cfg.imap_user, cfg.imap_password_enc = "imap.x", "u", encrypt("p")
+    s.commit()
+    s.close()
+
+
+def test_settings_imap_test_keeps_its_keys_without_the_error_text(tmp_path, monkeypatch, caplog):
+    import logging
+
+    from anthill.web.db import OrgSettings
+
+    client, app_mod, ids = _app(tmp_path, monkeypatch)
+    _auth(client, ids["admin"], ids["org"])
+    _imap_org(app_mod)
+
+    def boom(*a, **k):
+        raise OSError(f"cannot connect: {MARKER}")
+
+    monkeypatch.setattr(imap_idle, "connect", boom)
+    with caplog.at_level(logging.WARNING):
+        r = client.post("/settings/events/imap/test")
+    body = r.json()
+    assert set(body) == {"ok", "detail", "status"} and body["ok"] is False
+    assert MARKER not in r.text and "Could not reach the mail server" in body["detail"]
+    stored = app_mod._SessionFactory().query(OrgSettings).first().imap_status_detail
+    assert MARKER not in stored and stored == body["detail"]
+    assert "OSError" in caplog.text and MARKER not in caplog.text
+
+
+def test_the_imap_worker_stores_the_same_fixed_message(tmp_path, monkeypatch, caplog):
+    """The background worker writes its own status every time it fails to connect, so it must store the
+    same fixed sentence as the route, not the text of the error."""
+    import logging
+
+    import pytest
+
+    from anthill.web.db import OrgSettings
+
+    _, app_mod, _ = _app(tmp_path, monkeypatch)
+    _imap_org(app_mod)
+
+    def boom(*a, **k):
+        raise OSError(f"cannot connect: {MARKER}")
+
+    class _Stop(Exception):
+        pass
+
+    def stop(seconds):
+        raise _Stop  # the back-off sleep after the status write ends the endless loop
+
+    monkeypatch.setattr(imap_idle, "connect", boom)
+    monkeypatch.setattr(imap_idle.time, "sleep", stop)
+    with caplog.at_level(logging.WARNING), pytest.raises(_Stop):
+        imap_idle._loop(app_mod._engine)
+    cfg = app_mod._SessionFactory().query(OrgSettings).first()
+    assert cfg.imap_status == "error"
+    assert cfg.imap_status_detail == "Could not reach the mail server. Check the host and the port."
+    assert "IMAP mailbox watch failed: OSError" in caplog.text and MARKER not in caplog.text
+
+
+# The sentence follows the phase: a command refused after a good login is not a refused login, and a
+# failed save into inbox/ is a problem on this device, not with the mail server.
+
+_COMMAND_REFUSED = "The mail server refused a command. Check the folder name."
+_INBOX_NOT_SAVED = (
+    "Could not save the new mail on this device. Check the free space and the workspace folder."
+)
+
+
+class _RefusesSelect(_FakeIMAP):
+    def select(self, folder, readonly=False):
+        raise imaplib.IMAP4.error(f"SELECT command error: BAD [b'{MARKER}']")
+
+
+def test_imap_test_connection_names_a_refused_command_after_the_login(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        ok, detail = imap_idle.test_connection(
+            "imap.x", 993, "u", "p", "Sent Items", factory=lambda h, p: _RefusesSelect(h, p)
+        )
+    assert ok is False and detail == _COMMAND_REFUSED
+    assert "IMAP connection test failed: error (command)" in caplog.text
+    assert MARKER not in caplog.text
+
+
+def _run_worker_once(app_mod, monkeypatch):
+    """Run the worker loop until its back-off sleep after a failure, and return the stored status."""
+    import pytest
+
+    from anthill.web.db import OrgSettings
+
+    class _Stop(Exception):
+        pass
+
+    def stop(seconds):
+        raise _Stop
+
+    monkeypatch.setattr(imap_idle.time, "sleep", stop)
+    with pytest.raises(_Stop):
+        imap_idle._loop(app_mod._engine)
+    cfg = app_mod._SessionFactory().query(OrgSettings).first()
+    return cfg.imap_status, cfg.imap_status_detail
+
+
+def test_the_imap_worker_names_a_refused_command_after_the_login(tmp_path, monkeypatch, caplog):
+    import logging
+
+    _, app_mod, _ = _app(tmp_path, monkeypatch)
+    _imap_org(app_mod)
+    monkeypatch.setattr(imap_idle, "connect", lambda *a, **k: _RefusesSelect("imap.x", 993))
+    with caplog.at_level(logging.WARNING):
+        status = _run_worker_once(app_mod, monkeypatch)
+    assert status == ("error", _COMMAND_REFUSED)
+    assert "IMAP mailbox watch failed: error (command)" in caplog.text
+    assert MARKER not in caplog.text
+
+
+def test_the_imap_worker_names_a_failed_inbox_save(tmp_path, monkeypatch, caplog):
+    import errno
+    import logging
+
+    _, app_mod, _ = _app(tmp_path, monkeypatch)
+    _imap_org(app_mod)
+    monkeypatch.setenv("ANTHILL_WORKSPACE", str(tmp_path / "workspace"))
+    msgs = [b"From: a@x.com\r\nSubject: hello\r\n\r\nthe content\r\n"]
+    monkeypatch.setattr(
+        imap_idle, "connect", lambda *a, **k: _FakeIMAP("imap.x", 993, messages=msgs)
+    )
+
+    def full_disk(*a, **k):
+        raise OSError(errno.ENOSPC, f"No space left on device: {MARKER}")
+
+    monkeypatch.setattr(ingest_push, "write_event", full_disk)
+    with caplog.at_level(logging.WARNING):
+        status = _run_worker_once(app_mod, monkeypatch)
+    assert status == ("error", _INBOX_NOT_SAVED)
+    assert "IMAP mailbox watch failed: InboxWriteError (inbox)" in caplog.text
+    assert MARKER not in caplog.text

@@ -14,6 +14,7 @@ import pytest
 from anthill.agent import intent
 from anthill.agent.skills import Skill, parse_skill_md, validate_skill
 from anthill.common.text import WIKILINK_RE
+from anthill.hosting.source import params_from_name
 from anthill.wiki import okf, review
 
 LIMIT_SECONDS = 1.0
@@ -271,3 +272,42 @@ def test_the_skill_validation_route_answers_fast_to_hostile_text(tmp_path, monke
     )
     assert r.status_code == 200
     assert time.perf_counter() - start < 3 * LIMIT_SECONDS
+
+
+# ── model size in a model name (docs/specs/bounded-text-and-failure-messages-followup.md) ──────────────
+
+
+@pytest.mark.parametrize(
+    "long_name",
+    [
+        "1" * 100_000,
+        "1" * 100_000 + "b",
+        "7." + "5" * 100_000 + "b",
+        "1 " * 50_000 + "b",
+        "1" + " " * 100_000 + "b",
+        "qwen" + "9" * 60_000 + ":32b",
+    ],
+)
+def test_model_size_reading_is_fast_on_a_long_name(long_name):
+    fast(params_from_name, long_name)
+
+
+def test_model_size_reading_still_reads_ordinary_names():
+    assert params_from_name("qwen2.5:32b") == 32.0
+    assert params_from_name("Llama-3-70B") == 70.0
+    assert params_from_name("meta-llama/Llama-3.3-70B-Instruct") == 70.0
+    assert params_from_name("Qwen2.5-1.5B") == 1.5
+    assert params_from_name("Qwen2.5 235B") == 235.0
+    assert params_from_name("deepseek-r1:671b") == 671.0
+    assert params_from_name("phi4-mini:3.8b") == 3.8
+    assert params_from_name("Qwen3-30B-A3B") == 30.0
+    assert params_from_name("some-embedding-model") is None
+    assert params_from_name("mymodel-q4_K_M") is None
+
+
+def test_model_size_reading_has_fixed_limits():
+    # more than six digits before the point is never a size (it would be above the 2000B ceiling anyway)
+    assert params_from_name("model-1234567b") is None
+    # only the first 256 characters of a name are read
+    assert params_from_name("x" * 250 + "-7b") == 7.0
+    assert params_from_name("x" * 260 + "-7b") is None

@@ -14,8 +14,11 @@ when the wiki host is wired; this module covers the model endpoint.)
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,26 @@ def _round_trip(ep: OrgEndpoint, prompt: str) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
+def _failure_detail(check: str, exc: Exception) -> str:
+    """A fixed sentence for a failed check, picked by the kind of error and the HTTP status.
+
+    The detail is stored and shown on the settings page, and the text of an error from these calls can
+    carry the endpoint URL (and a key in its query) or the key itself, so only the class and the HTTP
+    status go to the server log and neither reaches the page."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    log.warning("org endpoint check %s failed: %s (status %s)", check, type(exc).__name__, status)
+    names = {c.__name__ for c in type(exc).__mro__}
+    if names & {"UnsupportedProtocol", "InvalidURL"}:
+        return "Check the address (it should start with http:// or https://)."
+    if status in (401, 403):
+        return "The server did not accept the key. Check the key and try again."
+    if isinstance(status, int):
+        return f"The server answered with HTTP {status}."
+    if check == "reachable":
+        return "Could not reach the server. Check the address and the connection."
+    return "The test chat did not get an answer. Check the model and the server."
+
+
 def validate(
     ep: OrgEndpoint,
     *,
@@ -134,7 +157,7 @@ def validate(
     try:
         models = lm()
     except Exception as e:
-        checks.append(Check("reachable", False, f"can't reach {ep.base_url}: {e}"))
+        checks.append(Check("reachable", False, _failure_detail("reachable", e)))
         return Validation(False, checks)
     checks.append(Check("reachable", True, f"{len(models)} model(s) available"))
 
@@ -151,7 +174,7 @@ def validate(
     try:
         answer = ch("Reply with the single word: ok")
     except Exception as e:
-        checks.append(Check("round_trip", False, f"chat failed: {e}"))
+        checks.append(Check("round_trip", False, _failure_detail("round_trip", e)))
         return Validation(False, checks)
     ok = bool((answer or "").strip())
     checks.append(Check("round_trip", ok, (answer or "").strip()[:80] or "empty response"))

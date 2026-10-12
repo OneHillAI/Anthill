@@ -22,15 +22,41 @@ message when it's absent. The secret access key is stored AES-256-GCM encrypted
 from __future__ import annotations
 
 import json
+import logging
+import re
+
+log = logging.getLogger(__name__)
 
 try:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
 
-    _AWS_ERRORS = (BotoCoreError, ClientError)
+    # AWS answered and refused (a ClientError carries AWS's error code) ...
+    _AWS_REFUSED: tuple[type[Exception], ...] = (ClientError,)
+    # ... versus no usable answer at all: the endpoint, a timeout, the region or the local setup.
+    _AWS_UNREACHABLE: tuple[type[Exception], ...] = (BotoCoreError,)
 except Exception:  # boto3 not installed
     boto3 = None
-    _AWS_ERRORS = ()
+    _AWS_REFUSED = ()
+    _AWS_UNREACHABLE = ()
+
+_AWS_CODE_RE = re.compile(r"[A-Za-z0-9.]{1,64}")
+
+
+def _aws_error_code(e: Exception) -> str:
+    """AWS's error code from a refused call (for example ``InvalidClientTokenId``), or "".
+
+    The code is a short token AWS defines, so it may be shown and logged; the error's text is not, since
+    the text of a failed call can carry the endpoint URL or a request detail."""
+    response = getattr(e, "response", None)
+    error = response.get("Error") if isinstance(response, dict) else None
+    code = error.get("Code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) and _AWS_CODE_RE.fullmatch(code) else ""
+
+
+def _with_code(code: str) -> str:
+    return f" ({code})" if code else ""
+
 
 # ── safety constants ──────────────────────────────────────────────────────────
 TAG_KEY = "anthill"
@@ -170,10 +196,22 @@ def validate(cfg) -> tuple[bool, str]:
         ident = _client(cfg, "sts").get_caller_identity()
         acct = ident.get("Account", "?")
         return True, f"Connected - AWS account {acct}, region {cfg.aws_region}."
-    except _AWS_ERRORS as e:
-        return False, f"AWS rejected the credentials: {e}"
+    except _AWS_REFUSED as e:
+        # A fixed message for the page; the log gets the class and AWS's error code, never the text.
+        code = _aws_error_code(e)
+        log.warning("AWS credential check refused: %s%s", type(e).__name__, _with_code(code))
+        return False, (
+            f"AWS rejected the credentials{_with_code(code)}. "
+            "Check the access key ID, the secret and the region."
+        )
+    except _AWS_UNREACHABLE as e:
+        log.warning("AWS credential check could not reach AWS: %s", type(e).__name__)
+        return False, "Could not reach AWS. Check the region and the connection."
     except Exception as e:
-        return False, f"Validation failed: {e}"
+        log.warning("AWS credential check failed: %s", type(e).__name__)
+        return False, (
+            "Could not check the AWS credentials. Check the region and the connection and try again."
+        )
 
 
 # ── cost guardrails ───────────────────────────────────────────────────────────
@@ -310,7 +348,15 @@ def provision_test(cfg) -> tuple[bool, str]:
             f"this test terminated immediately."
         )
     except Exception as e:
-        return False, f"Provision test failed: {e}"
+        code = _aws_error_code(e)
+        log.warning("AWS provision test failed: %s%s", type(e).__name__, _with_code(code))
+        if isinstance(e, _AWS_UNREACHABLE):
+            return False, "Could not reach AWS. Check the region and the connection."
+        return False, (
+            f"AWS could not launch the test machine{_with_code(code)}. Common causes are the account's "
+            "GPU quota, its permissions, the machine image (AMI), the subnet or security group, or no "
+            "capacity for this instance type in the region."
+        )
     finally:
         if inst:
             try:

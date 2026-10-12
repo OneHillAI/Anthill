@@ -414,3 +414,142 @@ def test_refresh_rejects_an_oversized_payload(tmp_path, monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *a, **k: big)
     body = c.post("/models/refresh-catalog").json()
     assert body["ok"] is False and "too much data" in body["error"]
+
+
+# --- refresh-catalog: a failure gives a fixed message ------------------------------------------------
+# docs/specs/bounded-text-and-failure-messages-followup.md: the page gets a fixed message and the answer
+# keeps its keys. The log gets the class (and the HTTP status) of a failed fetch or read, never its text,
+# which quotes the URL; the signature reason and a failed save (a local path) keep their text in the log.
+
+_MARKER = "SECRET-MARKER-123"
+
+
+def _refresh_fails_cleanly(c, caplog, expected, *, logged):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        r = c.post("/models/refresh-catalog")
+    body = r.json()
+    assert set(body) == {"ok", "error"} and body["ok"] is False
+    assert _MARKER not in r.text and expected in body["error"]
+    assert logged in caplog.text
+    return caplog.text
+
+
+def test_refresh_gives_a_fixed_message_when_the_service_cannot_be_reached(
+    tmp_path, monkeypatch, caplog
+):
+    import httpx
+
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
+
+    def boom(*a, **k):
+        raise httpx.ConnectError(f"refused by {_MARKER}")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    log = _refresh_fails_cleanly(
+        c,
+        caplog,
+        "Could not reach the catalog service. Check the connection and try again.",
+        logged="catalog fetch failed: ConnectError",
+    )
+    assert _MARKER not in log
+
+
+def test_refresh_gives_a_fixed_message_when_the_signature_is_refused(tmp_path, monkeypatch, caplog):
+    import anthill.hosting.catalog_trust as ct
+
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
+    _serve(monkeypatch, {"generated": "2026-07-17", "models": [{"name": "Real"}]})
+    monkeypatch.setattr(ct, "verify_catalog", lambda payload, bundle: f"bad bundle {_MARKER}")
+    log = _refresh_fails_cleanly(
+        c, caplog, "expected publisher", logged="catalog signature refused"
+    )
+    assert _MARKER in log  # the reason is this server's own text, kept for the operator
+    assert not _override_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["no expected signer is configured", f"signature verification is unavailable ({_MARKER})"],
+    ids=["no-signer", "no-verifier"],
+)
+def test_refresh_says_so_when_this_server_cannot_check_the_signature(
+    tmp_path, monkeypatch, caplog, reason
+):
+    """A refusal from this server's own setup is not a catalog from the wrong publisher."""
+    import anthill.hosting.catalog_trust as ct
+
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
+    _serve(monkeypatch, {"generated": "2026-07-17", "models": [{"name": "Real"}]})
+    monkeypatch.setattr(ct, "verify_catalog", lambda payload, bundle: reason)
+    _refresh_fails_cleanly(
+        c,
+        caplog,
+        "This server cannot check the catalog signature. The catalog was not used.",
+        logged="catalog signature refused",
+    )
+    assert not _override_path(tmp_path).exists()
+
+
+def test_the_reasons_this_server_cannot_check_come_from_the_verifier(monkeypatch):
+    """cannot_check matches the verifier's own reasons, so a reworded reason cannot slip into the
+    wrong-publisher sentence."""
+    import builtins
+
+    import anthill.hosting.catalog_trust as ct
+
+    monkeypatch.setenv("ANTHILL_MODEL_CATALOG_IDENTITY", "x")
+    real_import = builtins.__import__
+
+    def no_sigstore(name, *a, **k):
+        if name.startswith("sigstore"):
+            raise ImportError("sigstore is not installed")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_sigstore)
+    assert ct.cannot_check(ct.verify_catalog(b"{}", "{}"))
+    monkeypatch.setattr(ct, "expected_signer", lambda: ("", ""))
+    assert ct.cannot_check(ct.verify_catalog(b"{}", "{}"))
+    assert not ct.cannot_check("the signature does not verify as the expected publisher: x")
+    assert not ct.cannot_check("the signature is unreadable (x)")
+
+
+def test_refresh_gives_a_fixed_message_when_the_catalog_is_unreadable(
+    tmp_path, monkeypatch, caplog
+):
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
+    _serve(monkeypatch, {})
+
+    def bad_json(self):
+        raise ValueError(f"bad JSON {_MARKER}")
+
+    monkeypatch.setattr(_Resp, "json", bad_json)
+    log = _refresh_fails_cleanly(
+        c, caplog, "unreadable", logged="catalog could not be read: ValueError"
+    )
+    assert _MARKER not in log
+
+
+def test_refresh_gives_a_fixed_message_when_the_catalog_cannot_be_saved(
+    tmp_path, monkeypatch, caplog
+):
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    blocker = tmp_path / _MARKER  # a file where the Anthill folder should be, so saving fails
+    blocker.write_text("x")
+    monkeypatch.setenv("ANTHILL_HOME", str(blocker / "home"))
+    _serve(
+        monkeypatch,
+        {"generated": "2026-07-17", "models": [{"name": "Real", "ollama_tag": "qwen3.6"}]},
+    )
+    log = _refresh_fails_cleanly(
+        c,
+        caplog,
+        "Couldn't save the refreshed catalog",
+        logged="refreshed catalog could not be saved",
+    )
+    assert _MARKER in log  # a local path, kept for the operator

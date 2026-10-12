@@ -136,3 +136,28 @@ def test_training_backend_for_provider_mapping():
     assert training_backend_for_provider("lambda") == ("", "")
     assert training_backend_for_provider("ovh") == ("", "")
     assert training_backend_for_provider("") == ("", "")
+
+
+def test_training_test_gives_a_fixed_message_when_the_check_fails(tmp_path, monkeypatch, caplog):
+    """docs/specs/bounded-text-and-failure-messages-followup.md: a fixed message, and only the class in the log."""
+    import logging
+
+    marker = "SECRET-MARKER-123"
+
+    class _Failing:
+        def validate(self, cfg):
+            raise RuntimeError(f"could not read {marker}")
+
+    monkeypatch.setattr("anthill.training.backends.get_backend", lambda cfg: _Failing())
+    c, app_mod = _admin_client(tmp_path)
+    _set_org_cloud(app_mod, training_backend="onprem")
+    with caplog.at_level(logging.WARNING):
+        r = c.post("/settings/training/test", follow_redirects=False)
+    body = r.json()
+    assert set(body) == {"ok", "detail", "status"} and body["ok"] is False
+    assert marker not in r.text and "Could not check the training backend" in body["detail"]
+    cfg = app_mod._SessionFactory().query(OrgSettings).first()
+    assert cfg.training_status == "error" and marker not in cfg.training_status_detail
+    assert (
+        "training backend check failed: RuntimeError" in caplog.text and marker not in caplog.text
+    )
