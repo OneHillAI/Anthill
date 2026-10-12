@@ -1,1 +1,0 @@
-**A chat that links a file can be reopened and used again.** If an earlier answer in a conversation pointed at a file, reopening or reloading that conversation stopped part of the page from starting: the file preview did not appear and you could not send a new message. Both work now.
