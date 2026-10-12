@@ -4,7 +4,8 @@
 
 Ask a question and Anthill answers from your own wiki, with citations, not from the open internet.
 It remembers the conversation. It also judges on its own how hard to think. A simple question gets
-a fast answer. A multi-step one runs deeper automatically. A bare greeting, thank-you or short
+a fast answer. A multi-step one runs deeper automatically, as long as your model can use tools; on a
+model that cannot, it gets the normal answer instead. A bare greeting, thank-you or short
 acknowledgement ("hi", "thanks", "ok", "yes") is answered without looking anything up in your wiki, so it
 comes back quickly; "yes", "ok" or "yes thanks" after a question of its own is treated as a normal message, not as a greeting. Ask in plain words for more, like "go
 deeper" or "check the web". Or ask it to do research and get back a cited report from several
@@ -15,6 +16,15 @@ and it proposes the result for you to confirm before anything is created. Ask fo
 recurring, like "every morning, summarize my inbox", and it proposes a scheduled task instead.
 
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
+
+Under the message box sits a row of three buttons. **Web search** turns web search on or off for this
+chat. **All knowledge** opens a list where you choose which wikis the answer may draw on, for example
+**Personal only**; the button then shows your choice. **Thinking** is described below.
+
+While an answer is being written, small ants run inside the reply with a line that says what is
+happening, for example "Searching the web". The words of the answer appear above them, and the ants
+are gone once the answer is complete. When your inference provider is answering, the ants wear capes and
+the line names the provider, for example "Checking with Infercom".
 
 Some local models think before they answer, and you see nothing until they finish. That can take ten
 seconds or more on a laptop, and minutes when a web search is involved. Thinking is off by default for
@@ -27,8 +37,12 @@ mode", is greyed out and does nothing, because the answer is the same either way
 the web", "Reading 5 pages", "Writing the answer") and then streams its answer word by word, like any other. With
 Thinking on, the first word still waits until the model has finished thinking. If the web search cannot be used
 (you are offline, the search is blocked, or it finds nothing usable), the answer starts with a short note that it
-comes from your wiki and the model alone, not from the web. A web answer then lists the pages it was given as links under "Web sources consulted"
-(the ones the answer does not already cite). If you ask for today's headlines or news and the search finds only
+comes from your wiki and the model alone, not from the web. When the search works, the answer ends with
+up to four of the pages the model was given, as links under "Web sources consulted" (the ones the answer
+does not already cite). The model is told today's date, so it can judge how recent a source is and say so
+when the newest one is too old for the question. It is also told to keep web text apart from your wiki, so a
+page from a site such as Wikipedia is not presented as one of your wiki pages. Both are instructions to the
+model, and a small model can still get them wrong. If you ask for today's headlines or news and the search finds only
 the front pages and sections of news sites, which list stories but contain none, Anthill says so plainly and
 lists those pages under "News pages found" instead of asking the model, which could make headlines up. If a web result carries an
 instruction to the assistant, Anthill leaves it out of the answer and says how many it left out under the answer.
@@ -52,7 +66,11 @@ Each project has its own group there, even before it has a chat, and a **+** tha
 inside it. Create a project from **Projects** in the sidebar, or with **+ New project** at the bottom of the
 chat list.
 
-To put a chat in a project, use the **Project** menu at the top of the chat. You can do it before the
+Each group in the sidebar shows its 10 most recent chats. The rest fold behind **Show N more**, and
+**Show fewer** folds them again. Pinned chats and the chat you are in always show. While you type in
+**Search chats**, every match shows. **Search / see all chats** opens the full list.
+
+To put a chat in a project, use the project menu at the top of the chat. You can do it before the
 first message or after the chat already has history. The messages stay as they are. Choose **No project**
 to take it out again. The chat goes back to Unfiled and is never deleted.
 
