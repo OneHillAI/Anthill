@@ -87,11 +87,11 @@
   /* De-emphasized card inside a disclosure (e.g. Self-tuning under This device -> Advanced): visible
      and fully functional, just visually secondary - not a "coming soon" claim. */
   .dim-card{opacity:.7}
-  /* rich local-model picker (fit + capability + origin): this page includes _council_builder.html (now
-     behind the "Your council" card's own "Change models" disclosure, not inside the compute chooser),
-     which renders .mp-* markup with no style block of its own - this definition is a real, load-bearing
-     dependency of that include. (Mirrors model_picker.html's own copy for the setup wizard, which also
-     includes _council_builder.html - two copies because the two pages don't share a stylesheet.) */
+  /* rich local-model picker (fit + capability + origin): _compute_chooser.html includes _council_builder.html
+     in its panel (behind "Change where it runs"), and that renders .mp-* markup with no style block of its
+     own - this definition is a real, load-bearing dependency of that include. (Mirrors model_picker.html's
+     own copy for the setup wizard, which reaches the same partial the same way - two copies because the two
+     pages don't share a stylesheet.) */
   .mp-filter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
   .mp-chip{border:1px solid var(--border);background:var(--bg,#fff);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:var(--fs-1);font-weight:600;cursor:pointer}
   .mp-chip.on{background:var(--accent,#2f6b4f);border-color:var(--accent,#2f6b4f);color:#fff}
@@ -178,7 +178,6 @@
     <div id="change-runs" hidden style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
       {% set chooser_form = "compute-form" %}
       {% include "_compute_chooser.html" %}
-      {% include "_council_builder.html" %}
       {% include "_inference_provider.html" %}
       <div style="margin-top:16px">
         <button type="submit" form="compute-form" class="btn btn-primary btn-sm">Save where it runs &amp; your council</button>

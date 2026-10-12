@@ -1,4 +1,6 @@
-{# Shared, TIER-AWARE council builder: up to 3 models, first ticked = lead. Two lists toggled by the
+{# Shared, TIER-AWARE council builder: up to 3 models, first ticked = lead. Included by _compute_chooser.html,
+   inside the panel under the tier cards (it is the selected tier's body, not a section of its own).
+   Two lists toggled by the
    chosen compute tier (ccCouncilTier, called from the chooser's ccSetTier - local/cloud only; an
    attached escalation provider is a separate, per-turn hand-off and does NOT change which models form
    the council, see docs/specs/expert-tier-compound-compute-and-escalation.md):
@@ -24,11 +26,11 @@
    preserved even if it isn't first in catalog/DOM order. #}
 {% set current_council_tags = current_council_tags|default([]) %}
 {% if in_setup %}
-<div class="cc-step-title" style="margin-top:28px">Which model do you run?
+<div class="cc-step-title in"><span class="cc-num">2</span>Which model do you run?
   <button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button>
 </div>
 {% else %}
-<div class="set-cardh" style="margin:22px 0 8px"><h3 style="font-size:16px">Choose your council<button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button></h3></div>
+<div class="set-cardh" style="margin:0 0 8px"><h3 style="font-size:16px">Choose your council<button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button></h3></div>
 {% endif %}
 
 <div class="mp-filter">
@@ -45,7 +47,7 @@
    them concurrently is slower than one model alone (see the caveat below, and _LOCAL_COUNCIL_RAM_FLOOR_GB
    + the onprem_council_fits gate in app.py, which enforce this at save time). For a multi-model council
    at full speed - each member on its own dedicated hardware - pick "Your cloud" above instead. #}
-<div id="council-local">
+<div id="council-local"{% if compute|default('local') == 'cloud' %} hidden{% endif %}>
   {# Server-rendered so the limit is visible immediately, not just discovered by trying to check a 2nd
      box and having it silently refuse (or being told only after submit) - "super simple and super
      logical" per the founder's ask. Below the floor, the local tier is presented as single-model only;
@@ -56,7 +58,7 @@
   <div class="mp-list">
     {% for fam in families %}{% for m in fam.models if m.fits %}
     <label class="mp-row council-row" data-region="{{ fam.region }}">
-      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span>
           {% if m.recommended %}<span class="mp-badge rec">recommended</span>{% endif %}
@@ -92,7 +94,7 @@
        catalog's own params_b-based estimate for everything else in this list. #}
     {% for m in other_installed %}
     <label class="mp-row council-row">
-      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name"><code>{{ m.tag }}</code> <span class="lead-badge mp-badge rec" hidden>Lead</span>
           <span class="mp-badge inst">installed</span>
@@ -131,11 +133,11 @@
    the old copy claimed. A model past that ceiling is collapsed into its own "too large" disclosure,
    same as the local tier's "too big for this machine" pattern, rather than listed as an equally real
    option that would very likely fail to actually provision. #}
-<div id="council-cloud" hidden>
+<div id="council-cloud"{% if compute|default('local') != 'cloud' %} hidden{% endif %}>
   <div class="mp-list">
     {% for m in cloud_models if m.fits %}
     <label class="mp-row council-row" data-region="{{ m.region }}">
-      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-cloud" disabled{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-cloud"{% if compute|default('local') != 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span></div>
         <div class="mp-meta">{{ m.origin }} &middot; {{ m.params_b|round(0)|int }}B</div>
@@ -168,7 +170,7 @@
 {# Shown only for the local tier with 2+ picked: local council members share this ONE machine's memory
    bandwidth, so each answers slower than it would alone - unlike cloud/inference, where every member
    gets its own dedicated hardware. Toggled live by ccCouncil() below. #}
-<p class="text-sm" id="local-council-caveat" style="margin:6px 0 0;color:var(--warn,#b45309);display:none">Running more than one model locally shares this machine's memory bandwidth - each answers slower than it would alone. For full speed with a multi-model council, pick "Your cloud" or an inference provider above.</p>
+<p class="text-sm" id="local-council-caveat" style="margin:6px 0 0;color:var(--warn,#b45309);display:none">Running more than one model locally shares this machine's memory bandwidth - each answers slower than it would alone. For full speed with a multi-model council, pick "Your cloud" or an inference provider below.</p>
 {# "Your cloud" provisions each member on its own billable GPU - unlike inference-provider (one hosted
    API call either way), there is no cost estimate anywhere in Anthill today, so a 2-3 model pick here
    is disclosed plainly rather than silently multiplying spend. Toggled live by ccCouncil() below. #}
