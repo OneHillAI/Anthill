@@ -19,11 +19,12 @@ on the beta with a real model (`qwen3.5:9b`).
   no wiki text it does not describe or cite any wiki page (at most one short sentence that the wiki has nothing
   on it).
 - Web text cannot pose as the wiki or close the fence. Wherever a result's title, snippet or page text enters
-  the prompt, the prompt's own markers are defanged (`neutralise`). The address is left as it came, so the model
-  cites the real one (a path can hold the words "web results"); a linkable address cannot hold angle brackets or
+  the prompt, the prompt's own markers are defanged (`neutralise`). A linkable address is not defanged: it goes in as the link target the sources list uses
+  (parentheses encoded, the host in ASCII form), so the model cites the real one (a path can hold the words
+  "web results") and the address cannot end the link; a linkable address cannot hold angle brackets or
   spaces, and an address that cannot be linked is defanged like the text. The text is matched on a skeleton of it
   in which full-width, small-capital and Cyrillic or Greek look-alike letters are folded to plain ones and every
-  invisible character (any format character, the combining grapheme joiner and the Hangul fillers) counts as a
+  invisible character (any format character, the combining grapheme joiner, the Hangul fillers, variation selectors, and the Mongolian and Khmer marks that draw nothing) counts as a
   zero-width space, one character for one character. `BEGIN_UNTRUSTED_WEB` and `END_UNTRUSTED_WEB` are removed:
   with their angle brackets wherever they are, without them only as words of their own (so "backend untrusted
   web" is left alone). `WIKI CONTEXT` and `WEB RESULTS` are rewritten with a middle dot between the words,

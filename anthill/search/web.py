@@ -335,8 +335,14 @@ def drop_injected(results: list[SearchResult]) -> tuple[list[SearchResult], int]
 # separators and zero-width characters tolerated between the words; only the matched words are replaced, in the
 # original text, so ordinary text is not changed.
 _ZW = "\u00ad\u200b-\u200f\u2060\ufeff"
-# Invisible characters that are not format (Cf) characters: the combining grapheme joiner and the Hangul fillers.
-_INVISIBLE = frozenset("\u034f\u115f\u1160\u3164\uffa0")
+# Invisible characters that are not format (Cf) characters: the combining grapheme joiner, the Hangul fillers,
+# the Khmer inherent vowels, the Mongolian free variation selectors and the variation selectors (the rest of
+# Unicode's Default_Ignorable_Code_Point set).
+_INVISIBLE = frozenset(
+    "\u034f\u115f\u1160\u17b4\u17b5\u180b\u180c\u180d\u180f\u3164\uffa0"
+    + "".join(chr(c) for c in range(0xFE00, 0xFE10))
+    + "".join(chr(c) for c in range(0xE0100, 0xE01F0))
+)
 _SEP = rf"[\s_\-\u2010-\u2015./:*`~|\u00a0{_ZW}]*"
 _CONFUSABLES = str.maketrans(
     {
@@ -754,9 +760,11 @@ def _normalised(url: str) -> str:
 def _cited(answer: str) -> set[str]:
     """The addresses an answer already links or writes out, normalised, to compare whole addresses. A pair of
     parentheses inside an address is part of it (Wikipedia's Python_(programming_language)); the one that closes
-    a Markdown link is not."""
+    a Markdown link is not. A link target is taken whole, so an address the prompt gave with brackets or
+    asterisks in it still counts as cited when the model links it."""
     found = re.findall(r"https?://(?:[^\s()\[\]<>\"']|\([^\s()\[\]<>\"']*\))+", answer)
-    return {_normalised(u.rstrip(".,;:!?")) for u in found}
+    targets = re.findall(r"\]\(\s*(https?://(?:[^\s()<>]|\([^\s()<>]*\))+)\s*\)", answer)
+    return {_normalised(u.rstrip(".,;:!?")) for u in found} | {_normalised(u) for u in targets}
 
 
 def sources_footer(
@@ -788,9 +796,11 @@ def sources_footer(
 
 def _result_line(r: SearchResult) -> str:
     """One result as it goes into the prompt. The title, the snippet and the page text are defanged; the address
-    is left as it came, so the model cites the real one (a path can hold the words "web results"). An address
-    that cannot be linked has no such use and can hold any text, so it is defanged too."""
-    address = r.url if _link_target(r.url) else neutralise(r.url)
+    goes in as the link target the sources list uses (parentheses percent-encoded, the host in ASCII), not
+    defanged, so the model cites the real page (a path can hold the words "web results") and a ")" in the
+    address cannot end the link and carry free text after it. An address that cannot be linked has no such use
+    and can hold any text, so it is defanged instead."""
+    address = _link_target(r.url) or neutralise(r.url)
     return f"[{neutralise(r.title)}]({address}): {neutralise(f'{r.snippet} {r.body[:300]}')}"
 
 

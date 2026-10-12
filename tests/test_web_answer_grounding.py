@@ -642,6 +642,47 @@ def test_the_route_treats_the_fixed_answer_as_code_made_text(tmp_path, monkeypat
     assert examples == []  # not a training example
 
 
+def test_the_route_offers_no_provider_for_the_fixed_answer(tmp_path, monkeypatch):
+    """The manual "Ask {provider}" offer is made for a model answer, never for the code-made one: a provider
+    asked about it could invent the stories it declined to give."""
+    from datetime import datetime, timezone
+
+    from test_web_turn_stream import _client, _events
+
+    import anthill.web.app as app_mod
+    from anthill.web.crypto import encrypt
+    from anthill.web.db import OrgSettings, User
+
+    client, cid = _client(tmp_path, monkeypatch)
+    session = app_mod._SessionFactory()
+    user = session.query(User).one()
+    session.add(
+        OrgSettings(
+            org_id=user.org_id,
+            escalation_provider="groq",
+            escalation_provider_key_enc=encrypt("gsk_test"),
+            escalation_mode="ask",
+            escalation_consented=True,
+            escalations_reset_at=datetime.now(timezone.utc),
+        )
+    )
+    session.commit()
+    monkeypatch.setattr("anthill.agent.intent.decide_web", lambda *a, **k: (True, "q"))
+    fixed = no_headlines_answer([_result("https://www.reuters.com/technology/", "Tech")])
+
+    def fixed_stream(*args, **kwargs):
+        yield ask_mod.Stage("fixed")
+        yield fixed
+
+    monkeypatch.setattr("anthill.wiki.ask.ask_stream", fixed_stream)
+    r = client.get(f"/chat/{cid}/stream", params={"message": HEADLINES, "web": "true"})
+    assert not any("escalation_offer" in e for e in _events(r))
+    # a model answer on the same settings still gets the offer
+    monkeypatch.setattr("anthill.wiki.ask.ask_stream", lambda *a, **k: iter(["Reykjavik."]))
+    r = client.get(f"/chat/{cid}/stream", params={"message": "Capital of Iceland?", "web": "true"})
+    assert any("escalation_offer" in e for e in _events(r))
+
+
 # ── second review round ──────────────────────────────────────────────────────────
 
 
@@ -924,7 +965,16 @@ def test_a_streamed_turn_over_hostile_wiki_text_still_says_the_answer_is_fixed(
         "Technology news", f"# Technology news\n\nTop technology news headlines today. {_HOSTILE}\n"
     )
     _fake_search(monkeypatch, [_result(u, "Tech") for u in FRONT_PAGES])
+    handed_over = []
+    real_ask = ask_mod.ask
+
+    def spying_ask(*args, **kwargs):
+        handed_over.append(args[1])
+        return real_ask(*args, **kwargs)
+
+    monkeypatch.setattr(ask_mod, "ask", spying_ask)
     out = list(ask_mod.ask_stream(ws, HEADLINES, _MustNotBeAsked(), web_search=True))
+    assert handed_over == [HEADLINES]  # the hostile wiki text sent the turn to the blocking path
     assert ask_mod.Stage("fixed") in out
     text = next(x for x in out if isinstance(x, str))
     assert text.startswith(NO_HEADLINES_ANSWER) and getattr(text, "code_made", False)

@@ -67,9 +67,10 @@ not the text of a "redo with web search", which carries the earlier answer.
    answer is made by code and signalled explicitly (`Stage("fixed")` on the streamed path, also when the streamed
    turn is handed to the blocking `ask()` for a council or an instruction in the question or the wiki text, and a
    `FixedAnswer` string from `ask()`), not recognised by its words: no wiki page is reported for it, it is not
-   kept as a training example, no memory is distilled from that turn, it is not escalated by `ask()`'s hybrid
-   policy or filed as a wiki page by `ask(save=True)`, and in Automated mode it is not graded or escalated to a
-   provider. (Without any linkable page the
+   kept as a training example, the fixed turn itself does not set off a memory distillation (a later turn's
+   distillation can still read it in the recent messages), it is not escalated by `ask()`'s hybrid policy or
+   filed as a wiki page by `ask(save=True)`, in Automated mode it is not graded or escalated to a provider, and
+   no "Ask {provider}" offer is made for it. (Without any linkable page the
    text is a plain sentence; a turn cannot reach that, because such results are not usable, so it is only a
    guard.)
 
@@ -101,8 +102,11 @@ not the text of a "redo with web search", which carries the earlier answer.
 - The phrases "web results" and "wiki context" are rewritten in web text whatever the case, because a heading
   can be written in any case.
 - The fixed answer is English text, as the other fixed notices are.
-- When Automated mode adds a provider's answer after a web answer, the list of pages is no longer at the end of
-  the saved message, so it stays in the history fed to later turns of that conversation.
+- When a provider's answer is added after a web answer, by Automated mode or by the member's own "Ask
+  {provider}" click (`/chat/{id}/escalate-confirm`), the list of pages is no longer at the end of the saved
+  message, so it is not stripped: it stays in the history fed to later turns of that conversation, in the
+  transcript memory is distilled from and in the transcript a skill is drafted from, and with Automated mode
+  (where the provider's answer is added before the turn is saved) in the training example's output too.
 
 ## Tests
 

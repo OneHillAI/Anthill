@@ -13011,10 +13011,12 @@ async def chat_stream(
             # something has ALREADY offered or fired this turn (_pending_escalation_offer set above, or
             # _escalated True) - never a second, redundant offer on the same answer - or when the
             # monthly cap is already reached, so the offer never teases a click that
-            # /chat/{id}/escalate-confirm would just reject.
+            # /chat/{id}/escalate-confirm would just reject. Never for a fixed answer made by code (no news
+            # articles were found): a provider asked about it could invent the stories it declined to give.
             if (
                 cfg
                 and not escalate_org
+                and not fixed_answer
                 and not cache_hit
                 and not _escalated
                 and not _pending_escalation_offer
