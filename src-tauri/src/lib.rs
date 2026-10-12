@@ -61,11 +61,20 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            // On the main thread, and only once the window has been prepared (restored or maximized) and
+            // shown by `show_on`: opening Anthill a second time while the first is still booting must not
+            // show the unprepared 1200 x 820 splash early. The window appears when the backend answers.
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if !second_instance_may_show(WINDOW_PREPARED.load(Ordering::SeqCst)) {
+                    return;
+                }
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            });
         }));
     }
     // Remember the window's size, position and maximized state between launches (`window_state_flags`).
@@ -145,7 +154,14 @@ fn show_startup_error(app: &AppHandle, detail: &str) {
          white-space:pre-wrap;font-size:12px;margin:0\">{safe}</pre></div>`;"
     );
     #[cfg(desktop)]
-    prepare_window(app, &window);
+    {
+        let shown = window.clone();
+        let _ = app.run_on_main_thread(move || {
+            prepare_window(&shown);
+            let _ = shown.show();
+        });
+    }
+    #[cfg(not(desktop))]
     let _ = window.show();
     let _ = window.eval(&js);
 }
@@ -240,11 +256,6 @@ async fn spawn_backend<R: Runtime>(
     Ok((port, child))
 }
 
-/// What the window-state plugin saves and restores: size, position and whether it was maximized.
-/// Deliberately NOT `VISIBLE` (this shell keeps the window hidden until the backend answers and shows it
-/// itself, see `show_on`: a restored "visible" would show the splash early), and not `FULLSCREEN` or
-/// `DECORATIONS` either: restoring those calls `set_fullscreen` on every launch while the window is
-/// hidden, and the plugin would then store the fullscreen frame as the window's normal size.
 /// The window-state plugin, as the app and the ACL tests both build it. The window is NOT restored when it is
 /// created (it is hidden then, and maximizing a hidden window shows and activates it on Windows):
 /// `prepare_window` restores it just before the shell shows the window itself.
@@ -256,21 +267,61 @@ fn window_state_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
+/// What the window-state plugin saves and restores: size, position and whether it was maximized.
+/// Deliberately NOT `VISIBLE` (this shell keeps the window hidden until the backend answers and shows it
+/// itself, see `show_on`: a restored "visible" would show the splash early), and not `FULLSCREEN` or
+/// `DECORATIONS` either: restoring those calls `set_fullscreen` on every launch while the window is
+/// hidden, and the plugin would then store the fullscreen frame as the window's normal size.
 #[cfg(desktop)]
 fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
     use tauri_plugin_window_state::StateFlags;
     StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
 }
 
-/// The window-state file as it was when this process started (`None`: there was none). Kept so that an exit
-/// before the window was prepared can put it back (see `undo_unprepared_window_save`).
+/// The window-state file as it was when this process started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LaunchState {
+    /// There was no file (the read failed with `NotFound`).
+    Missing,
+    /// The file's bytes.
+    Present(Vec<u8>),
+    /// There may be a file, but it could not be read (or the config folder is unknown). The shell never
+    /// rewrites or removes a file it could not read.
+    Unreadable,
+}
+
+impl LaunchState {
+    /// Only `NotFound` means "no file"; any other read error is `Unreadable`.
+    fn from_read(read: std::io::Result<Vec<u8>>) -> Self {
+        match read {
+            Ok(bytes) => LaunchState::Present(bytes),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => LaunchState::Missing,
+            Err(_) => LaunchState::Unreadable,
+        }
+    }
+
+    fn bytes(&self) -> Option<&[u8]> {
+        match self {
+            LaunchState::Present(bytes) => Some(bytes),
+            LaunchState::Missing | LaunchState::Unreadable => None,
+        }
+    }
+}
+
+/// The window-state file as it was when this process started. Kept so that an exit before the window was
+/// prepared can put it back (see `undo_unprepared_window_save`).
 #[cfg(desktop)]
-static LAUNCH_STATE: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+static LAUNCH_STATE: OnceLock<LaunchState> = OnceLock::new();
 
 /// Set once `prepare_window` has restored (or, on a first launch, maximized) the window, i.e. once the window
-/// the plugin would save is the one the person will actually see.
+/// the plugin would save is the one the person will actually see. Set at the END of `prepare_window`, and only
+/// when the restore succeeded, never before.
 #[cfg(desktop)]
 static WINDOW_PREPARED: AtomicBool = AtomicBool::new(false);
+
+/// Set when `prepare_window` first starts, so it runs once per process (a profile switch reuses `show_on`).
+#[cfg(desktop)]
+static PREPARE_STARTED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
 fn window_state_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
@@ -282,8 +333,11 @@ fn window_state_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBu
 
 #[cfg(desktop)]
 fn remember_launch_window_state<R: Runtime>(app: &AppHandle<R>) {
-    let saved = window_state_path(app).and_then(|path| std::fs::read(path).ok());
-    let _ = LAUNCH_STATE.set(saved);
+    let launch = match window_state_path(app) {
+        Some(path) => LaunchState::from_read(std::fs::read(path)),
+        None => LaunchState::Unreadable,
+    };
+    let _ = LAUNCH_STATE.set(launch);
 }
 
 /// Is this a first launch? Only when the saved file is missing, unreadable, or has no usable `main` entry (a
@@ -297,63 +351,35 @@ fn has_saved_main_state(saved: Option<&[u8]>) -> bool {
     size("width") > 0 && size("height") > 0
 }
 
-/// Where a window of `inner` size (content area) at `position`, whose frame (title bar and borders) adds
-/// `outer - inner`, must be so that its whole frame lies inside `area` (x, y, width, height of a monitor's work
-/// area, i.e. without the menu bar, Dock or taskbar). Returns the new content size and position. A size saved
-/// on a large display would otherwise overflow a smaller one after that display is disconnected.
-fn fit_to_work_area(
-    position: (i32, i32),
-    inner: (u32, u32),
-    outer: (u32, u32),
-    area: (i32, i32, u32, u32),
-) -> ((i32, i32), (u32, u32)) {
-    let frame = (outer.0.saturating_sub(inner.0), outer.1.saturating_sub(inner.1));
-    let fitted = (
-        inner.0.min(area.2.saturating_sub(frame.0)),
-        inner.1.min(area.3.saturating_sub(frame.1)),
-    );
-    let (width, height) = (fitted.0 + frame.0, fitted.1 + frame.1);
-    let place = |at: i32, start: i32, room: u32, extent: u32| {
-        let max = start + room as i32 - extent as i32;
-        at.min(max).max(start)
-    };
-    (
-        (
-            place(position.0, area.0, area.2, width),
-            place(position.1, area.1, area.3, height),
-        ),
-        fitted,
-    )
+/// What the exit callback does to the window-state file the plugin has just saved.
+#[derive(Debug, PartialEq, Eq)]
+enum ExitAction<'a> {
+    /// Keep what the plugin saved.
+    Leave,
+    /// Put back the file as it was at launch.
+    Write(&'a [u8]),
+    /// Remove the file, so the next launch is still a first launch.
+    Remove,
 }
 
-#[cfg(desktop)]
-fn fit_window_to_its_monitor<R: Runtime>(window: &WebviewWindow<R>) {
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-    let (Some(monitor), Ok(position), Ok(inner), Ok(outer)) = (
-        monitor,
-        window.outer_position(),
-        window.inner_size(),
-        window.outer_size(),
-    ) else {
-        return;
-    };
-    let area = monitor.work_area();
-    let (new_position, new_inner) = fit_to_work_area(
-        (position.x, position.y),
-        (inner.width, inner.height),
-        (outer.width, outer.height),
-        (area.position.x, area.position.y, area.size.width, area.size.height),
-    );
-    if new_inner != (inner.width, inner.height) {
-        let _ = window.set_size(tauri::PhysicalSize::new(new_inner.0, new_inner.1));
+/// The exit undo's decision. A prepared window's save is kept. An unprepared one (never restored, so still the
+/// 1200 x 820 it was created at) is undone: the launch bytes go back, or the file is removed if there was none.
+/// A file that could not be read at launch (or launch state never recorded) is left alone.
+fn unprepared_exit_action(prepared: bool, launch: Option<&LaunchState>) -> ExitAction<'_> {
+    if prepared {
+        return ExitAction::Leave;
     }
-    if new_position != (position.x, position.y) {
-        let _ = window.set_position(tauri::PhysicalPosition::new(new_position.0, new_position.1));
+    match launch {
+        Some(LaunchState::Present(bytes)) => ExitAction::Write(bytes),
+        Some(LaunchState::Missing) => ExitAction::Remove,
+        Some(LaunchState::Unreadable) | None => ExitAction::Leave,
     }
+}
+
+/// May a second launch show, unminimize and focus the window? Only once it has been prepared and shown: before
+/// that it is the unprepared splash, which appears when the backend answers.
+fn second_instance_may_show(prepared: bool) -> bool {
+    prepared
 }
 
 /// Make the window the one the person should see, once per process, on the still-hidden window just before
@@ -362,19 +388,27 @@ fn fit_window_to_its_monitor<R: Runtime>(window: &WebviewWindow<R>) {
 /// hidden, or maximized while hidden at creation, can flash or take focus on some platforms, which is why none
 /// of this happens at creation. Calling the plugin's `restore_state` on a first launch also records the
 /// window's own 1200 x 820 as its normal size, so un-maximizing later gives that size and not the screen's.
-/// A later call (switching profile reuses `show_on`) changes nothing.
+/// A later call (switching profile reuses `show_on`) changes nothing. If `restore_state` fails, the window is
+/// still shown but is not marked prepared, so the exit undo stays armed.
+///
+/// Must run on the main thread (see `show_on`). The plugin holds its state mutex while `restore_state` calls
+/// window getters, and off the main thread each of those posts to it and waits for the answer: a quit in that
+/// moment would have the main thread's exit save wait on the same mutex, and the app would hang on quit. On the
+/// main thread the getters answer at once and an exit cannot interleave.
 #[cfg(desktop)]
-fn prepare_window<R: Runtime>(_app: &AppHandle<R>, window: &WebviewWindow<R>) {
+fn prepare_window<R: Runtime>(window: &WebviewWindow<R>) {
     use tauri_plugin_window_state::WindowExt;
-    if WINDOW_PREPARED.swap(true, Ordering::SeqCst) {
+    if PREPARE_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let saved = has_saved_main_state(LAUNCH_STATE.get().and_then(|s| s.as_deref()));
-    let _ = window.restore_state(window_state_flags());
+    let saved = has_saved_main_state(LAUNCH_STATE.get().and_then(LaunchState::bytes));
+    let restored = window.restore_state(window_state_flags());
     if !saved {
         let _ = window.maximize();
-    } else if !window.is_maximized().unwrap_or(false) {
-        fit_window_to_its_monitor(window);
+    }
+    // Only now is the window the one the person will see; before this an exit saves nothing worth keeping.
+    if restored.is_ok() {
+        WINDOW_PREPARED.store(true, Ordering::SeqCst);
     }
 }
 
@@ -382,18 +416,17 @@ fn prepare_window<R: Runtime>(_app: &AppHandle<R>, window: &WebviewWindow<R>) {
 /// that restarts the app before the backend is up, or quitting during the boot wait), the window is still the
 /// unrestored 1200 x 820 and the save would overwrite what the person had. The plugin saves before this
 /// callback runs, so put the file back as it was at launch (or remove it if there was none, so the next launch
-/// is still a first launch).
+/// is still a first launch). See `unprepared_exit_action`.
 #[cfg(desktop)]
 fn undo_unprepared_window_save<R: Runtime>(app: &AppHandle<R>) {
-    if WINDOW_PREPARED.load(Ordering::SeqCst) {
-        return;
-    }
-    let (Some(path), Some(launch)) = (window_state_path(app), LAUNCH_STATE.get()) else {
+    let action = unprepared_exit_action(WINDOW_PREPARED.load(Ordering::SeqCst), LAUNCH_STATE.get());
+    let Some(path) = window_state_path(app) else {
         return;
     };
-    let _ = match launch {
-        Some(bytes) => std::fs::write(path, bytes),
-        None => std::fs::remove_file(path),
+    let _ = match action {
+        ExitAction::Write(bytes) => std::fs::write(path, bytes),
+        ExitAction::Remove => std::fs::remove_file(path),
+        ExitAction::Leave => Ok(()),
     };
 }
 
@@ -403,7 +436,15 @@ fn show_on<R: Runtime>(app: &AppHandle<R>, port: u16) -> Result<(), Box<dyn std:
     let window: WebviewWindow<R> = app.get_webview_window("main").ok_or("no `main` window")?;
     window.navigate(tauri::Url::parse(&url)?)?;
     #[cfg(desktop)]
-    prepare_window(app, &window);
+    {
+        // Prepare and show in one step on the main thread (see `prepare_window` for why).
+        let shown = window.clone();
+        app.run_on_main_thread(move || {
+            prepare_window(&shown);
+            let _ = shown.show();
+        })?;
+    }
+    #[cfg(not(desktop))]
     window.show()?;
     Ok(())
 }
@@ -705,33 +746,75 @@ mod acl_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_data_name, fit_to_work_area, has_saved_main_state, parse_port_line};
+    use super::{
+        app_data_name, has_saved_main_state, parse_port_line, second_instance_may_show,
+        unprepared_exit_action, ExitAction, LaunchState,
+    };
+    use std::io::{Error, ErrorKind};
 
     #[test]
-    fn a_window_that_fits_the_work_area_is_left_alone() {
-        let fitted = fit_to_work_area((100, 80), (1200, 788), (1200, 820), (0, 30, 3440, 1410));
-        assert_eq!(fitted, ((100, 80), (1200, 788)));
+    fn only_a_missing_file_counts_as_no_file_at_launch() {
+        assert_eq!(
+            LaunchState::from_read(Ok(b"{}".to_vec())),
+            LaunchState::Present(b"{}".to_vec())
+        );
+        assert_eq!(
+            LaunchState::from_read(Err(Error::from(ErrorKind::NotFound))),
+            LaunchState::Missing
+        );
+        // Any other read error (no permission, a folder in its place, an I/O error) is not "no file".
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::IsADirectory,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(
+                LaunchState::from_read(Err(Error::from(kind))),
+                LaunchState::Unreadable,
+                "{kind:?}"
+            );
+        }
+        assert_eq!(LaunchState::Present(b"x".to_vec()).bytes(), Some(&b"x"[..]));
+        assert_eq!(LaunchState::Missing.bytes(), None);
+        assert_eq!(LaunchState::Unreadable.bytes(), None);
     }
 
     #[test]
-    fn a_window_bigger_than_the_work_area_is_shrunk_allowing_for_its_title_bar() {
-        // 3000 x 1300 saved on a big display, shown on a 1440 x 900 work area: the 32 px title bar stays inside.
-        let ((x, y), (w, h)) =
-            fit_to_work_area((0, 0), (3000, 1300), (3000, 1332), (0, 25, 1440, 875));
-        assert_eq!((w, h), (1440, 843));
-        assert_eq!((x, y), (0, 25));
+    fn an_exit_after_the_window_was_prepared_keeps_what_the_plugin_saved() {
+        for launch in [
+            LaunchState::Present(b"{}".to_vec()),
+            LaunchState::Missing,
+            LaunchState::Unreadable,
+        ] {
+            assert_eq!(unprepared_exit_action(true, Some(&launch)), ExitAction::Leave);
+        }
+        assert_eq!(unprepared_exit_action(true, None), ExitAction::Leave);
     }
 
     #[test]
-    fn a_window_off_the_work_area_is_moved_inside_it() {
-        // saved at the right edge of a display that is gone; a second display left of the first has a negative x
-        let (position, size) =
-            fit_to_work_area((3000, 2000), (900, 618), (900, 650), (-1440, 0, 1440, 900));
-        assert_eq!(size, (900, 618));
-        assert_eq!(position, (-900, 250));
-        let (position, _) =
-            fit_to_work_area((-5000, -40), (900, 618), (900, 650), (0, 30, 1440, 870));
-        assert_eq!(position, (0, 30));
+    fn an_exit_before_the_window_was_prepared_puts_the_launch_file_back() {
+        let launch = LaunchState::Present(b"saved".to_vec());
+        assert_eq!(
+            unprepared_exit_action(false, Some(&launch)),
+            ExitAction::Write(b"saved")
+        );
+        // no file at launch: remove the one the plugin just wrote, so the next launch is still a first launch
+        assert_eq!(
+            unprepared_exit_action(false, Some(&LaunchState::Missing)),
+            ExitAction::Remove
+        );
+        // a file that could not be read is never rewritten or removed
+        assert_eq!(
+            unprepared_exit_action(false, Some(&LaunchState::Unreadable)),
+            ExitAction::Leave
+        );
+        assert_eq!(unprepared_exit_action(false, None), ExitAction::Leave);
+    }
+
+    #[test]
+    fn a_second_launch_shows_the_window_only_once_it_was_prepared() {
+        assert!(second_instance_may_show(true));
+        assert!(!second_instance_may_show(false));
     }
 
     #[test]

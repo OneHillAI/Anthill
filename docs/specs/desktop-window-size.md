@@ -9,40 +9,53 @@ window was never kept.
 ## Scope
 
 The shell is one codebase for macOS, Windows and Linux, so this changes all three builds. It was tested on
-**macOS only** (a packaged build, see the PR text). Windows and Linux builds get the same behaviour and are
+**macOS only** (a packaged earlier build; the final code was not re-run packaged, see Known limits). Windows and Linux builds get the same behaviour and are
 **not tested**.
 
 ## Fix
 
 - **Nothing happens to the window until the shell shows it.** The window-state plugin is built with
-  `skip_initial_state("main")`, so it does not restore the hidden window when it is created (maximizing a hidden
+  `skip_initial_state("main")`, so it does not restore the hidden window when it is created (maximising a hidden
   window shows and activates it on Windows, before the backend answers). `tauri.conf.json` keeps
-  `visible: false` and does not create the window maximized.
-- **`prepare_window`** runs once per process on the still-hidden window, just before `window.show()` (in `show_on`,
-  and in `show_startup_error`, so an error window opens the same way): it calls the plugin's `restore_state` and,
-  on a first launch, maximizes the window so it fills the screen. Calling `restore_state` on a first launch also
-  records the window's own 1200 x 820 as its normal size (the plugin keeps the normal size while maximized), so
-  un-maximizing later gives that size and not the screen's.
+  `visible: false` and does not create the window maximised.
+- **`prepare_window`** runs once per process on the still-hidden window, just before `window.show()`, in one step
+  on the main thread (inside `run_on_main_thread`, from `show_on`, and from `show_startup_error` so an error
+  window opens the same way): it calls the plugin's `restore_state` and, on a first launch, maximises the window
+  so it fills the screen. Calling `restore_state` on a first launch also records the window's own 1200 x 820 as
+  its normal size (the plugin keeps the normal size while maximised), so un-maximising later gives that size and
+  not the screen's.
+- **Main thread, and "prepared" means done.** The plugin holds its state mutex while `restore_state` calls window
+  getters. Off the main thread each getter waits for the main thread, so a quit in that moment would have the main
+  thread's exit save wait on the same mutex and the app would hang on quit. Running `prepare_window` and `show()`
+  inside `run_on_main_thread` removes that. The "window prepared" flag (`WINDOW_PREPARED`) is set at the end of
+  `prepare_window`, and only if `restore_state` returned `Ok`. If the restore failed the window is still shown,
+  but the flag stays false, so the exit undo below stays armed. A separate once-flag (`PREPARE_STARTED`) keeps
+  "once per process".
+- **A second launch while the first is still starting** does nothing visible. The single-instance callback runs
+  on the main thread and shows, unminimises and focuses the window only when the window has been prepared
+  (`second_instance_may_show`, a pure function with a test); before that the window appears when the backend
+  answers, as it would have anyway. A second launch during boot is dropped, not deferred.
 - **First launch** means the saved file is missing, unreadable, or has no usable `main` entry (a size above zero)
   (`has_saved_main_state`, a pure function with a test). A file that exists but holds nothing for this window is
   still a first launch.
-- **Later launches:** the app reopens the way it was left: size, position and whether it was maximized, saved
+- **Later launches:** the app reopens the way it was left: size, position and whether it was maximised, saved
   when the window closes or the app quits by `tauri-plugin-window-state`, in the app's own config folder (the Beta
-  app has its own, as it has its own identifier).
-- **What is saved:** only size, position and maximized (`window_state_flags()` in `src-tauri/src/lib.rs`). Not
+  app has its own, as it has its own identifier). The plugin already ignores a saved position that is on no
+  connected screen.
+- **What is saved:** only size, position and maximised (`window_state_flags()` in `src-tauri/src/lib.rs`). Not
   `VISIBLE` (the shell shows the window itself), and not `FULLSCREEN` or `DECORATIONS`: restoring those calls
   `set_fullscreen` on every launch while the window is hidden, and the plugin would then store the fullscreen
   frame as the normal size. Restoring full screen is not part of this change.
+- **The file at launch.** In setup the shell reads the window-state file once and keeps one of three answers:
+  `Missing` (the read failed with `NotFound`), `Present` (its bytes) or `Unreadable` (any other read error, or
+  no config folder). Only `NotFound` counts as "no file".
 - **Exit before the window is prepared.** The plugin saves on exit, before the app's own exit callback runs. An
   exit before the first show (an update that restarts the app before the backend is up, or quitting during the
-  boot wait) would overwrite the saved state with the unrestored 1200 x 820 window. The shell keeps the file as
-  it was at launch and, if the window was never prepared, puts it back in its exit callback, or removes it if
-  there was none, so the next launch is still a first launch. A quit from the startup-error window needs no such
-  guard: that window is prepared before it is shown.
-- **Smaller screen:** a restored, not-maximized window is fitted to the work area of the monitor it is on (the
-  area without the menu bar, Dock or taskbar), allowing for its title bar and borders, and moved inside it
-  (`fit_to_work_area`, a pure function with tests). The plugin already ignores a saved position that is on no
-  connected screen.
+  boot wait) would overwrite the saved state with the unrestored 1200 x 820 window. If the window was never
+  prepared, the exit callback puts the launch bytes back, or removes the file if there was none, so the next
+  launch is still a first launch. An unreadable file is never rewritten or removed by the shell's exit undo; the
+  plugin's own exit save still rewrites an unreadable file whenever it is writable. The decision is
+  `unprepared_exit_action`, a pure function with tests.
 - **Profile switch:** switching profile shows the window again; `prepare_window` runs once per process and never
   on a later show.
 - The dependency is held at the 2.4 line. Version 2.5 needs Tauri 2.12 and would move the whole shell off the
@@ -51,28 +64,57 @@ The shell is one codebase for macOS, Windows and Linux, so this changes all thre
 
 ## Known limits
 
+- A restored window larger than the display it opens on is left to the operating system: the shell does not
+  resize or move it. macOS limits it to the screen itself; on Windows and Linux this is untested.
 - Windows and Linux builds change too and are **not tested**. In particular, nothing yet asserts on Windows that
   no Anthill window is visible before the backend answers (`scripts/windows_installer_check.py` is not extended).
 - No CI job runs `cargo test --lib` for `src-tauri` (adding one means editing `.github`, which needs the
   founder). The Rust unit tests run locally; `tests/test_desktop_window_state.py` runs in the normal suite and
-  reads the config and the Rust source for the main rules.
-- On macOS the system itself limits a window to the screen, so the fit to the work area is covered by unit tests
-  and not seen end to end there.
+  reads the source for the rules above. It checks the source's shape, so it catches the edits it was tried
+  against (see the PR text), not every possible wrong program.
+- If `restore_state` fails (which only happens if the window is gone), the window is shown but never counts as
+  prepared for that session. The second-instance callback is gated on `WINDOW_PREPARED`, so a second launch does
+  not bring the window forward for that session. On quit the shell's exit undo puts the file back to what it was
+  at launch, so changes to the window in that session are not kept; the plugin's own exit save still rewrites an
+  unreadable file whenever it is writable.
+- A second launch while the first is still starting is dropped, not deferred: the window is not focused when it
+  later appears.
+- On macOS the window appears at its default size (1200 x 820) and takes the restored or full-screen size a
+  run-loop turn later: `show()` is synchronous, while the size, position and maximise (`setContentSize`,
+  `setFrameTopLeftPoint`, `zoom`) are queued asynchronously. A first frame at the default size is likely, and a
+  brief resize is expected.
+- An exit handled in the one run-loop turn between `show()` and the queued geometry (`WINDOW_PREPARED` is
+  already true) would save the default size and not maximised. This is very unlikely, and the result is a lost
+  size, not a broken file.
+- `has_saved_main_state` parses the file loosely, while the plugin (2.4.1) needs every `WindowState` field and the
+  whole map to parse. A hand-edited or partial file with a sized `main` entry that the plugin rejects counts as
+  saved here, so there is no maximise: the window opens at its default size and the plugin overwrites the file on
+  exit.
+- The packaged macOS runs in the PR text were made with an earlier build that also fitted the restored window to
+  the monitor's work area. That fit has since been removed, and the final code has **not** been run as a
+  packaged app.
 
 ## Acceptance criteria
 
-- On a fresh install the window fills the screen when it first appears, and nothing is visible before the
-  backend answers.
-- Resize or move the window, quit, reopen: it comes back at that size and place. Un-maximize, quit, reopen: it
-  comes back un-maximized at the last size. A first run followed by un-maximizing gives 1200 x 820, not the
+- On a fresh install the window fills the screen just after it appears (on macOS a first frame at the default
+  1200 x 820 is likely, then a brief resize), and nothing is visible before the backend answers.
+- Resize or move the window, quit, reopen: it comes back at that size and place. Un-maximise, quit, reopen: it
+  comes back un-maximised at the last size. A first run followed by un-maximising gives 1200 x 820, not the
   screen size.
-- The saved flags are exactly size, position and maximized (a unit test in Rust and a guard test in Python).
-- `tauri.conf.json` has `visible: false` and does not create the window maximized (guard test).
-- A restored, not-maximized window bigger than the monitor's work area, or off it, is fitted and moved inside it
-  (unit tests).
-- A later launch with the state saved maximized shows nothing before the backend answers, then fills the screen.
+- The saved flags are exactly size, position and maximised (a unit test in Rust and a guard test in Python).
+- `tauri.conf.json` has `visible: false` and does not create the window maximised (guard test).
+- Only `NotFound` counts as "no file" at launch; an unreadable file is never rewritten or removed by the shell's
+  exit undo (unit tests). The plugin's own exit save still rewrites an unreadable file whenever it is writable.
+- An exit before the window is prepared puts the launch bytes back, or removes the file if there was none; an
+  exit after it keeps the plugin's save (unit tests).
+- A second launch shows the window only once it has been prepared (unit test; guard test for the callback).
 - Quitting before the first show leaves the saved state exactly as it was (and creates no file on a first
-  launch). A startup-error window opens at the restored size and quitting it leaves the saved state unchanged.
+  launch).
+- Quitting at any moment, including right after the backend answers, exits promptly and leaves a valid saved
+  state (not verified on the final binary). A startup-error window opens at the restored size and quitting it
+  leaves the saved state unchanged (not verified on the final binary).
+- A launch saved maximised reopens maximised (not verified on the final binary).
+- Opening the app a second time while the first is starting shows nothing early and starts no second backend.
 - Only a file with a sized `main` entry counts as a saved state (unit test).
 - `Cargo.lock` gains only `tauri-plugin-window-state`; no existing package changes version.
 - `cargo test --lib` in `src-tauri/` passes.
