@@ -37,9 +37,9 @@ This replaces `webbrowser.open` with a native WKWebView (macOS) / WebView2 (Wind
 
 | Path | Purpose |
 | --- | --- |
-| `Cargo.toml` | Rust crate + Tauri/plugin deps. Versions are semver ranges; `Cargo.lock` pins what is built. `tauri-plugin-window-state` is held at `~2.4` because 2.5 needs Tauri 2.12. |
-| `tauri.conf.json` | Window (hidden until the backend answers; just before showing it the shell restores the saved size, position and maximised state with `tauri-plugin-window-state`, or on a first launch maximises it, see `docs/specs/desktop-window-size.md` and the known limits below), `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
-| `src/lib.rs` | Sidecar boot: spawn -> read `PORT=` -> health-poll -> navigate + show, plus the `open_profile` command. Unit tests for the port parser and the window-state decisions, and `acl_tests` that drive `open_profile` through the real capabilities (see below). |
+| `Cargo.toml` | Rust crate + Tauri/plugin deps. Versions are semver ranges; `Cargo.lock` pins what is built. `tauri-plugin-window-state` is a macOS-only dependency, held at `~2.4` because 2.5 needs Tauri 2.12. |
+| `tauri.conf.json` | Window (hidden until the backend answers; on macOS only, just before showing it the shell restores the saved size, position and maximised state with `tauri-plugin-window-state`, or on a first launch maximises it, see `docs/specs/desktop-window-size.md` and the known limits below; on Windows and Linux it opens at the configured 1200 x 820), `externalBin` sidecar, bundle targets, updater endpoint/pubkey. |
+| `src/lib.rs` | Sidecar boot: spawn -> read `PORT=` -> health-poll -> navigate + show, plus the `open_profile` command. The window-size code is under `cfg(target_os = "macos")`. Unit tests for the port parser and the window-state decisions, and `acl_tests` that drive `open_profile` through the real capabilities (see below). |
 | `build.rs` | Runs `tauri-build` with an **app manifest** that lists every app command (`open_profile`). Add each new `#[tauri::command]` here too, or the packaged app cannot call it (see "Adding a command"). |
 | `src/main.rs` | Thin binary entry that calls `run()`. |
 | `splash/index.html` | "We're on our way!" loading page shown before the backend is up (`frontendDist`). |
@@ -48,11 +48,12 @@ This replaces `webbrowser.open` with a native WKWebView (macOS) / WebView2 (Wind
 | `binaries/` | Per-target-triple PyInstaller backend (gitignored; built in CI). See its README. |
 | `icons/` | Generated app icons (gitignored). See its README. |
 
-**Window size, known limits.** A restored window larger than the display it opens on is left to the operating
-system (macOS limits it to the screen itself; Windows and Linux are untested). On macOS the window first
-appears at its default size (1200 x 820) and takes the restored or full-screen size a run-loop turn later, so a
-brief resize is expected. The window-size change is
-untested on Windows and Linux, and no CI job runs `cargo test --lib` (see "Running the Rust tests").
+**Window size, known limits.** Remembering the window size (and filling the screen on a first launch) is
+**macOS only**: on Windows and Linux the window opens at the fixed 1200 x 820 as before, and those builds were not
+built or tested for this change. On macOS a restored window larger than the display it opens on is left to macOS,
+which limits it to the screen itself, and the window first appears at its default size (1200 x 820) and takes the
+restored or full-screen size a run-loop turn later, so a brief resize is expected. No CI job runs
+`cargo test --lib` (see "Running the Rust tests").
 
 ## How to build (on a machine with the toolchain)
 

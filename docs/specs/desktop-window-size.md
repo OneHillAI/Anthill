@@ -8,16 +8,20 @@ window was never kept.
 
 ## Scope
 
-The shell is one codebase for macOS, Windows and Linux, so this changes all three builds. It was tested on
-**macOS only** (a packaged earlier build; the final code was not re-run packaged, see Known limits). Windows and Linux builds get the same behaviour and are
-**not tested**.
+**macOS only.** The shell is one codebase for macOS, Windows and Linux, but everything below is compiled for macOS
+alone (`cfg(target_os = "macos")` in `src-tauri/src/lib.rs`, and the plugin is a macOS-only dependency in
+`src-tauri/Cargo.toml`). Windows and Linux are **unchanged and not part of this change**: their window still opens
+at the fixed 1200 x 820, with no window-state plugin, no launch snapshot and no exit undo, and the shell shows the
+window and handles a second launch exactly as before. Windows is not released yet and Linux is untested, so neither
+gets the new behaviour. It was tested on macOS (a packaged earlier build; the final code was not re-run packaged,
+see Known limits).
 
 ## Fix
 
 - **Nothing happens to the window until the shell shows it.** The window-state plugin is built with
   `skip_initial_state("main")`, so it does not restore the hidden window when it is created (maximising a hidden
-  window shows and activates it on Windows, before the backend answers). `tauri.conf.json` keeps
-  `visible: false` and does not create the window maximised.
+  window can show it or take focus before the backend answers). `tauri.conf.json` keeps `visible: false` and does
+  not create the window maximised.
 - **`prepare_window`** runs once per process on the still-hidden window, just before `window.show()`, in one step
   on the main thread (inside `run_on_main_thread`, from `show_on`, and from `show_startup_error` so an error
   window opens the same way): it calls the plugin's `restore_state` and, on a first launch, maximises the window
@@ -58,16 +62,28 @@ The shell is one codebase for macOS, Windows and Linux, so this changes all thre
   `unprepared_exit_action`, a pure function with tests.
 - **Profile switch:** switching profile shows the window again; `prepare_window` runs once per process and never
   on a later show.
-- The dependency is held at the 2.4 line. Version 2.5 needs Tauri 2.12 and would move the whole shell off the
-  2.11 line this app has been validated on; nothing else in `Cargo.lock` changes. The minimum size
-  (880 x 600) is unchanged.
+- **Windows and Linux.** Every part above (the plugin registration, `prepare_window`, `PREPARE_STARTED` and
+  `WINDOW_PREPARED`, the launch snapshot, the exit undo and the gated second-instance callback) is under
+  `cfg(target_os = "macos")`. On other platforms the shell compiles the code it had before: `show_on` and
+  `show_startup_error` call `window.show()` directly, the exit callback only stops the backend, and a second
+  launch shows, unminimises and focuses the window at once. The pure decisions (`has_saved_main_state`,
+  `unprepared_exit_action`, `second_instance_may_show`, `LaunchState`) are compiled on macOS and for their unit
+  tests only.
+- The dependency is macOS only (`[target.'cfg(target_os = "macos")'.dependencies]`) and held at the 2.4 line.
+  Version 2.5 needs Tauri 2.12 and would move the whole shell off the 2.11 line this app has been validated on;
+  nothing else in `Cargo.lock` changes (the lock file lists the package for every platform, but only macOS builds
+  it). The minimum size (880 x 600) is unchanged.
 
 ## Known limits
 
-- A restored window larger than the display it opens on is left to the operating system: the shell does not
-  resize or move it. macOS limits it to the screen itself; on Windows and Linux this is untested.
-- Windows and Linux builds change too and are **not tested**. In particular, nothing yet asserts on Windows that
-  no Anthill window is visible before the backend answers (`scripts/windows_installer_check.py` is not extended).
+- **macOS only.** Windows and Linux keep the fixed 1200 x 820 window and do not remember its size. Bringing the
+  change to them is a separate change, with its own testing on those platforms.
+- The Windows and Linux builds were **not built or tested** for this change. They are meant to compile exactly
+  the code they had before; `tests/test_desktop_window_state.py` reads the source and checks that the code outside
+  `cfg(target_os = "macos")` has none of the window-size handling and keeps the old show, exit and second-launch
+  code, but no Windows or Linux build was run.
+- A restored window larger than the display it opens on is left to macOS, which limits it to the screen itself:
+  the shell does not resize or move it.
 - No CI job runs `cargo test --lib` for `src-tauri` (adding one means editing `.github`, which needs the
   founder). The Rust unit tests run locally; `tests/test_desktop_window_state.py` runs in the normal suite and
   reads the source for the rules above. It checks the source's shape, so it catches the edits it was tried
@@ -96,6 +112,9 @@ The shell is one codebase for macOS, Windows and Linux, so this changes all thre
 
 ## Acceptance criteria
 
+All of these are for the macOS app. On Windows and Linux nothing changes (guard test: the plugin is a macOS-only
+dependency, and the code outside `cfg(target_os = "macos")` has no window-size handling).
+
 - On a fresh install the window fills the screen just after it appears (on macOS a first frame at the default
   1200 x 820 is likely, then a brief resize), and nothing is visible before the backend answers.
 - Resize or move the window, quit, reopen: it comes back at that size and place. Un-maximise, quit, reopen: it
@@ -117,4 +136,4 @@ The shell is one codebase for macOS, Windows and Linux, so this changes all thre
 - Opening the app a second time while the first is starting shows nothing early and starts no second backend.
 - Only a file with a sized `main` entry counts as a saved state (unit test).
 - `Cargo.lock` gains only `tauri-plugin-window-state`; no existing package changes version.
-- `cargo test --lib` in `src-tauri/` passes.
+- `cargo test --lib` in `src-tauri/` passes on macOS.
