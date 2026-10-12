@@ -27,7 +27,10 @@ mode", is greyed out and does nothing, because the answer is the same either way
 the web", "Reading 5 pages", "Writing the answer") and then streams its answer word by word, like any other. With
 Thinking on, the first word still waits until the model has finished thinking. If the web search cannot be used
 (you are offline, the search is blocked, or it finds nothing usable), the answer starts with a short note that it
-comes from your wiki and the model alone, not from the web. If a web result carries an
+comes from your wiki and the model alone, not from the web. A web answer then lists the pages it was given as links under "Web sources consulted"
+(the ones the answer does not already cite). If you ask for today's headlines or news and the search finds only
+the front pages and sections of news sites, which list stories but contain none, Anthill says so plainly and
+lists those pages under "News pages found" instead of asking the model, which could make headlines up. If a web result carries an
 instruction to the assistant, Anthill leaves it out of the answer and says how many it left out under the answer.
 
 Thinking and web search each have a default and a choice for every chat. For a new account both are off,

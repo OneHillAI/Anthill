@@ -319,6 +319,7 @@ def ask(
     history: list[tuple[str, str]]
     | None = None,  # prior (role, content) turns of THIS conversation
     search_query: str = "",  # clean query for the web path (defaults to the question)
+    member_question: str = "",  # what the member typed, when `question` carries more (a redo's earlier answer)
     cache_threshold: float = DEFAULT_THRESHOLD,  # semantic-cache similarity floor (from OrgSettings)
     shared_cache: bool = False,  # True when ws is a SHARED (org-plane) cache: a team- or
     # profile-personalized answer is then never served/stored in it (it would leak another user's
@@ -413,18 +414,21 @@ def ask(
     prepared_history = _prepare_history(history, backend, model_override, think=think)
     answer = None
     web_failed = ""  # why the web part gave nothing, when it did not
+    web = None  # the parts of a web answer: the model's text, the code-made list of pages, whether it is fixed
     if web_search:
-        from ..search.web import NoWebPages, search_and_answer
+        from ..search.web import NoWebPages, answer_from_web
 
         try:
-            answer = search_and_answer(
+            web = answer_from_web(
                 question,
                 backend=_backend_with_model(backend, model_override, think=think),
                 wiki_context=context_no_mem if (pages or profile or principles) else "",
                 memory_context=memory_context,
                 history=prepared_history,
                 search_query=search_query,  # search the clean question, not a redo's augmented blob
+                member_question=member_question,
             )
+            answer = web.text
         except NoWebPages:
             answer = None
             web_failed = "no_pages"  # the answer below is from the wiki and the model, and says so
@@ -437,8 +441,15 @@ def ask(
     # through to the hardened local path below, which re-runs with the task restated AFTER the content.
     # _looks_hijacked is a no-op unless the turn carries an injection imperative, so a legitimate web
     # answer is never touched.
-    if answer is not None and _looks_hijacked(answer, question, context):
+    # The check is on the model's own text: the list of pages is added after it, because with the list attached the
+    # short-echo and low-overlap rules no longer fire. The fixed "no news articles" text is code-made, not checked.
+    if (
+        answer is not None
+        and not (web and web.fixed)
+        and _looks_hijacked(answer, question, context)
+    ):
         answer = None
+        web = None
         web_failed = "results_unusable"
     if answer is None:
         if has_img and images_b64:
@@ -599,10 +610,16 @@ def ask(
     if web_failed:
         # Added after the cache, publish and file steps above, so it is never stored, published or filed.
         returned_answer = web_failed_note(web_failed, have_wiki=bool(pages)) + returned_answer
-    if council is None and _should_suggest_deeper(answer):
+    fixed = bool(web and web.fixed)
+    if council is None and not fixed and _should_suggest_deeper(answer):
         returned_answer += _go_deeper_suggestion(provider_available)
-
-    return returned_answer, [p.stem for p in pages], False
+    if web is not None and answer == web.text:
+        returned_answer += (
+            web.sources
+        )  # after the checks and the suggestion; the strip removes it wherever it ends
+    if fixed:
+        returned_answer = FixedAnswer(returned_answer)  # the route can tell the text is code-made
+    return returned_answer, ([] if fixed else [p.stem for p in pages]), False
 
 
 # Said at the top of an answer to a turn that asked for the web when nothing came from it, so the member does not
@@ -626,14 +643,27 @@ def web_failed_note(reason: str, *, have_wiki: bool = True) -> str:
     return f"_{_WEB_NOTE_REASONS[reason]}, so this answer comes from {source} alone, not from the web._\n\n"
 
 
+_WEB_LIST_SUFFIX = re.compile(
+    r"\n\n\*\*(?:Web sources consulted|News pages found)\*\*\n(?:- (?:\[)[^\n]*(?:\])\([^\n)]*\) - [^\n]*(?:\n|\Z))+"
+)
+
+
 def strip_web_note(text: str) -> str:
-    """``text`` without a leading web-failure note. The note belongs on the page, not in what is fed back to a
-    model or kept as an example: the history of later turns, training output, the grader, memory and filed pages
-    all use the answer without it."""
-    return _WEB_NOTE_PREFIX.sub("", text, count=1)
+    """``text`` without the parts code added around the model's answer: a leading web-failure note and a
+    trailing list of the pages found. They belong on the page, not in what is fed back to a model or kept as an
+    example: the history of later turns, training output, the grader, memory and filed pages all use the answer
+    without them."""
+    return _WEB_LIST_SUFFIX.sub("", _WEB_NOTE_PREFIX.sub("", text, count=1), count=1)
 
 
 WEB_FAILED_NOTE = web_failed_note("search_failed")
+
+
+class FixedAnswer(str):
+    """Text made by code and not by the model (the "no news articles" answer). ``ask()`` returns it as this
+    type so the chat route can tell, instead of guessing from the words."""
+
+    code_made = True
 
 
 @dataclass(frozen=True)
@@ -669,6 +699,7 @@ def ask_stream(
     | None = None,  # False = answer without a reasoning model's hidden thinking (faster start)
     web_search: bool = False,  # search the web too; yields Stage markers, then the answer streams
     search_query: str = "",  # what to search for (planned by decide_web); defaults to the question
+    member_question: str = "",  # what the member typed, when `question` carries more (a redo's earlier answer)
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
@@ -754,6 +785,7 @@ def ask_stream(
     web_failed = ""  # why the web part gave nothing, when it did not
     if web_search:
         web_messages = None
+        results = []
         try:
             from ..search import web as _web
 
@@ -762,10 +794,24 @@ def ask_stream(
             yield Stage("reading", len(results))
             _web.read_pages(results)
             results, left_out = _web.drop_injected(results)
+            results = _web.usable_results(results)
+            asked = (
+                member_question or question
+            )  # the member's own words decide the choices made in code
+            results = _web.prepare_results(asked, results)
             if left_out:
                 yield Stage(
                     "left_out", left_out
                 )  # the user is told, a benign page may have been dropped
+            if _web.headlines_unavailable(asked, results):
+                # Only front pages and topic pages came back: nothing to answer from, so the model is not asked
+                # (a small one invents headlines to fill the gap). The member's own question decides this, not
+                # a query a planner rewrote. The route is told the text is code-made (Stage "fixed").
+                yield Stage(
+                    "fixed"
+                )  # the route is told, in words it can rely on, that this text is code-made
+                yield _web.no_headlines_answer(results)
+                return
             if not results:
                 web_failed = "no_pages"  # nothing to ground on; the rest answers without the web
             else:
@@ -777,6 +823,7 @@ def ask_stream(
                     wiki_context=context_no_mem if (pages or profile or principles) else "",
                     memory_context=memory_context,
                     history=prepared_history,
+                    question_for_rules=asked,
                 )
         except Exception:
             web_messages = (
@@ -792,6 +839,7 @@ def ask_stream(
             # is tried once more without thinking (what ask() does), and if that fails too the turn answers
             # from the wiki and the model below. An error after the first word is a real error.
             shown = False
+            streamed: list[str] = []
             for attempt_think in [think] if think is False else [think, False]:
                 try:
                     for chunk in stream_chat(
@@ -802,31 +850,44 @@ def ask_stream(
                         think=attempt_think,
                     ):
                         shown = True
+                        streamed.append(chunk)
                         yield chunk
                 except BackendError:
                     if shown:
                         raise
                     continue
                 if shown:
+                    # The pages the model was given, as real links (a small model writes few or none).
+                    footer = _web.sources_footer("".join(streamed), results)
+                    if footer:
+                        yield footer
                     return
             web_failed = (
                 "results_unusable"  # the search worked but the model could not write from it
             )
-    if web_failed:
-        # The turn answers from the wiki and the model alone. The page is told it is writing, then the note is
-        # the first words, so the member knows what this answer is.
-        if web_failed != "results_unusable":  # that branch already announced it
-            yield Stage("writing")
-        yield web_failed_note(web_failed, have_wiki=bool(pages))
     messages = prompts.answer_question(
         context, question, history=prepared_history, window=_window_for(backend, model_override)
     )
     chunks: list[str] = []
+    note_due = web_failed
+    if web_failed and web_failed != "results_unusable":  # that branch already announced it
+        # The page is told it is writing before the fallback starts, so it does not keep saying "Searching" or
+        # "Reading" for the whole of the model's thinking time. Only the note waits for the first words.
+        yield Stage("writing")
     for chunk in stream_chat(
         backend, messages, model_override, num_predict=ANSWER_MAX_TOKENS, think=think
     ):
+        if note_due:
+            # The note comes with the first words, so the member knows what this answer is. It is not sent before
+            # the answer starts: a fallback that fails leaves a failed turn, not "note + failure".
+            yield web_failed_note(note_due, have_wiki=bool(pages))
+            note_due = ""
         chunks.append(chunk)
         yield chunk
+    if note_due:
+        yield web_failed_note(
+            note_due, have_wiki=bool(pages)
+        )  # the fallback said nothing: the note still shows
 
     answer = "".join(chunks)
     _skip_shared = shared_cache and (bool(extra_workspaces) or bool(profile))

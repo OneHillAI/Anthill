@@ -19,9 +19,13 @@ on the beta with a real model (`qwen3.5:9b`).
   no wiki text it does not describe or cite any wiki page (at most one short sentence that the wiki has nothing
   on it).
 - Web text cannot pose as the wiki or close the fence. Wherever a result's title, address, snippet or page text
-  enters the prompt, the prompt's own markers are defanged (`neutralise`): `BEGIN_UNTRUSTED_WEB` and
-  `END_UNTRUSTED_WEB` (with their angle brackets) are removed, and `WIKI CONTEXT` and `WEB RESULTS` are broken
-  up with hyphens, whatever the case or spacing. Ordinary text is unchanged.
+  enters the prompt, the prompt's own markers are defanged (`neutralise`). The text is matched on a skeleton of it in
+  which full-width and Cyrillic or Greek look-alike letters are folded to plain ones, one character for one
+  character. `BEGIN_UNTRUSTED_WEB` and `END_UNTRUSTED_WEB` (with their angle brackets) are removed, and
+  `WIKI CONTEXT` and `WEB RESULTS` are rewritten with a middle dot between the words, whatever the case and
+  whatever sits between the words or the letters (space, tab, underscore, hyphen, dash, dot, slash, colon,
+  asterisk, no-break or zero-width space), also inside underscore or asterisk emphasis. Only the matched words
+  are replaced, in the original text; all other text is left exactly as it came.
 - When no wiki text applies, the prompt says so in the place the wiki section would be:
   `WIKI CONTEXT: (none - the organization wiki has no page for this question)`. The same line replaces the
   section when the model's window leaves no room for any wiki text.

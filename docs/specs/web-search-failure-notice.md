@@ -21,13 +21,16 @@ one. Found in an end-to-end check on the beta (v1.1.0-rc.1) with a real model.
     thinking also failed): "The web results could not be used to write an answer, so this answer ...".
   When no wiki page applied, "your wiki and the model" reads "the model".
 - On the streamed path the page is told it is writing (`Stage("writing")`) and the note is the first words of the
-  answer, so it is shown as the answer streams and is saved with the conversation. The blocking `ask()` (images,
+  answer, sent with the first words of the fallback and not before it (a fallback that fails leaves a failed
+  turn, not a note followed by a failure; a fallback that says nothing still gets the note). The page is told it
+  is writing before the fallback starts, so it does not keep saying "Searching" while the model thinks, so it is shown as the answer streams and is saved with the conversation. The blocking `ask()` (images,
   cloud and organisation backends, including an image turn) puts the same note in front of the returned answer;
   it also does so when a web answer was discarded as hijacked.
 - A turn whose search worked, and a turn that did not ask for the web, have no note.
 - The note belongs on the page and in the saved conversation only. It is removed (`strip_web_note`) from the
   history fed to the next turn, the local answer handed to the Automated-mode grader, the output kept as a
-  training example, the transcript distilled into memory, and an answer filed as a wiki page (also the
+  training example, the transcript distilled into memory, the transcript a skill is drafted from, and an answer
+  filed as a wiki page (also the
   command-line `/save`). It is never cached, published or filed.
 - The answer to a turn that asked for the web is never stored in the answer cache, whichever way it was written:
   a later turn that does not use the web would otherwise be given an answer written for a web turn (spec 108,
