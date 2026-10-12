@@ -13101,8 +13101,9 @@ async def chat_stream(
                 training_eligible=_training_eligible(cfg),
             )
 
-        # Distil durable memory from successful conversations only (throttled, best-effort).
-        if not generation_failed:
+        # Distil durable memory from successful conversations only (throttled, best-effort). The code-made
+        # "no news articles" text is not something the member or the model said, so it is not distilled either.
+        if not generation_failed and not fixed_answer:
             try:
                 _distil_memory_from_chat(db, org.id, int(user["sub"]), conv, backend)
             except Exception:

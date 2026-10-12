@@ -567,11 +567,19 @@ def ask(
                     else "I wasn't able to generate a response just now - please try again."
                 )
 
+    # The code-made "no news articles" text is not the model's: it is neither escalated nor filed as a page.
+    fixed = bool(web and web.fixed)
+
     # ── 5b. hybrid escalation (open-source-first, consent-gated #252) ─────────
     # Decision and execution are split: maybe_escalate proposes, and the cloud call runs ONLY if the
     # `consent` callback approves this use. With consent=None the local answer stands and nothing
     # leaves the machine (fail-closed). on_escalation is a separate after-the-fact observer.
-    if hybrid_policy is not None and getattr(hybrid_policy, "enabled", False) and not has_img:
+    if (
+        hybrid_policy is not None
+        and getattr(hybrid_policy, "enabled", False)
+        and not has_img
+        and not fixed
+    ):
         from ..hybrid import maybe_escalate
 
         outcome = maybe_escalate(
@@ -599,7 +607,7 @@ def ask(
         _central_publish(org_url, q_vec, answer)
 
     # ── 7. optionally file as wiki page ───────────────────────────────────────
-    if save:
+    if save and not fixed:
         file_as_page(ws, question, answer, backend, model_override=model_override)
 
     # PR #661 Tier 2: append ONLY to what is returned/shown - never to what was just cached, published,
@@ -610,13 +618,11 @@ def ask(
     if web_failed:
         # Added after the cache, publish and file steps above, so it is never stored, published or filed.
         returned_answer = web_failed_note(web_failed, have_wiki=bool(pages)) + returned_answer
-    fixed = bool(web and web.fixed)
     if council is None and not fixed and _should_suggest_deeper(answer):
         returned_answer += _go_deeper_suggestion(provider_available)
     if web is not None and answer == web.text:
-        returned_answer += (
-            web.sources
-        )  # after the checks and the suggestion; the strip removes it wherever it ends
+        # After the checks and the suggestion, so it is the last part, where the strip looks for it.
+        returned_answer += web.sources
     if fixed:
         returned_answer = FixedAnswer(returned_answer)  # the route can tell the text is code-made
     return returned_answer, ([] if fixed else [p.stem for p in pages]), False
@@ -643,8 +649,9 @@ def web_failed_note(reason: str, *, have_wiki: bool = True) -> str:
     return f"_{_WEB_NOTE_REASONS[reason]}, so this answer comes from {source} alone, not from the web._\n\n"
 
 
+# Only at the very end of the text, where code puts it: a block of the same shape inside the answer is left alone.
 _WEB_LIST_SUFFIX = re.compile(
-    r"\n\n\*\*(?:Web sources consulted|News pages found)\*\*\n(?:- (?:\[)[^\n]*(?:\])\([^\n)]*\) - [^\n]*(?:\n|\Z))+"
+    r"\n\n\*\*(?:Web sources consulted|News pages found)\*\*\n(?:- (?:\[)[^\n]*(?:\])\([^\n)]*\) - [^\n]*(?:\n|\Z))+\s*\Z"
 )
 
 
@@ -777,7 +784,11 @@ def ask_stream(
             think=think,
             web_search=web_search,
             search_query=search_query,
+            member_question=member_question,
         )
+        if getattr(answer, "code_made", False):
+            # the route is told, as on the streamed path, that this text is code-made
+            yield Stage("fixed")
         yield answer
         return
 

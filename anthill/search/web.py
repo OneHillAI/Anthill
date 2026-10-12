@@ -330,10 +330,13 @@ def drop_injected(results: list[SearchResult]) -> tuple[list[SearchResult], int]
 
 # The words the prompt itself is built from. Text from the web must not be able to close the fence early or to
 # put up a heading of its own, so they are defanged wherever web text enters the prompt. The matching is done on
-# a "skeleton" of the text (full-width and Cyrillic or Greek look-alike letters folded to plain ones, one
-# character for one character) with separators and zero-width characters tolerated between the words; only the
-# matched words are replaced, in the original text, so ordinary text is not changed.
+# a "skeleton" of the text (full-width, small-capital and Cyrillic or Greek look-alike letters folded to plain
+# ones, and every invisible character turned into a zero-width space, one character for one character) with
+# separators and zero-width characters tolerated between the words; only the matched words are replaced, in the
+# original text, so ordinary text is not changed.
 _ZW = "\u00ad\u200b-\u200f\u2060\ufeff"
+# Invisible characters that are not format (Cf) characters: the combining grapheme joiner and the Hangul fillers.
+_INVISIBLE = frozenset("\u034f\u115f\u1160\u3164\uffa0")
 _SEP = rf"[\s_\-\u2010-\u2015./:*`~|\u00a0{_ZW}]*"
 _CONFUSABLES = str.maketrans(
     {
@@ -381,6 +384,11 @@ _CONFUSABLES = str.maketrans(
         "\u03b9": "i",
         "\u03bd": "v",
         "\u03c1": "p",
+        # small capitals (there is none for X)
+        **{
+            unicodedata.lookup(f"LATIN LETTER SMALL CAPITAL {c}"): c
+            for c in "ABCDEFGHIJKLMNOPQRSTUVWYZ"
+        },
     }
 )
 
@@ -390,13 +398,18 @@ def _loose(word: str) -> str:
     return f"[{_ZW}]*".join(re.escape(c) for c in word)
 
 
-_FENCE_MARKER = re.compile(
-    rf"(?:<{{2,}}\s*)?(?:{_loose('BEGIN')}|{_loose('END')}){_SEP}{_loose('UNTRUSTED')}{_SEP}{_loose('WEB')}"
-    rf"(?:\s*>{{2,}})?",
-    re.IGNORECASE,
-)
 _AFTER_WORD = r"(?![A-Za-z0-9])"  # \b is no use here: an underscore is a word character
 _BEFORE_WORD = r"(?<![A-Za-z0-9])"
+_FENCE_WORDS = (
+    rf"(?:{_loose('BEGIN')}|{_loose('END')}){_SEP}{_loose('UNTRUSTED')}{_SEP}{_loose('WEB')}"
+)
+# A marker with its angle brackets is removed wherever it is; the bare words only as words of their own, so
+# "backend untrusted web" is not taken for one.
+_FENCE_MARKER = re.compile(
+    rf"<{{2,}}\s*{_FENCE_WORDS}(?:\s*>{{2,}})?|{_FENCE_WORDS}\s*>{{2,}}"
+    rf"|{_BEFORE_WORD}{_FENCE_WORDS}{_AFTER_WORD}",
+    re.IGNORECASE,
+)
 _WIKI_CONTEXT = re.compile(
     rf"{_BEFORE_WORD}{_loose('WIKI')}{_SEP}{_loose('CONTEXT')}{_AFTER_WORD}", re.IGNORECASE
 )
@@ -406,10 +419,15 @@ _WEB_RESULTS = re.compile(
 
 
 def _skeleton(text: str) -> str:
-    """``text`` with look-alike letters folded to plain ones, character for character (the length is kept, so a
-    match on the skeleton is a match on the same span of the original)."""
+    """``text`` with look-alike letters folded to plain ones and invisible characters turned into zero-width
+    spaces, character for character (the length is kept, so a match on the skeleton is a match on the same span
+    of the original)."""
     out = []
     for ch in text:
+        if ch in _INVISIBLE or unicodedata.category(ch) == "Cf":
+            # tolerated between the words and the letters, like any zero-width character
+            out.append("\u200b")
+            continue
         folded = unicodedata.normalize("NFKC", ch)
         out.append((folded if len(folded) == 1 else ch).translate(_CONFUSABLES))
     return "".join(out)
@@ -458,7 +476,7 @@ _NEWS_NOUN_END = re.compile(
 _NEWS_TIME_WORD = re.compile(r"\b(?:today'?s?|tonight|right now|this morning|breaking)\b", re.I)
 _NOT_A_NEWS_REQUEST = re.compile(
     r"\b(?:write|writing|writer|craft|structure|examples?|good|best|catchy|template|tips|how|code|"
-    r"alerts?|script|python|api)\b",
+    r"alerts?|script|python|api|meaning|means?|define|definition)\b",
     re.I,
 )
 
@@ -721,17 +739,23 @@ def _link_text(title: str, url: str) -> str:
 
 
 def _normalised(url: str) -> str:
-    parsed = _parse(url.strip())
+    # Parentheses are compared in their percent-encoded form, and every percent escape in capitals, so
+    # Python_(programming_language) and Python_%28programming_language%29 are the same address.
+    url = url.strip().replace("(", "%28").replace(")", "%29")
+    url = re.sub(r"%[0-9a-fA-F]{2}", lambda m: m.group().upper(), url)
+    parsed = _parse(url)
     if parsed is None:
-        return url.strip().lower()
+        return url.lower()
     return f"{parsed.scheme.lower()}://{_host(url)}{parsed.path.rstrip('/')}?{parsed.query}".rstrip(
         "?"
     )
 
 
 def _cited(answer: str) -> set[str]:
-    """The addresses an answer already links or writes out, normalised, to compare whole addresses."""
-    found = re.findall(r"https?://[^\s)\]>\"']+", answer)
+    """The addresses an answer already links or writes out, normalised, to compare whole addresses. A pair of
+    parentheses inside an address is part of it (Wikipedia's Python_(programming_language)); the one that closes
+    a Markdown link is not."""
+    found = re.findall(r"https?://(?:[^\s()\[\]<>\"']|\([^\s()\[\]<>\"']*\))+", answer)
     return {_normalised(u.rstrip(".,;:!?")) for u in found}
 
 
@@ -763,7 +787,11 @@ def sources_footer(
 
 
 def _result_line(r: SearchResult) -> str:
-    return neutralise(f"[{r.title}]({r.url}): {r.snippet} {r.body[:300]}")
+    """One result as it goes into the prompt. The title, the snippet and the page text are defanged; the address
+    is left as it came, so the model cites the real one (a path can hold the words "web results"). An address
+    that cannot be linked has no such use and can hold any text, so it is defanged too."""
+    address = r.url if _link_target(r.url) else neutralise(r.url)
+    return f"[{neutralise(r.title)}]({address}): {neutralise(f'{r.snippet} {r.body[:300]}')}"
 
 
 NO_WIKI_LINE = "WIKI CONTEXT: (none - the organization wiki has no page for this question)"
