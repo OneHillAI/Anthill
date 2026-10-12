@@ -50,9 +50,12 @@ One layout, used by both screens (the same three partials, so the two cannot dri
   control, and the panel is a labelled region. A focused card is drawn above the panel so its whole focus ring shows.
 - **Contrast.** Text on the accent and amber fills is dark in the dark theme (white on the lighter green was 3.2:1,
   on the amber 4.0:1; both are above 5:1 now).
-- **Small layout changes that came with it,** stated here because the first version did not: the "your wiki,
-  memory and files are stored on this device either way" note moved from under the cards to under the panel, and the
-  cards no longer lift on hover or when selected (a card that moves would break the seam with the panel).
+- **Small layout changes that came with it,** stated here because the first version did not: the cards no longer
+  lift on hover or when selected (a card that moves would break the seam with the panel). The grey strip that
+  used to sit under the cards ("Your wiki, memory and files are stored on this device either way - Your cloud only
+  moves where the model itself runs", with a help bubble) is removed: with the cloud card saying "Knowledge base:
+  Sent to your cloud when used" it contradicted the cards and read as noise (founder, 2026-10-12). The cards'
+  privacy lines are the one statement about where the knowledge base goes.
 - No new lines or helper text: the connecting line, the explanation under the first step and the summary strip
   proposed earlier were dropped on review.
 

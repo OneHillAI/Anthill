@@ -143,12 +143,6 @@
     .cc-name{font-size:17px}
     .cc-attach{padding:20px 16px}
   }
-  /* Knowledge is NOT tier-dependent (see file-header note) - a thin, low-profile strip under the tier
-     cards (not competing prose, not a chip inside either boundary), so the UI never implies it moves
-     with compute, but also never reads as a main-content sentence (founder ask, 2026-09-29). */
-  .cc-knowledge-note{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
-    margin:0 0 var(--sp-4);padding:6px 10px;background:var(--bg-subtle);border-radius:8px;line-height:1.4}
-  .cc-knowledge-note i{width:13px;height:13px;flex:none}
 
   .cc-prefer{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:14px}
   .cc-prefer-l{font-size:var(--fs-1);font-weight:600;color:var(--muted)}
@@ -197,8 +191,8 @@
 
 {# One click selects a tier - both cards are always visible (not a segmented switch hiding one), matching
    the approved mockup. Each full card shows the Model / Knowledge base box with where each one stays or is
-   sent (the knowledge base itself stays stored on this device, see the note below the panel; with Your
-   cloud what is retrieved for an answer is sent to it) plus a plain-English "Good fit for" sentence. The
+   sent (the knowledge base itself stays stored on this device; with Your cloud what is retrieved for an
+   answer is sent to it, which is the line on that card) plus a plain-English "Good fit for" sentence. The
    compact cards below 900px keep only the privacy lines, each naming its own subject. #}
 <div class="cc-tiers" id="cc-tierseg" data-sel="{{ 'cloud' if cur_compute == 'cloud' else 'local' }}">
   <button type="button" class="cc-tier{% if cur_compute != 'cloud' %} sel{% endif %}" data-tier="local" aria-pressed="{{ 'false' if cur_compute == 'cloud' else 'true' }}" aria-controls="cc-attach" onclick="ccPickTier(this,'local')">
@@ -232,8 +226,9 @@
          all) - the wiki/memory/files themselves never relocate. But whatever gets retrieved for an
          answer still has to reach wherever the model runs, so with "Your cloud" that's the rented GPU,
          not this device - saying "stays on this device" here was the same claim the founder already
-         called out as misleading on the thin strip below, just repeated on the card itself (founder
-         correction, 2026-09-30: "the knowledge base in your cloud also moves to the cloud"). #}
+         called out as misleading on the strip that sat below the cards (removed 2026-10-12), just
+         repeated on the card itself (founder correction, 2026-09-30: "the knowledge base in your
+         cloud also moves to the cloud"). #}
       <div class="cc-boundary-caps">
         <div class="cc-boundary-cap"><i data-lucide="lock"></i><span><span class="cc-subj">Model: </span>Stays in your cloud account</span></div>
         <div class="cc-boundary-cap"><i data-lucide="cloud"></i><span><span class="cc-subj">Knowledge base: </span>Sent to your cloud when used</span></div>
@@ -262,10 +257,6 @@
 </div>
 
 {% include "_council_builder.html" %}
-</div>
-
-<div class="cc-knowledge-note"><i data-lucide="library"></i>Your wiki, memory and files are stored on this device either way - "Your cloud" only moves where the model itself runs.
-  <button type="button" class="help" aria-label="What this means">?<span class="help-pop">Nothing is uploaded to a provider just by storing it. But whichever model answers you - local or "Your cloud" - has to receive whatever it's given to work with, including any wiki content retrieved for that answer. With "Your cloud", that means the relevant excerpts travel to your rented GPU for that one answer, the same way they'd reach a local model - they aren't stored there afterward.</span></button>
 </div>
 
 {# the tier the user picks; posted with the setup form. Initial value= is the real saved state (see
