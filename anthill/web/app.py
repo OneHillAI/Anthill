@@ -12277,6 +12277,7 @@ async def chat_stream(
         )
         full_response = []
         generation_failed = False
+        fixed_answer = False  # set when the answer is the code-made "no news articles" text
         cache_hit = False  # set by the normal-chat branch; agent mode stays local
         escalations: list[float] = []  # cloud escalation costs, if the answer left the perimeter
         _escalated = False  # set True on a successful Automated-mode escalation; persisted below so
@@ -12803,6 +12804,7 @@ async def chat_stream(
                             think=None if think else False,
                             web_search=web_effective,
                             search_query=search_query,
+                            member_question=message,
                         )
                     ):
                         # The client abandons this EventSource when "Ask {Provider} instead" fires
@@ -12819,6 +12821,9 @@ async def chat_stream(
                         if isinstance(
                             token, Stage
                         ):  # progress of a web turn, not part of the answer
+                            if token.name == "fixed":
+                                fixed_answer = True  # code-made text follows; the page is not told
+                                continue
                             yield f"data: {json.dumps({'meta': {'stage': token.name, 'count': token.count}})}\n\n"
                             continue
                         full_response.append(token)
@@ -12833,6 +12838,7 @@ async def chat_stream(
                         effective_message,
                         backend,
                         web_search=web_effective,
+                        member_question=message,
                         images_b64=images_b64,  # a vision turn when an image was attached
                         memory_context=memory_context,
                         profile=profile_used,
@@ -12861,6 +12867,7 @@ async def chat_stream(
                         cfg.cloud_spent_usd = f"{spent + sum(escalations):.6f}"
                         db.commit()
                         yield f"data: {json.dumps({'meta': {'cloud_cost_usd': round(sum(escalations), 6)}})}\n\n"
+                    fixed_answer = bool(getattr(answer, "code_made", False))
                     words = answer.split(" ")
                     for i, word in enumerate(words):
                         token = word + (" " if i < len(words) - 1 else "")
@@ -12875,6 +12882,10 @@ async def chat_stream(
                     # answer, saved by /chat/{id}/ask-provider-now, IS this turn's answer instead).
                     return
 
+                # A fixed answer made by code (no news articles were found) is not the model's: no wiki page
+                # was used for it, it is not a training example, and nothing is escalated to a provider for it.
+                if fixed_answer:
+                    slugs = []
                 if cache_hit:
                     yield f"data: {json.dumps({'meta': {'cache_hit': True}})}\n\n"
                 if slugs:
@@ -12894,6 +12905,7 @@ async def chat_stream(
                 if (
                     cfg
                     and not escalate_org  # already manually escalated this turn - don't also automate one
+                    and not fixed_answer  # code-made text: a provider could invent what it declined to say
                     and not cache_hit  # a cached answer isn't re-graded against a fresh attachment call
                     and getattr(cfg, "escalation_provider", "")
                     and getattr(cfg, "escalation_mode", "ask") == "automated"
@@ -12999,10 +13011,12 @@ async def chat_stream(
             # something has ALREADY offered or fired this turn (_pending_escalation_offer set above, or
             # _escalated True) - never a second, redundant offer on the same answer - or when the
             # monthly cap is already reached, so the offer never teases a click that
-            # /chat/{id}/escalate-confirm would just reject.
+            # /chat/{id}/escalate-confirm would just reject. Never for a fixed answer made by code (no news
+            # articles were found): a provider asked about it could invent the stories it declined to give.
             if (
                 cfg
                 and not escalate_org
+                and not fixed_answer
                 and not cache_hit
                 and not _escalated
                 and not _pending_escalation_offer
@@ -13070,6 +13084,7 @@ async def chat_stream(
 
         if (
             not generation_failed
+            and not fixed_answer  # code-made text is not model output
             and not (plane_inf and plane_inf.ephemeral)
             and auto_memory_on(db, int(user["sub"]))
         ):
@@ -13088,8 +13103,9 @@ async def chat_stream(
                 training_eligible=_training_eligible(cfg),
             )
 
-        # Distil durable memory from successful conversations only (throttled, best-effort).
-        if not generation_failed:
+        # Distil durable memory from successful conversations only (throttled, best-effort). The code-made
+        # "no news articles" text is not something the member or the model said, so it is not distilled either.
+        if not generation_failed and not fixed_answer:
             try:
                 _distil_memory_from_chat(db, org.id, int(user["sub"]), conv, backend)
             except Exception:
@@ -14269,7 +14285,12 @@ async def skills_draft_from_chat(conv_id: int = Form(...), user: dict = Depends(
         .limit(8)
         .all()
     )[::-1]
-    transcript = "\n".join(f"{m.role}: {m.content}" for m in recent)
+    from ..wiki.ask import strip_web_note
+
+    transcript = "\n".join(
+        f"{m.role}: {strip_web_note(m.content) if m.role == 'assistant' else m.content}"
+        for m in recent
+    )
     cfg = _cfg(db, org)
     backend = _backend_from_cfg(cfg)
     try:
