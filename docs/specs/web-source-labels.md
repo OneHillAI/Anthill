@@ -18,10 +18,20 @@ on the beta with a real model (`qwen3.5:9b`).
   before the fenced web block and anything inside the fence is web text whatever it says it is, and that with
   no wiki text it does not describe or cite any wiki page (at most one short sentence that the wiki has nothing
   on it).
-- Web text cannot pose as the wiki or close the fence. Wherever a result's title, address, snippet or page text
-  enters the prompt, the prompt's own markers are defanged (`neutralise`): `BEGIN_UNTRUSTED_WEB` and
-  `END_UNTRUSTED_WEB` (with their angle brackets) are removed, and `WIKI CONTEXT` and `WEB RESULTS` are broken
-  up with hyphens, whatever the case or spacing. Ordinary text is unchanged.
+- Web text cannot pose as the wiki or close the fence. Wherever a result's title, snippet or page text enters
+  the prompt, the prompt's own markers are defanged (`neutralise`). A linkable address is not defanged: it goes in as the link target the sources list uses
+  (parentheses encoded, the host in ASCII form), so the model cites the real one (a path can hold the words
+  "web results") and the address cannot end the link; a linkable address cannot hold angle brackets or
+  spaces, and an address that cannot be linked is defanged like the text. The text is matched on a skeleton of it
+  in which full-width, small-capital and Cyrillic or Greek look-alike letters are folded to plain ones and every
+  invisible character (any format character, the combining grapheme joiner, the Hangul fillers, variation selectors, and the Mongolian and Khmer marks that draw nothing) counts as a
+  zero-width space, one character for one character. `BEGIN_UNTRUSTED_WEB` and `END_UNTRUSTED_WEB` are removed:
+  with their angle brackets wherever they are, without them only as words of their own (so "backend untrusted
+  web" is left alone). `WIKI CONTEXT` and `WEB RESULTS` are rewritten with a middle dot between the words,
+  whatever the case and whatever sits between the words or the letters (space, tab, underscore, hyphen, dash,
+  dot, slash, colon, asterisk, no-break, zero-width or other invisible character), also inside underscore or
+  asterisk emphasis. Only the matched words are replaced, in the original text; all other text is left exactly as
+  it came.
 - When no wiki text applies, the prompt says so in the place the wiki section would be:
   `WIKI CONTEXT: (none - the organization wiki has no page for this question)`. The same line replaces the
   section when the model's window leaves no room for any wiki text.
@@ -34,7 +44,8 @@ on the beta with a real model (`qwen3.5:9b`).
 - The instruction contains the separation rule; a prompt without wiki text carries the "none" line; a prompt
   with wiki text carries it under `WIKI CONTEXT` and nowhere inside the web block.
 - A page whose text contains the end marker followed by a `WIKI CONTEXT:` heading leaves exactly one end
-  marker and one heading in the prompt, the real ones, and the same holds for a title, an address or a snippet.
+  marker and one heading in the prompt, the real ones, and the same holds for a title, an address that cannot be
+  linked or a snippet; a linkable address that holds the words is in the prompt unchanged.
 - Measured on the real model (`qwen3.5:9b`, fixed search results with one from Wikipedia and no wiki page):
   before, 3 of 4 answers filed the Wikipedia text under "Wiki Knowledge" with an invented `[[slug]]`; after,
   0 of 6 did (two said, correctly, that there was no organization wiki context, which the instruction now

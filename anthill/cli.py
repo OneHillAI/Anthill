@@ -437,7 +437,8 @@ def chat(
 
         if used:
             console.print(f"[dim]context: {', '.join(used)}[/]")
-        history.extend([("user", line), ("assistant", answer)])
+        # The failure note and the list of pages are for the screen, not for the model's next turn.
+        history.extend([("user", line), ("assistant", ask_mod.strip_web_note(answer))])
         last_q, last_answer, last_used = line, answer, used
 
 

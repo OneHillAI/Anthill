@@ -118,9 +118,9 @@ def test_ask_web_path_forwards_clean_query_and_history(tmp_path, monkeypatch):
         captured["question"] = question
         captured["search_query"] = kw.get("search_query")
         captured["history"] = kw.get("history")
-        return "web answer"
+        return web.WebAnswer("web answer")
 
-    monkeypatch.setattr(web, "search_and_answer", _fake_saa)
+    monkeypatch.setattr(web, "answer_from_web", _fake_saa)
 
     ws = Workspace(tmp_path / "w")
     ws.init()
