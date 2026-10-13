@@ -633,8 +633,8 @@ def test_one_time_future_date_round_trip_and_validation(live):
             form = page.locator("#task-form")
             assert not form.locator("#task-once-at").is_visible()
             submitted = form.evaluate("form => Object.fromEntries(new FormData(form))")
-            assert submitted["run_now"] == "true"
-            assert "once_at" not in submitted and "once_mode" not in submitted
+            assert submitted["once_at"] == ""
+            assert "run_now" not in submitted and "once_mode" not in submitted
             form.locator('[name="schedule"]').select_option("daily")
             assert not form.locator('[name="run_now"]').is_checked()
             form.locator('[name="schedule"]').select_option("once")

@@ -15716,7 +15716,6 @@ async def edit_task(
     goal: str = Form(...),
     schedule: str = Form("once"),
     timezone_name: str = Form("", alias="timezone"),
-    run_now: bool = Form(False),
     once_at: str = Form(""),
     escalate_on_uncertainty: bool = Form(False),
     user: dict = Depends(_require_user),
@@ -15742,7 +15741,7 @@ async def edit_task(
         if timezone_supplied and timezone_name and not requested_timezone:
             return JSONResponse({"error": "invalid timezone"}, status_code=400)
         once_at_supplied = "once_at" in await request.form()
-        if once_at_supplied and (schedule != "once" or run_now):
+        if once_at_supplied and schedule != "once":
             return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
         unchanged_occurrence = object()
 
@@ -15813,7 +15812,7 @@ async def edit_task(
                         timezone_name=tz_name,
                         schedule_anchor=schedule_anchor,
                     )
-            if schedule == "once" and (once_at_supplied or run_now):
+            if once_at_supplied:
                 occurrence_state = task_occurrences.edit_state(db, task_id)
                 scheduled = (
                     db.query(TaskOccurrence)
@@ -15828,7 +15827,7 @@ async def edit_task(
                     return JSONResponse(
                         {"error": "Task is running; wait before rescheduling"}, status_code=409
                     )
-                if once_at_supplied:
+                if once_at:
                     from .scheduler import _one_time_due
 
                     existing_due = _as_utc(scheduled.due_at) if scheduled is not None else None
@@ -15839,7 +15838,7 @@ async def edit_task(
                     if one_time_due != existing_due or schedule_changed:
                         replacement_due = one_time_due
                 elif scheduled is not None or schedule_changed:
-                    replacement_due = datetime.now(timezone.utc)
+                    replacement_due = datetime.now(timezone.utc).replace(microsecond=0)
             next_run_filter = (
                 ScheduledTask.next_run_at.is_(None)
                 if next_run_at is None
@@ -16150,7 +16149,7 @@ async def create_task(
         from .scheduler import _one_time_due
 
         try:
-            nxt = _one_time_due(once_at, tz_name)
+            nxt = _one_time_due(once_at, tz_name) if once_at else now.replace(microsecond=0)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
     task = ScheduledTask(

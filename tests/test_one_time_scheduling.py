@@ -51,9 +51,7 @@ def _form(**changes):
 
 
 def _now_form():
-    form = _form(run_now="true")
-    del form["once_at"]
-    return form
+    return _form(once_at="")
 
 
 @pytest.mark.parametrize("zone", ["Europe/Madrid", "America/New_York", "Asia/Kathmandu", ""])
@@ -115,7 +113,6 @@ def test_create_edit_round_trip_and_completion(client, monkeypatch, zone):
 @pytest.mark.parametrize(
     "changes, message",
     [
-        ({"once_at": ""}, "valid local"),
         ({"once_at": "garbage"}, "valid local"),
         ({"once_at": "2099-02-30T09:00"}, "valid local"),
         ({"once_at": "2000-01-01T09:00"}, "future"),
@@ -137,10 +134,12 @@ def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
     with factory() as s:
         task = s.query(ScheduledTask).one()
         tid, due = task.id, task.next_run_at
-    response = c.post(
-        f"/tasks/{tid}/edit", data=_form(title="Broken", **changes), follow_redirects=False
-    )
-    assert response.status_code == 400 and message in response.json()["error"]
+    # run_now remains a creation-only legacy field.
+    if "run_now" not in changes:
+        response = c.post(
+            f"/tasks/{tid}/edit", data=_form(title="Broken", **changes), follow_redirects=False
+        )
+        assert response.status_code == 400 and message in response.json()["error"]
     with factory() as s:
         task = s.get(ScheduledTask, tid)
         assert task.title == "One-shot" and task.next_run_at == due
@@ -209,16 +208,42 @@ def test_unchanged_overdue_edit_preserves_occurrence_and_inputs(client, local_va
     assert response.status_code == 400 and "future" in response.json()["error"]
 
 
-def test_immediate_one_shot_edit_does_not_add_another_occurrence(client):
+def test_immediate_one_shot_can_be_postponed_without_duplicate_work(client):
     c, factory = client
     assert c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code == 302
     with factory() as s:
         task = s.query(ScheduledTask).one()
-        tid, due = task.id, task.next_run_at
-    assert c.post(f"/tasks/{tid}/edit", data=_now_form(), follow_redirects=False).status_code == 302
+        tid = task.id
+        occurrence_id = s.query(TaskOccurrence).one().id
+        due = task.next_run_at
+        assert due.microsecond == 0
+        local_value = due.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Europe/Madrid"))
+        local_value = local_value.strftime("%Y-%m-%dT%H:%M:%S")
+    assert f'data-once-at="{local_value}"' in c.get("/tasks").text
+    assert (
+        c.post(
+            f"/tasks/{tid}/edit", data=_form(once_at=local_value), follow_redirects=False
+        ).status_code
+        == 302
+    )
     with factory() as s:
         assert s.get(ScheduledTask, tid).next_run_at == due
-        assert s.query(TaskOccurrence).count() == 1
+    assert c.post(f"/tasks/{tid}/edit", data=_now_form(), follow_redirects=False).status_code == 302
+    assert c.post(f"/tasks/{tid}/edit", data=_form(), follow_redirects=False).status_code == 302
+    with factory() as s:
+        occurrence = s.query(TaskOccurrence).one()
+        assert occurrence.id == occurrence_id and occurrence.kind == "scheduled"
+        assert occurrence.due_at == s.get(ScheduledTask, tid).next_run_at
+        assert occurrence.due_at.year == 2099
+
+
+def test_legacy_run_now_keeps_manual_occurrence(client):
+    c, factory = client
+    form = _form(run_now="true")
+    del form["once_at"]
+    assert c.post("/tasks/create", data=form, follow_redirects=False).status_code == 302
+    with factory() as s:
+        assert s.query(TaskOccurrence).one().kind == "manual"
 
 
 def test_active_scheduled_run_cannot_be_rescheduled(client):

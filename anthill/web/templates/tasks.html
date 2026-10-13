@@ -65,6 +65,7 @@
       </div>
     </div>
     <div id="task-once-choice" class="form-group">
+      <input id="task-once-now" type="hidden" name="once_at" value="">
       <label for="task-once-mode">Run once</label>
       <select id="task-once-mode" onchange="updateTaskTimezoneVisibility()">
         <option value="now">Run now</option>
@@ -390,13 +391,13 @@ function updateTaskTimezoneVisibility() {
   document.getElementById('task-once-date').hidden = !at;
   document.getElementById('task-once-at').disabled = !at;
   document.getElementById('task-once-at').required = at;
+  document.getElementById('task-once-now').disabled = !once || at;
   document.getElementById('task-timezone-note').hidden = schedule === 'hourly' || (once && !at);
   const immediate = document.querySelector('[name=run_now]');
   const editing = document.getElementById('task-form').action.endsWith('/edit');
   document.getElementById('task-run-now-choice').hidden = once || editing;
-  immediate.disabled = at || (!once && editing);
-  if (once) immediate.checked = !at;
-  else if (immediate.disabled) immediate.checked = false;
+  immediate.disabled = once || editing;
+  if (immediate.disabled) immediate.checked = false;
 }
 function setSchedule(val) {
   const sel = document.querySelector('[name=schedule]');

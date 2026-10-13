@@ -20,15 +20,17 @@ The manual Tasks form cannot schedule a one-shot at an arbitrary future local da
   while a scheduled run is active. Manual and queued occurrences remain independent.
 - Run now creates only one immediate occurrence. A completed task's ordinary edit does not rerun
   it; use its Now button or explicitly choose a new future date.
-- The form submits either the existing `run_now` field or `once_at`, never a separate mode
-  field or both choices together. The now/future selector is presentation only.
+- One-shot forms submit only `once_at`: blank means now, a local date means later. The now/future
+  selector is presentation only. Legacy `run_now` remains creation-only and cannot accompany
+  `once_at`; recurring forms keep their existing immediate-run checkbox.
 - Existing callers omitting the new fields retain their behavior. Recurring and Chat creation
   are unchanged. Successful one-shot completion creates no recurrence.
 
 ## Acceptance criteria
 
 - Route tests cover creation and editing across multiple timezones, UTC fallback, invalid values,
-  switching to now, and unchanged round-trips (including overdue work) without duplicate occurrences.
+  switching to now, postponing immediate work, legacy `run_now`, and unchanged round-trips
+  (including overdue work) without duplicate occurrences.
 - Scheduler tests run a future one-shot at its due instant, clear `next_run_at`, and prove a later
   tick does not run it again.
 - Browser tests cover choice visibility, validation feedback, and editing from a different timezone.
