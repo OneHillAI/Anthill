@@ -77,6 +77,8 @@ def live(tmp_path_factory):
     token = make_token(u.id, o.id, "admin")
     conv_id, asst_id = conv.id, asst.id
 
+    startup_patch = pytest.MonkeyPatch()
+    startup_patch.setattr(app_mod, "_scheduler_started", True)
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(app_mod.app, host="127.0.0.1", port=port, log_level="warning")
@@ -93,6 +95,7 @@ def live(tmp_path_factory):
 
     server.should_exit = True
     thread.join(timeout=5)
+    startup_patch.undo()
     for k, v in saved.items():
         if v is None:
             os.environ.pop(k, None)
@@ -620,6 +623,94 @@ def test_task_creation_modal_fallback(live):
             browser.close()
 
 
+def test_one_time_future_date_round_trip_and_validation(live):
+    base, token, conv_id, _asst_id = live
+    with sync_api.sync_playwright() as p:
+        browser, page = _page(p, base, token, conv_id, timezone_id="Europe/Madrid")
+        try:
+            page.goto(f"{base}/tasks", wait_until="networkidle")
+            page.get_by_role("button", name="New task").click()
+            form = page.locator("#task-form")
+            assert not form.locator("#task-once-at").is_visible()
+            submitted = form.evaluate("form => Object.fromEntries(new FormData(form))")
+            assert submitted["once_at"] == ""
+            assert "run_now" not in submitted and "once_mode" not in submitted
+            form.locator('[name="schedule"]').select_option("daily")
+            assert not form.locator('[name="run_now"]').is_checked()
+            form.locator('[name="schedule"]').select_option("once")
+            form.locator("#task-once-mode").select_option("at")
+            assert form.locator("#task-once-at").is_visible()
+            assert form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            assert not form.locator("[name=run_now]").is_visible()
+            submitted = form.evaluate("form => Object.fromEntries(new FormData(form))")
+            assert "once_at" in submitted
+            assert "run_now" not in submitted and "once_mode" not in submitted
+            form.locator("#task-title").fill("Future one-shot browser test")
+            form.locator("#task-goal").fill("Summarize")
+            form.locator("#task-once-at").fill("2000-01-01T09:15:30")
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                form.get_by_role("button", name="Create task").click()
+            assert page.url == f"{base}/tasks/create"
+            error = form.locator("#task-form-error")
+            error.wait_for()
+            assert "future" in error.inner_text()
+            assert form.locator("#task-title").input_value() == "Future one-shot browser test"
+            assert form.locator("#task-goal").input_value() == "Summarize"
+            assert form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            assert form.locator("#task-once-at").input_value() == "2000-01-01T09:15:30"
+            form.locator("#task-once-at").fill("2099-07-12T09:15:30")
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                form.get_by_role("button", name="Create task").click()
+            row = page.locator("tr", has_text="Future one-shot browser test")
+            row.wait_for()
+
+            context = browser.new_context(service_workers="block", timezone_id="America/New_York")
+            context.add_cookies([{"name": "session_token", "value": token, "url": base}])
+            edit_page = context.new_page()
+            edit_page.goto(f"{base}/tasks", wait_until="networkidle")
+            edit_page.locator("tr", has_text="Future one-shot browser test").get_by_role(
+                "button", name="Edit"
+            ).click()
+            edit_form = edit_page.locator("#task-form")
+            assert edit_form.locator("#task-once-mode").input_value() == "at"
+            assert edit_form.locator("#task-once-at").input_value() == "2099-07-12T09:15:30"
+            assert edit_form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            edit_form.locator("#task-title").fill("Renamed future one-shot")
+            edit_form.locator("#task-once-at").fill("2000-01-01T09:15:30")
+            with edit_page.expect_navigation(wait_until="domcontentloaded"):
+                edit_form.get_by_role("button", name="Save changes").click()
+            edit_form.locator("#task-form-error").wait_for()
+            assert "future" in edit_form.locator("#task-form-error").inner_text()
+            assert edit_form.locator("#task-title").input_value() == "Renamed future one-shot"
+            assert edit_form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            assert edit_form.locator("#task-submit").inner_text() == "Save changes"
+            edit_form.get_by_role("button", name="Cancel", exact=True).click()
+            edit_page.get_by_role("button", name="New task").click()
+            assert edit_form.locator("#task-title").input_value() == ""
+            assert edit_form.locator("#task-goal").input_value() == ""
+            assert edit_form.locator("#task-once-at").input_value() == ""
+            assert edit_form.locator("#task-once-mode").input_value() == "now"
+            assert not edit_form.locator("#task-form-error").is_visible()
+            edit_form.get_by_role("button", name="Cancel", exact=True).click()
+            edit_page.locator("tr", has_text="Future one-shot browser test").get_by_role(
+                "button", name="Edit"
+            ).click()
+            edit_form.locator("#task-title").fill("Renamed future one-shot")
+            with edit_page.expect_navigation(wait_until="domcontentloaded"):
+                edit_form.get_by_role("button", name="Save changes").click()
+            edit_page.locator("tr", has_text="Renamed future one-shot").wait_for()
+            edit_page.locator("tr", has_text="Renamed future one-shot").get_by_role(
+                "button", name="Edit"
+            ).click()
+            assert edit_form.locator("#task-once-at").input_value() == "2099-07-12T09:15:30"
+            edit_form.get_by_role("button", name="Cancel", exact=True).click()
+            edit_page.get_by_role("button", name="New task").click()
+            assert edit_form.locator("#task-once-mode").input_value() == "now"
+            assert edit_form.locator("#task-once-at").input_value() == ""
+        finally:
+            browser.close()
+
+
 def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
     base, token, conv_id, _asst_id = live
     timezone_id = "America/Los_Angeles"
@@ -658,7 +749,8 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             assert edit_form.locator("#task-timezone-note").is_visible() is False
             edit_form.locator('[name="schedule"]').select_option("weekly")
             assert edit_form.locator("#task-timezone-note").is_visible() is True
-            edit_form.get_by_role("button", name="Save changes").click()
+            with edit_page.expect_navigation(wait_until="domcontentloaded"):
+                edit_form.get_by_role("button", name="Save changes").click()
 
             edited_row = edit_page.locator("tr", has_text="Edited browser timezone task")
             edited_row.wait_for()
@@ -680,7 +772,8 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             edit_row = edit_page.locator("tr", has_text="Edited browser timezone task")
             edit_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             edit_form.locator("#task-timezone").fill("Europe/Paris")
-            edit_form.get_by_role("button", name="Save changes").click()
+            with edit_page.expect_navigation(wait_until="domcontentloaded"):
+                edit_form.get_by_role("button", name="Save changes").click()
             edited_row = edit_page.locator("tr", has_text="Edited browser timezone task")
             edited_row.wait_for()
             assert "Europe/Paris" in edited_row.inner_text()

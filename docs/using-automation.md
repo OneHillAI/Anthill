@@ -6,6 +6,14 @@ A **task** is work Anthill does on a schedule or on demand. You describe it in p
 daily digest or a weekly report. Tasks keep your local time zone, including through daylight
 saving. Run one immediately, or let it run on its own schedule.
 
+For a one-time task, choose **Run once**, then **Run now** or **Choose a future date and time**.
+The date and time are local to the timezone shown in the form. Editing keeps that timezone even
+if your browser has moved. Invalid, past, nonexistent or ambiguous daylight-saving times are
+rejected without saving when choosing a new date; choose an unambiguous future time. An ordinary
+edit preserves a pending date even if it is already due. Validation reloads the page with your entered
+values and attachments still in the task dialog, so you can correct them. After a successful run, no repeat is scheduled.
+Editing a completed task does not run it again; use **Run now** or choose a new future date.
+
 **Cancel future runs** stops a task from running again. Anything it already did stays, the history is kept and
 nothing is deleted, and a run already in progress is not interrupted. **Reactivate** turns a cancelled task's
 schedule back on. It does not run anything at that moment: work that fell due while the task was cancelled is

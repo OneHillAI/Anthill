@@ -32,27 +32,29 @@
   </div>
 </section>
 
+{% set form_values = task_form['values'] if task_form else {} %}
+{% set editing = task_form and task_form.action != '/tasks/create' %}
 <!-- task form (used for both create and edit) -->
 <dialog id="new-task" class="modal" role="dialog" aria-labelledby="task-form-title" aria-modal="true"
         onclick="if(event.target===this)closeTaskModal()">
   <div class="modal-card">
   <div class="modal-h">
-    <h3 id="task-form-title" style="margin:0">Create a task</h3>
+    <h3 id="task-form-title" style="margin:0">{{ 'Edit task' if editing else 'Create a task' }}</h3>
     <button type="button" class="modal-x" aria-label="Close task dialog"
             onclick="closeTaskModal()">&times;</button>
   </div>
   {% if no_tools_model %}
   <p class="text-sm alert alert-warn" id="no-tools-note" style="margin:0 0 12px">Your local model ({{ no_tools_model }}) can't use tools. A task on it still runs and answers from your description and the files you attach. It can't search the web, open other files or take actions such as writing to the wiki, and the result says so. A model that supports tools does more.</p>
   {% endif %}
-  <form id="task-form" method="post" action="/tasks/create">
+  <form id="task-form" method="post" action="{{ task_form.action if task_form else '/tasks/create' }}">
     <div class="grid-2">
       <div class="form-group">
         <label for="task-title">Task title</label>
-        <input id="task-title" type="text" name="title" required placeholder="e.g. Daily email digest">
+        <input id="task-title" type="text" name="title" value="{{ form_values.get('title', '') }}" required placeholder="e.g. Daily email digest">
       </div>
       <div class="form-group">
         <label for="task-schedule">Schedule</label>
-        <select id="task-schedule" name="schedule" onchange="updateTaskTimezoneVisibility()">
+        <select id="task-schedule" name="schedule" onchange="setSchedule(this.value)">
           <option value="once">Run once</option>
           <option value="hourly">Every hour</option>
           <option value="daily">Daily</option>
@@ -64,10 +66,23 @@
         </select>
       </div>
     </div>
+    <div id="task-once-choice" class="form-group">
+      <input id="task-once-now" type="hidden" name="once_at" value="">
+      <label for="task-once-mode">Run once</label>
+      <select id="task-once-mode" onchange="updateTaskTimezoneVisibility()">
+        <option value="now" {% if not form_values.get('once_at') %}selected{% endif %}>Run now</option>
+        <option value="at" {% if form_values.get('once_at') %}selected{% endif %}>Choose a future date and time</option>
+      </select>
+      <div id="task-once-date" hidden style="margin-top:8px">
+        <label for="task-once-at">Local date and time</label>
+        <input id="task-once-at" type="datetime-local" name="once_at" step="1" value="{{ form_values.get('once_at', '') }}">
+      </div>
+    </div>
+    <p id="task-form-error" role="alert" class="text-sm" {% if not task_form %}hidden{% endif %}>{{ task_form.error if task_form else '' }}</p>
     <div id="task-timezone-note" class="form-group" hidden>
       <label for="task-timezone">Timezone</label>
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="task-timezone" name="timezone" list="task-timezones"
+        <input id="task-timezone" name="timezone" list="task-timezones" value="{{ form_values.get('timezone', '') }}"
                placeholder="e.g. Europe/Madrid" autocomplete="off">
         <button type="button" class="btn btn-outline btn-sm" onclick="useBrowserTimezone()">Use browser timezone</button>
       </div>
@@ -77,12 +92,12 @@
     <div class="form-group">
       <label for="task-goal">Goal / instruction for the agent</label>
       <textarea id="task-goal" name="goal" rows="3" required
-                {% if no_tools_model %}aria-describedby="no-tools-note" {% endif %}placeholder="{% if no_tools_model %}e.g. Each Monday, turn the notes I attach into a short plan for the week{% else %}e.g. Read my unread emails and write a summary wiki page with action items{% endif %}"></textarea>
+                {% if no_tools_model %}aria-describedby="no-tools-note" {% endif %}placeholder="{% if no_tools_model %}e.g. Each Monday, turn the notes I attach into a short plan for the week{% else %}e.g. Read my unread emails and write a summary wiki page with action items{% endif %}">{{ form_values.get('goal', '') }}</textarea>
     </div>
     {% if escalation_available %}
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;font-weight:normal">
-        <input type="checkbox" name="escalate_on_uncertainty" value="true" style="width:auto">
+        <input type="checkbox" name="escalate_on_uncertainty" value="true" style="width:auto" {% if form_values.get('escalate_on_uncertainty') == 'true' %}checked{% endif %}>
         If a run's answer looks uncertain, retry it once on your organisation's connected cloud model<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Decided here, not live per run - nobody is watching an unattended task to approve anything mid-run. Bounded by the organisation's monthly cloud retry budget, which an administrator sets in Task settings for administrators, below the list; when off (or the cap is hit), an uncertain run is flagged for you to review instead.</span></button>
       </label>
     </div>
@@ -101,12 +116,13 @@
       </div>
       <select name="context_files" id="task-files" aria-label="Files from connected service" multiple size="3" style="width:100%;padding:6px;border-radius:var(--radius-sm)">
         <option value="" disabled>Search a service above, then select one or more files (Cmd/Ctrl-click)</option>
+        {% if task_form %}{% for ref in task_form.context_files %}<option value="{{ ref }}" selected>{{ ref }}</option>{% endfor %}{% endif %}
       </select>
       {% endif %}
       {% if snippets %}
       <label for="task-snippets" class="text-sm" style="font-weight:600;margin:10px 0 4px">Snippets</label>
       <select id="task-snippets" name="context_snippets" multiple size="3" style="width:100%;padding:6px;border-radius:var(--radius-sm)">
-        {% for sn in snippets %}<option value="{{ sn.id }}">{{ sn.label }}</option>{% endfor %}
+        {% for sn in snippets %}<option value="{{ sn.id }}" {% if task_form and sn.id|string in task_form.context_snippets %}selected{% endif %}>{{ sn.label }}</option>{% endfor %}
       </select>
       {% endif %}
     </fieldset>
@@ -126,14 +142,14 @@
     }
     </script>
     {% endif %}
-    <div class="form-group">
+    <div id="task-run-now-choice" class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" name="run_now" value="true">
         Run immediately (and then on schedule)
       </label>
     </div>
     <div style="display:flex;gap:10px">
-      <button id="task-submit" type="submit" class="btn btn-primary">Create task</button>
+      <button id="task-submit" type="submit" class="btn btn-primary">{{ 'Save changes' if editing else 'Create task' }}</button>
       <button type="button" class="btn btn-outline" onclick="closeTaskModal()">Cancel</button>
     </div>
   </form>
@@ -225,7 +241,7 @@
                 aria-label="Edit task: {{ t_title }}"
                 data-id="{{ task.id }}" data-title="{{ task.title|e }}"
                 data-schedule="{{ task.schedule|e }}" data-timezone="{{ task.timezone|e }}"
-                data-goal="{{ task.goal|e }}"
+                data-goal="{{ task.goal|e }}" data-once-at="{{ task.once_at_local|e }}"
                 data-escalate="{{ 'true' if task.escalate_on_uncertainty else '' }}">Edit</button>
         {% endif %}
         {% if o and task.status not in ['running', 'cancelled'] %}
@@ -371,7 +387,20 @@ function useBrowserTimezone() {
 }
 function updateTaskTimezoneVisibility() {
   const schedule = document.querySelector('[name=schedule]').value.trim().toLowerCase();
-  document.getElementById('task-timezone-note').hidden = ['once', 'hourly'].includes(schedule);
+  const once = schedule === 'once';
+  const at = once && document.getElementById('task-once-mode').value === 'at';
+  document.getElementById('task-once-choice').hidden = !once;
+  document.getElementById('task-once-mode').disabled = !once;
+  document.getElementById('task-once-date').hidden = !at;
+  document.getElementById('task-once-at').disabled = !at;
+  document.getElementById('task-once-at').required = at;
+  document.getElementById('task-once-now').disabled = !once || at;
+  document.getElementById('task-timezone-note').hidden = schedule === 'hourly' || (once && !at);
+  const immediate = document.querySelector('[name=run_now]');
+  const editing = document.getElementById('task-form').action.endsWith('/edit');
+  document.getElementById('task-run-now-choice').hidden = once || editing;
+  immediate.disabled = once || editing;
+  if (immediate.disabled) immediate.checked = false;
 }
 function setSchedule(val) {
   const sel = document.querySelector('[name=schedule]');
@@ -386,6 +415,7 @@ function setSchedule(val) {
     sel.appendChild(opt);
   }
   sel.value = val;
+  document.querySelector('[name=run_now]').checked = false;
   updateTaskTimezoneVisibility();
 }
 const taskModal = document.getElementById('new-task');
@@ -493,7 +523,15 @@ function showNoToolsNote(show) {
 function resetFormToCreate() {
   showNoToolsNote(true);
   const form = document.getElementById('task-form');
+  form.reset();
   form.action = '/tasks/create';
+  document.getElementById('task-title').value = '';
+  document.getElementById('task-goal').value = '';
+  document.getElementById('task-once-mode').value = 'now';
+  document.getElementById('task-once-at').value = '';
+  for (const option of form.querySelectorAll('[name=context_files] option, [name=context_snippets] option')) option.selected = false;
+  document.getElementById('task-form-error').hidden = true;
+  setSchedule('once');
   document.getElementById('task-form-title').textContent = 'Create a task';
   document.getElementById('task-submit').textContent = 'Create task';
   const esc = document.querySelector('[name=escalate_on_uncertainty]');
@@ -542,6 +580,9 @@ function editTask(btn) {
   document.getElementById('task-submit').textContent = 'Save changes';
   document.querySelector('[name=title]').value = d.title || '';
   document.querySelector('[name=goal]').value = d.goal || '';
+  document.getElementById('task-once-mode').value = d.onceAt ? 'at' : 'now';
+  document.getElementById('task-once-at').value = d.onceAt || '';
+  document.getElementById('task-form-error').hidden = true;
   setSchedule(d.schedule || 'once');
   setTaskTimezone(d.timezone);
   const esc = document.querySelector('[name=escalate_on_uncertainty]');
@@ -562,8 +603,17 @@ try {
     }
   }
 } catch (_) {}
+{% if task_form %}
+setSchedule({{ form_values.get('schedule', 'once')|tojson }});
+setTaskTimezone({{ form_values.get('timezone', '')|tojson }});
+const immediate = document.querySelector('[name=run_now]');
+if (!immediate.disabled) immediate.checked = {{ (form_values.get('run_now') == 'true')|tojson }};
+showNoToolsNote({{ (not editing)|tojson }});
+openTaskModal(null);
+{% else %}
 setTaskTimezone(browserTimezone());
 updateTaskTimezoneVisibility();
+{% endif %}
 </script>
 </div>
 {% endblock %}
