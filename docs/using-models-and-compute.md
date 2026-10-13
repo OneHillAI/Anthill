@@ -2,14 +2,11 @@
 
 ## Choosing your model
 
-You choose in setup, at **Choose your AI**, and later under **Settings**, on the **Model** tab, with
-**Change where it runs**. Both look the same. First pick **Your machine** or **Your cloud**. The card you
-pick opens into a panel right below it with its own choices: for your machine, the models that fit it; for
-your cloud, the cloud provider, its API key and the cloud models. Below the panel, the inference provider
-has a card of its own, marked **Optional**, with **Don't use one** selected unless you pick a provider. In
-setup the three steps are numbered, and image understanding sits under **Advanced**, folded away. It is on
-by default and starts a download of about 2.4 GB in the background; the **Advanced** line says whether it
-is on or off.
+You choose in setup, at **Choose your AI**, and later under **Settings**, on the **Model** tab,
+with **Change where it runs**. Pick **Your machine** or **Your cloud**, and Anthill shows the
+choices that fit: the models that fit your machine, or a provider and its models for your cloud.
+Image understanding comes on by default; turn it off under **Advanced** in setup if you'd rather
+not.
 
 Anthill lists the current open models, ranked by how smart a model your hardware can actually run.
 Not just the biggest name: an efficient model can beat a larger one. Each one is marked **fits**,
@@ -22,14 +19,9 @@ snippet, you can **benchmark** any installed model against your current one ther
 closely it matches those approved answers, so the choice is grounded in your own data, not a
 leaderboard. The score is advisory. You still decide.
 
-To uninstall a model, use the model list under **Settings**, on the **Model** tab. The red
-**Uninstall** button sits next to the model's *installed* badge. Click it, then click **Confirm?**
-within a few seconds. Uninstalling frees the disk space the model used. A model that is in use, as the
-lead or as a council member, has no Uninstall button.
-
-### How much a model can read at once
-
-A local model reads only a limited amount at a time: its context window. Anthill now asks for a window of 8,192 tokens on every request, so long wiki pages are shortened to fit and are no longer dropped without warning. A bigger window uses more memory. Measured on a 16 GB Mac, a model's footprint in memory grew by about 0.5 GB (qwen3.5:9b), 2.4 GB (mistral:7b) and 0.3 GB (gemma3:4b) going from 4,096 to 16,384 tokens. On a Mac with 32 GB of memory or more, Anthill asks for the larger window Ollama would use itself. To change it, set `ANTHILL_NUM_CTX` (a whole number of at least 4,096) before starting Anthill; Ollama's own `OLLAMA_CONTEXT_LENGTH` is honoured too.
+To uninstall a model, find it in the model list under **Settings**, on the **Model** tab, and click
+**Uninstall**, then confirm. That frees the disk space it used. A model currently in use, as the
+lead or as a council member, can't be uninstalled until you switch away from it.
 
 ## Running a council
 
@@ -56,15 +48,10 @@ inference-provider escalation below. Your cloud model runs every answer, not jus
 ## Escalating your hardest questions
 
 Attach an inference provider, Berget, Groq, or Infercom, to send your hardest questions to a larger
-hosted open model. Nothing goes to it until you ask or allow it. After an answer from your own model, one
-quiet button sits under it, for example **Check with Infercom**. While an answer is still being written, a
-link such as **Ask Infercom instead** lets you skip the wait. Until you have chosen **Always**, a click
-first asks whether to send the question: **Always**, **Just this once** or **Not now**. Under
-**Settings** you also choose what happens when your model is unsure: **Ask me each time**, or **Escalate
-automatically**, which lets Anthill send a question it judges too hard on its own once you have chosen
-**Always**. You can turn **Always** off again in **Settings**. Your documents are never sent, only the
-single question, stripped of personal information first. Every escalation is logged. It's off until you
-attach a provider.
+hosted open model. After an answer from your own model, a quiet button offers to check it with the
+provider instead, and you decide each time, or let Anthill escalate automatically once you've said
+to. Your documents are never sent, only the single question, stripped of personal information
+first. Every escalation is logged. It's off until you attach a provider.
 
 ## Training your own model
 

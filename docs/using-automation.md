@@ -6,40 +6,26 @@ A **task** is work Anthill does on a schedule or on demand. You describe it in p
 daily digest or a weekly report. Tasks keep your local time zone, including through daylight
 saving. Run one immediately, or let it run on its own schedule.
 
-For a one-time task, choose **Run once**, then **Run now** or **Choose a future date and time**.
-The date and time are local to the timezone shown in the form. Editing keeps that timezone even
-if your browser has moved. Invalid, past, nonexistent or ambiguous daylight-saving times are
-rejected without saving when choosing a new date; choose an unambiguous future time. An ordinary
-edit preserves a pending date even if it is already due. Validation reloads the page with your entered
-values and attachments still in the task dialog, so you can correct them. After a successful run, no repeat is scheduled.
-Editing a completed task does not run it again; use **Run now** or choose a new future date.
+For a one-time task, choose **Run once**, then **Run now** or a future date and time of your own.
+It keeps your local time zone, and once it's run, it doesn't repeat. Editing a completed task does not
+run it again; use **Run now** or choose a new future date.
 
-**Cancel future runs** stops a task from running again. Anything it already did stays, the history is kept and
-nothing is deleted, and a run already in progress is not interrupted. **Reactivate** turns a cancelled task's
-schedule back on. It does not run anything at that moment: work that fell due while the task was cancelled is
-skipped and the task waits for its next scheduled time, and follow-ups you queued before cancelling wait for
-that run too. You can reactivate a task once any run you cancelled has finished. **Run now** and **Add follow-up**
-are not available on a cancelled task; reactivate it first.
+**Cancel future runs** stops a task without deleting its history. **Reactivate** turns it back on
+for its next scheduled run.
 
-A task needs a model that can use tools to search the web, open files or take actions. If your model cannot (a
-small model such as gemma3:4b, for example), the task still runs and answers from its description and the files
-you attached, and the result begins with a note saying no tools were used. Because it did not do any work outside
-the answer itself, the run is marked "needs review" and you are notified each time. Choose a model that supports
-tools for work that needs them. When your local model cannot use tools, the **New task** dialog says so before you
-create the task and suggests an example that needs none.
+A task needs a model that can use tools to search the web, open files, or take action. On a model
+that can't, it still runs and answers from what you gave it, but it's flagged for your review since
+it couldn't do the work itself. Anthill tells you up front if your current model can't use tools.
 
 ## Agents
 
 An **agent** is a named worker with a standing job, like an employee with a role. It runs toward
 that job on its own, using your wiki, memory, and skills, and reports back. Anything consequential
 is held for your approval first. Sending an email, or writing to a shared wiki: none of it happens
-silently. An agent on a model that cannot use tools works like a task on one: it answers without tools, the
-result starts with a note saying so, and the run is marked "needs review".
+silently.
 
 Results are checked automatically before you see them. Anything that doesn't hold up is flagged for
-your review, not presented as fact. If you can edit the task, choose Mark reviewed once you have
-checked that result. The Tasks list warning clears, and the page records who reviewed it and when.
-The original check stays in the run history, so a later result that needs review raises its own warning.
+your review, not presented as fact. Mark it reviewed once you've checked it.
 
 ## Skills
 
