@@ -206,7 +206,9 @@ def _answer(db, org_id, kind, query) -> str:
     if kind == "cache":
         from ..cache import SemanticCache
 
-        hit = SemanticCache(db_path=workspace_for("org").root / ".cache").lookup(query)
+        hit = SemanticCache(db_path=workspace_for("org", org_id=org_id).root / ".cache").lookup(
+            query
+        )
         return hit.answer if hit else "(no cached answer)"
     # wiki (default): answer from the org wiki + cache
     from ..config import Config
@@ -217,5 +219,5 @@ def _answer(db, org_id, kind, query) -> str:
     if cfg:
         config.model = getattr(cfg, "ollama_model", config.model) or config.model
         config.base_url = getattr(cfg, "ollama_url", config.base_url) or config.base_url
-    answer, _slugs, _hit = ask(workspace_for("org"), query, build_backend(config))
+    answer, _slugs, _hit = ask(workspace_for("org", org_id=org_id), query, build_backend(config))
     return answer

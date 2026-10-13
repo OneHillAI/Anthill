@@ -445,7 +445,7 @@ _REMEMBER = re.compile(
     r"|don'?t\s+forget(?:\s+that)?"  # don't forget [that] X
     r"|for\s+(?:future\s+reference|the\s+record)"  # for future reference, X
     r"|jot\s+(?:this\s+)?down(?:\s+that)?"  # jot [this] down [that] X
-    r")\s*[:,]?\s+(?=\S)",
+    r")(?:\s*[:,]\s+|\s+)(?=\S)",  # one run of spaces per alternative, so the two cannot overlap
     re.I,
 )
 

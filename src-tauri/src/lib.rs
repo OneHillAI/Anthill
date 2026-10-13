@@ -17,7 +17,11 @@
 //! The check is best-effort: an unreachable server never blocks startup. The updater only reaches
 //! installs once the repo's releases are public (at launch); see engineering-plans/TAURI_AUTOUPDATE.md.
 
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -57,7 +61,7 @@ pub fn run() {
     // SQLite database (~/Library/Application Support/Anthill/anthill.db) and hang with no window - so
     // instead we focus the window that is already up and let the new process exit. Desktop-only: the
     // plugin (and the multi-process failure mode it guards) does not exist on mobile.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, not(target_os = "macos")))]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -67,12 +71,41 @@ pub fn run() {
             }
         }));
     }
+    // macOS only (the window-size handling, `prepare_window`, is macOS only): a second launch waits until the
+    // window has been prepared. Windows and Linux keep the callback above.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // On the main thread, and only once the window has been prepared (restored or maximized) and
+            // shown by `show_on`: opening Anthill a second time while the first is still booting must not
+            // show the unprepared 1200 x 820 splash early. The window appears when the backend answers.
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if !second_instance_may_show(WINDOW_PREPARED.load(Ordering::SeqCst)) {
+                    return;
+                }
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            });
+        }));
+    }
+    // Remember the window's size, position and maximized state between launches (`window_state_flags`).
+    // macOS only: Windows and Linux are untested and keep their fixed creation size.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(window_state_plugin());
+    }
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Backend(Mutex::new(BackendState::default())))
         .invoke_handler(tauri::generate_handler![open_profile])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            remember_launch_window_state(app.handle());
             let handle = app.handle().clone();
             // Off the UI thread so the splash window paints immediately. Check for an update first
             // (a release auto-installs and the app restarts into it); then boot the local backend so
@@ -103,7 +136,13 @@ pub fn run() {
                 event: tauri::WindowEvent::CloseRequested { .. },
                 ..
             } => stop_backend(app_handle),
+            #[cfg(not(target_os = "macos"))]
             tauri::RunEvent::Exit => stop_backend(app_handle),
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Exit => {
+                stop_backend(app_handle);
+                undo_unprepared_window_save(app_handle);
+            }
             _ => {}
         });
 }
@@ -132,6 +171,15 @@ fn show_startup_error(app: &AppHandle, detail: &str) {
          <pre style=\"background:#000;color:#ff9a8a;padding:1rem;border-radius:8px;overflow:auto;\
          white-space:pre-wrap;font-size:12px;margin:0\">{safe}</pre></div>`;"
     );
+    #[cfg(target_os = "macos")]
+    {
+        let shown = window.clone();
+        let _ = app.run_on_main_thread(move || {
+            prepare_window(&shown);
+            let _ = shown.show();
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
     let _ = window.show();
     let _ = window.eval(&js);
 }
@@ -226,11 +274,202 @@ async fn spawn_backend<R: Runtime>(
     Ok((port, child))
 }
 
+/// The window-state plugin, as the app and the ACL tests both build it. The window is NOT restored when it is
+/// created (it is hidden then, and maximizing a hidden window can show it or take focus): `prepare_window`
+/// restores it just before the shell shows the window itself. Like everything about the window's size, macOS
+/// only: on Windows and Linux the window keeps the fixed size it is created at.
+#[cfg(target_os = "macos")]
+fn window_state_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(window_state_flags())
+        .skip_initial_state("main")
+        .build()
+}
+
+/// What the window-state plugin saves and restores: size, position and whether it was maximized.
+/// Deliberately NOT `VISIBLE` (this shell keeps the window hidden until the backend answers and shows it
+/// itself, see `show_on`: a restored "visible" would show the splash early), and not `FULLSCREEN` or
+/// `DECORATIONS` either: restoring those calls `set_fullscreen` on every launch while the window is
+/// hidden, and the plugin would then store the fullscreen frame as the window's normal size.
+#[cfg(target_os = "macos")]
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
+}
+
+/// The window-state file as it was when this process started.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LaunchState {
+    /// There was no file (the read failed with `NotFound`).
+    Missing,
+    /// The file's bytes.
+    Present(Vec<u8>),
+    /// There may be a file, but it could not be read (or the config folder is unknown). The shell never
+    /// rewrites or removes a file it could not read.
+    Unreadable,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl LaunchState {
+    /// Only `NotFound` means "no file"; any other read error is `Unreadable`.
+    fn from_read(read: std::io::Result<Vec<u8>>) -> Self {
+        match read {
+            Ok(bytes) => LaunchState::Present(bytes),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => LaunchState::Missing,
+            Err(_) => LaunchState::Unreadable,
+        }
+    }
+
+    fn bytes(&self) -> Option<&[u8]> {
+        match self {
+            LaunchState::Present(bytes) => Some(bytes),
+            LaunchState::Missing | LaunchState::Unreadable => None,
+        }
+    }
+}
+
+/// The window-state file as it was when this process started. Kept so that an exit before the window was
+/// prepared can put it back (see `undo_unprepared_window_save`).
+#[cfg(target_os = "macos")]
+static LAUNCH_STATE: OnceLock<LaunchState> = OnceLock::new();
+
+/// Set once `prepare_window` has restored (or, on a first launch, maximized) the window, i.e. once the window
+/// the plugin would save is the one the person will actually see. Set at the END of `prepare_window`, and only
+/// when the restore succeeded, never before.
+#[cfg(target_os = "macos")]
+static WINDOW_PREPARED: AtomicBool = AtomicBool::new(false);
+
+/// Set when `prepare_window` first starts, so it runs once per process (a profile switch reuses `show_on`).
+#[cfg(target_os = "macos")]
+static PREPARE_STARTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+fn window_state_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(tauri_plugin_window_state::DEFAULT_FILENAME))
+}
+
+#[cfg(target_os = "macos")]
+fn remember_launch_window_state<R: Runtime>(app: &AppHandle<R>) {
+    let launch = match window_state_path(app) {
+        Some(path) => LaunchState::from_read(std::fs::read(path)),
+        None => LaunchState::Unreadable,
+    };
+    let _ = LAUNCH_STATE.set(launch);
+}
+
+/// Is this a first launch? Only when the saved file is missing, unreadable, or has no usable `main` entry (a
+/// size above zero): a file that exists but holds nothing for this window is still a first launch.
+#[cfg(any(target_os = "macos", test))]
+fn has_saved_main_state(saved: Option<&[u8]>) -> bool {
+    let Some(bytes) = saved else { return false };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let size = |key: &str| value["main"][key].as_u64().unwrap_or(0);
+    size("width") > 0 && size("height") > 0
+}
+
+/// What the exit callback does to the window-state file the plugin has just saved.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, PartialEq, Eq)]
+enum ExitAction<'a> {
+    /// Keep what the plugin saved.
+    Leave,
+    /// Put back the file as it was at launch.
+    Write(&'a [u8]),
+    /// Remove the file, so the next launch is still a first launch.
+    Remove,
+}
+
+/// The exit undo's decision. A prepared window's save is kept. An unprepared one (never restored, so still the
+/// 1200 x 820 it was created at) is undone: the launch bytes go back, or the file is removed if there was none.
+/// A file that could not be read at launch (or launch state never recorded) is left alone.
+#[cfg(any(target_os = "macos", test))]
+fn unprepared_exit_action(prepared: bool, launch: Option<&LaunchState>) -> ExitAction<'_> {
+    if prepared {
+        return ExitAction::Leave;
+    }
+    match launch {
+        Some(LaunchState::Present(bytes)) => ExitAction::Write(bytes),
+        Some(LaunchState::Missing) => ExitAction::Remove,
+        Some(LaunchState::Unreadable) | None => ExitAction::Leave,
+    }
+}
+
+/// May a second launch show, unminimize and focus the window? Only once it has been prepared and shown: before
+/// that it is the unprepared splash, which appears when the backend answers.
+#[cfg(any(target_os = "macos", test))]
+fn second_instance_may_show(prepared: bool) -> bool {
+    prepared
+}
+
+/// Make the window the one the person should see, once per process, on the still-hidden window just before
+/// the shell shows it (the plugin was told not to restore it at creation, see `run`): restore the saved size,
+/// position and maximized state; on a first launch, fill the screen. A window created maximized and then
+/// hidden, or maximized while hidden at creation, can flash or take focus on some platforms, which is why none
+/// of this happens at creation. Calling the plugin's `restore_state` on a first launch also records the
+/// window's own 1200 x 820 as its normal size, so un-maximizing later gives that size and not the screen's.
+/// A later call (switching profile reuses `show_on`) changes nothing. If `restore_state` fails, the window is
+/// still shown but is not marked prepared, so the exit undo stays armed.
+///
+/// Must run on the main thread (see `show_on`). The plugin holds its state mutex while `restore_state` calls
+/// window getters, and off the main thread each of those posts to it and waits for the answer: a quit in that
+/// moment would have the main thread's exit save wait on the same mutex, and the app would hang on quit. On the
+/// main thread the getters answer at once and an exit cannot interleave.
+#[cfg(target_os = "macos")]
+fn prepare_window<R: Runtime>(window: &WebviewWindow<R>) {
+    use tauri_plugin_window_state::WindowExt;
+    if PREPARE_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let saved = has_saved_main_state(LAUNCH_STATE.get().and_then(LaunchState::bytes));
+    let restored = window.restore_state(window_state_flags());
+    if !saved {
+        let _ = window.maximize();
+    }
+    // Only now is the window the one the person will see; before this an exit saves nothing worth keeping.
+    if restored.is_ok() {
+        WINDOW_PREPARED.store(true, Ordering::SeqCst);
+    }
+}
+
+/// The plugin saves the window's state when the app exits. If that happens before `prepare_window` (an update
+/// that restarts the app before the backend is up, or quitting during the boot wait), the window is still the
+/// unrestored 1200 x 820 and the save would overwrite what the person had. The plugin saves before this
+/// callback runs, so put the file back as it was at launch (or remove it if there was none, so the next launch
+/// is still a first launch). See `unprepared_exit_action`.
+#[cfg(target_os = "macos")]
+fn undo_unprepared_window_save<R: Runtime>(app: &AppHandle<R>) {
+    let action = unprepared_exit_action(WINDOW_PREPARED.load(Ordering::SeqCst), LAUNCH_STATE.get());
+    let Some(path) = window_state_path(app) else {
+        return;
+    };
+    let _ = match action {
+        ExitAction::Write(bytes) => std::fs::write(path, bytes),
+        ExitAction::Remove => std::fs::remove_file(path),
+        ExitAction::Leave => Ok(()),
+    };
+}
+
 /// Point the main window at the backend on `port` and reveal it.
 fn show_on<R: Runtime>(app: &AppHandle<R>, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("http://127.0.0.1:{port}/");
     let window: WebviewWindow<R> = app.get_webview_window("main").ok_or("no `main` window")?;
     window.navigate(tauri::Url::parse(&url)?)?;
+    #[cfg(target_os = "macos")]
+    {
+        // Prepare and show in one step on the main thread (see `prepare_window` for why).
+        let shown = window.clone();
+        app.run_on_main_thread(move || {
+            prepare_window(&shown);
+            let _ = shown.show();
+        })?;
+    }
+    #[cfg(not(target_os = "macos"))]
     window.show()?;
     Ok(())
 }
@@ -432,8 +671,11 @@ mod acl_tests {
         sidecar_script: &str,
     ) -> (Result<(), String>, Option<String>) {
         let _sidecar = SidecarStandIn::install(sidecar_script);
-        let app = tauri::test::mock_builder()
-            .plugin(tauri_plugin_shell::init())
+        let builder = tauri::test::mock_builder().plugin(tauri_plugin_shell::init());
+        // As in `run`: the window-state plugin is part of the macOS app only.
+        #[cfg(target_os = "macos")]
+        let builder = builder.plugin(super::window_state_plugin());
+        let app = builder
             .manage(Backend(Mutex::new(BackendState::default())))
             .invoke_handler(tauri::generate_handler![open_profile])
             .build(super::app_context())
@@ -531,7 +773,111 @@ mod acl_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_data_name, parse_port_line};
+    use super::{
+        app_data_name, has_saved_main_state, parse_port_line, second_instance_may_show,
+        unprepared_exit_action, ExitAction, LaunchState,
+    };
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn only_a_missing_file_counts_as_no_file_at_launch() {
+        assert_eq!(
+            LaunchState::from_read(Ok(b"{}".to_vec())),
+            LaunchState::Present(b"{}".to_vec())
+        );
+        assert_eq!(
+            LaunchState::from_read(Err(Error::from(ErrorKind::NotFound))),
+            LaunchState::Missing
+        );
+        // Any other read error (no permission, a folder in its place, an I/O error) is not "no file".
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::IsADirectory,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(
+                LaunchState::from_read(Err(Error::from(kind))),
+                LaunchState::Unreadable,
+                "{kind:?}"
+            );
+        }
+        assert_eq!(LaunchState::Present(b"x".to_vec()).bytes(), Some(&b"x"[..]));
+        assert_eq!(LaunchState::Missing.bytes(), None);
+        assert_eq!(LaunchState::Unreadable.bytes(), None);
+    }
+
+    #[test]
+    fn an_exit_after_the_window_was_prepared_keeps_what_the_plugin_saved() {
+        for launch in [
+            LaunchState::Present(b"{}".to_vec()),
+            LaunchState::Missing,
+            LaunchState::Unreadable,
+        ] {
+            assert_eq!(unprepared_exit_action(true, Some(&launch)), ExitAction::Leave);
+        }
+        assert_eq!(unprepared_exit_action(true, None), ExitAction::Leave);
+    }
+
+    #[test]
+    fn an_exit_before_the_window_was_prepared_puts_the_launch_file_back() {
+        let launch = LaunchState::Present(b"saved".to_vec());
+        assert_eq!(
+            unprepared_exit_action(false, Some(&launch)),
+            ExitAction::Write(b"saved")
+        );
+        // no file at launch: remove the one the plugin just wrote, so the next launch is still a first launch
+        assert_eq!(
+            unprepared_exit_action(false, Some(&LaunchState::Missing)),
+            ExitAction::Remove
+        );
+        // a file that could not be read is never rewritten or removed
+        assert_eq!(
+            unprepared_exit_action(false, Some(&LaunchState::Unreadable)),
+            ExitAction::Leave
+        );
+        assert_eq!(unprepared_exit_action(false, None), ExitAction::Leave);
+    }
+
+    #[test]
+    fn a_second_launch_shows_the_window_only_once_it_was_prepared() {
+        assert!(second_instance_may_show(true));
+        assert!(!second_instance_may_show(false));
+    }
+
+    #[test]
+    fn only_a_file_with_a_sized_main_entry_counts_as_a_saved_state() {
+        let saved = br#"{"main":{"width":900,"height":650,"x":10,"y":20,"maximized":false}}"#;
+        assert!(has_saved_main_state(Some(saved)));
+        assert!(!has_saved_main_state(None)); // no file: a first launch
+        assert!(!has_saved_main_state(Some(b""))); // empty file
+        assert!(!has_saved_main_state(Some(b"{ not json"))); // half-written or corrupt
+        assert!(!has_saved_main_state(Some(b"{}"))); // parses, but nothing for this window
+        assert!(!has_saved_main_state(Some(
+            br#"{"other":{"width":900,"height":650}}"#
+        )));
+        // the plugin's own "no state"
+        assert!(!has_saved_main_state(Some(
+            br#"{"main":{"width":0,"height":0}}"#
+        )));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_window_state_flags_never_include_visible_fullscreen_or_decorations() {
+        use tauri_plugin_window_state::StateFlags;
+        let flags = super::window_state_flags();
+        assert_eq!(
+            flags.bits(),
+            (StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED).bits()
+        );
+        for banned in [
+            StateFlags::VISIBLE,
+            StateFlags::FULLSCREEN,
+            StateFlags::DECORATIONS,
+        ] {
+            assert!(!flags.intersects(banned));
+        }
+    }
 
     #[test]
     fn parses_a_port_line() {

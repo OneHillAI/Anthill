@@ -16,6 +16,7 @@ def test_configure_container_env_roots_data_and_persists_secrets(tmp_path, monke
         "ANTHILL_SKILLS_DIR",
         "ANTHILL_WIKI_ROOT",
         "ANTHILL_ORG_WIKI",
+        "ANTHILL_ORG_WIKIS",
         "ANTHILL_JWT_SECRET",
         "ANTHILL_ENCRYPTION_KEY",
     ):
@@ -27,6 +28,7 @@ def test_configure_container_env_roots_data_and_persists_secrets(tmp_path, monke
     # every data path is rooted under the volume
     assert os.environ["ANTHILL_DB"] == str(home / "anthill.db")
     assert os.environ["ANTHILL_ORG_WIKI"] == str(home / "org-wiki")
+    assert os.environ["ANTHILL_ORG_WIKIS"] == str(home / "org-wikis")
     assert os.environ["ANTHILL_WIKI_ROOT"] == str(home / "wikis")
     # secrets are generated + persisted (so sessions/encrypted fields survive restarts)
     assert (home / "secrets.env").exists()

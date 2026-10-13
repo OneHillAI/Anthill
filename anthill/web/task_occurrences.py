@@ -25,6 +25,14 @@ class RetryMutation(RuntimeError):
     pass
 
 
+class TaskCancelled(RuntimeError):
+    """The task is cancelled, so Run now and a follow-up are refused. Reactivating it is a separate action."""
+
+
+class TaskStillCancelling(RuntimeError):
+    """A run that was cancelled is still running, so the task cannot be reactivated yet."""
+
+
 def _items(value: str | None) -> list[str]:
     try:
         parsed = json.loads(value or "[]")
@@ -387,24 +395,131 @@ def _serialize_task_mutation(db, task: Any, target_status: str) -> str:
     return current.status
 
 
-def reactivate(db, task: Any) -> None:
+def _reread(db, task: Any) -> Any:
+    """The task as the database holds it now, not as this session last saw it."""
+    return db.query(ScheduledTask).populate_existing().filter(ScheduledTask.id == task.id).one()
+
+
+def is_cancelling(db, task: Any) -> bool:
+    """True while a run that was cancelled is still running (it finishes in the background)."""
+    return (
+        db.query(TaskRun.id)
+        .filter(
+            TaskRun.task_id == task.id,
+            TaskRun.status == "running",
+            TaskRun.cancel_requested.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def reactivate(db, task: Any, now: datetime | None = None) -> tuple[int, int]:
+    """Turn a cancelled task's schedule back on without running anything. Returns ``(merged, held)``: how many
+    follow-ups were merged into the next scheduled run and how many are held (see below).
+
+    - Cadence work that is still in the future resumes as it was.
+    - A cadence occurrence that fell due while the task was cancelled is skipped, not run: the next future
+      slot of the schedule replaces it. A one-time task whose date has passed has no next slot, so it stays
+      pending with no next run until Run now or an edited date.
+    - Follow-ups queued before the cancel are kept. One that is already due does not run now and does not
+      become a second run: its instructions are merged into the cadence occurrence of the next scheduled run,
+      so that single run carries them. Follow-ups that are not due yet resume as they were. When there is no
+      scheduled run to merge into (a one-time task whose date has passed), a due follow-up is held (paused)
+      until the next explicit action: Run now or Add follow-up resumes it, and it then runs as its own run.
+    Refused while a cancelled run is still running."""
+    from .scheduler import _next_run, _task_schedule_anchor
+
+    now = _aware(now or datetime.now(timezone.utc))
     ensure_task(db, task)
+    if is_cancelling(db, task):
+        raise TaskStillCancelling
     _serialize_task_mutation(db, task, "pending")
-    db.query(TaskOccurrence).filter(
-        TaskOccurrence.task_id == task.id, TaskOccurrence.status == "paused"
-    ).update({TaskOccurrence.status: "pending"}, synchronize_session="fetch")
+    anchor = task.schedule_anchor or _task_schedule_anchor(
+        task.schedule, from_dt=now, timezone_name=task.timezone
+    )
+    next_due = _next_run(
+        task.schedule, from_dt=now, timezone_name=task.timezone, schedule_anchor=anchor
+    )
+    paused: list[Any] = (
+        db.query(TaskOccurrence)
+        .filter(TaskOccurrence.task_id == task.id, TaskOccurrence.status == "paused")
+        .order_by(TaskOccurrence.due_at, TaskOccurrence.id)
+        .all()
+    )
+    carried: list[str] = []  # instructions of due follow-ups, to merge into the next scheduled run
+    due_followups: list[Any] = []
+    skipped_cadence = False
+    for occurrence in paused:
+        overdue = _aware(occurrence.due_at) <= now
+        if occurrence.kind == "scheduled" and not _items(occurrence.inputs):
+            occurrence.status = "cancelled" if overdue else "pending"
+            skipped_cadence = skipped_cadence or overdue
+        elif not overdue:
+            occurrence.status = "pending"
+        else:
+            due_followups.append(occurrence)
+    db.flush()
+    target = (
+        db.query(TaskOccurrence)
+        .filter(
+            TaskOccurrence.task_id == task.id,
+            TaskOccurrence.kind == "scheduled",
+            TaskOccurrence.status == "pending",
+        )
+        .order_by(TaskOccurrence.due_at, TaskOccurrence.id)
+        .first()
+    )
+    if target is None and next_due is not None and (skipped_cadence or due_followups):
+        target = TaskOccurrence(
+            org_id=task.org_id,
+            task_id=task.id,
+            kind="scheduled",
+            status="pending",
+            due_at=next_due,
+            inputs="[]",
+        )
+        db.add(target)
+        db.flush()
+    merged = held = 0
+    for occurrence in due_followups:
+        if target is None:
+            held += 1  # stays paused
+            continue
+        carried.extend(_items(occurrence.inputs))
+        occurrence.status = "cancelled"  # its instructions now ride with the scheduled run
+        merged += 1
+    if carried and target is not None:
+        target.inputs = _dump([*_items(target.inputs), *carried])
     task.status = "pending"
+    project(db, task)
+    return merged, held
 
 
 def run_now(db, task: Any, now: datetime) -> TaskOccurrence:
-    reactivate(db, task)
+    """Add a manual run. Refused for a cancelled task, whichever session cancelled it and whenever."""
+    ensure_task(db, task)
+    if _reread(db, task).status == "cancelled":
+        raise TaskCancelled
+    if _serialize_task_mutation(db, task, "pending") == "cancelled":
+        raise TaskCancelled
+    task.status = "pending"
+    # Follow-ups held since a reactivation with no next slot resume with this explicit run.
+    db.query(TaskOccurrence).filter(
+        TaskOccurrence.task_id == task.id, TaskOccurrence.status == "paused"
+    ).update({TaskOccurrence.status: "pending"}, synchronize_session="fetch")
     return add(db, task, kind="manual", due_at=now)
 
 
 def queue_input(db, task: Any, instruction: str, now: datetime) -> TaskOccurrence:
+    """Add a follow-up. Refused for a cancelled task, whichever session cancelled it and whenever."""
     ensure_task(db, task)
+    if _reread(db, task).status == "cancelled":
+        raise TaskCancelled
     while True:
         expected = _serialize_task_mutation(db, task, "pending")
+        if expected == "cancelled":
+            raise TaskCancelled
         paused = bool(
             db.query(TaskOccurrence.id)
             .filter(TaskOccurrence.task_id == task.id, TaskOccurrence.status == "paused")

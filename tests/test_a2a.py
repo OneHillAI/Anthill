@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from anthill.agent.tools import AgentPrincipal, tool_scope
-from anthill.mcp.server import A2A_TOOLS, handle_jsonrpc
+from anthill.mcp.server import A2A_TOOLS, ToolDenied, handle_jsonrpc
 from anthill.web import a2a, db
 from anthill.web.db import AgentIdentity, Organization, ScheduledTask, User
 
@@ -65,7 +65,7 @@ def test_jsonrpc_dispatches_a2a_call():
 
 def test_jsonrpc_a2a_permission_error_becomes_jsonrpc_error():
     def a2a_call(name, args):
-        raise PermissionError("nope")
+        raise ToolDenied("nope")
 
     resp = handle_jsonrpc(
         {

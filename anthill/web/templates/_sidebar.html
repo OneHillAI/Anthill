@@ -114,7 +114,7 @@
       {# Each rail conversation is a row: the link + pin/rename/delete controls that appear on hover, so a
          conversation can be pinned, renamed, or deleted right from the list (not only the open one). #}
       {% macro conv_item(c, cls, suffix, dot) %}
-      <div class="rail-conv-row">
+      <div class="rail-conv-row"{% if c.pinned %} data-pinned="1"{% endif %}>
         <a href="/chat/{{ c.id }}" class="rail-conv {{ cls }}{% if active_conv and c.id == active_conv.id %} active{% endif %}" title="{{ c.title }}{{ suffix }}">{% if dot %}<span class="plane-dot plane-dot-{{ dot }}"></span>{% endif %}{{ c.title }}</a>
         {# All three actions share one absolutely-positioned group so they lay out side by side, rather
            than each <form> positioning itself at the identical spot (that stacked pin/rename/delete
@@ -371,6 +371,53 @@
       }
       if (box) box.addEventListener('input', applySearch);
 
+      // LONG LISTS: a group (Unfiled, Organization, one project, or the single plain list) shows its 10
+      // most recent chats and folds the rest behind "Show N more". The chat you are in always stays
+      // visible, pinned chats are never folded, and while you search every match shows.
+      var RAIL_CAP = 10, EXP_KEY = 'anthill_rail_expanded_v1';
+      function loadExpanded() {
+        try { return JSON.parse(sessionStorage.getItem(EXP_KEY) || '{}') || {}; } catch (e) { return {}; }
+      }
+      function saveExpanded(x) { try { sessionStorage.setItem(EXP_KEY, JSON.stringify(x)); } catch (e) {} }
+      function overflowGroups() {
+        var out = [], run = [];
+        function flush() { if (run.length) out.push({ rows: run }); run = []; }
+        Array.prototype.forEach.call(wrap.children, function (el) {
+          if (el.classList.contains('rail-conv-row') && !el.dataset.pinned) run.push(el); else flush();
+        });
+        flush();
+        Array.prototype.forEach.call(wrap.querySelectorAll('details.rail-project'), function (d) {
+          out.push({ rows: Array.prototype.slice.call(d.querySelectorAll('.rail-conv-row')), box: d });
+        });
+        return out;
+      }
+      function applyOverflow() {
+        Array.prototype.forEach.call(wrap.querySelectorAll('.rail-more'), function (b) { b.remove(); });
+        rows.forEach(function (r) { r.classList.remove('rail-overflow'); });
+        var searching = !!(box && box.value.trim());
+        if (searching) return;
+        var expanded = loadExpanded();
+        overflowGroups().forEach(function (g, i) {
+          var over = g.rows.slice(RAIL_CAP);
+          if (!over.length) return;
+          var open = !!expanded[i];
+          var folded = over.filter(function (r) { return !r.querySelector('.rail-conv.active'); });
+          if (!folded.length) return;
+          if (!open) folded.forEach(function (r) { r.classList.add('rail-overflow'); });
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'rail-more';
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          btn.textContent = open ? 'Show fewer' : 'Show ' + folded.length + ' more';
+          btn.addEventListener('click', function () {
+            var x = loadExpanded(); x[i] = !open; saveExpanded(x); applyOverflow();
+          });
+          if (g.box) g.box.appendChild(btn); else g.rows[g.rows.length - 1].after(btn);
+        });
+      }
+      if (box) box.addEventListener('input', applyOverflow);
+      applyOverflow();
+
       // COLLAPSE: click a top-level heading to fold its rows (projects already fold natively).
       flatSections().forEach(function (sec) {
         var chev = document.createElement('span');
@@ -403,6 +450,7 @@
           reorder(Array.prototype.slice.call(d.querySelectorAll('.rail-conv-row')), null, d);
         });
         applySearch();  // keep any active filter applied after the reshuffle
+        applyOverflow();
       });
     })();
   </script>

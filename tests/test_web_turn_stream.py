@@ -109,7 +109,7 @@ def test_a_web_turn_yields_its_stages_then_streams_the_answer(tmp_path, monkeypa
         Stage("writing"),
     ]  # not an Ollama model
     assert out.index(stages[0]) < out.index(stages[1]) < out.index(stages[2])
-    assert "".join(x for x in out if isinstance(x, str)) == "The capital is Reykjavik."
+    assert _body("".join(x for x in out if isinstance(x, str))) == "The capital is Reykjavik."
     # the search used the planned query, then the pages were read, then the model was called
     assert log[0] == ("search", "capital of Iceland", False)
     assert [e[0] for e in log] == ["search", "fetch", "fetch"]
@@ -167,7 +167,7 @@ def test_a_result_with_an_injection_is_left_out_of_the_prompt(tmp_path, monkeypa
     assert "https://evil.example/x" not in prompt and "BANANA" not in prompt
     assert "https://example.org/reykjavik" in prompt  # the clean results stay
     assert (
-        "".join(x for x in out if isinstance(x, str)) == "The capital is Reykjavik."
+        _body("".join(x for x in out if isinstance(x, str))) == "The capital is Reykjavik."
     )  # still streamed
 
 
@@ -193,10 +193,15 @@ def test_a_failed_search_falls_back_to_the_wiki_and_the_model(tmp_path, monkeypa
     monkeypatch.setattr(web_mod, "web_search", boom)
     be = _Backend()
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
-    assert "".join(x for x in out if isinstance(x, str)) == "The capital is Reykjavik."
+    assert (
+        "".join(x for x in out if isinstance(x, str))
+        == ask_mod.WEB_FAILED_NOTE + "The capital is Reykjavik."
+    )
     prompt = "\n".join(m.content for m in be.seen["messages"])
     assert "WEB RESULTS" not in prompt  # answered from the wiki and the model, like ask() does
-    assert Stage("writing") not in out and Stage("thinking") not in out
+    assert [x for x in out if isinstance(x, Stage)] == [Stage("searching"), Stage("writing")]
+    first_text = next(x for x in out if isinstance(x, str))
+    assert out.index(Stage("writing")) < out.index(first_text)  # told it is writing, then the note
 
 
 def test_a_question_with_an_injection_still_goes_to_the_blocking_path_with_its_search(
@@ -226,7 +231,7 @@ def test_search_and_answer_still_answers_whole(monkeypatch):
             return "whole answer"
 
     be = _Whole()
-    assert web_mod.search_and_answer("capital?", backend=be) == "whole answer"
+    assert _body(web_mod.search_and_answer("capital?", backend=be)) == "whole answer"
     assert "https://example.org/reykjavik" in be.prompt
 
 
@@ -439,15 +444,19 @@ def test_nothing_is_announced_when_no_result_is_left_out(tmp_path, monkeypatch):
     assert not any(isinstance(x, Stage) and x.name == "left_out" for x in out)
 
 
-def test_an_empty_search_still_answers_and_says_so_in_the_prompt(tmp_path, monkeypatch):
+def test_an_empty_search_answers_without_a_web_block_and_says_so(tmp_path, monkeypatch):
     ws = _workspace(tmp_path, monkeypatch)
     _fake_web(monkeypatch, [])
     be = _Backend()
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
     stages = [x for x in out if isinstance(x, Stage)]
-    assert stages[:2] == [Stage("searching"), Stage("reading", 0)]
-    assert "(no web results found)" in "\n".join(m.content for m in be.seen["messages"])
-    assert "".join(x for x in out if isinstance(x, str))  # the answer still streams
+    assert stages == [Stage("searching"), Stage("reading", 0), Stage("writing")]
+    text = "".join(x for x in out if isinstance(x, str))
+    assert text.startswith(
+        ask_mod.web_failed_note("no_pages")
+    )  # the search worked and found nothing
+    assert "WEB RESULTS" not in "\n".join(m.content for m in be.seen["messages"])
+    assert text.endswith("The capital is Reykjavik.")  # the answer still streams
 
 
 def test_a_clean_question_over_hostile_wiki_context_goes_to_the_blocking_path_with_its_search(
@@ -486,8 +495,8 @@ def test_a_web_answer_from_the_blocking_path_is_not_cached(tmp_path, monkeypatch
     ws = _workspace(tmp_path, monkeypatch)
     stored = _no_cache(monkeypatch)
     monkeypatch.setattr(
-        "anthill.search.web.search_and_answer",
-        lambda question, *, backend, **kw: "fresh web answer",
+        "anthill.search.web.answer_from_web",
+        lambda question, *, backend, **kw: web_mod.WebAnswer("fresh web answer"),
     )
 
     class _Whole:
@@ -512,7 +521,7 @@ def test_search_and_answer_leaves_out_a_hostile_result_too(monkeypatch):
             return "answer"
 
     be = _Whole()
-    assert web_mod.search_and_answer("capital?", backend=be) == "answer"
+    assert _body(web_mod.search_and_answer("capital?", backend=be)) == "answer"
     assert "https://evil.example/x" not in be.prompt and "BANANA" not in be.prompt
     assert "https://example.org/reykjavik" in be.prompt
 
@@ -523,7 +532,7 @@ def test_ollama_reports_whether_a_model_can_think(monkeypatch):
     from anthill.inference import ollama as ollama_mod
     from anthill.inference.ollama import OllamaBackend
 
-    ollama_mod._CAN_THINK_CACHE.clear()
+    ollama_mod._CAPABILITIES_CACHE.clear()
     answers = {"thinker": ["completion", "thinking"], "plain": ["completion"]}
 
     def fake_post(url, json=None, timeout=None):
@@ -548,13 +557,13 @@ def test_ollama_reports_whether_a_model_can_think(monkeypatch):
     assert (
         be.base_url,
         "thinker-later",
-    ) not in ollama_mod._CAN_THINK_CACHE  # ... and not remembered
+    ) not in ollama_mod._CAPABILITIES_CACHE  # ... and not remembered
     monkeypatch.setattr(httpx, "post", fake_post)
     answers["thinker-later"] = ["completion", "thinking"]
     assert (
         be.can_think("thinker-later") is True
     )  # the next turn asks again and gets the real answer
-    ollama_mod._CAN_THINK_CACHE.clear()
+    ollama_mod._CAPABILITIES_CACHE.clear()
 
 
 def test_the_route_forwards_left_out_and_never_serves_the_cache_to_a_web_turn(
@@ -661,12 +670,17 @@ def _words(out):
     return "".join(x for x in out if isinstance(x, str))
 
 
+def _body(text):
+    """The answer without the sources list that code adds after it."""
+    return text.split("\n\n**Web sources consulted**")[0]
+
+
 def test_a_model_error_before_the_first_word_is_retried_without_thinking(tmp_path, monkeypatch):
     ws = _workspace(tmp_path, monkeypatch)
     _fake_web(monkeypatch, _two_results())
     be = _flaky_ollama([_refuse, lambda: ["It ", "works."]])
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
-    assert _words(out) == "It works."
+    assert _body(_words(out)) == "It works."
     assert be.thinks == [
         "unset",
         False,
@@ -681,7 +695,7 @@ def test_an_empty_answer_is_retried_without_thinking(tmp_path, monkeypatch):
         [lambda: [], lambda: ["Second ", "try."]]
     )  # the model thought and said nothing
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
-    assert _words(out) == "Second try."
+    assert _body(_words(out)) == "Second try."
     assert be.thinks == ["unset", False]
 
 
@@ -692,7 +706,7 @@ def test_when_the_retry_fails_too_the_turn_answers_from_the_wiki_and_the_model(
     _fake_web(monkeypatch, _two_results())
     be = _flaky_ollama([_refuse, _refuse, lambda: ["From ", "the wiki."]])
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
-    assert _words(out) == "From the wiki."
+    assert _words(out) == ask_mod.web_failed_note("results_unusable") + "From the wiki."
     assert "WEB RESULTS" in be.prompts[0] and "WEB RESULTS" in be.prompts[1]
     assert "WEB RESULTS" not in be.prompts[2]  # the last try is the plain wiki answer
 
@@ -702,7 +716,7 @@ def test_with_thinking_off_a_failed_web_answer_is_tried_once_then_falls_back(tmp
     _fake_web(monkeypatch, _two_results())
     be = _flaky_ollama([_refuse, lambda: ["Plain ", "answer."]])
     out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True, think=False))
-    assert _words(out) == "Plain answer."
+    assert _words(out) == ask_mod.web_failed_note("results_unusable") + "Plain answer."
     assert be.thinks == [False, False]  # no point in a second web try with thinking already off
     assert "WEB RESULTS" not in be.prompts[1]
 
@@ -751,7 +765,8 @@ def test_a_turn_that_searches_the_web_neither_reads_nor_writes_the_caches(tmp_pa
             return "local answer"
 
     monkeypatch.setattr(
-        "anthill.search.web.search_and_answer", lambda question, *, backend, **kw: "web answer"
+        "anthill.search.web.answer_from_web",
+        lambda question, *, backend, **kw: web_mod.WebAnswer("web answer"),
     )
     ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True, org_url="http://org.invalid")
     assert lookups == [] and stores == [] and org == []  # not read, not written, not published
@@ -759,7 +774,7 @@ def test_a_turn_that_searches_the_web_neither_reads_nor_writes_the_caches(tmp_pa
     def search_fails(*a, **k):
         raise RuntimeError("offline")
 
-    monkeypatch.setattr("anthill.search.web.search_and_answer", search_fails)
+    monkeypatch.setattr("anthill.search.web.answer_from_web", search_fails)
     ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True, org_url="http://org.invalid")
     assert (
         lookups == [] and stores == [] and org == []
@@ -769,3 +784,289 @@ def test_a_turn_that_searches_the_web_neither_reads_nor_writes_the_caches(tmp_pa
     assert lookups == ["capital of Iceland?"] and stores == [
         "capital of Iceland?"
     ]  # a local turn is
+
+
+# ── a web turn that could not use the web says so ────────────────────────────────
+
+
+def test_the_note_is_the_first_words_of_a_turn_whose_search_failed(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(web_mod, "web_search", boom)
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    texts = [x for x in out if isinstance(x, str)]
+    assert texts[0] == ask_mod.WEB_FAILED_NOTE
+    assert "could not be completed" in texts[0] and "not from the web" in texts[0]
+    assert Stage("searching") in out  # the member still saw it try
+
+
+def test_a_turn_whose_search_worked_has_no_note(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    _fake_web(monkeypatch, _two_results())
+    _no_cache(monkeypatch)
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    assert ask_mod.WEB_FAILED_NOTE not in "".join(x for x in out if isinstance(x, str))
+
+
+def test_a_turn_that_did_not_ask_for_the_web_has_no_note(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    _no_cache(monkeypatch)
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend()))
+    assert ask_mod.WEB_FAILED_NOTE not in "".join(x for x in out if isinstance(x, str))
+
+
+def test_an_answer_to_a_failed_web_turn_is_not_cached(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    stored = _no_cache(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(web_mod, "web_search", boom)
+    list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    assert stored == []  # it would otherwise stand in for a search later
+
+
+def test_the_blocking_path_says_so_too(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+
+    class _Whole:
+        def chat(self, messages, **kwargs):
+            return "local answer"
+
+    def search_fails(*a, **k):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr("anthill.search.web.answer_from_web", search_fails)
+    answer, _slugs, _hit = ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True)
+    assert answer.startswith("_The web search could not be completed") and answer.endswith(
+        "local answer"
+    )
+
+    monkeypatch.setattr(
+        "anthill.search.web.answer_from_web",
+        lambda question, *, backend, **kw: web_mod.WebAnswer("web answer"),
+    )
+    answer, _slugs, _hit = ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True)
+    assert answer == "web answer"  # a search that worked says nothing extra
+
+
+# ── review round: wording by cause, empty and dropped results, images, spoofing, the route ─────────
+
+
+def _boom_with(error):
+    def boom(*a, **k):
+        raise error
+
+    return boom
+
+
+def test_a_missing_search_library_gets_the_same_note(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr(web_mod, "web_search", _boom_with(ImportError("Install ddgs")))
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    assert _words(out).startswith("_The web search could not be completed")
+
+
+def test_every_result_left_out_is_a_turn_with_no_usable_pages(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    hostile = [
+        SearchResult("A", "https://a.example/x", HOSTILE),
+        SearchResult("B", "https://b.example/y", HOSTILE),
+    ]
+    _fake_web(monkeypatch, hostile)
+    be = _Backend()
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", be, web_search=True))
+    assert Stage("left_out", 2) in out
+    assert _words(out).startswith("_The web search found no usable pages")
+    assert "WEB RESULTS" not in "\n".join(m.content for m in be.seen["messages"])
+
+
+def test_the_note_names_only_the_model_when_no_wiki_page_applied(tmp_path, monkeypatch):
+    from anthill.cache import embedder as emb
+
+    monkeypatch.setattr(emb, "available", lambda: False)
+    ws = Workspace(tmp_path / "empty")
+    ws.init()
+    monkeypatch.setattr(web_mod, "web_search", _boom_with(RuntimeError("offline")))
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    assert "comes from the model alone" in _words(out)
+    assert "your wiki" not in _words(out).split("\n\n")[0]
+
+
+def test_a_discarded_hijacked_web_answer_gets_the_note_on_the_blocking_path(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+
+    class _Whole:
+        def chat(self, messages, **kwargs):
+            return "local answer"
+
+    monkeypatch.setattr(
+        "anthill.search.web.answer_from_web", lambda q, **kw: web_mod.WebAnswer("web answer")
+    )
+    monkeypatch.setattr(ask_mod, "_looks_hijacked", lambda answer, q, c: answer == "web answer")
+    answer, _slugs, _hit = ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True)
+    assert answer.startswith("_The web results could not be used to write an answer")
+    assert answer.endswith("local answer")
+
+
+def test_the_blocking_path_says_so_on_an_image_turn_too(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+
+    class _Whole:
+        def chat(self, messages, **kwargs):
+            return "it is a cat"
+
+    monkeypatch.setattr("anthill.search.web.answer_from_web", _boom_with(RuntimeError("offline")))
+    answer, _slugs, _hit = ask_mod.ask(
+        ws, "what is this?", _Whole(), web_search=True, images_b64=["aGk="]
+    )
+    assert answer.startswith("_The web search could not be completed") and answer.endswith(
+        "it is a cat"
+    )
+
+
+def test_no_pages_on_the_blocking_path_gets_its_own_wording(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+
+    class _Whole:
+        def chat(self, messages, **kwargs):
+            return "local answer"
+
+    _fake_web(monkeypatch, [])
+    answer, _slugs, _hit = ask_mod.ask(ws, "capital of Iceland?", _Whole(), web_search=True)
+    assert answer.startswith("_The web search found no usable pages")
+
+
+def test_the_note_is_stripped_wherever_the_answer_is_fed_back(tmp_path, monkeypatch):
+    note = ask_mod.web_failed_note("search_failed")
+    assert ask_mod.strip_web_note(note + "The answer.") == "The answer."
+    for reason in ("search_failed", "no_pages", "results_unusable"):
+        for have_wiki in (True, False):
+            assert (
+                ask_mod.strip_web_note(ask_mod.web_failed_note(reason, have_wiki=have_wiki) + "x")
+                == "x"
+            )
+    assert ask_mod.strip_web_note(
+        "Text with _The web search could not be completed_ in the middle."
+    ) == ("Text with _The web search could not be completed_ in the middle.")
+    assert (
+        ask_mod.strip_web_note("A look at the note: " + note + "x")
+        == "A look at the note: " + note + "x"
+    )
+    ws = _workspace(tmp_path, monkeypatch)
+    seen = {}
+
+    class _Backend2:
+        def chat(self, messages, **kwargs):
+            seen["prompt"] = "\n".join(m.content for m in messages)
+            return "# Iceland\n\nReykjavik is the capital.\n"
+
+    ask_mod.file_as_page(ws, "capital of Iceland?", note + "Reykjavik is the capital.", _Backend2())
+    assert "could not be completed" not in seen["prompt"]
+
+
+def test_the_route_streams_the_note_stores_it_and_feeds_none_of_it_back(tmp_path, monkeypatch):
+    client, cid = _client(tmp_path, monkeypatch)
+    note = ask_mod.web_failed_note("search_failed")
+    histories = []
+    examples = []
+
+    def fake_ask_stream(*args, **kwargs):
+        histories.append(list(kwargs.get("history") or []))
+        yield Stage("searching")
+        yield Stage("writing")
+        yield note
+        yield "Reykjavik."
+
+    monkeypatch.setattr("anthill.wiki.ask.ask_stream", fake_ask_stream)
+    monkeypatch.setattr("anthill.agent.intent.decide_web", lambda *a, **k: (True, "q"))
+    monkeypatch.setattr(
+        "anthill.training.collect.record_example", lambda db, **kw: examples.append(kw["output"])
+    )
+    r = client.get(f"/chat/{cid}/stream", params={"message": "Capital of Iceland?", "web": "true"})
+    events = _events(r)
+    kinds = [
+        "stage" if "stage" in e.get("meta", {}) else "token"
+        for e in events
+        if "token" in e or "stage" in e.get("meta", {})
+    ]
+    assert kinds == [
+        "stage",
+        "stage",
+        "token",
+        "token",
+    ]  # the stages come before the note, which comes first
+    assert next(e["token"] for e in events if "token" in e) == note
+
+    import anthill.web.app as app_mod
+    from anthill.web.db import ChatMessage
+
+    stored = (
+        app_mod._SessionFactory()
+        .query(ChatMessage)
+        .filter_by(conversation_id=cid, role="assistant")
+        .one()
+    )
+    assert stored.content == note + "Reykjavik."  # shown with the answer, kept with it
+    assert examples and examples[-1] == "Reykjavik."  # training output without the note
+
+    client.get(f"/chat/{cid}/stream", params={"message": "And its population?", "web": "true"})
+    assert ("assistant", "Reykjavik.") in histories[-1]  # the next turn's history without the note
+
+
+def test_a_failed_fallback_does_not_leave_the_note_and_then_a_failure(tmp_path, monkeypatch):
+    import pytest
+
+    from anthill.inference.base import BackendError
+
+    ws = _workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr(web_mod, "web_search", _boom_with(RuntimeError("offline")))
+
+    class _Failing:
+        def chat_stream(self, messages, **kwargs):
+            raise BackendError("the model is not there")
+            yield  # pragma: no cover
+
+    seen = []
+    with pytest.raises(BackendError):
+        seen.extend(ask_mod.ask_stream(ws, "capital of Iceland?", _Failing(), web_search=True))
+    assert not [x for x in seen if isinstance(x, str)]  # no note was sent before the failure
+
+
+def test_the_note_arrives_with_the_first_words_of_the_fallback(tmp_path, monkeypatch):
+    ws = _workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr(web_mod, "web_search", _boom_with(RuntimeError("offline")))
+    out = list(ask_mod.ask_stream(ws, "capital of Iceland?", _Backend(), web_search=True))
+    texts = [x for x in out if isinstance(x, str)]
+    assert texts[0].startswith("_The web search could not be completed") and texts[1] == "The "
+    assert out.index(Stage("writing")) < out.index(texts[0])
+
+
+def test_the_skill_draft_does_not_see_the_note_or_the_list(tmp_path, monkeypatch):
+    from anthill.web.db import ChatMessage
+
+    client, cid = _client(tmp_path, monkeypatch)
+    import anthill.web.app as app_mod
+
+    note = ask_mod.web_failed_note("search_failed")
+    listing = "\n\n**Web sources consulted**\n- [A](https://a.example/x) - a.example"
+    s = app_mod._SessionFactory()
+    s.add(ChatMessage(conversation_id=cid, role="user", content="Do the thing"))
+    s.add(ChatMessage(conversation_id=cid, role="assistant", content=note + "Done." + listing))
+    s.commit()
+    seen = {}
+
+    def fake_draft(transcript, backend):
+        seen["transcript"] = transcript
+        return {"name": "x"}
+
+    monkeypatch.setattr("anthill.agent.skills.draft_skill", fake_draft)
+    r = client.post("/skills/draft-from-chat", data={"conv_id": cid})
+    assert r.status_code == 200
+    assert "assistant: Done." in seen["transcript"]
+    assert "could not be completed" not in seen["transcript"]
+    assert "Web sources consulted" not in seen["transcript"]

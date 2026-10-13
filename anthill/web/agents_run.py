@@ -57,6 +57,7 @@ def _plane_tools(db, agent, plane_inf):
         team_id=getattr(agent, "team_id", None),
         member_user_id=agent.created_by,
         personal_user_id=agent.created_by,
+        org_id=agent.org_id,
     )
     from .mcp_store import mcp_client_tools
 
@@ -221,7 +222,7 @@ def run_agent(agent, db) -> str:
     verifier-checked and queued for human approval (never fired headless).
     """
     from .. import planes
-    from ..agent.executor import AgentExecutor
+    from ..agent.executor import NO_TOOLS_NOTE, AgentExecutor, strip_no_tools_note
     from . import audit
     from .agent_context import agent_context_for
     from .agents import audit_hook
@@ -272,6 +273,12 @@ def run_agent(agent, db) -> str:
     )
     result = executor.run(goal, context=mem_ctx)
     answer = result.answer
+    # A model that cannot call tools answered with one plain chat. The caller (the agent tick) reads this to
+    # flag the run for the owner; the note is ours, so review and escalation see only the answer.
+    no_tools = bool(getattr(result, "answered_without_tools", False))
+    agent._answered_without_tools = no_tools
+    if no_tools:
+        answer = strip_no_tools_note(answer)
     # Council review (Phase 4b): the agent's tool-calling loop already ran exactly once, on `backend`,
     # above - this only ever critiques the finished text via .chat(), never re-runs the loop or gives a
     # reviewer tool access. Degrades to `answer` unchanged on any failure - a review must never break or
@@ -293,7 +300,7 @@ def run_agent(agent, db) -> str:
     _propose_escalation(
         db, agent, cfg, decrypt, plane_inf, goal=goal, context=mem_ctx, answer=answer
     )
-    return answer
+    return NO_TOOLS_NOTE + answer if no_tools else answer
 
 
 def _execute_escalation(db, approval) -> str:

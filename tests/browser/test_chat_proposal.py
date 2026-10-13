@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import socket
 import threading
 import time
@@ -406,9 +407,9 @@ def test_task_creation_modal_discards_stale_draft_edit(live):
                 }"""
             )
             page.locator("#task-desc").fill("Draft a daily summary")
-            page.get_by_role("button", name="Draft it").click()
+            page.get_by_role("button", name="Draft from description").click()
 
-            edit = row.get_by_role("button", name="Edit")
+            edit = row.get_by_role("button", name=re.compile(r"^Edit task: "))
             edit.click()
             dialog = page.get_by_role("dialog", name="Edit task")
             form = dialog.locator("#task-form")
@@ -440,7 +441,7 @@ def test_task_creation_modal_discards_stale_draft_edit(live):
                 }"""
             )
             page.locator("#task-desc").fill("Draft another daily summary")
-            page.get_by_role("button", name="Draft it").click()
+            page.get_by_role("button", name="Draft from description").click()
             trigger.click()
             page.evaluate("window.resolveFailedDraft()")
             page.wait_for_function("!document.getElementById('draft-btn').disabled")
@@ -489,7 +490,7 @@ def test_task_creation_modal_ignores_stale_native_close(live):
             assert dialog.is_visible()
             page.keyboard.press("Escape")
             page.wait_for_function("window.taskCloseEvents === 2")
-            draft = page.get_by_role("button", name="Draft it")
+            draft = page.get_by_role("button", name="Draft from description")
             assert draft.evaluate("el => el === document.activeElement")
         finally:
             browser.close()
@@ -704,7 +705,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             edit_page = edit_context.new_page()
             edit_page.goto(f"{base}/tasks", wait_until="domcontentloaded")
             edit_row = edit_page.locator("tr", has_text="Browser timezone task")
-            edit_row.get_by_role("button", name="Edit").click()
+            edit_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             edit_form = edit_page.locator("#task-form")
             assert edit_form.locator("#task-timezone-label").inner_text() == timezone_id
             assert edit_form.locator("#task-timezone-note").is_visible() is True
@@ -734,7 +735,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             assert task.timezone == timezone_id
 
             edit_row = edit_page.locator("tr", has_text="Edited browser timezone task")
-            edit_row.get_by_role("button", name="Edit").click()
+            edit_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             edit_form.locator("#task-timezone").fill("Europe/Paris")
             with edit_page.expect_navigation(wait_until="domcontentloaded"):
                 edit_form.get_by_role("button", name="Save changes").click()
@@ -773,7 +774,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             s.commit()
             edit_page.reload(wait_until="domcontentloaded")
             running_row = edit_page.locator("tr", has_text="Edited browser timezone task")
-            assert running_row.get_by_role("button", name="Edit").is_visible()
+            assert running_row.get_by_role("button", name=re.compile(r"^Edit task: ")).is_visible()
 
             legacy_hourly = ScheduledTask(
                 org_id=task.org_id,
@@ -789,7 +790,7 @@ def test_tasks_ui_creates_and_edits_in_browser_timezone(live):
             edit_page.reload(wait_until="domcontentloaded")
             legacy_row = edit_page.locator("tr", has_text="Legacy hourly task")
             assert timezone_id not in legacy_row.inner_text()
-            legacy_row.get_by_role("button", name="Edit").click()
+            legacy_row.get_by_role("button", name=re.compile(r"^Edit task: ")).click()
             assert edit_page.locator("#task-timezone-note").is_hidden()
         finally:
             browser.close()
@@ -857,22 +858,29 @@ def test_chat_rail_merges_conversations_and_folds_groups(live):
             browser.close()
 
 
-def test_options_panel_hidden_by_default(live):
-    """P4: chat is a single box - the Web-search + scope overrides live under an Options disclosure.
+def test_composer_toolbar_has_web_search_and_knowledge_buttons(live):
+    """Under the message box: Web search and Knowledge are buttons like Thinking (no Options panel).
     The Agent-mode toggle is retired (#421): the router picks depth, so it is gone entirely."""
     base, token, conv_id, _asst_id = live
     with sync_api.sync_playwright() as p:
         browser, page = _page(p, base, token, conv_id)
         try:
-            page.wait_for_selector("#opt-toggle")
-            # the Web-search override is off the default surface...
-            assert page.locator("#opt-panel").is_visible() is False
+            page.wait_for_selector("#opt-web-btn")
+            # the old Options button and its panel no longer exist
+            assert page.locator("#opt-toggle").count() == 0
+            assert page.locator("#opt-panel").count() == 0
+            # the three controls are visible buttons; the web-search checkbox is only the hidden state holder
+            assert page.locator("#opt-web-btn").is_visible() is True
+            assert page.locator(".opt-scope-btn").is_visible() is True
+            assert page.locator("#opt-think").is_visible() is True
             assert page.locator("#opt-web").is_visible() is False
             # ...and the manual "Agent mode" toggle no longer exists at all (#421)
             assert page.locator("#opt-agent").count() == 0
-            # Options reveals the remaining overrides (web search + knowledge scope)
-            page.locator("#opt-toggle").click()
-            assert page.locator("#opt-panel").is_visible() is True
-            assert page.locator("#opt-web").is_visible() is True
+            # Web search flips from its own button; the knowledge button shows the chosen scope
+            before = page.locator("#opt-web").is_checked()
+            page.locator("#opt-web-btn").click()
+            assert page.locator("#opt-web").is_checked() is (not before)
+            page.locator("#opt-scope").select_option("personal")
+            assert page.locator("#opt-scope-label").inner_text().strip() == "Personal only"
         finally:
             browser.close()

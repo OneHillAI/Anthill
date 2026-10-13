@@ -325,7 +325,8 @@ def test_scope_is_shown_as_a_word_and_by_shape_not_by_colour_alone(live):
             page.wait_for_load_state("networkidle")
             org = page.locator("td:has(.plane-dot-org)").first
             solo = page.locator("td:has(.plane-dot-solo)").first
-            assert org.inner_text().strip() == "Org" and solo.inner_text().strip() == "Solo"
+            assert org.inner_text().split("\n")[0].strip() == "Org"
+            assert solo.inner_text().split("\n")[0].strip() == "Solo"
             radius = "getComputedStyle(el).borderRadius"
             assert page.locator(".plane-dot-org").first.evaluate(f"el => {radius}") != page.locator(
                 ".plane-dot-solo"

@@ -43,6 +43,17 @@ def expected_signer() -> tuple[str, str]:
     return identity, issuer
 
 
+# The two reasons that come from this server's own setup rather than from the catalog it was served.
+NO_SIGNER = "no expected signer is configured"
+UNAVAILABLE = "signature verification is unavailable"
+
+
+def cannot_check(reason: str) -> bool:
+    """Whether a refusal from :func:`verify_catalog` means this server could not check any signature (no
+    signer pinned, or the verifier missing), as opposed to a catalog whose signature is wrong."""
+    return reason.startswith((NO_SIGNER, UNAVAILABLE))
+
+
 def verify_catalog(payload: bytes, bundle_json: str) -> str:
     """Verify ``payload`` was signed by the expected workflow identity.
 
@@ -52,12 +63,12 @@ def verify_catalog(payload: bytes, bundle_json: str) -> str:
     """
     identity, issuer = expected_signer()
     if not identity or not issuer:
-        return "no expected signer is configured"
+        return NO_SIGNER
     try:
         from sigstore.models import Bundle
         from sigstore.verify import Verifier, policy
     except Exception as e:  # absent from a frozen build -> refuse rather than silently trust
-        return f"signature verification is unavailable ({e})"
+        return f"{UNAVAILABLE} ({e})"
     try:
         bundle = Bundle.from_json(bundle_json)
     except Exception as e:

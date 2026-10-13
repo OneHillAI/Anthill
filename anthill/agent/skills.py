@@ -435,7 +435,7 @@ def write_skill(
     if scope:
         from ..wiki.workspace import workspace_for
 
-        ws = workspace_for(scope, team_id=team_id, user_id=user_id)
+        ws = workspace_for(scope, team_id=team_id, user_id=user_id, org_id=org_id)
         if not ws.exists():
             ws.init()
         base, tier = ws.skills, scope

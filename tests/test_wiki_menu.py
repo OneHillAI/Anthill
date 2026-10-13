@@ -64,8 +64,8 @@ def test_research_is_one_merged_card(tmp_path, monkeypatch):
 def test_pages_are_clickable_and_viewable(tmp_path, monkeypatch):
     from anthill.wiki.workspace import workspace_for
 
-    c, _, _, _ = _client(tmp_path, monkeypatch)
-    ws = workspace_for("org")
+    c, _, org_id, _ = _client(tmp_path, monkeypatch)
+    ws = workspace_for("org", org_id=org_id)
     ws.init()
     ws.write_page("Returns Policy", "# Returns Policy\n\n30-day window for unused items.\n")
     page = c.get("/wiki/org").text

@@ -34,7 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import __version__
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
-from ..wiki.workspace import workspace_for
+from ..wiki.workspace import org_wiki_root, workspace_for
 from . import audit, metrics
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -302,7 +302,7 @@ templates = Jinja2Templates(directory=str(_HERE / "templates"), context_processo
 logger = logging.getLogger("anthill.web")
 
 # Branded error pages. Every error a person can land on (a bad URL, a broken tunnel) renders the
-# fleeing-ant scene in error.html - the mirror of the working "antstreet" - instead of a bare JSON
+# fleeing-ant scene in error.html - the mirror of the chat's working ants - instead of a bare JSON
 # blob. Kept warm on purpose: an error is where trust is easiest to lose. API/JSON clients still get
 # JSON (content-negotiated on Accept), and redirects (e.g. the 303 to /login) pass through untouched.
 _RESCUE = (
@@ -479,6 +479,14 @@ def _startup():
         except Exception:
             pass
         try:
+            _claim_legacy_org_wiki()  # the first admin's org keeps the existing org wiki folder
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the org wiki folder owner")
+        try:
+            _note_shared_org_wiki_upgrade()  # an install with several organisations: tell them, once
+        except Exception:
+            logging.getLogger(__name__).exception("could not record the shared org wiki notice")
+        try:
             _migrate_legacy_personal_wiki()  # fold a legacy single-node personal wiki into per-user
         except Exception:
             pass
@@ -573,6 +581,116 @@ def _autostart_local_serving() -> None:
         db.close()
 
 
+def _claim_legacy_org_wiki() -> None:
+    """Record which organisation owns the legacy org wiki folder (``ANTHILL_ORG_WIKI``), once, so an
+    existing install keeps its pages. It is the organisation of the first admin (the same account the
+    registry backfill has always attributed the folder to), else the oldest organisation. A fresh install
+    records its first organisation here after that organisation is committed. A failure is logged, never
+    raised: sign-up and start-up carry on."""
+    from ..wiki.workspace import claim_legacy_org_wiki, legacy_org_wiki_owner
+
+    if legacy_org_wiki_owner() is not None:
+        return
+    db = _db()
+    try:
+        admin = db.query(User).filter(User.role == "admin").order_by(User.id).first()
+        org_id = admin.org_id if admin else None
+        if org_id is None:
+            first = db.query(Organization).order_by(Organization.id).first()
+            org_id = first.id if first else None
+        if org_id is not None:
+            if claim_legacy_org_wiki(org_id):
+                # The check for a folder that several organisations shared runs once, here, at the moment
+                # of the claim. On a fresh install the claim is the first sign-up: there is nothing from
+                # before the upgrade, so later organisations are never told about a shared folder.
+                _note_shared_org_wiki_upgrade(fresh=db.query(Organization).count() <= 1)
+            elif legacy_org_wiki_owner() is None:
+                logging.getLogger(__name__).warning(
+                    "org wiki folder owner not recorded (organisation %s)", org_id
+                )
+    except Exception:
+        logging.getLogger(__name__).exception("could not record the org wiki folder owner")
+    finally:
+        db.close()
+
+
+UPGRADE_NOTICE_MARKER = ".upgrade-notice"
+
+
+def _note_shared_org_wiki_upgrade(fresh: bool = False) -> None:
+    """Once, on an install that had several organisations when it was upgraded: the org wiki folder every
+    organisation used to share stays with the organisation recorded as its owner, and the other organisations
+    start with an empty org wiki. Nothing is moved or deleted. Record that in the folder (counts only, so
+    the owner's admin sees a notice on the org wiki page) and write one audit row per organisation, with its
+    ``org_id``, so each organisation's admins can see what happened. Names of pages are never logged.
+
+    It runs once: the marker is created exclusively, before any audit row is written, so two processes cannot
+    both write the rows. ``fresh`` is True when the folder's owner was just recorded for the install's first
+    organisation, which has nothing from before the upgrade."""
+    from ..wiki.workspace import legacy_org_wiki_owner, legacy_org_wiki_workspace
+
+    owner = legacy_org_wiki_owner()
+    legacy = legacy_org_wiki_workspace()
+    marker = legacy.root / UPGRADE_NOTICE_MARKER
+    if owner is None or marker.exists() or not legacy.root.exists():
+        return
+    db = _db()
+    try:
+        orgs = db.query(Organization).order_by(Organization.id).all()
+        pages = len(legacy.pages())
+        if len(orgs) > 1 and pages and not fresh:
+            if not _create_notice_marker(marker, f"organisations={len(orgs)} pages={pages}\n"):
+                return  # another process got there first and wrote the rows
+            for org in orgs:
+                role = "owner" if org.id == owner else "other"
+                audit.log(
+                    db,
+                    "org_wiki.shared_before_upgrade",
+                    f"role={role} pages_in_the_previous_shared_folder={pages}",
+                    org_id=org.id,
+                )
+            logging.getLogger(__name__).info(
+                "org wiki: %d organisations shared one folder (%d pages); it stays with organisation %s",
+                len(orgs),
+                pages,
+                owner,
+            )
+        else:
+            # Nothing to tell: a fresh install, a single organisation, or an empty folder. Remember it so
+            # this runs once.
+            _create_notice_marker(
+                marker,
+                "organisations=1 fresh=1\n" if fresh else f"organisations={len(orgs)} pages=0\n",
+            )
+    finally:
+        db.close()
+
+
+def _create_notice_marker(marker, text: str) -> bool:
+    """Create the once-only marker exclusively. False when it already exists."""
+    try:
+        with open(marker, "x") as fh:
+            fh.write(text)
+    except FileExistsError:
+        return False
+    return True
+
+
+def org_wiki_upgrade_notice(org_id: int) -> bool:
+    """True when this organisation owns a folder that several organisations shared before the upgrade."""
+    import re
+
+    from ..wiki.workspace import legacy_org_wiki_owner, legacy_org_wiki_workspace
+
+    marker = legacy_org_wiki_workspace().root / UPGRADE_NOTICE_MARKER
+    try:
+        text = marker.read_text()
+    except OSError:
+        return False
+    found = re.search(r"organisations=(\d+)", text)
+    return bool(found and int(found.group(1)) > 1 and legacy_org_wiki_owner() == org_id)
+
+
 def _migrate_legacy_personal_wiki() -> None:
     """Fold a legacy single-node personal wiki (ANTHILL_WORKSPACE) into the creator/admin's per-user
     wiki, once. Plain chat now resolves the personal wiki per-user (user-<id>), so without this an
@@ -595,22 +713,19 @@ def _backfill_knowledge_registry() -> None:
     is safe and cheap to run on every boot: an already-backfilled install does a set of existence
     checks and writes nothing.
 
-    Every personal (per-user) and team workspace maps 1:1 to a real row, so those are exact. The org
-    workspace is a single shared directory today (``workspace_for("org")`` takes no org_id - a
-    pre-existing, install-wide assumption this backfill does not change), so it is attributed to one
-    canonical org: the first admin's, matching ``_migrate_legacy_personal_wiki``'s own convention just
-    above. Best-effort per workspace: one bad workspace must never stop the rest from being indexed."""
+    Every personal (per-user), team and org workspace maps 1:1 to a real row. The legacy org wiki folder
+    belongs to the organisation recorded as its owner, so everything found there is registered under that
+    organisation. Best-effort per workspace: one bad workspace must never stop the rest from being indexed."""
     from ..wiki.workspace import workspace_for
     from .knowledge_registry import backfill_workspace
 
     db = _db()
     try:
-        admin = db.query(User).filter(User.role == "admin").order_by(User.id).first()
-        if admin:
+        for org_row in db.query(Organization).order_by(Organization.id).all():
             try:
-                ws = workspace_for("org")
+                ws = workspace_for("org", org_id=org_row.id)
                 if ws.exists():
-                    backfill_workspace(db, ws, org_id=admin.org_id, scope="org")
+                    backfill_workspace(db, ws, org_id=org_row.id, scope="org")
             except Exception:
                 pass
         for team in db.query(Team).all():
@@ -835,13 +950,17 @@ def _session_order_cookies(request: Request) -> list[tuple[int, str, str]]:
     for name, value in request.cookies.items():
         if not name.startswith(_SESSION_ORDER_COOKIE_PREFIX):
             continue
-        try:
-            order = int(name.removeprefix(_SESSION_ORDER_COOKIE_PREFIX))
-        except ValueError:
+        # The name is set again on renewal, so only the exact form this server writes is read: 1 to 12 ASCII
+        # digits with no leading zero. int() alone would also take "+5", "05", "5_0" or non-ASCII digits.
+        suffix = name.removeprefix(_SESSION_ORDER_COOKIE_PREFIX)
+        if not (
+            1 <= len(suffix) <= 12
+            and suffix.isascii()
+            and suffix.isdigit()
+            and not suffix.startswith("0")
+        ):
             continue
-        if order <= 0:
-            continue
-        cookies.append((order, name, value))
+        cookies.append((int(suffix), name, value))
     return sorted(cookies, reverse=True)
 
 
@@ -1624,7 +1743,7 @@ def propose_wiki_write(
     if not provenance_hash:
         provenance_hash = hashlib.sha256((content or "").encode()).hexdigest()
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-    ws = workspace_for(target_scope, team_id=team_id, user_id=proposed_by)
+    ws = workspace_for(target_scope, team_id=team_id, user_id=proposed_by, org_id=org_id)
     if not ws.exists():
         ws.init()
     from ..wiki.review import outline_change
@@ -1984,7 +2103,12 @@ def _distil_memory_from_chat(db, org_id, user_id, conv, backend) -> None:
         .limit(8)
         .all()
     )[::-1]
-    transcript = "\n".join(f"{m.role}: {m.content}" for m in recent)
+    from ..wiki.ask import strip_web_note
+
+    transcript = "\n".join(
+        f"{m.role}: {strip_web_note(m.content) if m.role == 'assistant' else m.content}"
+        for m in recent
+    )
     items = mem.extract(transcript, backend)
     if items:
         rows = (
@@ -2253,6 +2377,7 @@ async def setup_post(
             db.rollback()
             return RedirectResponse("/login", status_code=302)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install: the first organisation owns the org wiki folder
     audit.log(db, "org.created", f"org={org_name}", org_id=org.id)
     if first_account:
         audit.log(
@@ -4248,7 +4373,7 @@ def _org_plane_answer(db, org, member, question, *, history=None):
     principles, _sk = agent_context_for(
         db, user_id=member.id, org_id=org.id, plane="org", is_org=True
     )
-    base_ws = workspace_for("org")
+    base_ws = workspace_for("org", org_id=org.id)
     if not base_ws.exists():
         base_ws.init()
     extra_ws = [
@@ -4648,6 +4773,7 @@ async def google_auth(request: Request, code: str = "", error: str = "", state: 
 
     u.last_seen = datetime.now(timezone.utc)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install's first account: its org owns the org wiki folder
     audit.log(
         db, "user.login", f"email={email} provider=google", org_id=u.org_id, user_id=u.id, ip=ip
     )
@@ -4751,6 +4877,7 @@ async def microsoft_auth(request: Request, code: str = "", error: str = "", stat
 
     u.last_seen = datetime.now(timezone.utc)
     db.commit()
+    _claim_legacy_org_wiki()  # a fresh install's first account: its org owns the org wiki folder
     audit.log(
         db, "user.login", f"email={email} provider=microsoft", org_id=u.org_id, user_id=u.id, ip=ip
     )
@@ -5075,7 +5202,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
         if not solo:
             members = db.query(User).filter(User.org_id == org.id).count()
             try:
-                ws = workspace_for("org")
+                ws = workspace_for("org", org_id=org.id)
                 wiki_pages = len(ws.pages()) if ws.exists() else 0
             except Exception:
                 wiki_pages = 0
@@ -5204,7 +5331,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
         )
     else:
         try:
-            _ws = workspace_for("org")
+            _ws = workspace_for("org", org_id=org.id)
             wiki_pages_list = _ws.pages() if _ws.exists() else []
         except Exception:
             wiki_pages_list = []
@@ -7288,7 +7415,9 @@ async def approve_review(
         rev.content = content
 
     # Write to the destination wiki resolved from the review's scope.
-    ws = workspace_for(rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by)
+    ws = workspace_for(
+        rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
+    )
     if not ws.exists():
         ws.init()
     kind = getattr(rev, "kind", "page") or "page"
@@ -7496,7 +7625,12 @@ def _wiki_can_edit(db, user, scope, team_id) -> bool:
 
 def _wiki_ws(user, scope, team_id):
     uid = int(user["sub"])
-    return workspace_for(scope, team_id=team_id, user_id=uid if scope == "personal" else None)
+    return workspace_for(
+        scope,
+        team_id=team_id,
+        user_id=uid if scope == "personal" else None,
+        org_id=user.get("org"),
+    )
 
 
 def _pdf_confirmation_dir(ws):
@@ -7673,9 +7807,9 @@ def wiki_personal(request: Request, user: dict = Depends(_require_user)):
 def wiki_org(request: Request, user: dict = Depends(_require_admin)):
     db = _db()
     org = _require_org(db, user)
-    return templates.TemplateResponse(
-        request, "wiki.html", _wiki_ctx(request, db, user, org, "org")
-    )
+    ctx = _wiki_ctx(request, db, user, org, "org")
+    ctx["shared_before_upgrade"] = org_wiki_upgrade_notice(org.id)
+    return templates.TemplateResponse(request, "wiki.html", ctx)
 
 
 @app.get("/wiki/export.okgf.tgz")
@@ -7701,7 +7835,7 @@ def wiki_export_okgf(
         raise HTTPException(status_code=403, detail="Org wiki export is admin-only")
     if scope == "team" and (team_id is None or _team_role(db, int(user["sub"]), team_id) is None):
         raise HTTPException(status_code=403, detail="Not a member of this team")
-    ws = workspace_for(scope, team_id=team_id, user_id=int(user["sub"]))
+    ws = workspace_for(scope, team_id=team_id, user_id=int(user["sub"]), org_id=user.get("org"))
     pages: list[tuple[str, str, float]] = []
     if ws.exists():
         for p in ws.pages():
@@ -8953,7 +9087,12 @@ async def settings_training_test(user: dict = Depends(_require_admin)):
     try:
         ok, detail = get_backend(cfg).validate(cfg)
     except Exception as e:
-        ok, detail = False, str(e)
+        # Only the class: the check calls the backend's service, and that error text can carry a URL or key.
+        logging.getLogger(__name__).warning("training backend check failed: %s", type(e).__name__)
+        ok, detail = (
+            False,
+            "Could not check the training backend. Check its settings and try again.",
+        )
     cfg.training_status = "validated" if ok else "error"
     cfg.training_status_detail = detail[:255]
     db.commit()
@@ -10333,7 +10472,15 @@ async def settings_org_discover_models(
     try:
         models = ep_mod.list_models(url, api_key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach {url}: {e}"})
+        # The admin typed this URL, so it is not logged (it could carry a key); the class and the status
+        # code are enough to tell the kinds of failure apart.
+        logging.getLogger(__name__).warning(
+            "server model discovery failed: %s (status %s)",
+            type(e).__name__,
+            getattr(getattr(e, "response", None), "status_code", None),
+        )
+        message = _discovery_failure_message("the model server", e)
+        return JSONResponse({"ok": False, "error": message[0].upper() + message[1:]})
     audit.log(
         db,
         "settings.org_discover_models",
@@ -10408,6 +10555,8 @@ def _discovery_failure_message(provider_name: str, exc: Exception) -> str:
     if status == 429:
         return f"{provider_name} is rate limiting requests. Wait a moment and try again."
     names = {c.__name__ for c in type(exc).__mro__}
+    if names & {"UnsupportedProtocol", "InvalidURL"}:
+        return f"Couldn't reach {provider_name}. Check the address (it should start with http:// or https://)."
     if names & {
         "ConnectError",
         "ConnectTimeout",
@@ -10741,7 +10890,7 @@ def backend_info(request: Request, user: dict = Depends(_require_admin)):
             "dashboard_url": str(request.base_url).rstrip("/"),
             "data_home": str(p["home"]),
             "db_path": str(p["db"]),
-            "org_wiki": os.environ.get("ANTHILL_ORG_WIKI", str(p["home"] / "org-wiki")),
+            "org_wiki": str(org_wiki_root(org.id)),
             "wiki_hosting": getattr(cfg, "wiki_hosting", "local") or "local",
             "wiki_vpc_url": getattr(cfg, "wiki_vpc_url", "") or "",
         },
@@ -10835,14 +10984,19 @@ async def backup_restore(
         return RedirectResponse("/backup?error=1", status_code=302)
     finally:
         tmp.unlink(missing_ok=True)
+    aside = result.moved_aside.name if result.moved_aside else ""
     audit.log(
         db,
         "backup.restore",
-        f"restored={result.restored} models={result.models}",
+        f"restored={result.restored} models={result.models}"
+        + (f" moved_aside={aside}" if aside else ""),
         org_id=org.id,
         user_id=user["sub"],
     )
-    return RedirectResponse("/backup?restored=1", status_code=302)
+    from urllib.parse import quote
+
+    suffix = f"&aside={quote(aside)}" if aside else ""
+    return RedirectResponse(f"/backup?restored=1{suffix}", status_code=302)
 
 
 def _now_stamp_safe(filename: str | None) -> str:
@@ -11155,7 +11309,18 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
                 {"ok": False, "error": "The catalog is not signed; refusing to trust it."}
             )
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't reach the catalog service: {e}"})
+        # The class and the HTTP status only: httpx's text for a refused fetch quotes the URL.
+        logging.getLogger(__name__).warning(
+            "catalog fetch failed: %s (status %s)",
+            type(e).__name__,
+            getattr(getattr(e, "response", None), "status_code", None),
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Could not reach the catalog service. Check the connection and try again.",
+            }
+        )
 
     # Authenticity first, over the exact bytes served and before they are parsed: was this published by our
     # workflow? Owning the host, the CDN or DNS does not get you past this.
@@ -11168,20 +11333,27 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
             org_id=org.id,
             user_id=user["sub"],
         )
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    f"Refused: this catalog is not from the expected publisher ({reason}). "
-                    "Your current models are unchanged."
-                ),
-            }
-        )
+        logging.getLogger(__name__).warning("catalog signature refused: %s", reason)
+        if catalog_trust.cannot_check(reason):
+            # This server's own setup, not the catalog: no signer is pinned or the verifier is missing.
+            message = "This server cannot check the catalog signature. The catalog was not used."
+        else:
+            message = (
+                "Refused: this catalog is not from the expected publisher. "
+                "Your current models are unchanged."
+            )
+        return JSONResponse({"ok": False, "error": message})
 
     try:
         data = r.json()
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"The catalog is unreadable: {e}"})
+        logging.getLogger(__name__).warning("catalog could not be read: %s", type(e).__name__)
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "The catalog is unreadable. Your current models are unchanged.",
+            }
+        )
 
     # Freshness: a signature proves WHO published a catalog, not WHICH one. Whoever controls the host can
     # replay an older, still-validly-signed catalog to bring back a model we have since dropped.
@@ -11251,7 +11423,18 @@ async def refresh_model_catalog(user: dict = Depends(_require_admin)):
         Path(override).parent.mkdir(parents=True, exist_ok=True)
         Path(override).write_text(json.dumps(doc))
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Couldn't save the refreshed catalog: {e}"})
+        logging.getLogger(__name__).warning(
+            "refreshed catalog could not be saved: %s: %s", type(e).__name__, e
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Couldn't save the refreshed catalog. Check that the Anthill folder is writable; "
+                    "the server log has the detail."
+                ),
+            }
+        )
 
     audit.log(
         db,
@@ -11887,6 +12070,44 @@ async def chat_attach(
     return JSONResponse({"token": token})
 
 
+@app.get("/chat/{conv_id}/thinking-support")
+def chat_thinking_support(conv_id: int, user: dict = Depends(_require_user)):
+    """Whether the model that answers this chat can think, for the Thinking button (docs/specs/chat-thinking-toggle.md).
+
+    ``{"known": true, "thinks": bool, "model": tag}`` when the chat runs on a local Ollama model whose
+    abilities Ollama can report; ``{"known": false}`` for a cloud or organisation model, an engine that is not
+    running, or anything else, so the page then leaves the button as it is. A sync route: the engine call runs
+    in a worker thread and never holds the event loop. The page asks after it has loaded, so opening a chat
+    never waits for the engine."""
+    from ..inference.ollama import OllamaBackend
+    from .crypto import decrypt
+    from .plane_routing import PlaneUnavailable, plane_inference
+
+    unknown = {"known": False}
+    db = _db()
+    org = _require_org(db, user)
+    conv = (
+        db.query(Conversation)
+        .filter(Conversation.id == conv_id, Conversation.user_id == int(user["sub"]))
+        .first()
+    )
+    if conv is None:
+        raise HTTPException(status_code=404, detail="No such chat")
+    cfg = _cfg(db, org)
+    if cfg is None:  # settings not saved yet: no model chosen, nothing to say
+        return unknown
+    try:
+        plane_inf = plane_inference(conv.plane, cfg, decrypt=decrypt)
+    except PlaneUnavailable:
+        return unknown
+    if plane_inf.backend != "ollama" or not plane_inf.model:
+        return unknown
+    thinks = OllamaBackend(plane_inf.base_url, plane_inf.model).thinking_support(plane_inf.model)
+    if thinks is None:
+        return unknown
+    return {"known": True, "thinks": thinks, "model": plane_inf.model}
+
+
 @app.get("/chat/{conv_id}/stream")
 async def chat_stream(
     request: Request,
@@ -12006,7 +12227,12 @@ async def chat_stream(
         and is_active_member(db, _uid, _conv_tid)
     )
     ws_path = run_wiki_workspace(
-        db, plane_inf=plane_inf, team_id=_conv_tid, member_user_id=_uid, personal_user_id=_uid
+        db,
+        plane_inf=plane_inf,
+        team_id=_conv_tid,
+        member_user_id=_uid,
+        personal_user_id=_uid,
+        org_id=user["org"],
     )
 
     # `confirm` runs an already-shown proposal (the user message is already saved); don't
@@ -12099,6 +12325,7 @@ async def chat_stream(
         )
         full_response = []
         generation_failed = False
+        fixed_answer = False  # set when the answer is the code-made "no news articles" text
         cache_hit = False  # set by the normal-chat branch; agent mode stays local
         escalations: list[float] = []  # cloud escalation costs, if the answer left the perimeter
         _escalated = False  # set True on a successful Automated-mode escalation; persisted below so
@@ -12320,6 +12547,18 @@ async def chat_stream(
                     auto_web = True
 
         try:
+            # The model the agent path would use. A router pick is made once, here, and reused below.
+            agent_model_tag = None
+            if (agent_mode or agent_auto) and not research and not images_b64:
+                agent_model_tag = router.route(message)[0] if router is not None else config.model
+                if agent_auto and not agent_mode:
+                    from ..agent.executor import backend_can_use_tools
+
+                    # A silent detour into the agent on a model that cannot call tools would give one plain
+                    # chat with no wiki, web or history: worse than the normal answer. Only an explicit
+                    # agent mode gets that (with its note).
+                    if not await run_in_threadpool(backend_can_use_tools, backend, agent_model_tag):
+                        agent_auto = False
             if research:
                 # Deep-research mode: stream the cited report AS it is produced - a search status line
                 # (immediate bytes), then the synthesized body token-by-token, then the Sources. The old
@@ -12356,7 +12595,7 @@ async def chat_stream(
                 ) + mcp_client_tools(
                     db, org.id
                 )  # builtin tools + approved MCP servers; files scoped per-user (owner=org/user)
-                model_tag = router.route(message)[0] if router is not None else config.model
+                model_tag = agent_model_tag
                 ident = get_or_create_identity(db, org.id, "chat-agent", agent_type="chat")
                 principles, skills = agent_context_for(
                     db,
@@ -12433,14 +12672,16 @@ async def chat_stream(
                 elif plane_inf.use_personal_context:
                     ws = workspace_for("personal", user_id=int(user["sub"]))
                 else:
-                    ws = workspace_for("org")
+                    ws = workspace_for("org", org_id=user["org"])
                 if not ws.exists():
                     ws.init()
                 # Prior conversation turns, so the model has memory of this chat (it used to fetch
                 # and discard them - hence re-asking answered questions). Exclude the just-saved
                 # current message; ask() reconciles to the context budget.
+                from ..wiki.ask import strip_web_note
+
                 history = [
-                    (m.role, m.content)
+                    (m.role, strip_web_note(m.content) if m.role == "assistant" else m.content)
                     for m in conv.messages
                     if m.id != user_msg_id
                     and m.role in ("user", "assistant")
@@ -12500,11 +12741,12 @@ async def chat_stream(
                                 use_personal_context=plane_inf.use_personal_context,
                                 wiki_scope=wiki_scope,
                                 user_id=int(user["sub"]),
+                                org_id=user["org"],
                             )
                         )
                     else:
                         if plane_inf.use_personal_context and wiki_scope in ("all", "org"):
-                            extra_ws.append(workspace_for("org"))
+                            extra_ws.append(workspace_for("org", org_id=user["org"]))
                         if wiki_scope in ("all", "team"):
                             for tid in user_team_ids(db, int(user["sub"])):
                                 extra_ws.append(workspace_for("team", team_id=tid))
@@ -12610,6 +12852,7 @@ async def chat_stream(
                             think=None if think else False,
                             web_search=web_effective,
                             search_query=search_query,
+                            member_question=message,
                         )
                     ):
                         # The client abandons this EventSource when "Ask {Provider} instead" fires
@@ -12626,6 +12869,9 @@ async def chat_stream(
                         if isinstance(
                             token, Stage
                         ):  # progress of a web turn, not part of the answer
+                            if token.name == "fixed":
+                                fixed_answer = True  # code-made text follows; the page is not told
+                                continue
                             yield f"data: {json.dumps({'meta': {'stage': token.name, 'count': token.count}})}\n\n"
                             continue
                         full_response.append(token)
@@ -12640,6 +12886,7 @@ async def chat_stream(
                         effective_message,
                         backend,
                         web_search=web_effective,
+                        member_question=message,
                         images_b64=images_b64,  # a vision turn when an image was attached
                         memory_context=memory_context,
                         profile=profile_used,
@@ -12668,6 +12915,7 @@ async def chat_stream(
                         cfg.cloud_spent_usd = f"{spent + sum(escalations):.6f}"
                         db.commit()
                         yield f"data: {json.dumps({'meta': {'cloud_cost_usd': round(sum(escalations), 6)}})}\n\n"
+                    fixed_answer = bool(getattr(answer, "code_made", False))
                     words = answer.split(" ")
                     for i, word in enumerate(words):
                         token = word + (" " if i < len(words) - 1 else "")
@@ -12682,6 +12930,10 @@ async def chat_stream(
                     # answer, saved by /chat/{id}/ask-provider-now, IS this turn's answer instead).
                     return
 
+                # A fixed answer made by code (no news articles were found) is not the model's: no wiki page
+                # was used for it, it is not a training example, and nothing is escalated to a provider for it.
+                if fixed_answer:
+                    slugs = []
                 if cache_hit:
                     yield f"data: {json.dumps({'meta': {'cache_hit': True}})}\n\n"
                 if slugs:
@@ -12701,12 +12953,14 @@ async def chat_stream(
                 if (
                     cfg
                     and not escalate_org  # already manually escalated this turn - don't also automate one
+                    and not fixed_answer  # code-made text: a provider could invent what it declined to say
                     and not cache_hit  # a cached answer isn't re-graded against a fresh attachment call
                     and getattr(cfg, "escalation_provider", "")
                     and getattr(cfg, "escalation_mode", "ask") == "automated"
                 ):
                     try:
                         from ..inference.base import ChatResult, Message
+                        from ..wiki.ask import strip_web_note
                         from .escalation import (
                             escalation_cap_reached,
                             record_escalation_used,
@@ -12714,7 +12968,7 @@ async def chat_stream(
                         )
                         from .plane_routing import PlaneInference
 
-                        local_answer = "".join(full_response)
+                        local_answer = strip_web_note("".join(full_response))
                         if local_answer.strip() and not escalation_cap_reached(cfg):
                             attachment_backend = _build_attachment_backend(cfg, _safe_decrypt)
                             if attachment_backend and should_escalate_automated(
@@ -12805,10 +13059,12 @@ async def chat_stream(
             # something has ALREADY offered or fired this turn (_pending_escalation_offer set above, or
             # _escalated True) - never a second, redundant offer on the same answer - or when the
             # monthly cap is already reached, so the offer never teases a click that
-            # /chat/{id}/escalate-confirm would just reject.
+            # /chat/{id}/escalate-confirm would just reject. Never for a fixed answer made by code (no news
+            # articles were found): a provider asked about it could invent the stories it declined to give.
             if (
                 cfg
                 and not escalate_org
+                and not fixed_answer
                 and not cache_hit
                 and not _escalated
                 and not _pending_escalation_offer
@@ -12876,15 +13132,17 @@ async def chat_stream(
 
         if (
             not generation_failed
+            and not fixed_answer  # code-made text is not model output
             and not (plane_inf and plane_inf.ephemeral)
             and auto_memory_on(db, int(user["sub"]))
         ):
             from ..training.collect import record_example
+            from ..wiki.ask import strip_web_note
 
             record_example(
                 db,
                 instruction=message,
-                output=full_text,
+                output=strip_web_note(full_text),  # the note is for the page, not for training
                 model=config.model,
                 source="chat",
                 org_id=org.id,
@@ -12893,8 +13151,9 @@ async def chat_stream(
                 training_eligible=_training_eligible(cfg),
             )
 
-        # Distil durable memory from successful conversations only (throttled, best-effort).
-        if not generation_failed:
+        # Distil durable memory from successful conversations only (throttled, best-effort). The code-made
+        # "no news articles" text is not something the member or the model said, so it is not distilled either.
+        if not generation_failed and not fixed_answer:
             try:
                 _distil_memory_from_chat(db, org.id, int(user["sub"]), conv, backend)
             except Exception:
@@ -14074,7 +14333,12 @@ async def skills_draft_from_chat(conv_id: int = Form(...), user: dict = Depends(
         .limit(8)
         .all()
     )[::-1]
-    transcript = "\n".join(f"{m.role}: {m.content}" for m in recent)
+    from ..wiki.ask import strip_web_note
+
+    transcript = "\n".join(
+        f"{m.role}: {strip_web_note(m.content) if m.role == 'assistant' else m.content}"
+        for m in recent
+    )
     cfg = _cfg(db, org)
     backend = _backend_from_cfg(cfg)
     try:
@@ -14808,6 +15072,8 @@ async def skills_gallery_adopt(
             user_id=int(user["sub"]),
             assets=assets,
             license=entry.license,
+            db=db,
+            org_id=org.id,
         )
     else:  # team/org route through the agent review gate, same as a hand-authored skill
         md = skill_md(*args, tier=scope, license=entry.license)
@@ -14828,6 +15094,8 @@ async def skills_gallery_adopt(
                 user_id=int(user["sub"]),
                 assets=assets,
                 license=entry.license,
+                db=db,
+                org_id=org.id,
             )
         db.commit()
     audit.log(
@@ -15218,6 +15486,23 @@ async def _retry_task_mutation(db, mutation, *, busy_detail: str):
         await asyncio.sleep(min(0.01 * attempts, max(0, remaining)))
 
 
+def _local_model_without_tools(db, org) -> str:
+    """The name of the local model a Solo task runs on when it cannot call tools, else "". The Tasks form
+    uses it to say, before anyone writes a task, what such a task can and cannot do. Never raises."""
+    try:
+        from ..inference.ollama import OllamaBackend
+        from .crypto import decrypt
+        from .plane_routing import plane_inference
+
+        inf = plane_inference("solo", _cfg(db, org), decrypt=decrypt)
+        if inf.backend != "ollama" or not inf.model:
+            return ""
+        # A short wait: the page must not hang on an Ollama that does not answer (a read is cached for minutes).
+        return "" if OllamaBackend(inf.base_url, inf.model).can_use_tools(timeout=2) else inf.model
+    except Exception:
+        return ""
+
+
 def _escalation_available(db, org) -> bool:
     """#278: is there a connected org/RunPod/inference-provider backend this org's tasks could
     escalate to? Gates whether the per-task "escalate on uncertainty" checkbox is even offered."""
@@ -15227,8 +15512,24 @@ def _escalation_available(db, org) -> bool:
     return org_endpoint_connected(_cfg(db, org), decrypt)
 
 
+# Messages the Tasks page can show after an action was refused, chosen by a fixed code in the address
+# (never free text), so a link cannot put its own words on the page.
+_TASK_NOTICES = {
+    "cancelled": "That task is cancelled. Reactivate it first; Run now and Add follow-up do not bring it back.",
+    "not_allowed": "You can't change that task. Only its owner, or an admin for an organisation task, can.",
+    "not_allowed_run": "You can't run that task. Only its owner, an admin for an organisation task, or a project member for a project task can.",
+    "lost_access": "You no longer have access to that task, so nothing was changed.",
+    "not_cancelled": "That task is not cancelled, so there was nothing to reactivate.",
+    "still_cancelling": "A run you cancelled is still finishing. You can reactivate the task once it has stopped.",
+    "reactivated_merged": "Reactivated. Nothing was run now. Follow-ups queued before it was cancelled will run with its next scheduled run.",
+    "reactivated_held": "Reactivated. Nothing was run now. It has no next scheduled run, so follow-ups queued before it was cancelled are held until you use Run now or Add follow-up.",
+}
+
+
 @app.get("/tasks", response_class=HTMLResponse)
-def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_user)):
+def tasks_page(
+    request: Request, page: int = 1, notice: str = "", user: dict = Depends(_require_user)
+):
     db = _db()
     org = _require_org(db, user)
     # Paginate: the list used to render every task in one table, which does not scale for an org with
@@ -15319,6 +15620,12 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
         {"id": s.id, "label": ((s.question or s.content or "").strip()[:70] or f"Snippet {s.id}")}
         for s in snips
     ]
+    # What this viewer may do with each task, so the page shows only controls that will work: a creator (or
+    # an admin, for an org task) may change it; they, and members of a team task's project, may run it.
+    can_write = {t.id for t in tasks if _task_writable(t, user)}
+    can_operate = can_write | {
+        t.id for t in tasks if t.plane == "team" and t.team_id in my_team_ids
+    }
     return templates.TemplateResponse(
         request,
         "tasks.html",
@@ -15328,6 +15635,9 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             "org": org,
             **_first_use_notice_ctx(db, int(user["sub"]), "tasks"),
             "tasks": tasks,
+            "can_write": can_write,
+            "can_operate": can_operate,
+            "notice_text": _TASK_NOTICES.get(notice, ""),
             "active_task_ids": active_task_ids,
             "task_page": page,
             "task_pages": task_pages,
@@ -15343,6 +15653,7 @@ def tasks_page(request: Request, page: int = 1, user: dict = Depends(_require_us
             # #278: only offer the per-task escalation checkbox when there's actually something to
             # escalate to - otherwise it's a setting that can't do anything.
             "escalation_available": _escalation_available(db, org),
+            "no_tools_model": _local_model_without_tools(db, org),
             "review_actions": _list_review_actions(db, tasks, user),
         },
     )
@@ -15592,17 +15903,18 @@ def review_task_cadence(task_id: int, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     task = _task_for_write(db, task_id, org, user)
-    if task:
-        task.cadence_needs_review = False
-        task.cadence_review_reason = ""
-        db.commit()
-        audit.log(
-            db,
-            "task.cadence_reviewed",
-            f"id={task_id}",
-            org_id=org.id,
-            user_id=user["sub"],
-        )
+    if not task:
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
+    task.cadence_needs_review = False
+    task.cadence_review_reason = ""
+    db.commit()
+    audit.log(
+        db,
+        "task.cadence_reviewed",
+        f"id={task_id}",
+        org_id=org.id,
+        user_id=user["sub"],
+    )
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15877,7 +16189,7 @@ async def cancel_task(task_id: int, user: dict = Depends(_require_user)):
     db = _db()
     org = _require_org(db, user)
     if not _task_for_write(db, task_id, org, user):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
     from . import task_occurrences
 
     def mutate_task():
@@ -15891,7 +16203,53 @@ async def cancel_task(task_id: int, user: dict = Depends(_require_user)):
     if not await _retry_task_mutation(
         db, mutate_task, busy_detail="Task action is busy; retry shortly"
     ):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse("/tasks?notice=lost_access", status_code=302)
+    return RedirectResponse("/tasks", status_code=302)
+
+
+@app.post("/tasks/{task_id}/reactivate")
+async def reactivate_task(task_id: int, user: dict = Depends(_require_user)):
+    """Turn a cancelled task's schedule back on. It runs nothing now: work that fell due while it was
+    cancelled is skipped (the next future slot replaces it), follow-ups queued before the cancel are kept
+    and merged into the next scheduled run (held until Run now or Add follow-up when there is none), and
+    Run now is a separate, explicit action. Refused while a cancelled run is still running."""
+    db = _db()
+    org = _require_org(db, user)
+    task = _task_for_write(db, task_id, org, user)
+    if not task:
+        return RedirectResponse("/tasks?notice=not_allowed", status_code=302)
+    if task.status != "cancelled":
+        return RedirectResponse("/tasks?notice=not_cancelled", status_code=302)
+    from . import task_occurrences
+
+    outcome = {"code": "ok", "merged": 0, "held": 0}
+
+    def mutate_task():
+        current = _task_for_write(db, task_id, org, user)
+        if not current:
+            outcome["code"] = "lost_access"
+            return False
+        if current.status != "cancelled":
+            outcome["code"] = "not_cancelled"
+            return False
+        try:
+            outcome["merged"], outcome["held"] = task_occurrences.reactivate(db, current)
+        except task_occurrences.TaskStillCancelling:
+            db.rollback()
+            outcome["code"] = "still_cancelling"
+            return False
+        db.commit()
+        return True
+
+    if not await _retry_task_mutation(
+        db, mutate_task, busy_detail="Task action is busy; retry shortly"
+    ):
+        return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
+    audit.log(db, "task.reactivated", f"id={task_id}", org_id=org.id, user_id=user["sub"])
+    if outcome["held"]:
+        return RedirectResponse("/tasks?notice=reactivated_held", status_code=302)
+    if outcome["merged"]:
+        return RedirectResponse("/tasks?notice=reactivated_merged", status_code=302)
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15902,21 +16260,32 @@ async def run_task_now(task_id: int, user: dict = Depends(_require_user)):
 
     db = _db()
     org = _require_org(db, user)
-    if not _task_for_operate(db, task_id, org, user):
-        return RedirectResponse("/tasks", status_code=302)
+    current = _task_for_operate(db, task_id, org, user)
+    if not current:
+        return RedirectResponse("/tasks?notice=not_allowed_run", status_code=302)
+    if current.status == "cancelled":
+        # Run now used to reactivate a cancelled task as a side effect. Bringing it back is its own action.
+        return RedirectResponse("/tasks?notice=cancelled", status_code=302)
+    outcome = {"code": "ok"}
 
     def mutate_task():
         task = _task_for_operate(db, task_id, org, user)
         if not task:
+            outcome["code"] = "lost_access"
             return False
-        task_occurrences.run_now(db, task, datetime.now(timezone.utc))
+        try:
+            task_occurrences.run_now(db, task, datetime.now(timezone.utc))
+        except task_occurrences.TaskCancelled:
+            db.rollback()
+            outcome["code"] = "cancelled"
+            return False
         db.commit()
         return True
 
     if not await _retry_task_mutation(
         db, mutate_task, busy_detail="Task action is busy; retry shortly"
     ):
-        return RedirectResponse("/tasks", status_code=302)
+        return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
     return RedirectResponse("/tasks", status_code=302)
 
 
@@ -15929,19 +16298,34 @@ async def queue_task_input(
 
     db = _db()
     org = _require_org(db, user)
-    if not _task_for_operate(db, task_id, org, user):
-        raise HTTPException(status_code=404)
+    current = _task_for_operate(db, task_id, org, user)
+    if not current:
+        return RedirectResponse("/tasks?notice=not_allowed_run", status_code=302)
+    if current.status == "cancelled":
+        # A follow-up used to reactivate a cancelled task as a side effect. Reactivating is its own action.
+        return RedirectResponse("/tasks?notice=cancelled", status_code=302)
     instruction = instruction.strip()
     if instruction:
+        outcome = {"code": "ok"}
 
         def mutate_task():
             task = _task_for_operate(db, task_id, org, user)
             if not task:
-                raise HTTPException(status_code=404)
-            task_occurrences.queue_input(db, task, instruction, datetime.now(timezone.utc))
+                outcome["code"] = "lost_access"
+                return False
+            try:
+                task_occurrences.queue_input(db, task, instruction, datetime.now(timezone.utc))
+            except task_occurrences.TaskCancelled:
+                db.rollback()
+                outcome["code"] = "cancelled"
+                return False
             db.commit()
+            return True
 
-        await _retry_task_mutation(db, mutate_task, busy_detail="Task queue is busy; retry shortly")
+        if not await _retry_task_mutation(
+            db, mutate_task, busy_detail="Task queue is busy; retry shortly"
+        ):
+            return RedirectResponse(f"/tasks?notice={outcome['code']}", status_code=302)
         audit.log(
             db, "task.queued_input", f"task={task_id}", org_id=user["org"], user_id=user["sub"]
         )
@@ -15985,6 +16369,11 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
     )
     latest_completed = _latest_completed_runs(db, [task.id]).get(task.id)
     can_write = _task_writable(task, user)
+    # Same rule as the Tasks list: who made it (or an admin, for an organisation task) and members of a
+    # project task's project may run it.
+    can_operate = can_write or (
+        task.plane == "team" and task.team_id in _user_team_ids(db, int(user["sub"]))
+    )
     review_tokens: dict[int, str] = {}
     legacy_review_token = ""
     if can_write:
@@ -16026,6 +16415,7 @@ def task_result(request: Request, task_id: int, page: int = 1, user: dict = Depe
             "runs": runs,
             "live": live,
             "can_write": can_write,
+            "can_operate": can_operate,
             "latest_completed": latest_completed,
             "review_tokens": review_tokens,
             "legacy_review_token": legacy_review_token,

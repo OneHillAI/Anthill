@@ -73,7 +73,7 @@ def test_a_failed_agent_tool_call_returns_a_fixed_message_and_logs_the_detail(ca
 
 def test_a_bad_request_to_an_agent_tool_keeps_its_reason():
     def bad(name, args):
-        raise ValueError("'goal' is required")
+        raise mcp_server.ToolInvalid("'goal' is required")
 
     payload = {
         "jsonrpc": "2.0",
@@ -88,9 +88,32 @@ def test_a_bad_request_to_an_agent_tool_keeps_its_reason():
     assert out["error"]["message"] == "Invalid params: 'goal' is required"
 
 
+def test_an_internal_value_error_or_permission_error_is_not_passed_on(caplog):
+    for exc in (
+        ValueError("Expecting ',' delimiter: line 1"),
+        PermissionError(13, "Permission denied", SERVER_PATH),
+    ):
+
+        def boom(name, args, exc=exc):
+            raise exc
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "t", "arguments": {}},
+        }
+        with caplog.at_level(logging.ERROR):
+            out = mcp_server.handle_jsonrpc(
+                payload, _cfg(), run_tool=boom, a2a_tools=[{"name": "t"}], a2a_call=boom
+            )
+        assert out["error"]["message"] == "Tool failed."
+        assert SERVER_PATH not in str(out)
+
+
 def test_a_refusal_from_our_own_check_keeps_its_reason():
     def deny(name, args):
-        raise PermissionError("scope 'files.read' not granted")
+        raise mcp_server.ToolDenied("scope 'files.read' not granted")
 
     payload = {
         "jsonrpc": "2.0",
@@ -274,3 +297,278 @@ def _status_error(code):
 def test_an_unsupported_export_format_is_still_named(member):
     r = member.post("/chat/download", data={"content": "x", "format": "exe"})
     assert r.status_code == 400 and "unsupported format" in r.json()["error"]
+
+
+# ── admin connection checks (docs/specs/bounded-text-and-failure-messages-followup.md) ─────────────────
+# The checks below are admin-only, but the page still gets a fixed message and the error text goes to
+# the log. The checks whose tests already live next to their routes are covered there (training, cloud
+# key, mailbox, catalog refresh).
+
+MARKER = "SECRET-MARKER-123"
+
+
+@pytest.fixture
+def admin(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHILL_WIKI_ROOT", str(tmp_path / "wikis"))
+    monkeypatch.setenv("ANTHILL_ORG_WIKI", str(tmp_path / "org"))
+    eng = create_engine(f"sqlite:///{tmp_path / 'a.db'}", connect_args={"check_same_thread": False})
+    db_mod.create_tables(eng)
+    app_mod._engine = eng
+    app_mod._SessionFactory = sessionmaker(bind=eng, autoflush=False, autocommit=False)
+    s = app_mod._SessionFactory()
+    org = Organization(name="A", slug="a")
+    s.add(org)
+    s.flush()
+    user = User(org_id=org.id, email="admin@a.com", role="admin", active=True)
+    cfg = OrgSettings(org_id=org.id, aws_region="us-east-1", aws_access_key_id="AKIAEXAMPLE")
+    s.add_all([user, cfg])
+    s.commit()
+    client = TestClient(app_mod.app)
+    client.cookies.set("session_token", make_token(user.id, org.id, "admin"))
+    yield client
+    s.close()
+
+
+def _stored(field):
+    return getattr(app_mod._SessionFactory().query(OrgSettings).first(), field)
+
+
+class _ClientError(Exception):
+    """Shaped like botocore's ClientError: AWS answered, with an error code (boto3 is not installed in CI)."""
+
+    def __init__(self, code, text):
+        super().__init__(text)
+        self.response = {"Error": {"Code": code, "Message": text}}
+
+
+class _EndpointConnectionError(Exception):
+    """Shaped like botocore's EndpointConnectionError (a BotoCoreError): no answer, and a text that quotes
+    the endpoint URL."""
+
+
+def _fake_aws(monkeypatch, error):
+    from anthill.cloud import aws
+
+    class _Sts:
+        def get_caller_identity(self):
+            raise error
+
+    class _Boto:
+        @staticmethod
+        def client(service, **kw):
+            return _Sts()
+
+    monkeypatch.setattr(aws, "boto3", _Boto)
+    monkeypatch.setattr(aws, "_secret", lambda cfg: "secret")
+    monkeypatch.setattr(aws, "_AWS_REFUSED", (_ClientError,))
+    monkeypatch.setattr(aws, "_AWS_UNREACHABLE", (_EndpointConnectionError,))
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (
+            _ClientError("InvalidClientTokenId", f"token invalid at {MARKER}"),
+            "AWS rejected the credentials (InvalidClientTokenId).",
+        ),
+        (
+            _EndpointConnectionError(f'Could not connect to the endpoint URL: "https://{MARKER}/"'),
+            "Could not reach AWS. Check the region and the connection.",
+        ),
+        (RuntimeError(f"unexpected {MARKER}"), "Could not check the AWS credentials."),
+    ],
+    ids=["refused", "unreachable", "other"],
+)
+def test_the_aws_check_gives_a_fixed_message_per_kind_and_logs_only_the_class(
+    admin, monkeypatch, caplog, error, expected
+):
+    _fake_aws(monkeypatch, error)
+    with caplog.at_level(logging.WARNING):
+        r = admin.post("/settings/aws/test")
+    body = r.json()
+    assert set(body) == {"ok", "detail", "status"} and body["ok"] is False
+    assert body["detail"].startswith(expected)
+    assert MARKER not in r.text and MARKER not in _stored("aws_status_detail")
+    assert type(error).__name__ in caplog.text and MARKER not in caplog.text
+
+
+def test_an_aws_error_code_that_is_not_a_plain_token_is_left_out(admin, monkeypatch):
+    _fake_aws(monkeypatch, _ClientError(f"Bad code {MARKER}", "refused"))
+    body = admin.post("/settings/aws/test").json()
+    assert body["detail"].startswith("AWS rejected the credentials. Check")
+    assert MARKER not in body["detail"]
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (
+            _ClientError("InsufficientInstanceCapacity", f"no capacity {MARKER}"),
+            "Provision test: AWS could not launch the test machine (InsufficientInstanceCapacity).",
+        ),
+        (
+            _EndpointConnectionError(f'Could not connect to the endpoint URL: "https://{MARKER}/"'),
+            "Provision test: Could not reach AWS.",
+        ),
+        (RuntimeError(f"quota exceeded for {MARKER}"), "Provision test: AWS could not launch"),
+    ],
+    ids=["refused", "unreachable", "other"],
+)
+def test_the_aws_provision_test_gives_a_fixed_message_and_logs_only_the_class(
+    admin, monkeypatch, caplog, error, expected
+):
+    from anthill.cloud import aws
+
+    def boom(cfg, purpose=""):
+        raise error
+
+    monkeypatch.setattr(aws, "guardrails", lambda cfg: (True, "OK"))
+    monkeypatch.setattr(aws, "provision_gpu", boom)
+    monkeypatch.setattr(aws, "_AWS_UNREACHABLE", (_EndpointConnectionError,))
+    with caplog.at_level(logging.WARNING):
+        r = admin.post("/settings/aws/provision-test")
+    body = r.json()
+    assert set(body) == {"ok", "detail", "status"} and body["ok"] is False
+    assert body["detail"].startswith(expected)
+    assert MARKER not in r.text and MARKER not in _stored("aws_status_detail")
+    assert type(error).__name__ in caplog.text and MARKER not in caplog.text
+
+
+def test_server_model_discovery_gives_a_fixed_message_and_keeps_the_url_out_of_the_log(
+    admin, monkeypatch, caplog
+):
+    import httpx
+
+    from anthill.hosting import endpoint as ep_mod
+
+    url = "https://models.example/v1?api_key=KEY-IN-URL-456"
+
+    def boom(base_url, api_key):
+        request = httpx.Request("GET", base_url)
+        raise httpx.HTTPStatusError(
+            f"HTTP 401 for {request.url} {MARKER}",
+            request=request,
+            response=httpx.Response(401, request=request),
+        )
+
+    monkeypatch.setattr(ep_mod, "list_models", boom)
+    with caplog.at_level(logging.WARNING):
+        r = admin.post(
+            "/settings/organization/discover-models",
+            data={"org_model_endpoint": url, "org_model_key": "k"},
+        )
+    body = r.json()
+    assert set(body) == {"ok", "error"} and body["ok"] is False
+    assert body["error"] == "The model server did not accept the key. Check the key and try again."
+    assert MARKER not in r.text and "KEY-IN-URL-456" not in r.text
+    assert "server model discovery failed" in caplog.text and "401" in caplog.text
+    assert "KEY-IN-URL-456" not in caplog.text and MARKER not in caplog.text
+
+
+@pytest.mark.parametrize("url", ["models.example/v1", "ftp://models.example/v1"])
+def test_server_model_discovery_names_the_address_when_it_has_no_web_scheme(admin, url):
+    """httpx refuses an address without http:// or https:// before any network call."""
+    body = admin.post(
+        "/settings/organization/discover-models",
+        data={"org_model_endpoint": url, "org_model_key": "k"},
+    ).json()
+    assert body == {
+        "ok": False,
+        "error": "Couldn't reach the model server. Check the address (it should start with http:// or https://).",
+    }
+
+
+def test_server_model_discovery_names_the_address_when_it_is_malformed(admin, monkeypatch):
+    import httpx
+
+    from anthill.hosting import endpoint as ep_mod
+
+    def boom(base_url, api_key):
+        raise httpx.InvalidURL(f"Invalid port: {MARKER}")
+
+    monkeypatch.setattr(ep_mod, "list_models", boom)
+    body = admin.post(
+        "/settings/organization/discover-models",
+        data={"org_model_endpoint": "http://models.example:x/v1", "org_model_key": "k"},
+    ).json()
+    assert "Check the address (it should start with http:// or https://)." in body["error"]
+    assert MARKER not in body["error"]
+
+
+# ── the org model endpoint check (hosting/endpoint.py validate) ───────────────────────────────────────
+
+
+def _http_status_error(code, url):
+    import httpx
+
+    request = httpx.Request("GET", url)
+    return httpx.HTTPStatusError(
+        f"Server error '{code}' for url '{url}' {MARKER}",
+        request=request,
+        response=httpx.Response(code, request=request),
+    )
+
+
+@pytest.mark.parametrize(
+    "fail_at, error, expected",
+    [
+        (
+            "reachable",
+            "connect",
+            "reachable: Could not reach the server. Check the address and the connection.",
+        ),
+        (
+            "reachable",
+            401,
+            "reachable: The server did not accept the key. Check the key and try again.",
+        ),
+        (
+            "reachable",
+            "address",
+            "reachable: Check the address (it should start with http:// or https://).",
+        ),
+        ("round_trip", 502, "round_trip: The server answered with HTTP 502."),
+        (
+            "round_trip",
+            "other",
+            "round_trip: The test chat did not get an answer. Check the model and the server.",
+        ),
+    ],
+)
+def test_the_org_endpoint_check_stores_a_fixed_message_without_the_url(
+    admin, monkeypatch, caplog, fail_at, error, expected
+):
+    import httpx
+
+    from anthill.hosting import endpoint as ep_mod
+
+    url = "https://gpu.example/v1?api_key=KEY-IN-URL-456"
+    if error == "connect":
+        exc = httpx.ConnectError(f"cannot connect to {url} {MARKER}")
+    elif error == "address":
+        exc = httpx.UnsupportedProtocol(f"Request URL is missing a protocol: {url} {MARKER}")
+    elif error == "other":
+        exc = KeyError(f"choices {MARKER}")
+    else:
+        exc = _http_status_error(error, url)
+
+    def fail(*a, **k):
+        raise exc
+
+    if fail_at == "reachable":
+        monkeypatch.setattr(ep_mod, "_list_models", fail)
+    else:
+        monkeypatch.setattr(ep_mod, "_list_models", lambda ep: ["m"])
+        monkeypatch.setattr(ep_mod, "_round_trip", fail)
+    with caplog.at_level(logging.WARNING):
+        r = admin.post(
+            "/settings/organization/connect",
+            data={"org_model_endpoint": url, "org_model_key": "k"},
+            follow_redirects=False,
+        )
+    assert r.status_code == 302 and "connected=fail" in r.headers["location"]
+    detail = _stored("org_backend_detail")
+    assert detail.endswith(expected)
+    assert MARKER not in detail and "KEY-IN-URL-456" not in detail and "gpu.example" not in detail
+    assert f"org endpoint check {fail_at} failed: {type(exc).__name__}" in caplog.text
+    assert MARKER not in caplog.text and "gpu.example" not in caplog.text

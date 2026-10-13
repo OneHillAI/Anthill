@@ -360,6 +360,9 @@ def test_create_and_edit_task_store_timezone(tmp_path):
     assert cancelled_calendar.schedule_anchor == calendar_due.replace(tzinfo=None)
     assert cancelled_calendar.next_run_at is None
 
+    # Run now no longer revives a cancelled task (#91): reactivating is its own step.
+    r = c.post(f"/tasks/{cancelled_calendar.id}/reactivate", follow_redirects=False)
+    assert r.status_code == 302
     r = c.post(f"/tasks/{cancelled_calendar.id}/run-now", follow_redirects=False)
     assert r.status_code == 302
     legacy_session.expire_all()
@@ -404,6 +407,8 @@ def test_create_and_edit_task_store_timezone(tmp_path):
         legacy_session.expire_all()
         migrated_cancelled = legacy_session.get(ScheduledTask, migrated_cancelled.id)
         assert migrated_cancelled.schedule_anchor == calendar_due.replace(tzinfo=None)
+        r = c.post(f"/tasks/{migrated_cancelled.id}/reactivate", follow_redirects=False)
+        assert r.status_code == 302
         if action == "queue":
             r = c.post(
                 f"/tasks/{migrated_cancelled.id}/queue",

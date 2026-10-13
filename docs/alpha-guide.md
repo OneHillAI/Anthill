@@ -40,7 +40,8 @@ scheduled/automatic agent tasks, agents, memory, settings, metrics and the audit
    developer - **right-click the Anthill app -> Open -> Open**, and after that it opens normally.)
 
 **You should see** the Anthill window open on its own - no Terminal, no browser, no separate downloads.
-The app carries its own AI engine.
+The app carries its own AI engine. The first time, the window fills the screen (it may show at a smaller
+size for a moment first).
 
 ---
 
@@ -53,8 +54,11 @@ On first launch you land on a short **setup wizard** (three steps).
    organisation later from the dashboard. There is no separate admin invite needed to begin.)
 2. **Solo or organisation** - choose **Solo** to try it as one person on this Mac, or **Organisation**
    if you want a shared backend and to invite others later. Solo is the quickest way to test.
-3. **Choose your AI** - pick the suggested local model (Anthill sizes it to your Mac). The first model
-   downloads once (roughly 2 GB); you will see progress. When it finishes, setup is complete.
+3. **Choose your AI** - leave **Your machine** selected; the models that fit your Mac are listed in the
+   panel right under it. Tick the one marked **recommended** (Anthill sizes it to your Mac). The
+   inference provider below is **Optional**; leave **Don't use one** selected. Image understanding is
+   under **Advanced** and is on unless you turn it off. The first model downloads once (roughly 2 GB);
+   you will see progress. When it finishes, setup is complete.
 
 **You should see** the **Dashboard**, signed in. The system is live and running entirely on your machine.
 
@@ -65,9 +69,10 @@ On first launch you land on a short **setup wizard** (three steps).
 ### 3a. Chat
 - Click **Chat** -> start a conversation -> ask anything, e.g. *"Explain what a semantic cache is in one
   paragraph."*
-- **You should see** the answer stream in, word by word. The header reads "Running on this machine. Nothing
+- **You should see** small ants running in the reply with a line saying what is happening, then the
+  answer streaming in, word by word. The header reads "Running on this machine. Nothing
   leaves it." (Web search and Thinking are off by default for a new account, and a notice on your first
-  visit says so. Turn web search on for one chat under **Options**, or for every chat under **Settings,
+  visit says so. Turn web search on for one chat with the **Web search** button under the message box, or for every chat under **Settings,
   Privacy**; while it is on the header reads "Web search is on for this chat." because a search sends the
   question to a search engine.)
 
@@ -95,7 +100,9 @@ On first launch you land on a short **setup wizard** (three steps).
 - Click **Tasks** -> **New task** -> use an example or type a goal -> choose **Run once** and tick **Run
   immediately** -> create it.
 - **You should see** it appear in the list; within a minute its status moves to **done** and a **Result**
-  becomes available. (Tasks use the local model; simple goals work best in the alpha.)
+  becomes available. (Tasks use the local model; simple goals work best in the alpha. If your model
+  cannot use tools, the **New task** dialog says so, and the result starts with a note that no tools were
+  used and is marked for review.)
 
 ### 3e. Look around
 - **Agents** - a named worker with a standing mandate; consequential actions are cross-checked by a
@@ -114,7 +121,7 @@ On first launch you land on a short **setup wizard** (three steps).
 ### 3g. Prove it survives a restart
 - **Quit Anthill** (Cmd-Q) and open it again.
 - **You should see** you are still signed in and your data is intact - the keys and data persist under
-  `~/Library/Application Support/Anthill/`.
+  `~/Library/Application Support/Anthill/`. The window opens at the size and place you left it.
 
 ---
 

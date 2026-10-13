@@ -88,7 +88,7 @@ def test_wiki_slug_stays_consistent_across_personal_to_org_promotion(tmp_path, m
     import anthill.wiki.review as review_mod
     from anthill.wiki.workspace import workspace_for
 
-    c, app_mod, _uid, _org_id = _client(tmp_path, monkeypatch)
+    c, app_mod, _uid, org_id = _client(tmp_path, monkeypatch)
     try:
         # Org-scope review runs a real model pass (`outline_change`'s scope in ("team", "org")
         # branch); force it clean so the promotion auto-applies deterministically regardless of
@@ -121,7 +121,7 @@ def test_wiki_slug_stays_consistent_across_personal_to_org_promotion(tmp_path, m
         pr = c.post(f"/snippets/{snip_id}/wiki", data={"target_scope": "org"})
         assert pr.status_code in (200, 302)
 
-        org_ws = workspace_for("org")
+        org_ws = workspace_for("org", org_id=org_id)
         org_slugs = {p.stem for p in org_ws.pages()}
         assert original_slug in org_slugs, f"expected {original_slug} in {org_slugs}"
         assert not any(s.startswith("renamed") for s in org_slugs)  # no forked second page

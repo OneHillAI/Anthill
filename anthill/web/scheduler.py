@@ -289,7 +289,12 @@ def _run_task(task: ScheduledTask, db) -> str:
     on the local model.
     """
 
-    from ..agent.executor import AgentExecutor
+    from ..agent.executor import (
+        NO_TOOLS_NOTE,
+        NO_TOOLS_REVIEW_REASON,
+        AgentExecutor,
+        strip_no_tools_note,
+    )
     from ..agent.tools import files_owner, make_tools
     from ..config import Config
     from ..inference.base import build_backend
@@ -319,6 +324,7 @@ def _run_task(task: ScheduledTask, db) -> str:
         team_id=getattr(task, "team_id", None),
         member_user_id=task.created_by,
         personal_user_id=task.created_by,
+        org_id=task.org_id,
     )
     from .mcp_store import mcp_client_tools
 
@@ -370,6 +376,10 @@ def _run_task(task: ScheduledTask, db) -> str:
     ctx = f"{attached}\n\n{mem_ctx}".strip() if attached else mem_ctx
     result = executor.run(goal, context=ctx)
     answer = result.answer
+    no_tools = bool(getattr(result, "answered_without_tools", False))
+    if no_tools:
+        # The note is ours, not the model's: review and escalation see only the answer, and it goes back on top.
+        answer = strip_no_tools_note(answer)
     # Council review (Phase 4b): the task's tool-calling loop already ran exactly once, on `backend`,
     # above - this only ever critiques the finished text via .chat(), never re-runs the loop or gives a
     # reviewer tool access. Degrades to `answer` unchanged on any failure - a review must never break or
@@ -388,6 +398,11 @@ def _run_task(task: ScheduledTask, db) -> str:
     answer = _maybe_escalate_task(
         task, cfg_row, decrypt, plane_inf, goal=goal, context=ctx, answer=answer, db=db
     )
+    if no_tools:
+        # A plain answer is not the work an action task asked for (write a page, post a message): mark the
+        # run for the owner's review instead of recording a silent success every time it runs.
+        answer = NO_TOOLS_NOTE + answer
+        _flag_task_for_review(task, NO_TOOLS_REVIEW_REASON)
     return answer
 
 
@@ -573,10 +588,11 @@ def _remember_task_outcome(db, task, result: str) -> list[tuple[set[int], str, s
     try:
         with db.begin_nested():
             from .. import memory as mem
+            from ..agent.executor import strip_no_tools_note
             from .db import MemoryItem
             from .memory_ops import auto_memory_on
 
-            first = (result or "").strip().splitlines()
+            first = strip_no_tools_note(result or "").strip().splitlines()
             summary = f"Task '{task.title}': {first[0][:280]}" if first else ""
             if not summary or not task.created_by or not auto_memory_on(db, task.created_by):
                 return notices
@@ -715,11 +731,20 @@ def _tick(engine):
             finalized = False
             finalization_error = f"task finalization failed: {exc}"
         if not finalized:
+            try:
+                was_cancelled = bool(
+                    db.query(TaskRun.cancel_requested).filter(TaskRun.id == run_row.id).scalar()
+                )
+            except Exception:
+                db.rollback()
+                was_cancelled = False
             _close_unpublished_task_run(
                 db,
                 run_row.id,
                 started,
-                finalization_error or "stale attempt lost occurrence ownership",
+                "Cancelled while it was running. Its result was not kept."
+                if was_cancelled
+                else (finalization_error or "stale attempt lost occurrence ownership"),
             )
             continue
 
@@ -1154,7 +1179,9 @@ def _backfill_review_outlines(engine):
             if cfg:
                 config.model = cfg.ollama_model or config.model
                 config.base_url = cfg.ollama_url or config.base_url
-            ws = workspace_for(rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by)
+            ws = workspace_for(
+                rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
+            )
             if not ws.exists():
                 ws.init()
             o = outline_change(
@@ -1223,6 +1250,7 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
             row.target_scope,
             team_id=row.team_id,
             user_id=row.user_id if row.target_scope == "personal" else None,
+            org_id=row.org_id,
         )
         if not ws.exists():
             ws.init()
@@ -1316,14 +1344,22 @@ def _verify_agent_result(agent, result: str, db) -> None:
         pass  # advisory only - a verifier hiccup never breaks the agent run
 
 
+def _flag_agent_for_review(agent, reason: str) -> None:
+    """Mark an agent run for the owner's review, keeping any reason the verifier already gave."""
+    agent.verify_needs_review = True
+    prior = agent.verify_reason or ""
+    agent.verify_reason = (f"{reason} | {prior}" if prior else reason)[:400]
+
+
 def _remember_agent_outcome(agent, result: str, db) -> None:
     """Distil an agent run into a personal memory item so future chats/agents can recall it
     (best-effort; only on the personal plane, where personal memory exists)."""
     try:
         from .. import memory as mem
+        from ..agent.executor import strip_no_tools_note
         from .db import MemoryItem
 
-        first = (result or "").strip().splitlines()
+        first = strip_no_tools_note(result or "").strip().splitlines()
         summary = f"Agent '{agent.name}': {first[0][:280]}" if first else ""
         from .memory_ops import auto_memory_on
 
@@ -1501,6 +1537,10 @@ def _agent_tick(engine):
             result = run_agent(agent, db) or ""
             agent.last_result = result[:4000]
             _verify_agent_result(agent, result, db)
+            if getattr(agent, "_answered_without_tools", False):
+                from ..agent.executor import NO_TOOLS_REVIEW_REASON
+
+                _flag_agent_for_review(agent, NO_TOOLS_REVIEW_REASON)
             _remember_agent_outcome(agent, result, db)
         except Exception as e:  # incl. PlaneUnavailable when an org backend is down
             error = str(e)

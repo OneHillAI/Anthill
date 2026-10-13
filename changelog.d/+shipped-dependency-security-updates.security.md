@@ -1,1 +1,0 @@
-**Security updates for libraries inside the desktop app.** The app is built from a pinned list of libraries, and seven of them had known security advisories: `pypdf` (reads PDFs you upload), `pyjwt` (login sessions), `cryptography`, `urllib3`, `anyio`, `h2` and `soupsieve`. They are updated to fixed versions. Your sessions and uploads keep working.

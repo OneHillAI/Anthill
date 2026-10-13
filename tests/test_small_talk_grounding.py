@@ -325,9 +325,11 @@ def test_a_greeting_with_web_search_on_sends_no_wiki_context_to_the_web_answer(
 
     def fake_search_and_answer(question, *, backend, wiki_context="", **kw):
         seen["wiki_context"] = wiki_context
-        return "Hi!"
+        from anthill.search.web import WebAnswer
 
-    monkeypatch.setattr("anthill.search.web.search_and_answer", fake_search_and_answer)
+        return WebAnswer("Hi!")
+
+    monkeypatch.setattr("anthill.search.web.answer_from_web", fake_search_and_answer)
     answer, slugs, _hit = ask_mod.ask(ws, "thanks!", _Whole(), web_search=True)
     assert answer == "Hi!" and slugs == []
     assert seen["wiki_context"] == ""  # the blocking web answer gets no unrelated pages either

@@ -6,9 +6,12 @@
 
 <div class="flex justify-between items-center mb-2">
   <a href="/tasks" class="btn btn-outline btn-sm">← All tasks</a>
+  {% if can_operate and task.status not in ['cancelled', 'running'] %}
   <form method="post" action="/tasks/{{ task.id }}/run-now">
-    <button class="btn btn-primary btn-sm">▶ Run again</button>
+    <button class="btn btn-primary btn-sm" aria-label="Run again: {{ task.title }}"
+            title="Runs it once more now. While it works its status goes pending, then running, then done.">▶ Run again</button>
   </form>
+  {% endif %}
 </div>
 
 {% if live %}
@@ -59,7 +62,7 @@
     <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
       <input type="hidden" name="run_id" value="{{ latest_completed.id }}">
       <input type="hidden" name="csrf_token" value="{{ review_tokens[latest_completed.id] }}">
-      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+      <button class="btn btn-outline btn-sm" aria-label="Mark reviewed: latest result">Mark reviewed</button>
     </form>
     {% endif %}
   </div>
@@ -81,7 +84,7 @@
     <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin-top:8px">
       <input type="hidden" name="run_id" value="0">
       <input type="hidden" name="csrf_token" value="{{ legacy_review_token }}">
-      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+      <button class="btn btn-outline btn-sm" aria-label="Mark reviewed: result">Mark reviewed</button>
     </form>
     {% endif %}
   </div>
@@ -98,7 +101,7 @@
   <div id="task-result" class="task-md task-md-raw" data-md>{{ task.last_result }}</div>
   {% endif %}
   <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <input type="text" id="snip-tags" placeholder="tags (comma-separated)"
+    <input type="text" id="snip-tags" aria-label="Tags for the saved snippet (comma-separated)" placeholder="tags (comma-separated)"
            style="flex:1;min-width:180px;max-width:340px">
     <button class="btn btn-outline btn-sm" onclick="saveResultSnippet()">✂️ Save as snippet</button>
     <span id="snip-status" class="text-sm text-muted"></span>
@@ -146,7 +149,8 @@
     <form method="post" action="/tasks/{{ task.id }}/review-result" style="margin:8px 0 2px">
       <input type="hidden" name="run_id" value="{{ r.id }}">
       <input type="hidden" name="csrf_token" value="{{ review_tokens[r.id] }}">
-      <button class="btn btn-outline btn-sm">Mark reviewed</button>
+      <button class="btn btn-outline btn-sm"
+              aria-label="Mark reviewed: run on {% if r.finished_at %}{{ r.finished_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}run {{ r.id }}{% endif %}">Mark reviewed</button>
     </form>
     {% endif %}
     {% if r.status == 'running' %}

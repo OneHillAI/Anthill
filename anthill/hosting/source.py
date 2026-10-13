@@ -15,8 +15,11 @@ from dataclasses import dataclass
 
 from .sizing import load_catalog
 
-# a parameter-count token: "7B", "1.5b", "70B" - not "q4", "fp16", or a bare number
-_SIZE_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*b\b", re.I)
+# a parameter-count token: "7B", "1.5b", "70B" - not "q4", "fp16", or a bare number. Bounded: at most six
+# digits before the point (anything longer is far above the 2000B ceiling below) and three after it, at most
+# three spaces before the "b", and only the first _NAME_SCAN_MAX characters of a name are read.
+_SIZE_RE = re.compile(r"(?<![\d.])(\d{1,6}(?:\.\d{1,3})?)\s{0,3}b\b", re.I)
+_NAME_SCAN_MAX = 256
 
 # indicative licenses for the built-in seed models (verify against the model card before relying on it).
 # Matched as a substring of the display name, first hit wins - keep more specific keys before looser ones.
@@ -47,7 +50,7 @@ class CatalogModel:
 def params_from_name(name: str) -> float | None:
     """Pull a parameter count out of a model name/tag: 'qwen2.5:32b' -> 32.0, 'Llama-3-70B' -> 70.0."""
     best: float | None = None
-    for m in _SIZE_RE.finditer(name or ""):
+    for m in _SIZE_RE.finditer((name or "")[:_NAME_SCAN_MAX]):
         try:
             v = float(m.group(1))
         except ValueError:

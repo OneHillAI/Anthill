@@ -114,7 +114,7 @@ def test_export_route_returns_an_okgf_bundle(tmp_path, monkeypatch):
     from anthill.wiki.workspace import workspace_for
 
     client, _app, org_id, rows = _admin_client(tmp_path, monkeypatch)
-    ws = workspace_for("org")
+    ws = workspace_for("org", org_id=org_id)
     ws.init()
     ws.write_page(
         "Billing model", "# Billing model\n\nWe bill monthly.\n\n## Related\n[[invoices]]\n"
@@ -152,7 +152,7 @@ def _ws(tmp_path, monkeypatch, scope="org"):
 
     monkeypatch.setenv("ANTHILL_ORG_WIKI", str(tmp_path / "org"))
     monkeypatch.setenv("ANTHILL_WORKSPACE", str(tmp_path / "personal"))
-    ws = workspace_for(scope)
+    ws = workspace_for(scope, org_id=1)  # organisation 1 owns the folder
     ws.init()
     return ws
 

@@ -84,7 +84,7 @@ def test_validate_rejects_bad_credentials(monkeypatch):
             return _Sts()
 
     monkeypatch.setattr(aws, "boto3", _Boto)
-    monkeypatch.setattr(aws, "_AWS_ERRORS", (_BadException,))
+    monkeypatch.setattr(aws, "_AWS_REFUSED", (_BadException,))
     ok, detail = aws.validate(_Cfg(secret_enc=_enc("wrong")))
     assert ok is False and "rejected" in detail.lower()
 

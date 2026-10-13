@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .wiki.workspace import org_wikis_base
+
 BACKUP_FORMAT = 1
 _OLLAMA_REGISTRY = ("registry.ollama.ai", "library")  # manifests/<registry>/<ns>/<name>/<tag>
 
@@ -40,6 +42,7 @@ _TREES = (
     ("workspace", "data/workspace"),
     ("wikis", "data/wikis"),
     ("org_wiki", "data/org-wiki"),
+    ("org_wikis", "data/org-wikis"),
     ("files", "data/files"),
     ("skills", "data/skills"),
 )
@@ -64,6 +67,7 @@ def data_paths() -> dict[str, Path]:
         "workspace": Path(os.environ.get("ANTHILL_WORKSPACE", "workspace")),
         "wikis": Path(os.environ.get("ANTHILL_WIKI_ROOT", "data/wikis")),
         "org_wiki": Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki")),
+        "org_wikis": org_wikis_base(),
         "files": Path(os.environ.get("ANTHILL_FILES_DIR", "data/files")),
         "skills": Path(os.environ.get("ANTHILL_SKILLS_DIR", "skills")),
         "secrets": home / "secrets.env",
@@ -222,6 +226,9 @@ class RestoreResult:
     restored: list[str]
     models: list[str]
     safety_backup: Path | None
+    moved_aside: Path | None = (
+        None  # the org-wikis folder set aside by a restore of an older archive
+    )
 
 
 def read_manifest(archive_path: Path | str) -> dict:
@@ -255,6 +262,7 @@ def restore_backup(
 
     restored: list[str] = []
     models: list[str] = []
+    moved_aside: Path | None = None
     with tarfile.open(archive_path, "r:gz") as tar:
         members = {m.name: m for m in _safe_members(tar)}
 
@@ -282,6 +290,15 @@ def restore_backup(
                     _extract_file(tar, m, dest)
             restored.append(key)
 
+        # An archive made before the org wiki was stored per organisation has org-wiki but no org-wikis.
+        # The org-wikis already on this machine belong to a later state than the restored org-wiki, so
+        # leave them out of the live path (moved aside, not deleted) rather than mix the two states.
+        if "org_wiki" in restored and "org_wikis" not in restored and p["org_wikis"].exists():
+            aside = p["org_wikis"].with_name(f"{p['org_wikis'].name}.before-restore-{_now_stamp()}")
+            p["org_wikis"].rename(aside)
+            restored.append("org_wikis_moved_aside")
+            moved_aside = aside
+
         # Secrets
         if "data/secrets.env" in members and _extract_file(
             tar, members["data/secrets.env"], p["secrets"]
@@ -298,7 +315,7 @@ def restore_backup(
             models = list(manifest["ollama_models"])
             restored.append("ollama_models")
 
-    return RestoreResult(restored, models, safety)
+    return RestoreResult(restored, models, safety, moved_aside)
 
 
 def snapshot_db(reason: str = "manual", *, keep: int = 7) -> Path | None:

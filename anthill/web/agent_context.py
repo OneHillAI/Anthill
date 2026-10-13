@@ -44,7 +44,21 @@ def project_connects_parent(db, team_id) -> bool:
     return True if (row is None or row[0] is None) else bool(row[0])
 
 
-def project_read_extras(db, *, team_id, use_personal_context, wiki_scope, user_id):
+def _org_for(db, user_id, org_id=None):
+    """The organisation whose org wiki a run reads: the one the caller names, else the organisation of the
+    user the run is for. None when there is neither; ``workspace_for("org")`` then raises, so a run with no
+    user must name its organisation."""
+    if org_id is not None:
+        return org_id
+    if not user_id:
+        return None
+    from .db import User
+
+    row = db.query(User.org_id).filter(User.id == int(user_id)).first()
+    return row[0] if row else None
+
+
+def project_read_extras(db, *, team_id, use_personal_context, wiki_scope, user_id, org_id=None):
     """The read-only PARENT workspaces to blend into a project chat's grounding (in addition to the
     project's own wiki, which is the base): the org wiki (org project, ``use_personal_context`` False) or
     the user's personal wiki (Solo/local project) - and only when the project CONNECTS its parent and the
@@ -55,13 +69,15 @@ def project_read_extras(db, *, team_id, use_personal_context, wiki_scope, user_i
     if not project_connects_parent(db, team_id):
         return []
     if not use_personal_context and wiki_scope in ("all", "org", "team"):
-        return [workspace_for("org")]
+        return [workspace_for("org", org_id=_org_for(db, user_id, org_id))]
     if use_personal_context and wiki_scope in ("all", "personal"):
         return [workspace_for("personal", user_id=user_id)]
     return []
 
 
-def run_wiki_workspace(db, *, plane_inf, team_id, member_user_id, personal_user_id=None) -> str:
+def run_wiki_workspace(
+    db, *, plane_inf, team_id, member_user_id, personal_user_id=None, org_id=None
+) -> str:
     """The ONE resolver for a run's wiki workspace (read+write base) - chat, scheduled tasks, and agents
     all call it so they can never drift on where a run's wiki lives or on the trust boundary. Returns the
     workspace path:
@@ -87,7 +103,11 @@ def run_wiki_workspace(db, *, plane_inf, team_id, member_user_id, personal_user_
     # plane_inf (e.g. PlaneUnavailable) falls back to personal/default - never route a degraded run to
     # the shared org wiki for reads or writes (matches the prior chat behaviour).
     if plane_inf is not None and not getattr(plane_inf, "use_personal_context", True):
-        return str(workspace_for("org").root)
+        return str(
+            workspace_for(
+                "org", org_id=_org_for(db, member_user_id or personal_user_id, org_id)
+            ).root
+        )
     if personal_user_id:
         return str(workspace_for("personal", user_id=personal_user_id).root)
     return os.environ.get("ANTHILL_WORKSPACE", "workspace")
@@ -99,7 +119,7 @@ def scoped_workspaces(db, *, user_id, org_id):
     from ..wiki.workspace import workspace_for
     from .db import TeamMembership
 
-    scoped = [("org", "Organization", workspace_for("org"))]
+    scoped = [("org", "Organization", workspace_for("org", org_id=org_id))]
     if user_id:
         team_ids = [
             t
@@ -115,7 +135,7 @@ def scoped_workspaces(db, *, user_id, org_id):
     return scoped
 
 
-def context_workspaces(db, *, user_id, plane="solo", team_id=None, is_org=False):
+def context_workspaces(db, *, user_id, plane="solo", team_id=None, is_org=False, org_id=None):
     """The workspaces a chat/task in ``plane`` should see for principles + skills. This MIRRORS the
     chat read-side wiki grounding (app.py): the org wiki (when this install is an org), the user's
     team wikis (their projects, always available), and the personal wiki ONLY on local compute - so
@@ -146,7 +166,9 @@ def context_workspaces(db, *, user_id, plane="solo", team_id=None, is_org=False)
     connects_parent = project_connects_parent(db, team_id) if in_project else True
     scoped = []
     if is_org and connects_parent:
-        scoped.append(("org", "Organization", workspace_for("org")))
+        scoped.append(
+            ("org", "Organization", workspace_for("org", org_id=_org_for(db, user_id, org_id)))
+        )
     if in_project:
         # A project run grounds in ITS OWN wiki only (the user is an active member).
         scoped.append(("team", f"Team {team_id}", workspace_for("team", team_id=team_id)))
@@ -173,7 +195,9 @@ def agent_context_for(db, *, user_id, org_id, plane="solo", team_id=None, is_org
     from ..agent.skills import load_skills
     from ..wiki.principles import assemble_principles
 
-    scoped = context_workspaces(db, user_id=user_id, plane=plane, team_id=team_id, is_org=is_org)
+    scoped = context_workspaces(
+        db, user_id=user_id, plane=plane, team_id=team_id, is_org=is_org, org_id=org_id
+    )
     principles = assemble_principles([(label, ws) for _tier, label, ws in scoped])
     skills = load_skills(scoped=[(tier, ws) for tier, _label, ws in scoped])
     return principles, skills

@@ -139,8 +139,8 @@ def test_a_new_account_starts_with_thinking_and_web_search_off(live):
             button = page.locator("#opt-think")
             assert button.inner_text().strip().endswith("Thinking off")
             assert button.get_attribute("aria-pressed") == "false"
-            page.click("#opt-toggle")  # open Options
             assert page.locator("#opt-web").is_checked() is False
+            assert page.locator("#opt-web-btn").inner_text().strip() == "Web search off"
 
             button.click()  # one click turns Thinking on for this chat
             assert button.inner_text().strip().endswith("Thinking on")
@@ -222,16 +222,13 @@ def test_web_search_is_per_chat_too(live):
         try:
             page = context.new_page()
             page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
-            page.click("#opt-toggle")  # open Options
             assert page.locator("#opt-web").is_checked() is True  # this account has web search on
-            page.locator("#opt-web").uncheck()  # this chat turns it off
+            page.click("#opt-web-btn")  # this chat turns it off
             page.goto(f"{base}/chat/{c2}", wait_until="domcontentloaded")
-            page.click("#opt-toggle")
             assert (
                 page.locator("#opt-web").is_checked() is True
             )  # the other chat kept the default (on)
             page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
-            page.click("#opt-toggle")
             assert (
                 page.locator("#opt-web").is_checked() is False
             )  # this chat kept its own choice (off)
@@ -399,13 +396,11 @@ def test_a_changed_web_default_never_rewrites_an_organisation_chat(live):
         try:
             page = context.new_page()
             page.goto(f"{base}/chat/{c2}", wait_until="domcontentloaded")
-            page.click("#opt-toggle")
             page.evaluate("window.applyChatDefaults({web_access: false})")
             assert (
                 page.locator("#opt-web").is_checked() is False
             )  # personal chat, no choice of its own: follows
             page.goto(f"{base}/chat/{c3}", wait_until="domcontentloaded")
-            page.click("#opt-toggle")
             page.evaluate("window.applyChatDefaults({web_access: false})")
             assert page.locator("#opt-web").is_checked() is True  # organisation chats stay on
         finally:

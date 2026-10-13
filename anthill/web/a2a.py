@@ -15,6 +15,7 @@ import hmac
 import secrets
 from datetime import datetime, timezone
 
+from ..mcp.server import ToolDenied, ToolInvalid
 from . import audit
 from .crypto import decrypt, encrypt
 from .db import AgentIdentity, MCPAccessLog, OrgSettings, ScheduledTask
@@ -75,7 +76,7 @@ def serve_a2a(db, org_id: int, caller, name: str, arguments: dict, *, client="")
     """
     if not caller.allows(name):  # tool_scope("a2a_*") == "a2a"
         _log(db, org_id, caller.name, name, allowed=False, client=client)
-        raise PermissionError(f"{caller.name} lacks the '{A2A_SCOPE}' scope or is inactive")
+        raise ToolDenied(f"{caller.name} lacks the '{A2A_SCOPE}' scope or is inactive")
     _log(db, org_id, caller.name, name, allowed=True, client=client)
 
     if name == "a2a_defer_task":
@@ -84,7 +85,7 @@ def serve_a2a(db, org_id: int, caller, name: str, arguments: dict, *, client="")
     target_name = str(arguments.get("agent", "")).strip()
     prompt = str(arguments.get("question") or arguments.get("goal") or "").strip()
     if not target_name or not prompt:
-        raise ValueError("both 'agent' and 'question'/'goal' are required")
+        raise ToolInvalid("both 'agent' and 'question'/'goal' are required")
     return _run_target_agent(db, org_id, target_name, prompt)
 
 
@@ -92,12 +93,12 @@ def _defer_task(db, org_id: int, arguments: dict) -> str:
     """Queue a ScheduledTask for the scheduler to run later (under its governed identity)."""
     goal = str(arguments.get("goal", "")).strip()
     if not goal:
-        raise ValueError("'goal' is required")
+        raise ToolInvalid("'goal' is required")
     from .scheduler import _normalize_task_schedule
 
     schedule = _normalize_task_schedule(str(arguments.get("schedule", "once")))
     if not schedule:
-        raise ValueError("invalid task schedule")
+        raise ToolInvalid("invalid task schedule")
     task = ScheduledTask(
         org_id=org_id,
         created_by=None,  # queued by an agent identity, not a user
@@ -129,9 +130,9 @@ def _run_target_agent(db, org_id: int, target_name: str, prompt: str) -> str:
         .first()
     )
     if not target:
-        raise ValueError(f"no agent named '{target_name}' in this organization")
+        raise ToolInvalid(f"no agent named '{target_name}' in this organization")
     if not target.active:
-        raise PermissionError(f"agent '{target_name}' is inactive")
+        raise ToolDenied(f"agent '{target_name}' is inactive")
 
     from ..agent.executor import AgentExecutor
     from ..agent.tools import files_owner, make_tools

@@ -26,7 +26,9 @@ def test_validate_unreachable_stops_at_first_check():
     assert not v.ok
     assert len(v.checks) == 1
     assert v.checks[0].name == "reachable" and not v.checks[0].ok
-    assert "connection refused" in v.checks[0].detail
+    # a fixed sentence: the error text (which can quote the URL or the key) stays out of the stored detail
+    assert v.checks[0].detail == "Could not reach the server. Check the address and the connection."
+    assert "connection refused" not in v.checks[0].detail
 
 
 def test_validate_model_not_served():
@@ -44,7 +46,11 @@ def test_validate_round_trip_failure_and_empty():
         list_models=lambda: ["qwen2.5:32b"],
         chat=lambda p: (_ for _ in ()).throw(RuntimeError("502")),
     )
-    assert not v.ok and v.checks[-1].name == "round_trip" and "502" in v.checks[-1].detail
+    assert not v.ok and v.checks[-1].name == "round_trip"
+    assert (
+        v.checks[-1].detail
+        == "The test chat did not get an answer. Check the model and the server."
+    )
     # a chat that returns nothing
     v2 = endpoint.validate(EP, list_models=lambda: ["qwen2.5:32b"], chat=lambda p: "   ")
     assert not v2.ok and v2.checks[-1].name == "round_trip"

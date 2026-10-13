@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import socket
 import threading
 import time
@@ -198,7 +199,12 @@ def test_task_data_and_every_action_stay_readable_and_reachable(live, size):
                 for sel in ("b", ".badge", "[data-utc]"):
                     el = row.locator(sel).first
                     assert el.is_visible() and el.evaluate(INSIDE_JS), (i, sel)
-                for name in ("Edit", "▶ Now", "+ Queue", "✕"):
+                for name in (
+                    "Edit",
+                    re.compile("Run (now|again)"),
+                    "Add follow-up",
+                    "Cancel future runs",
+                ):
                     btn = row.get_by_role("button", name=name).first
                     assert btn.is_visible() and btn.evaluate(INSIDE_JS), (i, name)
             _assert_no_sideways_scroll(page, "rows")
@@ -211,11 +217,11 @@ def test_the_queue_panel_opens_and_can_be_used(live, size):
     with sync_api.sync_playwright() as p:
         browser, page, _errors = _open(live, p, *size)
         try:
-            page.get_by_role("button", name="+ Queue", exact=False).first.click()
+            page.get_by_role("button", name="Add follow-up", exact=False).first.click()
             panel = page.locator("[id^=q-]:visible").first
             assert panel.is_visible()
             field = panel.locator('input[name="instruction"]')
-            button = panel.get_by_role("button", name="Queue it")
+            button = panel.get_by_role("button", name="Save follow-up")
             for el in (field, button):
                 el.scroll_into_view_if_needed()
                 assert el.is_visible() and el.evaluate(INSIDE_JS)
@@ -230,7 +236,7 @@ def test_the_create_dialog_fits_and_a_task_can_be_created(live, size):
     with sync_api.sync_playwright() as p:
         browser, page, _errors = _open(live, p, *size)
         try:
-            page.get_by_role("button", name="+ New task").click()
+            page.get_by_role("button", name="New task").click()
             dialog = page.locator("#new-task")
             assert dialog.is_visible()
             card = dialog.locator(".modal-card")
@@ -254,12 +260,12 @@ def test_the_edit_dialog_and_the_result_page_fit(live, size):
     with sync_api.sync_playwright() as p:
         browser, page, _errors = _open(live, p, *size)
         try:
-            page.get_by_role("button", name="Edit").first.click()
+            page.get_by_role("button", name=re.compile(r"^Edit task: ")).first.click()
             card = page.locator("#new-task .modal-card")
             box = card.bounding_box()
             assert box["x"] >= -0.5 and box["x"] + box["width"] <= size[0] + 0.5, box
             page.keyboard.press("Escape")
-            page.get_by_role("link", name="Result").first.click()
+            page.get_by_role("link", name="View result").first.click()
             page.wait_for_selector("text=Run history")
             _assert_no_sideways_scroll(page, "result page")
         finally:

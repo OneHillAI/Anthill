@@ -4,6 +4,7 @@ injection imperative AND the answer looks hijacked ("BANANA"), ask() re-runs wit
 after the content. Injection-suspect turns take the non-streaming path so the answer can be re-checked
 before it's shown. Finding: qa/chat-eval/DEV_FINDINGS.md."""
 
+from anthill.search import web as web_mod
 from anthill.wiki import ask as ask_mod
 from anthill.wiki import prompts
 from anthill.wiki.ask import _extract_obey_token, _looks_hijacked, has_injection_imperative
@@ -138,7 +139,9 @@ def test_web_path_also_defends_against_injection(tmp_path, monkeypatch):
     ws = Workspace(tmp_path / "w")
     ws.init()
     # the web composer obeys the injection and returns the demanded token
-    monkeypatch.setattr("anthill.search.web.search_and_answer", lambda *a, **k: "BANANA")
+    monkeypatch.setattr(
+        "anthill.search.web.answer_from_web", lambda *a, **k: web_mod.WebAnswer("BANANA")
+    )
 
     class _CleanLocal:
         def chat(self, messages, **k):
@@ -155,8 +158,8 @@ def test_web_path_keeps_a_clean_answer(tmp_path, monkeypatch):
     ws = Workspace(tmp_path / "w")
     ws.init()
     monkeypatch.setattr(
-        "anthill.search.web.search_and_answer",
-        lambda *a, **k: "The capital of France is Paris.",
+        "anthill.search.web.answer_from_web",
+        lambda *a, **k: web_mod.WebAnswer("The capital of France is Paris."),
     )
 
     class _Unused:

@@ -1013,10 +1013,10 @@ def test_tick_rolls_back_stale_execution_state_before_closing_history(tmp_path, 
     assert s.query(MemoryItem).filter(MemoryItem.text == "stale task memory").count() == 0
     assert run.status == "error"
     assert run.result == ""
-    assert "stale attempt" in run.error
+    assert run.error == "Cancelled while it was running. Its result was not kept."
 
 
-def test_claim_cas_retries_when_run_now_reactivates_earlier_work(tmp_path):
+def test_claim_cas_retries_when_earlier_paused_work_is_resumed_meanwhile(tmp_path):
     from sqlalchemy import event
 
     from anthill.web import task_occurrences
@@ -1058,11 +1058,13 @@ def test_claim_cas_retries_when_run_now_reactivates_earlier_work(tmp_path):
         ):
             return
         raced = True
+        # Another request resumes the earlier paused work between the claim's read and its update.
         other = sessionmaker(bind=s.get_bind())()
-        task_occurrences.run_now(
-            other,
-            other.get(ScheduledTask, earlier.id),
-            datetime.now(timezone.utc),
+        other.query(TaskOccurrence).filter(TaskOccurrence.id == earlier_occurrence.id).update(
+            {TaskOccurrence.status: "pending"}
+        )
+        other.query(ScheduledTask).filter(ScheduledTask.id == earlier.id).update(
+            {ScheduledTask.status: "pending"}
         )
         other.commit()
         other.close()
