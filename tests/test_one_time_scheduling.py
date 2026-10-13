@@ -148,10 +148,7 @@ def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
 
 def test_explicit_now_creates_one_occurrence_and_switching_to_now(client):
     c, factory = client
-    assert (
-        c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code
-        == 302
-    )
+    assert c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code == 302
     with factory() as s:
         task = s.query(ScheduledTask).one()
         assert task.next_run_at <= datetime.now(timezone.utc).replace(tzinfo=None)
