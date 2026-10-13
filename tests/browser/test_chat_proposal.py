@@ -648,13 +648,19 @@ def test_one_time_future_date_round_trip_and_validation(live):
             form.locator("#task-title").fill("Future one-shot browser test")
             form.locator("#task-goal").fill("Summarize")
             form.locator("#task-once-at").fill("2000-01-01T09:15:30")
-            form.get_by_role("button", name="Create task").click()
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                form.get_by_role("button", name="Create task").click()
+            assert page.url == f"{base}/tasks/create"
             error = form.locator("#task-form-error")
             error.wait_for()
             assert "future" in error.inner_text()
             assert form.locator("#task-title").input_value() == "Future one-shot browser test"
+            assert form.locator("#task-goal").input_value() == "Summarize"
+            assert form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            assert form.locator("#task-once-at").input_value() == "2000-01-01T09:15:30"
             form.locator("#task-once-at").fill("2099-07-12T09:15:30")
-            form.get_by_role("button", name="Create task").click()
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                form.get_by_role("button", name="Create task").click()
             row = page.locator("tr", has_text="Future one-shot browser test")
             row.wait_for()
 
@@ -669,6 +675,26 @@ def test_one_time_future_date_round_trip_and_validation(live):
             assert edit_form.locator("#task-once-mode").input_value() == "at"
             assert edit_form.locator("#task-once-at").input_value() == "2099-07-12T09:15:30"
             assert edit_form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            edit_form.locator("#task-title").fill("Renamed future one-shot")
+            edit_form.locator("#task-once-at").fill("2000-01-01T09:15:30")
+            with edit_page.expect_navigation(wait_until="domcontentloaded"):
+                edit_form.get_by_role("button", name="Save changes").click()
+            edit_form.locator("#task-form-error").wait_for()
+            assert "future" in edit_form.locator("#task-form-error").inner_text()
+            assert edit_form.locator("#task-title").input_value() == "Renamed future one-shot"
+            assert edit_form.locator("#task-timezone").input_value() == "Europe/Madrid"
+            assert edit_form.locator("#task-submit").inner_text() == "Save changes"
+            edit_form.get_by_role("button", name="Cancel", exact=True).click()
+            edit_page.get_by_role("button", name="New task").click()
+            assert edit_form.locator("#task-title").input_value() == ""
+            assert edit_form.locator("#task-goal").input_value() == ""
+            assert edit_form.locator("#task-once-at").input_value() == ""
+            assert edit_form.locator("#task-once-mode").input_value() == "now"
+            assert not edit_form.locator("#task-form-error").is_visible()
+            edit_form.get_by_role("button", name="Cancel", exact=True).click()
+            edit_page.locator("tr", has_text="Future one-shot browser test").get_by_role(
+                "button", name="Edit"
+            ).click()
             edit_form.locator("#task-title").fill("Renamed future one-shot")
             with edit_page.expect_navigation(wait_until="domcontentloaded"):
                 edit_form.get_by_role("button", name="Save changes").click()

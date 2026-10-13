@@ -15638,6 +15638,7 @@ def tasks_page(
             "can_write": can_write,
             "can_operate": can_operate,
             "notice_text": _TASK_NOTICES.get(notice, ""),
+            "task_form": getattr(request.state, "task_form", None),
             "active_task_ids": active_task_ids,
             "task_page": page,
             "task_pages": task_pages,
@@ -15657,6 +15658,33 @@ def tasks_page(
             "review_actions": _list_review_actions(db, tasks, user),
         },
     )
+
+
+def _task_form_error(request, user, db, form, message, status_code=400):
+    db.rollback()
+    if not _wants_html(request):
+        return JSONResponse({"error": message}, status_code=status_code)
+    request.state.task_form = {
+        "action": request.url.path,
+        "error": message,
+        "values": {
+            key: form.get(key, "")
+            for key in (
+                "title",
+                "goal",
+                "schedule",
+                "timezone",
+                "once_at",
+                "run_now",
+                "escalate_on_uncertainty",
+            )
+        },
+        "context_files": form.getlist("context_files"),
+        "context_snippets": form.getlist("context_snippets"),
+    }
+    response = tasks_page(request, user=user)
+    response.status_code = status_code
+    return response
 
 
 @app.post("/tasks/settings")
@@ -15721,6 +15749,7 @@ async def edit_task(
     user: dict = Depends(_require_user),
 ):
     """Free-form edit of an existing task (title/schedule/goal/#278 escalation choice)."""
+    form = await request.form()
     db = _db()
     org = _require_org(db, user)
     task = _task_for_write(db, task_id, org, user)  # only the owner (or org admin) may edit (#597)
@@ -15735,14 +15764,14 @@ async def edit_task(
 
         schedule = _normalize_task_schedule(schedule)
         if not schedule:
-            return JSONResponse({"error": "invalid schedule"}, status_code=400)
-        timezone_supplied = "timezone" in await request.form()
+            return _task_form_error(request, user, db, form, "invalid schedule")
+        timezone_supplied = "timezone" in form
         requested_timezone = _normalize_timezone(timezone_name) if timezone_supplied else None
         if timezone_supplied and timezone_name and not requested_timezone:
-            return JSONResponse({"error": "invalid timezone"}, status_code=400)
-        once_at_supplied = "once_at" in await request.form()
+            return _task_form_error(request, user, db, form, "invalid timezone")
+        once_at_supplied = "once_at" in form
         if once_at_supplied and schedule != "once":
-            return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
+            return _task_form_error(request, user, db, form, "invalid one-time schedule choice")
         unchanged_occurrence = object()
 
         def mutate_task():
@@ -15775,7 +15804,7 @@ async def edit_task(
                 .one()
             )
             if timezone_supplied and timezone_name == "" and current_timezone:
-                return JSONResponse({"error": "timezone cannot be cleared"}, status_code=400)
+                return _task_form_error(request, user, db, form, "timezone cannot be cleared")
             tz_name = current_timezone if requested_timezone is None else requested_timezone
             values = {
                 ScheduledTask.title: title[:120],
@@ -15824,8 +15853,8 @@ async def edit_task(
                     .first()
                 )
                 if occurrence_state.active_kind == "scheduled":
-                    return JSONResponse(
-                        {"error": "Task is running; wait before rescheduling"}, status_code=409
+                    return _task_form_error(
+                        request, user, db, form, "Task is running; wait before rescheduling", 409
                     )
                 if once_at:
                     from .scheduler import _one_time_due
@@ -15834,7 +15863,7 @@ async def edit_task(
                     try:
                         one_time_due = _one_time_due(once_at, tz_name, existing_due=existing_due)
                     except ValueError as exc:
-                        return JSONResponse({"error": str(exc)}, status_code=400)
+                        return _task_form_error(request, user, db, form, str(exc))
                     if one_time_due != existing_due or schedule_changed:
                         replacement_due = one_time_due
                 elif scheduled is not None or schedule_changed:
@@ -16117,6 +16146,7 @@ async def create_task(
     context_snippets: list[str] = Form([]),
     user: dict = Depends(_require_user),
 ):
+    form = await request.form()
     db = _db()
     org = _require_org(db, user)
     from datetime import datetime, timezone
@@ -16131,10 +16161,10 @@ async def create_task(
 
     schedule = _normalize_task_schedule(schedule)
     if not schedule:
-        return JSONResponse({"error": "invalid schedule"}, status_code=400)
+        return _task_form_error(request, user, db, form, "invalid schedule")
     tz_name = _normalize_timezone(timezone_name)
     if timezone_name and not tz_name:
-        return JSONResponse({"error": "invalid timezone"}, status_code=400)
+        return _task_form_error(request, user, db, form, "invalid timezone")
     now = datetime.now(timezone.utc)
     schedule_anchor = _task_schedule_anchor(schedule, from_dt=now, timezone_name=tz_name)
     nxt = _next_run(
@@ -16143,15 +16173,15 @@ async def create_task(
         timezone_name=tz_name,
         schedule_anchor=schedule_anchor,
     )
-    if "once_at" in await request.form():
+    if "once_at" in form:
         if schedule != "once" or run_now:
-            return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
+            return _task_form_error(request, user, db, form, "invalid one-time schedule choice")
         from .scheduler import _one_time_due
 
         try:
             nxt = _one_time_due(once_at, tz_name) if once_at else now.replace(microsecond=0)
         except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return _task_form_error(request, user, db, form, str(exc))
     task = ScheduledTask(
         org_id=org.id,
         created_by=int(user["sub"]),

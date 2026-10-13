@@ -146,6 +146,77 @@ def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
         assert s.query(TaskOccurrence).count() == 1
 
 
+def test_browser_create_error_renders_form_and_preserves_context(client, monkeypatch):
+    from types import SimpleNamespace
+
+    import anthill.web.app as app_mod
+    from anthill.web import docsource
+    from anthill.web.db import Snippet
+
+    c, factory = client
+    monkeypatch.setattr(app_mod, "_escalation_available", lambda *args: True)
+    monkeypatch.setattr(
+        docsource, "doc_source_servers", lambda *args: [SimpleNamespace(id=9, name="Docs")]
+    )
+    with factory() as s:
+        snippet = Snippet(
+            org_id=s.query(Organization).one().id,
+            user_id=s.query(User).one().id,
+            content="Saved context",
+        )
+        s.add(snippet)
+        s.commit()
+        snippet_id = str(snippet.id)
+    form = _form(
+        title="<script>unsafe</script>",
+        goal="Keep my instruction",
+        once_at="2000-01-01T09:15:30",
+        escalate_on_uncertainty="true",
+        context_files="9|report",
+        context_snippets=snippet_id,
+    )
+    response = c.post("/tasks/create", data=form, headers={"Accept": "text/html"})
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith("text/html")
+    saved = response.context["task_form"]
+    assert saved["action"] == "/tasks/create"
+    assert saved["values"]["title"] == form["title"]
+    assert saved["values"]["goal"] == form["goal"]
+    assert saved["values"]["timezone"] == "Europe/Madrid"
+    assert saved["values"]["once_at"] == form["once_at"]
+    assert saved["context_files"] == ["9|report"]
+    assert saved["context_snippets"] == [snippet_id]
+    assert "Choose a date and time in the future" in response.text
+    assert "&lt;script&gt;unsafe&lt;/script&gt;" in response.text
+    assert "<script>unsafe</script>" not in response.text
+    assert 'value="9|report" selected' in response.text
+    assert f'value="{snippet_id}" selected' in response.text
+    with factory() as s:
+        assert s.query(ScheduledTask).count() == 0
+
+
+def test_browser_edit_error_keeps_edit_action_and_task_unchanged(client):
+    c, factory = client
+    c.post("/tasks/create", data=_form())
+    with factory() as s:
+        task = s.query(ScheduledTask).one()
+        tid, due = task.id, task.next_run_at
+    response = c.post(
+        f"/tasks/{tid}/edit",
+        data=_form(title="Unsaved rename", once_at="2000-01-01T09:15:30"),
+        headers={"Accept": "text/html"},
+    )
+    assert response.status_code == 400
+    assert response.context["task_form"]["action"] == f"/tasks/{tid}/edit"
+    assert f'action="/tasks/{tid}/edit"' in response.text
+    assert ">Save changes</button>" in response.text
+    assert 'value="Unsaved rename"' in response.text
+    with factory() as s:
+        task = s.get(ScheduledTask, tid)
+        assert task.title == "One-shot" and task.next_run_at == due
+        assert s.query(TaskOccurrence).count() == 1
+
+
 def test_explicit_now_creates_one_occurrence_and_switching_to_now(client):
     c, factory = client
     assert c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code == 302

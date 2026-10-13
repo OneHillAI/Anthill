@@ -10,7 +10,8 @@ For a one-time task, choose **Run once**, then **Run now** or **Choose a future 
 The date and time are local to the timezone shown in the form. Editing keeps that timezone even
 if your browser has moved. Invalid, past, nonexistent or ambiguous daylight-saving times are
 rejected without saving when choosing a new date; choose an unambiguous future time. An ordinary
-edit preserves a pending date even if it is already due. After a successful run, no repeat is scheduled.
+edit preserves a pending date even if it is already due. Validation reloads the page with your entered
+values and attachments still in the task dialog, so you can correct them. After a successful run, no repeat is scheduled.
 Editing a completed task does not run it again; use **Run now** or choose a new future date.
 
 **Cancel future runs** stops a task from running again. Anything it already did stays, the history is kept and

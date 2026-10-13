@@ -9,6 +9,8 @@ The manual Tasks form cannot schedule a one-shot at an arbitrary future local da
 ## Requirements
 
 - Run once offers Run now or Choose a future date and time, using a native datetime-local input.
+- Use standard form POSTs. Browser validation errors render the task form with its values,
+  edit action and attached context preserved; existing API callers keep JSON errors.
 - Future dates use the task's validated IANA timezone (legacy blank means UTC). Convert to UTC
   and store a scheduled occurrence; `next_run_at` remains its compatibility projection.
 - Reject malformed, impossible, past, DST-gap and DST-ambiguous local times with a clear error
@@ -33,7 +35,8 @@ The manual Tasks form cannot schedule a one-shot at an arbitrary future local da
   (including overdue work) without duplicate occurrences.
 - Scheduler tests run a future one-shot at its due instant, clear `next_run_at`, and prove a later
   tick does not run it again.
-- Browser tests cover choice visibility, validation feedback, and editing from a different timezone.
+- Browser tests cover choice visibility, native POST navigation, create/edit validation feedback
+  with entered values preserved, and editing from a different timezone.
 
 This extends `docs/specs/778-task-schedule-timezones.md`: future one-shots show a timezone and
 an explicitly submitted future local time is interpreted in that timezone. Timezone-only legacy
