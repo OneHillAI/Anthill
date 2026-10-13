@@ -632,10 +632,19 @@ def test_one_time_future_date_round_trip_and_validation(live):
             page.get_by_role("button", name="New task").click()
             form = page.locator("#task-form")
             assert not form.locator("#task-once-at").is_visible()
+            submitted = form.evaluate("form => Object.fromEntries(new FormData(form))")
+            assert submitted["run_now"] == "true"
+            assert "once_at" not in submitted and "once_mode" not in submitted
+            form.locator('[name="schedule"]').select_option("daily")
+            assert not form.locator('[name="run_now"]').is_checked()
+            form.locator('[name="schedule"]').select_option("once")
             form.locator("#task-once-mode").select_option("at")
             assert form.locator("#task-once-at").is_visible()
             assert form.locator("#task-timezone").input_value() == "Europe/Madrid"
             assert not form.locator("[name=run_now]").is_visible()
+            submitted = form.evaluate("form => Object.fromEntries(new FormData(form))")
+            assert "once_at" in submitted
+            assert "run_now" not in submitted and "once_mode" not in submitted
             form.locator("#task-title").fill("Future one-shot browser test")
             form.locator("#task-goal").fill("Summarize")
             form.locator("#task-once-at").fill("2000-01-01T09:15:30")

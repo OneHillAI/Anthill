@@ -100,8 +100,10 @@ def _normalize_timezone(name: str) -> str:
     return name
 
 
-def _one_time_due(local_value: str, timezone_name: str) -> datetime:
-    """Validate an unambiguous local wall time and return its future UTC instant."""
+def _one_time_due(
+    local_value: str, timezone_name: str, *, existing_due: datetime | None = None
+) -> datetime:
+    """Validate a future local time, allowing an unchanged UTC due instant on edits."""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", local_value):
         raise ValueError("Choose a valid local date and time")
     try:
@@ -117,7 +119,7 @@ def _one_time_due(local_value: str, timezone_name: str) -> datetime:
         != local.replace(tzinfo=zone, fold=1).utcoffset()
     ):
         raise ValueError("This local time is ambiguous because of a daylight-saving change")
-    if due <= datetime.now(timezone.utc):
+    if due != existing_due and due <= datetime.now(timezone.utc):
         raise ValueError("Choose a date and time in the future")
     return due
 

@@ -45,10 +45,15 @@ def _form(**changes):
         "goal": "Summarize",
         "schedule": "once",
         "timezone": "Europe/Madrid",
-        "once_mode": "at",
         "once_at": "2099-07-12T09:15:30",
         **changes,
     }
+
+
+def _now_form():
+    form = _form(run_now="true")
+    del form["once_at"]
+    return form
 
 
 @pytest.mark.parametrize("zone", ["Europe/Madrid", "America/New_York", "Asia/Kathmandu", ""])
@@ -101,12 +106,7 @@ def test_create_edit_round_trip_and_completion(client, monkeypatch, zone):
         assert task.run_count == 1 and calls == [tid]
         assert s.query(TaskOccurrence).count() == 1
         assert s.query(TaskOccurrence).one().status == "completed"
-    assert (
-        c.post(
-            f"/tasks/{tid}/edit", data=_form(once_mode="now"), follow_redirects=False
-        ).status_code
-        == 302
-    )
+    assert c.post(f"/tasks/{tid}/edit", data=_now_form(), follow_redirects=False).status_code == 302
     with factory() as s:
         assert s.get(ScheduledTask, tid).next_run_at is None
         assert s.query(TaskOccurrence).count() == 1
@@ -123,9 +123,8 @@ def test_create_edit_round_trip_and_completion(client, monkeypatch, zone):
         ({"timezone": "Not/AZone"}, "timezone"),
         ({"timezone": "America/New_York", "once_at": "2099-03-08T02:30"}, "does not exist"),
         ({"timezone": "America/New_York", "once_at": "2099-11-01T01:30"}, "ambiguous"),
-        ({"once_mode": "invalid"}, "choice"),
         ({"schedule": "daily"}, "choice"),
-        ({"run_now": "true"}, "either"),
+        ({"run_now": "true"}, "choice"),
     ],
 )
 def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
@@ -138,12 +137,10 @@ def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
     with factory() as s:
         task = s.query(ScheduledTask).one()
         tid, due = task.id, task.next_run_at
-    # run_now is a creation-only field; all remaining invalid inputs apply to edits too.
-    if "run_now" not in changes:
-        response = c.post(
-            f"/tasks/{tid}/edit", data=_form(title="Broken", **changes), follow_redirects=False
-        )
-        assert response.status_code == 400 and message in response.json()["error"]
+    response = c.post(
+        f"/tasks/{tid}/edit", data=_form(title="Broken", **changes), follow_redirects=False
+    )
+    assert response.status_code == 400 and message in response.json()["error"]
     with factory() as s:
         task = s.get(ScheduledTask, tid)
         assert task.title == "One-shot" and task.next_run_at == due
@@ -153,7 +150,7 @@ def test_invalid_create_and_edit_leave_task_unchanged(client, changes, message):
 def test_explicit_now_creates_one_occurrence_and_switching_to_now(client):
     c, factory = client
     assert (
-        c.post("/tasks/create", data=_form(once_mode="now"), follow_redirects=False).status_code
+        c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code
         == 302
     )
     with factory() as s:
@@ -166,17 +163,62 @@ def test_explicit_now_creates_one_occurrence_and_switching_to_now(client):
     )
     with factory() as s:
         tid = s.query(ScheduledTask).filter_by(title="Future").one().id
-    assert (
-        c.post(
-            f"/tasks/{tid}/edit", data=_form(once_mode="now"), follow_redirects=False
-        ).status_code
-        == 302
-    )
+    assert c.post(f"/tasks/{tid}/edit", data=_now_form(), follow_redirects=False).status_code == 302
     with factory() as s:
         assert s.get(ScheduledTask, tid).next_run_at <= datetime.now(timezone.utc).replace(
             tzinfo=None
         )
         assert s.query(TaskOccurrence).filter_by(task_id=tid).count() == 1
+
+
+@pytest.mark.parametrize("local_value", ["2000-01-01T09:15", "2000-01-01T09:15:30"])
+def test_unchanged_overdue_edit_preserves_occurrence_and_inputs(client, local_value):
+    c, factory = client
+    assert c.post("/tasks/create", data=_form(), follow_redirects=False).status_code == 302
+    due = (
+        datetime.fromisoformat(local_value)
+        .replace(tzinfo=ZoneInfo("Europe/Madrid"))
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+    with factory() as s:
+        task = s.query(ScheduledTask).one()
+        tid = task.id
+        occurrence = s.query(TaskOccurrence).one()
+        occurrence.due_at = due
+        occurrence.inputs = '["Keep this follow-up"]'
+        task_occurrences.project(s, task)
+        s.commit()
+    assert (
+        c.post(
+            f"/tasks/{tid}/edit",
+            data=_form(title="Renamed overdue task", once_at=local_value),
+            follow_redirects=False,
+        ).status_code
+        == 302
+    )
+    with factory() as s:
+        assert s.get(ScheduledTask, tid).title == "Renamed overdue task"
+        assert s.get(ScheduledTask, tid).next_run_at == due
+        occurrence = s.query(TaskOccurrence).one()
+        assert occurrence.due_at == due and occurrence.kind == "scheduled"
+        assert occurrence.inputs == '["Keep this follow-up"]'
+    response = c.post(
+        f"/tasks/{tid}/edit", data=_form(once_at="2000-01-02T09:15"), follow_redirects=False
+    )
+    assert response.status_code == 400 and "future" in response.json()["error"]
+
+
+def test_immediate_one_shot_edit_does_not_add_another_occurrence(client):
+    c, factory = client
+    assert c.post("/tasks/create", data=_now_form(), follow_redirects=False).status_code == 302
+    with factory() as s:
+        task = s.query(ScheduledTask).one()
+        tid, due = task.id, task.next_run_at
+    assert c.post(f"/tasks/{tid}/edit", data=_now_form(), follow_redirects=False).status_code == 302
+    with factory() as s:
+        assert s.get(ScheduledTask, tid).next_run_at == due
+        assert s.query(TaskOccurrence).count() == 1
 
 
 def test_active_scheduled_run_cannot_be_rescheduled(client):

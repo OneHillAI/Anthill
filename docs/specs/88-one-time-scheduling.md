@@ -12,20 +12,23 @@ The manual Tasks form cannot schedule a one-shot at an arbitrary future local da
 - Future dates use the task's validated IANA timezone (legacy blank means UTC). Convert to UTC
   and store a scheduled occurrence; `next_run_at` remains its compatibility projection.
 - Reject malformed, impossible, past, DST-gap and DST-ambiguous local times with a clear error
-  before persisting changes. Do not silently shift a one-shot to another local time.
+  before persisting changes. An unchanged pending instant may already be due; ordinary edits
+  preserve it and its queued inputs. Do not silently shift a one-shot to another local time.
 - Editing shows the pending scheduled occurrence in its recorded timezone, not the browser's
   timezone or an unrelated manual/queued occurrence. Preserve seconds on round-trip.
 - Replacing a pending date uses the existing ledger mutation/CAS path. Reject one-shot rescheduling
   while a scheduled run is active. Manual and queued occurrences remain independent.
 - Run now creates only one immediate occurrence. A completed task's ordinary edit does not rerun
   it; use its Now button or explicitly choose a new future date.
+- The form submits either the existing `run_now` field or `once_at`, never a separate mode
+  field or both choices together. The now/future selector is presentation only.
 - Existing callers omitting the new fields retain their behavior. Recurring and Chat creation
   are unchanged. Successful one-shot completion creates no recurrence.
 
 ## Acceptance criteria
 
 - Route tests cover creation and editing across multiple timezones, UTC fallback, invalid values,
-  switching to now, and unchanged round-trips without duplicate occurrences.
+  switching to now, and unchanged round-trips (including overdue work) without duplicate occurrences.
 - Scheduler tests run a future one-shot at its due instant, clear `next_run_at`, and prove a later
   tick does not run it again.
 - Browser tests cover choice visibility, validation feedback, and editing from a different timezone.

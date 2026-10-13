@@ -52,7 +52,7 @@
       </div>
       <div class="form-group">
         <label for="task-schedule">Schedule</label>
-        <select id="task-schedule" name="schedule" onchange="updateTaskTimezoneVisibility()">
+        <select id="task-schedule" name="schedule" onchange="setSchedule(this.value)">
           <option value="once">Run once</option>
           <option value="hourly">Every hour</option>
           <option value="daily">Daily</option>
@@ -66,7 +66,7 @@
     </div>
     <div id="task-once-choice" class="form-group">
       <label for="task-once-mode">Run once</label>
-      <select id="task-once-mode" name="once_mode" onchange="updateTaskTimezoneVisibility()">
+      <select id="task-once-mode" onchange="updateTaskTimezoneVisibility()">
         <option value="now">Run now</option>
         <option value="at">Choose a future date and time</option>
       </select>
@@ -392,9 +392,11 @@ function updateTaskTimezoneVisibility() {
   document.getElementById('task-once-at').required = at;
   document.getElementById('task-timezone-note').hidden = schedule === 'hourly' || (once && !at);
   const immediate = document.querySelector('[name=run_now]');
-  document.getElementById('task-run-now-choice').hidden = once || document.getElementById('task-form').action.endsWith('/edit');
-  immediate.disabled = document.getElementById('task-run-now-choice').hidden;
-  if (immediate.disabled) immediate.checked = false;
+  const editing = document.getElementById('task-form').action.endsWith('/edit');
+  document.getElementById('task-run-now-choice').hidden = once || editing;
+  immediate.disabled = at || (!once && editing);
+  if (once) immediate.checked = !at;
+  else if (immediate.disabled) immediate.checked = false;
 }
 function setSchedule(val) {
   const sel = document.querySelector('[name=schedule]');
@@ -409,6 +411,7 @@ function setSchedule(val) {
     sel.appendChild(opt);
   }
   sel.value = val;
+  document.querySelector('[name=run_now]').checked = false;
   updateTaskTimezoneVisibility();
 }
 const taskModal = document.getElementById('new-task');
@@ -577,6 +580,7 @@ function editTask(btn) {
   if (esc) esc.checked = d.escalate === 'true';
   openTaskModal(btn);
 }
+// Keep server-side timezone errors in the dialog without losing the entered task.
 document.getElementById('task-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;

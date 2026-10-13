@@ -9,8 +9,9 @@ saving. Run one immediately, or let it run on its own schedule.
 For a one-time task, choose **Run once**, then **Run now** or **Choose a future date and time**.
 The date and time are local to the timezone shown in the form. Editing keeps that timezone even
 if your browser has moved. Invalid, past, nonexistent or ambiguous daylight-saving times are
-rejected without saving; choose an unambiguous future time. After a successful run, no repeat is
-scheduled. Editing a completed task does not run it again; use **Now** or choose a new future date.
+rejected without saving when choosing a new date; choose an unambiguous future time. An ordinary
+edit preserves a pending date even if it is already due. After a successful run, no repeat is scheduled.
+Editing a completed task does not run it again; use **Run now** or choose a new future date.
 
 **Cancel future runs** stops a task from running again. Anything it already did stays, the history is kept and
 nothing is deleted, and a run already in progress is not interrupted. **Reactivate** turns a cancelled task's

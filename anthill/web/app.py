@@ -15716,7 +15716,7 @@ async def edit_task(
     goal: str = Form(...),
     schedule: str = Form("once"),
     timezone_name: str = Form("", alias="timezone"),
-    once_mode: str = Form(""),
+    run_now: bool = Form(False),
     once_at: str = Form(""),
     escalate_on_uncertainty: bool = Form(False),
     user: dict = Depends(_require_user),
@@ -15741,7 +15741,8 @@ async def edit_task(
         requested_timezone = _normalize_timezone(timezone_name) if timezone_supplied else None
         if timezone_supplied and timezone_name and not requested_timezone:
             return JSONResponse({"error": "invalid timezone"}, status_code=400)
-        if once_mode not in {"", "now", "at"} or (once_mode == "at" and schedule != "once"):
+        once_at_supplied = "once_at" in await request.form()
+        if once_at_supplied and (schedule != "once" or run_now):
             return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
         unchanged_occurrence = object()
 
@@ -15777,14 +15778,6 @@ async def edit_task(
             if timezone_supplied and timezone_name == "" and current_timezone:
                 return JSONResponse({"error": "timezone cannot be cleared"}, status_code=400)
             tz_name = current_timezone if requested_timezone is None else requested_timezone
-            one_time_due = None
-            if once_mode == "at":
-                from .scheduler import _one_time_due
-
-                try:
-                    one_time_due = _one_time_due(once_at, tz_name)
-                except ValueError as exc:
-                    return JSONResponse({"error": str(exc)}, status_code=400)
             values = {
                 ScheduledTask.title: title[:120],
                 ScheduledTask.goal: goal,
@@ -15820,7 +15813,7 @@ async def edit_task(
                         timezone_name=tz_name,
                         schedule_anchor=schedule_anchor,
                     )
-            if schedule == "once" and once_mode:
+            if schedule == "once" and (once_at_supplied or run_now):
                 occurrence_state = task_occurrences.edit_state(db, task_id)
                 scheduled = (
                     db.query(TaskOccurrence)
@@ -15835,8 +15828,16 @@ async def edit_task(
                     return JSONResponse(
                         {"error": "Task is running; wait before rescheduling"}, status_code=409
                     )
-                if once_mode == "at":
-                    replacement_due = one_time_due
+                if once_at_supplied:
+                    from .scheduler import _one_time_due
+
+                    existing_due = _as_utc(scheduled.due_at) if scheduled is not None else None
+                    try:
+                        one_time_due = _one_time_due(once_at, tz_name, existing_due=existing_due)
+                    except ValueError as exc:
+                        return JSONResponse({"error": str(exc)}, status_code=400)
+                    if one_time_due != existing_due or schedule_changed:
+                        replacement_due = one_time_due
                 elif scheduled is not None or schedule_changed:
                     replacement_due = datetime.now(timezone.utc)
             next_run_filter = (
@@ -16111,7 +16112,6 @@ async def create_task(
     schedule: str = Form("once"),
     timezone_name: str = Form("", alias="timezone"),
     run_now: bool = Form(False),
-    once_mode: str = Form(""),
     once_at: str = Form(""),
     escalate_on_uncertainty: bool = Form(False),
     context_files: list[str] = Form([]),
@@ -16144,19 +16144,15 @@ async def create_task(
         timezone_name=tz_name,
         schedule_anchor=schedule_anchor,
     )
-    if once_mode not in {"", "now", "at"} or (once_mode == "at" and schedule != "once"):
-        return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
-    if schedule == "once" and once_mode:
+    if "once_at" in await request.form():
+        if schedule != "once" or run_now:
+            return JSONResponse({"error": "invalid one-time schedule choice"}, status_code=400)
         from .scheduler import _one_time_due
 
         try:
-            nxt = _one_time_due(once_at, tz_name) if once_mode == "at" else now
+            nxt = _one_time_due(once_at, tz_name)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-        if once_mode == "at" and run_now:
-            return JSONResponse(
-                {"error": "Choose either run now or a future date and time"}, status_code=400
-            )
     task = ScheduledTask(
         org_id=org.id,
         created_by=int(user["sub"]),
@@ -16175,7 +16171,7 @@ async def create_task(
     from . import task_occurrences
 
     task_occurrences.create_initial(db, task, nxt)
-    if run_now and not (schedule == "once" and once_mode):
+    if run_now:
         task_occurrences.run_now(db, task, now)
     db.commit()
     audit.log(

@@ -28,8 +28,8 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ### Arbitrary one-time task scheduling - pending PR for #88
 **System impact:** manual one-shots can target a future local instant, converted to UTC through the existing occurrence ledger; no new recurrence or database schema is introduced.
-**Surface:** Tasks create/edit routes, Tasks dialog, scheduler local-time validation helper.
-**User-visible:** yes: Run now or choose a future date/time; editing preserves the task timezone and seconds, with inline validation errors.
+**Surface:** Tasks create/edit routes, Tasks dialog, scheduler local-time validation helper. The form uses the existing `run_now` field or a future `once_at`, not a separate backend mode.
+**User-visible:** yes: Run now or choose a future date/time; editing preserves the task timezone, seconds and unchanged overdue work, with inline validation errors.
 **Footprint:** additive; ambiguous and nonexistent DST times are rejected, and active scheduled one-shots cannot be rescheduled until they finish. Chat and recurring scheduling are unchanged.
 
 ### PR #102 - Tasks: render results as safe Markdown and page the run history - merged 2026-10-09
