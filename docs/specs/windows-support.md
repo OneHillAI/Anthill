@@ -93,6 +93,9 @@ Each phase is its own PR or small series, each with tests, and none changes how 
   platform layer or the shell needs the Windows job green.
 - **A real-device check.** Before a platform's first public release, and for any release that touches the platform layer, a
   person installs the build on a real machine and ticks a short checklist in `docs/releasing.md`.
+  `scripts/windows_device_check.ps1` is the kit for it: it measures what a machine can measure, asks the person for what
+  only a person can see, and writes the result as a file to paste on the release page. CI runs its self-test and its
+  after-uninstall check on the runner that has just installed and removed the real app.
 - **Release gating.** All platforms' files must be on the release before it is made latest; the pre-release default already
   gives us that gate.
 - **Triage.** Issues and PRs carry an `os:windows` label next to the lane label, and the morning digest shows each

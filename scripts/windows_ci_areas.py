@@ -41,8 +41,10 @@ BACKEND = (
 )
 SHELL = (
     *SHARED,
+    "scripts/windows_device_check.ps1",
     "scripts/windows_installer_check.py",
     "scripts/windows_update_check.py",
+    "tests/test_windows_device_check.py",
     "tests/test_windows_installer_check.py",
     "tests/test_windows_update_check.py",
 )

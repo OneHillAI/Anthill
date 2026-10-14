@@ -69,7 +69,13 @@ that has a Windows file say so, so keep that paragraph when you write the real r
 - **Try the Windows part alone.** Actions, **Cut Beta (Windows)**, Run workflow, dry run ticked (the default): it builds
   and checks without publishing anything and needs no macOS build. Do this once after any change to the Windows build.
 - **Before the first public Windows build, and after any change to the platform layer**, a person checks a real Windows
-  machine and ticks this list (about 20 minutes; a machine with an NVIDIA card covers the GPU rows):
+  machine and ticks this list (about 20 minutes; a machine with an NVIDIA card covers the GPU rows). The kit
+  `scripts\windows_device_check.ps1` (from the repo at the release tag, or that one file downloaded from GitHub at the tag) does the measurable part and asks the yes/no questions as you go: run it in
+  PowerShell as an ordinary user after the install (`powershell -ExecutionPolicy Bypass -File scripts\windows_device_check.ps1`,
+  with `-Beta` for the beta app). It times the window, closes and ends the app on request and checks no backend is left,
+  records the Windows version, graphics card and memory, and writes a markdown file on your Desktop. For step 8, uninstall
+  in Settings, Apps, then run it again with `-AfterUninstall`. It reads no secrets, makes no network calls except to this
+  machine, and installs and deletes nothing. The list:
   1. Download the installer from the release page (`Anthill-Windows-alpha-setup.exe` on a stable release, or
      `Anthill-Beta-Windows-alpha-setup.exe` on the beta feed release). Windows shows the SmartScreen warning; "Run
      anyway" installs for the current user with no administrator prompt, and Anthill (Anthill Beta for a beta) appears
