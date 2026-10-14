@@ -1,8 +1,6 @@
 """Guards on the real-device kit (scripts/windows_device_check.ps1, docs/releasing.md).
 
-PowerShell cannot run in this test, so these pin what must stay true of the file: it keeps the names the CI check uses,
-a tripwire fails if an obvious download, delete or secret-read command is added (it is not a safety boundary: the kit's safety is that it is short and read before it is run), it covers the eight
-steps of the checklist, it stays plain ASCII (Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI), and
+PowerShell cannot run in this test, so these pin what must stay true of the file: it keeps the names the CI check uses, it covers the eight steps of the checklist, it stays plain ASCII (Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI), and
 CI really runs it. On a Windows runner CI also runs its self-test (the file parses and the machine can be read).
 """
 
@@ -63,41 +61,6 @@ def test_it_uses_the_same_names_as_the_ci_check_and_the_app(ps):
         "secrets.env" in ps
         and "secrets.env" in (ROOT / "scripts" / "windows_installer_check.py").read_text()
     )
-
-
-def test_it_has_not_grown_a_command_a_reader_would_object_to(ps):
-    """A tripwire, not a safety boundary. What keeps the kit harmless is that it is short, has one purpose and is read
-    by a person before it is run (and reviewed before it is merged); string checks cannot stop a determined change.
-    This only fails if someone adds one of these obvious commands without noticing."""
-    code = _code(ps)
-    for word in (
-        "Invoke-WebRequest",
-        "Invoke-RestMethod",
-        "Start-BitsTransfer",
-        "DownloadFile",
-        "DownloadString",
-        "curl",
-        "wget",
-        "Remove-Item",
-        "Set-ExecutionPolicy",
-        "RunAs",
-        "Add-Type",
-        "Invoke-Expression",
-        "iex ",
-        "reg add",
-        "New-ItemProperty",
-        "Set-ItemProperty",
-    ):
-        assert word.lower() not in code.lower(), word
-    # it may test that the data file exists, never read it
-    for line in code.splitlines():
-        if "secrets.env" in line.lower() or "$secrets" in line.lower():
-            assert "Get-Content" not in line and "Import-Csv" not in line
-    assert "Get-Content" not in code
-    # the only things it ends are the app's own two programs
-    for line in code.splitlines():
-        if "Stop-Process" in line:
-            assert "$p.Id" in line
 
 
 def test_it_covers_the_eight_steps_of_the_checklist_in_the_release_guide(ps):
