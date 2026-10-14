@@ -1,7 +1,7 @@
 """Guards on the real-device kit (scripts/windows_device_check.ps1, docs/releasing.md).
 
 PowerShell cannot run in this test, so these pin what must stay true of the file: it keeps the names the CI check uses,
-it stays harmless (no secrets read, nothing downloaded, nothing deleted, no administrator rights), it covers the eight
+a tripwire fails if an obvious download, delete or secret-read command is added (it is not a safety boundary: the kit's safety is that it is short and read before it is run), it covers the eight
 steps of the checklist, it stays plain ASCII (Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI), and
 CI really runs it. On a Windows runner CI also runs its self-test (the file parses and the machine can be read).
 """
@@ -65,7 +65,10 @@ def test_it_uses_the_same_names_as_the_ci_check_and_the_app(ps):
     )
 
 
-def test_it_is_harmless(ps):
+def test_it_has_not_grown_a_command_a_reader_would_object_to(ps):
+    """A tripwire, not a safety boundary. What keeps the kit harmless is that it is short, has one purpose and is read
+    by a person before it is run (and reviewed before it is merged); string checks cannot stop a determined change.
+    This only fails if someone adds one of these obvious commands without noticing."""
     code = _code(ps)
     for word in (
         "Invoke-WebRequest",
