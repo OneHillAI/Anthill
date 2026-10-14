@@ -29,6 +29,38 @@ on:
 permissions:
   contents: read
 
+# Docs-only fast path, used by every "Detect docs-only change" step below. ci.yml
+# keeps an identical copy of these two values (tests/test_ci_docs_only_fast_path.py checks that).
+# A PR whose every changed path matches DOCS_ONLY_ALLOW, and none is in DOCS_ONLY_CARVE_OUT, skips
+# the expensive install and check steps; the job itself still runs and reports success.
+env:
+  DOCS_ONLY_ALLOW: '^((docs|docs-site|changelog\.d)/[^[:space:]]*\.md|README\.md|CHANGELOG\.md)$'
+  # A test or the app reads these files at runtime; add any new file a test reads here.
+  # A PR touching any of them runs the full checks. Readers, at the time of writing:
+  #   README.md          pyproject.toml `readme`, read by every `pip install -e .`
+  #   CHANGELOG.md       tests/test_release_check.py (scripts/check-release.sh), tests/test_release_body.py
+  #   docs/how-it-works.md, docs/setup.md
+  #                      anthill/web/app.py (/docs/how-it-works, /docs/setup, _HELP_DOCS) via
+  #                      tests/test_docs.py, test_web_app.py, test_nav_roles.py, test_profile_nav.py,
+  #                      test_jwt_live_revocation.py; also docs-site/scripts/collect-docs.js
+  #   docs/OKGF.md       anthill/web/app.py (/docs/okgf) via tests/test_okf.py
+  #   docs/releasing.md  tests/test_stable_releases_start_as_prereleases.py
+  #   the other docs/*.md below: docs-site/scripts/collect-docs.js FILES (a missing one throws at
+  #                      deploy), guarded by tests/test_ci_docs_only_fast_path.py
+  DOCS_ONLY_CARVE_OUT: |-
+    README.md
+    CHANGELOG.md
+    docs/how-it-works.md
+    docs/setup.md
+    docs/OKGF.md
+    docs/releasing.md
+    docs/DOCS_OVERVIEW.md
+    docs/USING_ANTHILL.md
+    docs/using-chat-and-knowledge.md
+    docs/using-automation.md
+    docs/using-models-and-compute.md
+    docs/using-connectors-and-personalization.md
+
 concurrency:
   group: pr-validation-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -86,12 +118,58 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # A docs-only PR changes no dependency: auditing the identical, already-audited
+      # dependency set on every such PR is pure wait with no signal. Allow-list, not
+      # deny-list - any file outside docs/, docs-site/, changelog.d/ markdown, or any file in the
+      # carve-out list in the workflow env above, runs the real audit. Same script as ci.yml.
+      - name: Detect docs-only change
+        id: docsonly
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Fail closed: anything this cannot positively classify as docs-only runs the full checks.
+          # --no-renames lists a rename as a deletion of the old path plus an addition of the new
+          # one, so moving anthill/x.py to docs/x.md still shows the code path and is not docs-only.
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] &&
+            status=$(git diff --name-status --no-renames "origin/${BASE_REF}...HEAD") &&
+            [ -n "$status" ]; then
+            docs_only=true
+            while IFS= read -r line; do
+              kind=${line%%$'\t'*}
+              path=${line#*$'\t'}
+              case "$kind" in
+                A | D | M) ;;
+                # T is a type change (a doc replaced by a symlink); any other status is unexpected.
+                *) docs_only=false; break ;;
+              esac
+              case "$path" in
+                # git C-quotes a name holding a quote, backslash, control or non-ASCII character.
+                \"*) docs_only=false; break ;;
+              esac
+              if ! printf '%s\n' "$path" | grep -qE "$DOCS_ONLY_ALLOW" ||
+                printf '%s\n' "$path" | grep -qxF -e "$DOCS_ONLY_CARVE_OUT"; then
+                docs_only=false
+                break
+              fi
+            done <<<"$status"
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if [ "$docs_only" = true ]; then
+            echo "::notice::Docs-only change - skipping this job's install and check steps."
+          fi
 
       - uses: actions/setup-python@v5
+        if: steps.docsonly.outputs.docs_only != 'true'
         with:
           python-version: "3.11"
 
       - name: Install deps and pip-audit
+        if: steps.docsonly.outputs.docs_only != 'true'
         # --timeout/--retries: the [ci] extra pulls in lancedb's large transitive wheels, which has
         # hit PyPI read-timeouts on a congested runner (see the security job's identical install
         # below, where this exact failure mode recurred on consecutive unrelated PRs).
@@ -100,6 +178,7 @@ jobs:
           pip install --retries 5 --timeout 60 -e ".[ci]" pip-audit
 
       - name: Audit for known CVEs
+        if: steps.docsonly.outputs.docs_only != 'true'
         # --skip-editable skips the local anthill package itself (no PyPI entry to check).
         # --desc on prints the CVE description inline for easier triage.
         # The step fails if any unfixed CVE is found in a direct or transitive dependency.
@@ -119,11 +198,55 @@ jobs:
         with:
           fetch-depth: 0
 
+      # License compatibility only needs re-checking when the dependency set could have
+      # changed. The SAST step below already self-skips when no .py file changed (its own
+      # CHANGED check), so it needs no condition here - this just saves installing bandit and
+      # pip-licenses at all on a docs-only PR. Allow-list, not deny-list; same script as above.
+      - name: Detect docs-only change
+        id: docsonly
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Fail closed: anything this cannot positively classify as docs-only runs the full checks.
+          # --no-renames lists a rename as a deletion of the old path plus an addition of the new
+          # one, so moving anthill/x.py to docs/x.md still shows the code path and is not docs-only.
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] &&
+            status=$(git diff --name-status --no-renames "origin/${BASE_REF}...HEAD") &&
+            [ -n "$status" ]; then
+            docs_only=true
+            while IFS= read -r line; do
+              kind=${line%%$'\t'*}
+              path=${line#*$'\t'}
+              case "$kind" in
+                A | D | M) ;;
+                # T is a type change (a doc replaced by a symlink); any other status is unexpected.
+                *) docs_only=false; break ;;
+              esac
+              case "$path" in
+                # git C-quotes a name holding a quote, backslash, control or non-ASCII character.
+                \"*) docs_only=false; break ;;
+              esac
+              if ! printf '%s\n' "$path" | grep -qE "$DOCS_ONLY_ALLOW" ||
+                printf '%s\n' "$path" | grep -qxF -e "$DOCS_ONLY_CARVE_OUT"; then
+                docs_only=false
+                break
+              fi
+            done <<<"$status"
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if [ "$docs_only" = true ]; then
+            echo "::notice::Docs-only change - skipping this job's install and check steps."
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.docsonly.outputs.docs_only != 'true'
         with:
           python-version: "3.11"
 
       - name: Install tooling
+        if: steps.docsonly.outputs.docs_only != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install --retries 5 --timeout 60 bandit pip-licenses
@@ -147,6 +270,7 @@ jobs:
           echo "$CHANGED" | xargs bandit -lll -iii -q
 
       - name: License compatibility
+        if: steps.docsonly.outputs.docs_only != 'true'
         # Blocks on UNKNOWN (pip-licenses could not find a license field at all - almost always a
         # packaging error or a bundled dep without metadata). Warns on licenses outside the
         # known-compatible set so a human can verify before merging.
