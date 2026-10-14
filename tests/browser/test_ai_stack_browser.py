@@ -118,9 +118,38 @@ def _box(page, selector):
     )
 
 
+def _boxes(page):
+    """The selected card and the panel, measured in one call. Two calls can straddle a small shift of the whole
+    page (a late layout change or scroll), which moves the card and the panel by different amounts between
+    the two measurements and fails the seam check at random."""
+    r = page.evaluate(
+        """() => {
+            const f = (s) => { const r = document.querySelector(s).getBoundingClientRect();
+                return {l: r.left, r: r.right, t: r.top, b: r.bottom}; };
+            return [f('.cc-tier.sel'), f('#cc-attach')];
+        }"""
+    )
+    return r[0], r[1]
+
+
 def _seam(card, panel):
     """The selected card covers the panel's 3px top border: its bottom is 2 to 4px below the panel's top."""
     return 2 <= card["b"] - panel["t"] <= 4
+
+
+def _wait_for_seam(page):
+    """Wait, up to three seconds, for the page to settle (fonts, the script's first layout) before the card and
+    the panel are measured. The atomic measurement in _boxes is what removes the race; this only gives the
+    first layout time to finish. A seam that is really wrong still fails: the wait times out."""
+    page.wait_for_function(
+        """() => {
+            const c = document.querySelector('.cc-tier.sel').getBoundingClientRect();
+            const p = document.querySelector('#cc-attach').getBoundingClientRect();
+            const d = c.bottom - p.top;
+            return d >= 2 && d <= 4;
+        }""",
+        timeout=3000,
+    )
 
 
 def _seam_is_really_open(page):
@@ -153,7 +182,8 @@ def test_machine_models_sit_inside_the_panel_that_the_selected_card_opens_into(l
             assert not page.locator("#council-cloud").is_visible()
             assert not page.locator("#cc-connect-cloud").is_visible()
             assert _inside_panel(page, "#council-local")
-            card, panel = _box(page, ".cc-tier.sel"), _box(page, "#cc-attach")
+            _wait_for_seam(page)
+            card, panel = _boxes(page)
             assert page.locator(".cc-tier.sel").get_attribute("data-tier") == "local"
             assert (
                 abs(card["l"] - panel["l"]) <= 1
@@ -178,7 +208,8 @@ def test_cloud_opens_its_own_provider_key_and_models_inside_the_panel(live):
             page.click('#cc-provs .cc-prov[data-key="runpod"]')
             assert page.locator("#cc-key").is_visible()
             assert _inside_panel(page, "#cc-key")
-            card, panel = _box(page, ".cc-tier.sel"), _box(page, "#cc-attach")
+            _wait_for_seam(page)
+            card, panel = _boxes(page)
             assert page.locator(".cc-tier.sel").get_attribute("data-tier") == "cloud"
             assert abs(card["r"] - panel["r"]) <= 1  # the right-hand tab ends where the panel ends
             assert _seam(card, panel)
@@ -277,7 +308,8 @@ def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
                 now_c = _box(page, '.cc-tier[data-tier="cloud"]')
                 assert abs(now_m["l"] - machine["l"]) <= 1 and abs(now_c["l"] - cloud["l"]) <= 1
                 assert abs(now_m["t"] - machine["t"]) <= 1 and abs(now_c["t"] - cloud["t"]) <= 1
-                assert _seam(_box(page, ".cc-tier.sel"), _box(page, "#cc-attach")), tier
+                _wait_for_seam(page)
+                assert _seam(*_boxes(page)), tier
                 r = _seam_is_really_open(page)
                 assert r["border"] == "0px" and r["covered"], (tier, r)
             # the privacy line stays, the long copy goes
@@ -351,7 +383,8 @@ def test_an_account_saved_on_your_cloud_opens_on_the_cloud_card_with_and_without
                 assert page.locator("#cc-connect-cloud").is_visible()
                 assert page.locator("#council-cloud").is_visible()
                 assert not page.locator("#council-local").is_visible()
-                assert _seam(_box(page, ".cc-tier.sel"), _box(page, "#cc-attach"))
+                _wait_for_seam(page)
+                assert _seam(*_boxes(page))
                 r = _seam_is_really_open(page)
                 assert r["border"] == "0px" and r["covered"], r
             finally:
@@ -367,7 +400,8 @@ def test_settings_opens_the_same_panel(live):
             page.evaluate("toggleChangeRuns(true)")
             assert page.locator("#change-runs").is_visible()
             assert _inside_panel(page, "#council-local")
-            assert _seam(_box(page, ".cc-tier.sel"), _box(page, "#cc-attach"))
+            _wait_for_seam(page)
+            assert _seam(*_boxes(page))
             r = _seam_is_really_open(page)
             assert r["border"] == "0px" and r["covered"], r
             assert not _inside_panel(page, ".cc-infer-card")
