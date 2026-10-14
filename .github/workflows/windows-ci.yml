@@ -30,12 +30,14 @@ on:
       - "scripts/build-sidecar.sh"
       - "scripts/smoke_frozen_chat.py"
       - "scripts/windows_ci_areas.py"
+      - "scripts/windows_device_check.ps1"
       - "scripts/windows_installer_check.py"
       - "scripts/windows_update_check.py"
       - "src-tauri/**"
       - "tests/test_ollama_windows.py"
       - "tests/test_platform_layer.py"
       - "tests/test_windows_ci.py"
+      - "tests/test_windows_device_check.py"
       - "tests/test_windows_installer_check.py"
       - "tests/test_windows_update_check.py"
   push:
@@ -53,12 +55,14 @@ on:
       - "scripts/build-sidecar.sh"
       - "scripts/smoke_frozen_chat.py"
       - "scripts/windows_ci_areas.py"
+      - "scripts/windows_device_check.ps1"
       - "scripts/windows_installer_check.py"
       - "scripts/windows_update_check.py"
       - "src-tauri/**"
       - "tests/test_ollama_windows.py"
       - "tests/test_platform_layer.py"
       - "tests/test_windows_ci.py"
+      - "tests/test_windows_device_check.py"
       - "tests/test_windows_installer_check.py"
       - "tests/test_windows_update_check.py"
 
@@ -236,6 +240,15 @@ jobs:
         run: |
           INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
           python scripts/windows_installer_check.py "$INSTALLER"
+
+      # The real-machine kit (docs/releasing.md) as far as a clean runner lets it run: the file parses, the machine's facts
+      # can be read, and after the uninstall above it finds the app gone and the user's data kept. The parts that start and
+      # end the app are the ones windows_installer_check.py has just run on this same runner.
+      - name: Run the real-device kit's self-test and its after-uninstall check
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_device_check.ps1 -SelfTest
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_device_check.ps1 -AfterUninstall -NonInteractive -OutFile "$RUNNER_TEMP/device-check.md"
+          cat "$RUNNER_TEMP/device-check.md"
 
       - name: Stop anything left running
         if: always()
