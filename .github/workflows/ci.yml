@@ -16,6 +16,38 @@ concurrency:
 permissions:
   contents: read
 
+# Docs-only fast path, used by every "Detect docs-only change" step below. pr-validation.yml
+# keeps an identical copy of these two values (tests/test_ci_docs_only_fast_path.py checks that).
+# A PR whose every changed path matches DOCS_ONLY_ALLOW, and none is in DOCS_ONLY_CARVE_OUT, skips
+# the expensive install and check steps; the job itself still runs and reports success.
+env:
+  DOCS_ONLY_ALLOW: '^((docs|docs-site|changelog\.d)/[^[:space:]]*\.md|README\.md|CHANGELOG\.md)$'
+  # A test or the app reads these files at runtime; add any new file a test reads here.
+  # A PR touching any of them runs the full checks. Readers, at the time of writing:
+  #   README.md          pyproject.toml `readme`, read by every `pip install -e .`
+  #   CHANGELOG.md       tests/test_release_check.py (scripts/check-release.sh), tests/test_release_body.py
+  #   docs/how-it-works.md, docs/setup.md
+  #                      anthill/web/app.py (/docs/how-it-works, /docs/setup, _HELP_DOCS) via
+  #                      tests/test_docs.py, test_web_app.py, test_nav_roles.py, test_profile_nav.py,
+  #                      test_jwt_live_revocation.py; also docs-site/scripts/collect-docs.js
+  #   docs/OKGF.md       anthill/web/app.py (/docs/okgf) via tests/test_okf.py
+  #   docs/releasing.md  tests/test_stable_releases_start_as_prereleases.py
+  #   the other docs/*.md below: docs-site/scripts/collect-docs.js FILES (a missing one throws at
+  #                      deploy), guarded by tests/test_ci_docs_only_fast_path.py
+  DOCS_ONLY_CARVE_OUT: |-
+    README.md
+    CHANGELOG.md
+    docs/how-it-works.md
+    docs/setup.md
+    docs/OKGF.md
+    docs/releasing.md
+    docs/DOCS_OVERVIEW.md
+    docs/USING_ANTHILL.md
+    docs/using-chat-and-knowledge.md
+    docs/using-automation.md
+    docs/using-models-and-compute.md
+    docs/using-connectors-and-personalization.md
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -65,8 +97,56 @@ jobs:
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history so the docs-only check below can diff against the PR base.
+          fetch-depth: 0
+
+      # A PR that only touches docs/, docs-site/ or changelog.d/ markdown (outside the carve-out
+      # list in the workflow env above) can't change test behaviour, so running the full matrix on
+      # it is pure wait with no signal. The job still runs (and still reports success) so this stays
+      # a real required check, not a skipped one - only the expensive install+test steps below are
+      # conditional. Allow-list, not deny-list: any file outside the pattern, any carved file, a
+      # rename out of code, a type change or an oddly quoted name runs the real suite.
+      - name: Detect docs-only change
+        id: docsonly
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Fail closed: anything this cannot positively classify as docs-only runs the full checks.
+          # --no-renames lists a rename as a deletion of the old path plus an addition of the new
+          # one, so moving anthill/x.py to docs/x.md still shows the code path and is not docs-only.
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] &&
+            status=$(git diff --name-status --no-renames "origin/${BASE_REF}...HEAD") &&
+            [ -n "$status" ]; then
+            docs_only=true
+            while IFS= read -r line; do
+              kind=${line%%$'\t'*}
+              path=${line#*$'\t'}
+              case "$kind" in
+                A | D | M) ;;
+                # T is a type change (a doc replaced by a symlink); any other status is unexpected.
+                *) docs_only=false; break ;;
+              esac
+              case "$path" in
+                # git C-quotes a name holding a quote, backslash, control or non-ASCII character.
+                \"*) docs_only=false; break ;;
+              esac
+              if ! printf '%s\n' "$path" | grep -qE "$DOCS_ONLY_ALLOW" ||
+                printf '%s\n' "$path" | grep -qxF -e "$DOCS_ONLY_CARVE_OUT"; then
+                docs_only=false
+                break
+              fi
+            done <<<"$status"
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if [ "$docs_only" = true ]; then
+            echo "::notice::Docs-only change - skipping this job's install and check steps."
+          fi
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: steps.docsonly.outputs.docs_only != 'true'
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -74,11 +154,13 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install
+        if: steps.docsonly.outputs.docs_only != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[ci]"
 
       - name: Test
+        if: steps.docsonly.outputs.docs_only != 'true'
         # Parallel across 2 workers; loadscope keeps each test module on one worker. Was -n 4, which
         # OOM-killed a random job on the 7 GB hosted runner (a base dep, sentence-transformers, pulls
         # torch + the nvidia/cuda stack, so 4 worker processes each holding the full app import peaked
@@ -93,14 +175,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # Same docs-only shortcut as the test job above (an identical copy of its script) - the real
+      # suite runs the instant a non-doc or carved file is in the diff.
+      - name: Detect docs-only change
+        id: docsonly
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Fail closed: anything this cannot positively classify as docs-only runs the full checks.
+          # --no-renames lists a rename as a deletion of the old path plus an addition of the new
+          # one, so moving anthill/x.py to docs/x.md still shows the code path and is not docs-only.
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] &&
+            status=$(git diff --name-status --no-renames "origin/${BASE_REF}...HEAD") &&
+            [ -n "$status" ]; then
+            docs_only=true
+            while IFS= read -r line; do
+              kind=${line%%$'\t'*}
+              path=${line#*$'\t'}
+              case "$kind" in
+                A | D | M) ;;
+                # T is a type change (a doc replaced by a symlink); any other status is unexpected.
+                *) docs_only=false; break ;;
+              esac
+              case "$path" in
+                # git C-quotes a name holding a quote, backslash, control or non-ASCII character.
+                \"*) docs_only=false; break ;;
+              esac
+              if ! printf '%s\n' "$path" | grep -qE "$DOCS_ONLY_ALLOW" ||
+                printf '%s\n' "$path" | grep -qxF -e "$DOCS_ONLY_CARVE_OUT"; then
+                docs_only=false
+                break
+              fi
+            done <<<"$status"
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if [ "$docs_only" = true ]; then
+            echo "::notice::Docs-only change - skipping this job's install and check steps."
+          fi
+
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: steps.docsonly.outputs.docs_only != 'true'
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
+        if: steps.docsonly.outputs.docs_only != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[ci,browser]"
       - name: Browser tests
+        if: steps.docsonly.outputs.docs_only != 'true'
         run: pytest tests/browser -q
