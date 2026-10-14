@@ -1,6 +1,6 @@
 # Spec: Anthill for Windows
 
-Status: Phases A (build and start) and B (local model) merged. Phase C in progress: C1 (merged) the installer and the shell, tested in CI and unsigned; C2 (merged) the release flow (Windows alpha in Cut Beta, a release check, the real-device checklist); C3 (merged) the self-update proof in CI; the Windows alpha is also added to the stable release; signing is held until the signing route is settled (section 6). Windows is an alpha; macOS is a beta.
+Status: Phases A (build and start) and B (local model) merged. Phase C in progress: C1 (merged) the installer and the shell, tested in CI and unsigned; C2 (merged) the release flow (Windows alpha in Cut Beta, a release check, the real-device checklist); C3 (merged) the self-update proof in CI; the Windows alpha is also added to the stable release; Phase D has begun: the whole test suite runs on Windows nightly and by hand, as an advisory job (section 4); signing is held until the signing route is settled (section 6). Windows is an alpha; macOS is a beta.
 Lane: `pillar:platform`
 Relates to: `src-tauri/tauri.conf.json`, `src-tauri/src/lib.rs`, `scripts/build-sidecar.sh`, `anthill/desktop.py`,
 `anthill/inference/ollama.py`, `.github/workflows/desktop-release.yml`, `.github/workflows/desktop-beta.yml`,
@@ -77,6 +77,14 @@ object. Exit: a CI-built installer installs on a real Windows machine, chats, up
 leaves no process behind on quit.
 
 Phase D, parity. The full test suite runs on Windows as a required check, and the capability table is complete.
+Started (2026-10-14): `.github/workflows/windows-full-suite.yml` runs the whole suite on a Windows runner with the same
+install and flags as the Linux job, nightly, by hand, and on a change to itself. It is advisory: the test step has
+`continue-on-error`, so a test that fails on Windows does not turn a pull request red. The job page lists the counts and
+the failing tests grouped by test file (`scripts/windows_suite_summary.py`), and the junit file is kept for a week. The
+same holds for the nightly run: because the test step cannot fail the job, a night with failing tests still ends green
+and notifies nobody, so the result has to be read from the job summary (the PR manager reads it and reports it). Each
+group is then fixed or, where the feature really differs on Windows, skipped with a recorded reason (R3). When the list
+is empty the `continue-on-error` line is removed and the job becomes a gate.
 
 Each phase is its own PR or small series, each with tests, and none changes how macOS builds.
 

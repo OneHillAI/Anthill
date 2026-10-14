@@ -1,0 +1,77 @@
+# Windows full suite: run the WHOLE test suite on a Windows runner, so we can see what does not yet work there
+# (spec: docs/specs/windows-support.md, Phase D). Windows CI proves the backend, the installer and the update, but it
+# runs only three test files; everything else in tests/ has only ever run on Linux.
+#
+# It is advisory by design: the pytest step does not fail the job, so a test that fails on Windows today does not turn a
+# pull request red. What failed is written to the job summary (counts and the failing tests, by file) and the junit file
+# is kept for a week. When the list is empty, remove `continue-on-error` from the test step and Windows becomes a gate.
+# Until then a run with failing tests still ends green and notifies nobody: the result is read from the job summary.
+#
+# It runs on a schedule (nightly), by hand, and on a pull request only when that pull request changes this file or the
+# summary script (so the change that adds or edits it proves it runs). It does not run on every pull request: a Windows
+# runner is slow and the suite is long.
+name: Windows full suite
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-full-suite.yml"
+      - "scripts/windows_suite_summary.py"
+
+# The event is in the group, so a run started by hand never cancels the nightly one (or the other way round); a newer
+# push to the same pull request still replaces the older run.
+concurrency:
+  group: windows-full-suite-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: Whole test suite on Windows (advisory)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The same install as the Linux test job in ci.yml.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ci]"
+
+      # The same worker flags as the Linux test job (two workers, a module stays on one worker), plus no pytest cache and a junit file. The
+      # step has its own time limit, under the job's: a hung test then ends this step, which continue-on-error absorbs,
+      # and the report steps below still run, instead of the whole job being cancelled.
+      - name: Test
+        id: pytest
+        continue-on-error: true
+        timeout-minutes: 90
+        run: python -m pytest -n 2 --dist loadscope -q -p no:cacheprovider --junitxml=windows-suite.xml
+
+      - name: Summarise what failed on Windows
+        if: always()
+        run: python scripts/windows_suite_summary.py windows-suite.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the junit file
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-suite-junit
+          path: windows-suite.xml
+          retention-days: 7
+          if-no-files-found: warn
