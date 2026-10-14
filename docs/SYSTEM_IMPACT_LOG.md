@@ -26,6 +26,33 @@ template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprin
 
 ## 2026-09
 
+### CI skips the Python test/browser/audit jobs on docs-only PRs - pending PR, prepared 2026-10-14
+**System impact:** founder feedback: a one-line wording fix to docs.anthill.run ran the identical CI
+as a backend code change - the full 3.10-3.13 test matrix, the browser job, pip-audit, and the
+licence-compatibility scan. `docs-deploy.yml` already publishes on any merge to `main` touching
+`docs/**`, so the bottleneck was CI wall-clock time on the way to that merge. `ci.yml`'s `test` and
+`browser` jobs, and `pr-validation.yml`'s `dep-audit` and `security` (licence-compatibility step)
+jobs, now skip their install and check steps when every path in the PR diff is `docs/`, `docs-site/`
+or `changelog.d/` markdown (or root `README.md`/`CHANGELOG.md`) and none is on a carve-out list of
+files a test, the app or the docs-site build reads at runtime (`README.md`, `CHANGELOG.md`,
+`docs/how-it-works.md`, `docs/setup.md`, `docs/OKGF.md`, `docs/releasing.md` and the pages
+`docs-site/scripts/collect-docs.js` publishes). The diff is read with `--name-status --no-renames`,
+so a rename out of code still shows the code path; a type change (such as a doc replaced by a
+symlink), an unexpected status or a quoted file name runs the full checks. Each job still always runs
+and reports its normal pass/fail status, so these stay genuine required checks.
+`tests/test_ci_docs_only_fast_path.py` keeps the four step copies identical, checks every carved
+file exists, fails when a newly read doc or published docs-site page is not carved out, and runs the
+real step script against a scratch git repo.
+**Surface:** `.github/workflows/ci.yml` (workflow `env`, `test`, `browser` jobs),
+`.github/workflows/pr-validation.yml` (workflow `env`, `dep-audit`, `security` jobs),
+`tests/test_ci_docs_only_fast_path.py`.
+**User-visible:** no (contributor/CI-facing only). A docs-only PR's required checks finish in
+roughly the time of a checkout and a `git diff` instead of the full suite.
+**Footprint:** CI workflow config and one test; no application code path changes. The test and
+browser jobs now check out full history (`fetch-depth: 0`) on every run, push runs included.
+Known follow-up, not done here: `~/anthill-tools/preflight.sh` (the local gate mirror) does not
+mirror this shortcut.
+
 ### Arbitrary one-time task scheduling - pending PR for #88
 **System impact:** manual one-shots can target a future local instant, converted to UTC through the existing occurrence ledger; no new recurrence or database schema is introduced.
 **Surface:** Tasks create/edit routes, Tasks dialog, scheduler local-time validation helper. One-shot forms use only `once_at` (blank for now, a date for later), not a separate backend mode; legacy `run_now` is unchanged.
