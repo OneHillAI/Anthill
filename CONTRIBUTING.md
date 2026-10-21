@@ -75,7 +75,7 @@ make demo       # full walkthrough
   3.13 or newer the lock silently loses the macOS `onnxruntime<1.20` pin and the numpy splits for 3.11 and 3.12.
   After a regeneration, check that every package the app imports is in the lock: the packaged app installs
   nothing beyond it, so a missing entry (as `sigstore` once was) fails only inside the frozen build.
-- Local model for tests/dev: `qwen2.5:3b` on Ollama.
+- Local models for tests/dev: `qwen2.5:3b` and `bge-m3` (`ollama pull qwen2.5:3b && ollama pull bge-m3`) on Ollama.
 - Working protocol and the contribution contract: [`AGENTS.md`](AGENTS.md). Authoritative design:
   [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - MCP (connect/expose tools) needs the optional extra and Python 3.10+:

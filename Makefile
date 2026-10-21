@@ -62,7 +62,9 @@ smoke:
 	.venv/bin/anthill -w /tmp/anthill-smoke ingest demo-docs/architecture-decisions.md && \
 	.venv/bin/anthill -w /tmp/anthill-smoke ask "which database did we pick for billing?" && \
 	echo "--- second ask (cache hit expected) ---" && \
-	.venv/bin/anthill -w /tmp/anthill-smoke ask "which database did we pick for billing?"
+	out="$$(.venv/bin/anthill -w /tmp/anthill-smoke ask "which database did we pick for billing?")" && \
+	printf '%s\n' "$$out" && \
+	(printf '%s\n' "$$out" | grep -q "cache hit" || { echo "smoke failed: expected 'cache hit' on second ask (run: ollama pull bge-m3)" >&2; exit 1; })
 
 # Run the orchestrator locally (no Docker):
 serve-orchestrator:
