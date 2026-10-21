@@ -47,7 +47,7 @@ dependencies = [
     "onnxruntime>=1.19.2,<1.20; sys_platform == 'darwin' and python_version < '3.13'",
     "ddgs>=9.0,<10",     # zero-config web-search fallback; Google CSE (httpx, no extra dep) is primary when keys are set
     "reportlab>=4.0,<5",
-    "Pillow>=10.0,<13",
+    "Pillow>=10.0,<14",
     "certifi>=2024.2",  # intentionally unbounded: rolling CA bundle so the frozen app's OpenSSL can verify TLS (SMTP email, HTTPS APIs); wired by desktop._ensure_tls_certs
     "sigstore>=4.4,<5",  # verifies the model catalog was published by our workflow (keyless, no key custody); see anthill/hosting/catalog_trust.py. Floor is 4.4: the API this calls (Verifier.production/verify_artifact, Bundle.from_json, policy.Identity) is what was verified against. NOT pinned exactly: an exact pin here would be theatre while ~25 sibling deps float, and it would cut off upstream security fixes to the library that performs our verification (same reasoning as cryptography above). Real dependency integrity needs hash-pinned locking across every dep, not one favoured `==`.
 ]
