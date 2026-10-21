@@ -50,14 +50,17 @@ jobs:
         # No --ignore-vuln: the one old exception (PYSEC-2026-1325, ecdsa, pulled in only by python-jose) went
         #   away with the move to PyJWT. Add one only with a written reason, and keep it identical to
         #   pr-validation.yml.
+        shell: bash
         run: |
-          pip-audit --skip-editable --desc on 2>&1 | tee /tmp/audit.txt
+          AUDIT_EXIT=0
+          pip-audit --skip-editable --desc on 2>&1 | tee /tmp/audit.txt || AUDIT_EXIT=$?
           {
             echo "## Dependency CVE audit"
             echo '```'
             cat /tmp/audit.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$AUDIT_EXIT"
 
   sast-full:
     name: SAST full codebase (bandit)
