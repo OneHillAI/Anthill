@@ -18,7 +18,7 @@ from sqlalchemy import (
     event,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 log = logging.getLogger("anthill.db")
 
@@ -498,7 +498,9 @@ class AuditLog(Base):
     event = Column(String(60), nullable=False)  # e.g. "user.login", "wiki.promote"
     detail = Column(Text, nullable=False, default="")
     ip = Column(String(45), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     # Additive (#683 phase 7): links an audit row to the KnowledgeItem it acted on, when one was
     # cheaply in hand at the log site (e.g. right after an approve/create call already resolved the
     # registry row) - NULL on delete or wherever resolving it would cost an extra query for little
@@ -559,7 +561,9 @@ class QueryMetric(Base):
     # source where anything left the perimeter; drives the exact Sovereignty %)
     duration_ms = Column(Integer, nullable=True)
     model = Column(String(80), nullable=False, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class ScheduledTask(Base):
@@ -1034,13 +1038,15 @@ class ChatMessage(Base):
     generation_failed = Column(Boolean, nullable=False, default=False)
     cache_hit = Column(Boolean, nullable=False, default=False)
     wiki_slugs = Column(String(500), nullable=False, default="")  # comma-separated
-    thumbs_up = Column(Boolean, nullable=True)  # None=unrated, True/False
+    thumbs_up: Mapped[bool | None] = mapped_column(Boolean)  # None=unrated, True/False
     # Content provenance: a deterministic hash over (conversation, role, content) so any knowledge that
     # flows from this turn into the wiki can be traced back to the exact input it came from. Content-
     # addressable (same input -> same hash); the author + session are the linked conversation. Stamped
     # automatically on insert by the before_insert event below, so every creation site is covered.
     provenance = Column(String(64), nullable=False, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     conversation = relationship("Conversation", back_populates="messages")
 
 

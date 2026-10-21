@@ -119,7 +119,7 @@ def too_many_login_fails(db: Session, ip: str | None) -> bool:
 
 def check_anomalies(db: Session, org_id: int) -> list[str]:
     """Return a list of alert strings for any triggered rules in the last hour."""
-    alerts = []
+    alerts: list[str] = []
     now = datetime.now(timezone.utc)
     for prefix, window_min, max_count, message in RULES:
         since = now - timedelta(minutes=window_min)
