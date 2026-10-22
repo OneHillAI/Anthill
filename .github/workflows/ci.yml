@@ -59,7 +59,10 @@ jobs:
       - name: Install linters
         # Pinned: an unpinned ruff means a new release silently reformats already-committed files
         # and reds the lint on unrelated PRs. Bump these deliberately (and re-run `ruff format`).
-        run: pip install ruff==0.15.16 mypy==2.1.0
+        # SQLAlchemy is installed with the pyproject range (not the lock) so mypy checks the ORM against
+        # the same stubs a fresh `make install` resolves; without it, ignore_missing_imports turns it
+        # into Any and a stricter release drifts unseen (#140).
+        run: pip install ruff==0.15.16 mypy==2.1.0 "sqlalchemy>=2.0,<3"
       - name: Ruff
         run: ruff check anthill tests
       - name: Ruff format
