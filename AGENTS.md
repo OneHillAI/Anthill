@@ -18,8 +18,8 @@ fine-tuned model - kept inside the org perimeter. Sovereignty first. Full design
 - Test: `make test` (model-free units) · `make smoke` (live end-to-end, Ollama required).
 - Lint and types: `make lint` (ruff) · `.venv/bin/ruff format --check anthill tests` ·
   `make typecheck` (mypy). CI runs all three and blocks merge.
-- Local model for dev/tests: `qwen2.5:3b` on Ollama. `lancedb` is pinned `<0.20`. SQLite auto-migrates
-  new columns on startup.
+- Local models for dev/tests: `qwen2.5:3b` and `bge-m3` (`ollama pull qwen2.5:3b && ollama pull bge-m3`)
+  on Ollama. `lancedb` is pinned `<0.20`. SQLite auto-migrates new columns on startup.
 
 ## Working protocol (rigor)
 
