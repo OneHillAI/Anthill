@@ -147,6 +147,17 @@
 <!-- ── Model (where it runs, the council, self-tuning - one workflow) ─────────── -->
 <div class="st-panel active" data-st="model">
 
+  <div id="pull-banner" class="alert alert-info mb-2" style="display:{% if pulling %}block{% else %}none{% endif %}">
+    ⏳ Downloading <b id="pull-tag">{{ pulling }}</b> in the background - it becomes active when ready.
+    <div id="pull-progress" style="margin-top:8px">
+      <div class="pbar" style="margin:4px 0 6px"><i id="pull-progress-bar" style="width:0%;transition:width .3s"></i></div>
+      <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
+    </div>
+  </div>
+  <div id="ready-banner" class="alert alert-ok mb-2" style="display:none">
+    ✅ <b id="ready-tag"></b> finished downloading and is now ready.
+  </div>
+
   {% set INFER_NAMES = {'berget': 'Berget AI', 'groq': 'Groq', 'infercom': 'Infercom'} %}
   <div class="card mb-2">
     <div class="set-cardh"><h3>Where your AI runs<button type="button" class="help" aria-label="What these mean">?<span class="help-pop">Both run open models you fully own - nothing sent to us. Your machine keeps everything on this device; Your cloud runs it on a private GPU in your own cloud account.</span></button></h3></div>
@@ -550,5 +561,47 @@ function trainNow() {
     })
     .catch(function () { if (msg) msg.textContent = 'Could not start a training run.'; if (btn) btn.disabled = false; });
 }
+(function () {
+  var wasPulling = {{ (pulling or '')|tojson }};
+  function formatPullProgress(p) {
+    if (!p) return 'Starting download...';
+    if (p.phase === 'verifying') return '100% - verifying model...';
+    var parts = [];
+    if (typeof p.percent === 'number') parts.push(p.percent + '%');
+    if (p.downloaded && p.total) parts.push(p.downloaded + ' / ' + p.total);
+    if (p.speed) parts.push(p.speed);
+    if (p.eta) parts.push('~' + p.eta + ' remaining');
+    return parts.length ? parts.join(' - ') : 'Starting download...';
+  }
+  function poll() {
+    fetch('/models/pull-status', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.redirected ? null : r.json(); })
+      .then(function (s) {
+        if (!s) return;
+        var pb = document.getElementById('pull-banner');
+        var rb = document.getElementById('ready-banner');
+        var bar = document.getElementById('pull-progress-bar');
+        var meta = document.getElementById('pull-progress-meta');
+        if (s.pulling) {
+          wasPulling = s.pulling;
+          var pt = document.getElementById('pull-tag');
+          if (pt) pt.textContent = s.pulling;
+          if (bar) bar.style.width = ((s.progress && s.progress.percent) || 0) + '%';
+          if (meta) meta.textContent = formatPullProgress(s.progress);
+          if (pb) pb.style.display = 'block';
+          if (rb) rb.style.display = 'none';
+          setTimeout(poll, 2000);
+        } else if (wasPulling) {
+          var rt = document.getElementById('ready-tag');
+          if (rt) rt.textContent = s.current || wasPulling;
+          if (pb) pb.style.display = 'none';
+          if (rb) rb.style.display = 'block';
+          wasPulling = '';
+        }
+      })
+      .catch(function () { setTimeout(poll, 5000); });
+  }
+  if (wasPulling) { setTimeout(poll, 1000); }
+})();
 </script>
 {% endblock %}

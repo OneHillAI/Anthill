@@ -53,6 +53,12 @@
 <div id="pull-banner" class="alert alert-info" style="display:{% if pulling %}block{% else %}none{% endif %}">
   ⏳ Downloading <b id="pull-tag">{{ pulling }}</b> in the background - it becomes your local model when
   ready, and your current model keeps working until then. You can leave this page; it will finish.
+  <div id="pull-progress" style="margin-top:8px">
+    <div style="height:6px;border-radius:999px;background:var(--bg-subtle);overflow:hidden;margin:4px 0 6px">
+      <div id="pull-progress-bar" style="height:100%;width:0%;background:var(--accent,#2f6b4f);border-radius:999px;transition:width .3s"></div>
+    </div>
+    <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
+  </div>
 </div>
 <div id="ready-banner" class="alert alert-ok" style="display:none">
   ✅ <b id="ready-tag"></b> finished downloading and is now your local model.
@@ -125,16 +131,30 @@ async function fetchModelJSON(url, options) {
 // so the Installed list + current model reflect it.
 (function () {
   var wasPulling = {{ pulling|tojson }};
+  function formatPullProgress(p) {
+    if (!p) return 'Starting download...';
+    if (p.phase === 'verifying') return '100% - verifying model...';
+    var parts = [];
+    if (typeof p.percent === 'number') parts.push(p.percent + '%');
+    if (p.downloaded && p.total) parts.push(p.downloaded + ' / ' + p.total);
+    if (p.speed) parts.push(p.speed);
+    if (p.eta) parts.push('~' + p.eta + ' remaining');
+    return parts.length ? parts.join(' - ') : 'Starting download...';
+  }
   function poll() {
     fetchModelJSON('/models/pull-status', { headers: { 'Accept': 'application/json' } })
       .then(function (s) {
         if (!s) return;
         var pb = document.getElementById('pull-banner');
         var rb = document.getElementById('ready-banner');
+        var bar = document.getElementById('pull-progress-bar');
+        var meta = document.getElementById('pull-progress-meta');
         if (s.pulling) {
           document.getElementById('pull-tag').textContent = s.pulling;
+          if (bar) bar.style.width = ((s.progress && s.progress.percent) || 0) + '%';
+          if (meta) meta.textContent = formatPullProgress(s.progress);
           pb.style.display = 'block'; rb.style.display = 'none';
-          setTimeout(poll, 3000);
+          setTimeout(poll, 2000);
         } else if (wasPulling) {
           document.getElementById('ready-tag').textContent = s.current;
           pb.style.display = 'none'; rb.style.display = 'block';
@@ -143,7 +163,7 @@ async function fetchModelJSON(url, options) {
       })
       .catch(function () { setTimeout(poll, 5000); });
   }
-  if (wasPulling) { setTimeout(poll, 3000); }
+  if (wasPulling) { setTimeout(poll, 1000); }
 })();
 // Poll a running benchmark and reload with the result when it finishes (issue #276).
 (function () {

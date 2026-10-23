@@ -2504,17 +2504,60 @@ def local_model_status(user: dict = Depends(_require_user)):
         .count()
     )
     return JSONResponse(
-        {"ollama_up": ollama_up, "ready": ready, "model": model, "queued_uploads": queued_uploads}
+        {
+            "ollama_up": ollama_up,
+            "ready": ready,
+            "model": model,
+            "queued_uploads": queued_uploads,
+            "progress": _MODEL_PULL_PROGRESS.get(org.id),
+        }
     )
 
 
 # ── first-run local model picker (Option A: pick before anything downloads) ──────
+
+# Live in-memory progress for an active `ollama pull` per org_id, read by /local-model/status and
+# /models/pull-status so the dashboard, Settings, and /models banners can render a real progress bar.
+_MODEL_PULL_PROGRESS: dict[int, dict[str, object]] = {}
+
+
+def _parse_ollama_pull_line(line: str) -> dict[str, object] | None:
+    """Parse one progress frame from `ollama pull` stderr/stdout into structured fields."""
+    import re as _re
+
+    clean = _re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", line or "").strip()
+    if not clean:
+        return None
+    m_pct = _re.search(r"(\d{1,3})%", clean)
+    if not m_pct:
+        low = clean.lower()
+        if "verifying sha256" in low or "writing manifest" in low:
+            return {"percent": 100, "phase": "verifying"}
+        return None
+    out: dict[str, object] = {"percent": min(100, int(m_pct.group(1))), "phase": "downloading"}
+    m_bytes = _re.search(
+        r"(\d+(?:\.\d+)?\s*[KMGT]?i?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGT]?i?B)",
+        clean,
+        _re.IGNORECASE,
+    )
+    if m_bytes:
+        out["downloaded"] = m_bytes.group(1).strip()
+        out["total"] = m_bytes.group(2).strip()
+    m_speed = _re.search(r"(\d+(?:\.\d+)?\s*[KMGT]?i?B/s)", clean, _re.IGNORECASE)
+    if m_speed:
+        out["speed"] = m_speed.group(1).strip()
+        m_eta = _re.search(r"(?:^|\s)(\d+h(?:\d+m)?|\d+m(?:\d+s)?|\d+s)", clean[m_speed.end() :])
+        if m_eta:
+            out["eta"] = m_eta.group(1).strip()
+    return out
 
 
 def _set_model_pulling(org_id: int, value: str, *, activate: str = "") -> None:
     """Set ``OrgSettings.local_model_pulling`` (the tag downloading, or "" when done), optionally
     activating ``activate`` as the served ``ollama_model``. Used to flip state at the start and end of
     a background pull; a fresh session so it is safe to call from the pull thread."""
+    if not value:
+        _MODEL_PULL_PROGRESS.pop(org_id, None)
     db = _db()
     try:
         cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
@@ -2604,22 +2647,48 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
     import threading
 
     _set_model_pulling(org_id, tag)  # mark "downloading <tag>" immediately so the UI reflects it
+    _MODEL_PULL_PROGRESS[org_id] = {
+        "tag": tag,
+        "percent": 0,
+        "downloaded": "",
+        "total": "",
+        "speed": "",
+        "eta": "",
+        "phase": "starting",
+    }
 
     def _run() -> None:
         ok = False
         try:
+            import re as _re
             import subprocess
 
             from ..inference.ollama import ensure_serving, find_ollama_bin
 
             ollama = find_ollama_bin()
             if ollama and ensure_serving():
-                ok = (
-                    subprocess.run(
-                        [ollama, "pull", tag], timeout=7200, **hidden_window_kwargs()
-                    ).returncode
-                    == 0
+                proc = subprocess.Popen(  # nosec B603
+                    [ollama, "pull", tag],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    **hidden_window_kwargs(),
                 )
+                buf = b""
+                if proc.stdout is not None:
+                    while True:
+                        chunk = proc.stdout.read(256)
+                        if not chunk:
+                            break
+                        buf += chunk
+                        parts = _re.split(rb"[\r\n]+", buf)
+                        buf = parts[-1]
+                        for part in parts[:-1]:
+                            parsed = _parse_ollama_pull_line(part.decode("utf-8", "replace"))
+                            if parsed:
+                                cur = dict(_MODEL_PULL_PROGRESS.get(org_id) or {"tag": tag})
+                                cur.update(parsed)
+                                _MODEL_PULL_PROGRESS[org_id] = cur
+                ok = proc.wait(timeout=7200) == 0
         except Exception:
             ok = False
         # Clear the flag; activate the new model only if the download actually succeeded.
@@ -6233,6 +6302,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "served_finetune": bool(getattr(cfg, "local_serve_model", "") if cfg else ""),
             "local_models": _local_model_options(cfg),
             "current_local_model": (cfg.ollama_model if cfg else "") or "",
+            "pulling": (cfg.local_model_pulling if cfg else "") or "",
             "installed_local": bool(_installed_local_models(cfg)),
             # Solo compute (P1): the local | cloud choice + whether a cloud endpoint is connected.
             "solo_cloud": (getattr(cfg, "solo_compute", "local") or "local") == "cloud",
@@ -11459,7 +11529,14 @@ def models_pull_status(user: dict = Depends(_require_admin)):
     pulling = (cfg.local_model_pulling if cfg else "") or ""
     current = (cfg.ollama_model if cfg else "") or ""
     installed = OllamaBackend(cfg.ollama_url, current).installed_models() if cfg else []
-    return JSONResponse({"pulling": pulling, "current": current, "installed": current in installed})
+    return JSONResponse(
+        {
+            "pulling": pulling,
+            "current": current,
+            "installed": current in installed,
+            "progress": _MODEL_PULL_PROGRESS.get(org.id),
+        }
+    )
 
 
 @app.post("/models/delete")

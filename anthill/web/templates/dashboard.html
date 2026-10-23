@@ -99,6 +99,10 @@
    shows until the model is ready, then hides itself; while up it doubles as a guided step (#683 p5). #}
 <div class="alert alert-info" id="local-model-banner" style="display:none">
   <p id="local-model-msg" style="margin:0">Preparing your local AI...</p>
+  <div id="local-model-progress" style="display:none;margin-top:8px">
+    <div class="setup-track" style="margin:4px 0 6px"><div class="setup-fill" id="local-model-bar" style="width:0%"></div></div>
+    <div id="local-model-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums"></div>
+  </div>
   <p id="local-model-queued" style="margin:8px 0 0;display:none"></p>
   <p style="margin:10px 0 0">
     Meanwhile, you can get set up: <a href="/wiki">build your wiki</a> or
@@ -330,8 +334,21 @@
 (function () {
   var banner = document.getElementById('local-model-banner');
   var msg = document.getElementById('local-model-msg');
+  var progWrap = document.getElementById('local-model-progress');
+  var progBar = document.getElementById('local-model-bar');
+  var progMeta = document.getElementById('local-model-meta');
   var queuedMsg = document.getElementById('local-model-queued');
   if (!banner) return;
+  function formatPullProgress(p) {
+    if (!p) return '';
+    if (p.phase === 'verifying') return '100% - verifying model...';
+    var parts = [];
+    if (typeof p.percent === 'number') parts.push(p.percent + '%');
+    if (p.downloaded && p.total) parts.push(p.downloaded + ' / ' + p.total);
+    if (p.speed) parts.push(p.speed);
+    if (p.eta) parts.push('~' + p.eta + ' remaining');
+    return parts.length ? parts.join(' - ') : 'Starting download...';
+  }
   // Keep the council status + header pill in step with the banner: while the local model is still
   // downloading, the council is "Preparing", not "Running" (founder saw "Running" over a downloading
   // banner). Only meaningful for the local tier - cloud/org have no local model to wait on.
@@ -358,10 +375,18 @@
       banner.style.display = 'block';
       if (!d.ollama_up) {
         msg.textContent = 'Starting your local AI engine...';
+        if (progWrap) progWrap.style.display = 'none';
       } else {
         msg.innerHTML = 'Preparing your local AI - downloading the model (' +
           (d.model || 'local model') + ', a one-time ~2 GB download). You can keep exploring; ' +
           'chat will be ready when this finishes.';
+        if (progWrap && d.progress) {
+          progWrap.style.display = 'block';
+          if (progBar) progBar.style.width = (d.progress.percent || 0) + '%';
+          if (progMeta) progMeta.textContent = formatPullProgress(d.progress);
+        } else if (progWrap) {
+          progWrap.style.display = 'none';
+        }
       }
       // An upload made while the model is still downloading is saved and queued (not lost) -
       // it processes automatically as soon as the model above reports ready (#683 phase 5).
