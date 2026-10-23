@@ -140,8 +140,45 @@ def test_pull_completion_activates_the_model_and_clears_the_flag(tmp_path, monke
 def test_pull_status_endpoint_reports_progress(tmp_path, monkeypatch):
     c, app_mod, org_id = _admin(tmp_path, monkeypatch)
     app_mod._set_model_pulling(org_id, "mistral-nemo:12b")
+    app_mod._MODEL_PULL_PROGRESS[org_id] = {
+        "tag": "mistral-nemo:12b",
+        "percent": 42,
+        "downloaded": "1.2 GB",
+        "total": "2.9 GB",
+        "speed": "18 MB/s",
+        "eta": "1m35s",
+        "phase": "downloading",
+    }
     j = c.get("/models/pull-status").json()
     assert j["pulling"] == "mistral-nemo:12b"  # the page poller sees the live download
+    assert j["progress"]["percent"] == 42
+    assert j["progress"]["downloaded"] == "1.2 GB"
+    assert j["progress"]["eta"] == "1m35s"
+    status_j = c.get("/local-model/status").json()
+    assert status_j["progress"]["percent"] == 42
+    app_mod._set_model_pulling(org_id, "")
+    assert org_id not in app_mod._MODEL_PULL_PROGRESS
+
+
+def test_parse_ollama_pull_line_extracts_progress_and_eta():
+    import anthill.web.app as app_mod
+
+    parsed = app_mod._parse_ollama_pull_line(
+        "\x1b[?25lpulling model:  14% ▕███          ▏ 412 MB/2.9 GB  18 MB/s  2m18spulling manifest"
+    )
+    assert parsed == {
+        "percent": 14,
+        "phase": "downloading",
+        "downloaded": "412 MB",
+        "total": "2.9 GB",
+        "speed": "18 MB/s",
+        "eta": "2m18s",
+    }
+    assert app_mod._parse_ollama_pull_line("verifying sha256 digest") == {
+        "percent": 100,
+        "phase": "verifying",
+    }
+    assert app_mod._parse_ollama_pull_line("pulling manifest") is None
 
 
 def test_custom_tag_still_works(tmp_path, monkeypatch):

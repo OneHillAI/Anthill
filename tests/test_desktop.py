@@ -138,3 +138,62 @@ def test_exit_when_orphaned_is_a_noop_outside_sidecar_mode(monkeypatch):
     before = threading.active_count()
     desktop._exit_when_orphaned()  # returns immediately; must not spawn a watcher or exit
     assert threading.active_count() == before
+
+
+def test_ensure_engine_async_resumes_incomplete_local_model_pull(monkeypatch):
+    """When a user has already chosen a local model and the app restarts before the download
+    finished, _ensure_engine_async resumes the background pull once Ollama is serving."""
+    import anthill.inference.ollama as ollama_mod
+    from anthill.web import app as web_app
+
+    class _FakeCfg:
+        org_id = 7
+        ollama_model = "nemotron-3-nano:4b"
+        ollama_url = "http://localhost:11434"
+        local_model_chosen = True
+        solo_compute = "local"
+
+    class _FakeQuery:
+        def first(self):
+            return _FakeCfg()
+
+    class _FakeSession:
+        def query(self, _model):
+            return _FakeQuery()
+
+        def close(self):
+            pass
+
+    class _FakeBackend:
+        def __init__(self, url: str, model: str) -> None:
+            self.url = url
+            self.model = model
+
+        def health(self) -> str | None:
+            return "model 'nemotron-3-nano:4b' is not installed"
+
+    resumed: list[tuple[int, str, bool]] = []
+
+    monkeypatch.setattr(ollama_mod, "find_ollama_bin", lambda: "/usr/local/bin/ollama")
+    monkeypatch.setattr(ollama_mod, "ensure_serving", lambda: True)
+    monkeypatch.setattr(ollama_mod, "OllamaBackend", _FakeBackend)
+    monkeypatch.setattr(web_app, "_db", lambda: _FakeSession())
+    monkeypatch.setattr(web_app, "_MODEL_PULL_PROGRESS", {})
+    monkeypatch.setattr(
+        web_app,
+        "_start_model_pull",
+        lambda org_id, tag, *, activate_when_done=False: resumed.append(
+            (org_id, tag, activate_when_done)
+        ),
+    )
+
+    class _SyncThread:
+        def __init__(self, *, target, daemon=False):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    monkeypatch.setattr(desktop.threading, "Thread", _SyncThread)
+    desktop._ensure_engine_async()
+    assert resumed == [(7, "nemotron-3-nano:4b", False)]

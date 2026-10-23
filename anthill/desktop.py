@@ -185,18 +185,45 @@ def _seed_skills() -> None:
 def _ensure_engine_async() -> None:
     """Best-effort, in the background: make sure the local Ollama engine is up. If no Ollama is found
     (the Tauri app ships without it to keep the dmg + auto-updates small), download it once into the
-    data dir, then start ``ollama serve``. Does NOT pull a model: which model to download is the
-    user's choice in the first-run picker (/setup/model). Never blocks startup; silent on failure."""
+    data dir, then start ``ollama serve``. Does NOT pull a model before first-run choice (/setup/model),
+    but if a model was already chosen and its download was interrupted by an app restart, resumes it.
+    Never blocks startup; silent on failure."""
 
     def _run() -> None:
         try:
-            from anthill.inference.ollama import download_ollama, ensure_serving, find_ollama_bin
+            from anthill.inference.ollama import (
+                OllamaBackend,
+                download_ollama,
+                ensure_serving,
+                find_ollama_bin,
+            )
 
             if not find_ollama_bin():
                 download_ollama()  # first run on a clean Mac: fetch the engine once into the data dir
             if not find_ollama_bin():
                 return  # no engine and the download failed - the chat shows the "install Ollama" message
-            ensure_serving()  # start `ollama serve` if it is installed but down
+            if not ensure_serving():  # start `ollama serve` if it is installed but down
+                return
+            from anthill.web import app as web_app
+            from anthill.web.db import OrgSettings
+
+            db = web_app._db()
+            try:
+                cfg = db.query(OrgSettings).first()
+                model_tag = str(cfg.ollama_model or "") if cfg else ""
+                org_id = int(cfg.org_id) if cfg and cfg.org_id else 0
+                ollama_url = str(cfg.ollama_url or "http://localhost:11434") if cfg else ""
+                if (
+                    cfg
+                    and bool(cfg.local_model_chosen)
+                    and str(cfg.solo_compute or "local") == "local"
+                    and model_tag
+                    and org_id not in web_app._MODEL_PULL_PROGRESS
+                    and OllamaBackend(ollama_url, model_tag).health() is not None
+                ):
+                    web_app._start_model_pull(org_id, model_tag, activate_when_done=False)
+            finally:
+                db.close()
         except Exception:
             pass
 
