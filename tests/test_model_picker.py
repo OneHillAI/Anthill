@@ -37,10 +37,10 @@ def test_recommend_by_family_returns_one_pick_per_family_in_order():
 
 
 def test_recommend_by_family_picks_smartest_that_fits():
-    # A 16 GB Apple box (~10 GB usable for weights at 4-bit) fits ~9B, not the big ones.
+    # A 16 GB Apple box (~10 GB usable for weights at 4-bit) fits ~9-12B, not the big ones.
     picks = {p.family: p for p in sizing.recommend_by_family(16, kind="apple")}
     assert picks["Qwen"].recommended.ollama_tag == "qwen3.5:9b"  # the smartest Qwen that fits
-    assert picks["Gemma"].recommended.ollama_tag == "gemma3:4b"  # 4B fits, 27B does not
+    assert picks["Gemma"].recommended.ollama_tag == "gemma4:12b"  # 12B fits, 26B/27B/31B do not
     # the frontier giants (DeepSeek/GLM/MiniMax/Kimi) have nothing small enough to fit a 16 GB box
     assert picks["DeepSeek"].recommended is None
     # the download size is reported for the UI
@@ -58,7 +58,7 @@ def test_recommend_by_family_grows_with_memory(monkeypatch):
     big = {p.family: p for p in sizing.recommend_by_family(128, kind="apple")}
     # a 128 GB machine should recommend a strictly larger Qwen than a 16 GB one
     assert big["Qwen"].recommended.params_b > small["Qwen"].recommended.params_b
-    assert big["Llama"].recommended.ollama_tag == "llama3.3:70b"  # the 70B now fits
+    assert big["Llama"].recommended.ollama_tag == "llama4:scout"  # the 109B MoE now fits
 
 
 def test_recommend_by_family_none_when_too_small():

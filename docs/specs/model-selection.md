@@ -28,10 +28,11 @@ that fetches the latest. Selection is capability-first on **both** surfaces - th
   **smartest model that fits**, not merely the largest - so a 35B-A3B MoE (35B resident, 3B active) can be
   preselected over a dense but duller model. Families are shown strongest-first; the default family tab is
   the strongest overall, origin-blind (the old non-Chinese default is retired).
-- **The frontier.** The seed spans DeepSeek (V4-Pro/Flash, V3.1, R1), MiniMax (M3), GLM (5.1/5.2,
-  4.7-flash), Kimi (K2.7), Qwen (3.6 35B-A3B, 3.5 ladder), gpt-oss (20B/120B), plus Llama/Gemma/Mistral/Phi
-  in the tail. Ollama tags are verified against the live library; `hf_id`, param counts and intelligence
-  are best-effort for the newest models and are corrected by Refresh.
+- **The frontier.** The seed spans DeepSeek (V4-Pro/V4.1-Flash, V3.1, R1), MiniMax (M3), GLM (5.2/5.3,
+  4.7-flash), Kimi (K2.7, K3), Qwen (3.8 27B, 3.6 35B-A3B, 3.5 ladder), gpt-oss (20B/120B), Nemotron (3.5/3),
+  plus Llama (4/3.3), Gemma (4/3), Mistral (Small 3.2), Granite (4.2), and Phi in the tail. Ollama tags are
+  verified against the live library; `hf_id`, param counts and intelligence are best-effort for the newest
+  models and are corrected by Refresh.
 
 The existing escape hatches remain: the `/models` "Advanced: custom tag" field and the org "Other" id.
 

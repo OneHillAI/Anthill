@@ -32,7 +32,7 @@ class ModelSpec:
     description: str = ""
 
 
-# ── model catalogue (verified 2026-06-02) ────────────────────────────────────
+# ── model catalogue (verified 2026-10-28) ────────────────────────────────────
 # Pull any of these with:  ollama pull <tag>
 # Laptop = fits 16 GB RAM.  Order within task_types = preference (best first).
 
@@ -44,6 +44,12 @@ CATALOGUE: list[ModelSpec] = [
         1.9,
         description="Fastest local model; good for simple lookups",
     ),
+    ModelSpec(
+        "granite4.2:3b",
+        [TaskType.FAST, TaskType.GENERAL],
+        2.1,
+        description="IBM Granite 4.2 3B (Apache-2.0, US-origin); fast local model",
+    ),
     # ── general chat ──────────────────────────────────────────────────────────
     ModelSpec(
         "qwen3:8b",
@@ -52,10 +58,34 @@ CATALOGUE: list[ModelSpec] = [
         description="Best laptop general model (Qwen 3, 8B)",
     ),
     ModelSpec(
+        "gemma4:e4b",
+        [TaskType.GENERAL, TaskType.REASON, TaskType.CODE, TaskType.CREATE],
+        4.8,
+        description="Gemma 4 E4B (Apache-2.0, US-origin); efficient 16 GB general model",
+    ),
+    ModelSpec(
+        "granite4.2:8b",
+        [TaskType.GENERAL, TaskType.REASON, TaskType.CODE, TaskType.CREATE],
+        5.1,
+        description="IBM Granite 4.2 8B (Apache-2.0, US-origin); general chat and RAG",
+    ),
+    ModelSpec(
+        "gemma4:12b",
+        [TaskType.GENERAL, TaskType.REASON, TaskType.CODE, TaskType.CREATE],
+        7.3,
+        description="Gemma 4 12B (Apache-2.0, US-origin); strong 16 GB general model",
+    ),
+    ModelSpec(
         "qwen3:14b",
         [TaskType.GENERAL, TaskType.CODE, TaskType.REASON, TaskType.CREATE],
         9.3,
         description="Stronger general model; needs 16 GB RAM",
+    ),
+    ModelSpec(
+        "qwen3.8:27b",
+        [TaskType.GENERAL, TaskType.REASON, TaskType.CODE, TaskType.CREATE],
+        17.0,
+        description="Qwen3.8 27B; frontier general, reasoning, and coding model (32 GB+ RAM)",
     ),
     # ── code ──────────────────────────────────────────────────────────────────
     ModelSpec(
@@ -123,7 +153,7 @@ CATALOGUE: list[ModelSpec] = [
     ),
     # ── cloud-boosted (opt-in, data leaves machine) ───────────────────────────
     ModelSpec(
-        "kimi-k2.6:cloud",
+        "kimi-k3:cloud",
         [
             TaskType.GENERAL,
             TaskType.REASON,
@@ -134,20 +164,36 @@ CATALOGUE: list[ModelSpec] = [
         ],
         0.0,
         cloud=True,
-        description="⚠️ CLOUD - routes via Moonshot AI. 1T-param model, "
+        description="⚠️ CLOUD - routes via Moonshot AI. 2.8T-param model, "
         "best capability. Only use if privacy is not required.",
     ),
 ]
 
 # Task-type → ordered list of preferred tags (first available wins)
 _PREFERENCE: dict[TaskType, list[str]] = {
-    TaskType.FAST: ["qwen2.5:3b", "qwen3:8b"],
-    TaskType.GENERAL: ["qwen3:8b", "qwen3:14b", "qwen2.5:3b"],
-    TaskType.REASON: ["deepseek-r1:8b", "deepseek-r1:14b", "qwen3:14b", "qwen3:8b"],
+    TaskType.FAST: ["qwen2.5:3b", "granite4.2:3b", "qwen3:8b"],
+    TaskType.GENERAL: [
+        "qwen3:8b",
+        "gemma4:12b",
+        "gemma4:e4b",
+        "granite4.2:8b",
+        "qwen3:14b",
+        "qwen3.8:27b",
+        "qwen2.5:3b",
+    ],
+    TaskType.REASON: [
+        "deepseek-r1:8b",
+        "deepseek-r1:14b",
+        "qwen3.8:27b",
+        "gemma4:12b",
+        "qwen3:14b",
+        "qwen3:8b",
+    ],
     TaskType.CODE: [
         "qwen2.5-coder:7b",
         "qwen2.5-coder:3b",
         "deepseek-r1:8b",
+        "qwen3.8:27b",
         "qwen3:8b",
         "qwen3:14b",
     ],
@@ -161,7 +207,7 @@ _PREFERENCE: dict[TaskType, list[str]] = {
         "granite3.2-vision:2b",
         "mistral-small3.2:24b",
     ],
-    TaskType.CREATE: ["qwen3:8b", "qwen3:14b", "deepseek-r1:8b"],
+    TaskType.CREATE: ["qwen3:8b", "gemma4:12b", "qwen3:14b", "qwen3.8:27b", "deepseek-r1:8b"],
 }
 
 # Vision tags preferred FIRST when the opt-in "maximum accuracy" mode is on. Qwen3-VL is Chinese-origin,
