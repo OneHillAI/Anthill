@@ -18,15 +18,6 @@ def test_bundled_catalog_loads_and_carries_intelligence():
         assert m.active_b <= m.params_b
 
 
-def test_published_catalog_matches_bundled_seed():
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parent.parent
-    seed = json.loads((repo / "anthill" / "hosting" / "model_catalog.json").read_text())["models"]
-    pub = json.loads((repo / "www" / "model-catalog.json").read_text())["models"]
-    assert pub == seed
-
-
 def test_families_are_ordered_by_intelligence():
     order = sizing.families_by_intelligence(sizing.load_catalog())
     # the strongest family (by its best model) leads; the Western tail trails

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Frontier open-weight catalog. Ordered by an intelligence index; the picker re-ranks by intelligence x what fits the target hardware. params_b is TOTAL parameters (the memory driver, incl. all MoE experts); active_b is what computes per token (the speed driver). Ollama tags are verified against the live library; hf_id is best-effort for the newest models and is corrected by Refresh. Refreshable via /models/refresh-catalog.",
-  "generated": "2026-10-28",
+  "generated": "2026-08-03",
   "models": [
     {
       "name": "DeepSeek V4-Pro",
@@ -9,8 +9,8 @@
       "origin": "DeepSeek, China",
       "params_b": 1600,
       "active_b": 49,
-      "ollama_tag": "deepseek-v4-pro:cloud",
-      "hf_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "ollama_tag": "deepseek-v4-pro",
+      "hf_id": "deepseek-ai/DeepSeek-V4",
       "context_k": 1000,
       "license": "MIT",
       "intelligence": 71,
@@ -22,7 +22,7 @@
       "origin": "MiniMax, China",
       "params_b": 428,
       "active_b": 23,
-      "ollama_tag": "minimax-m3:cloud",
+      "ollama_tag": "minimax-m3",
       "hf_id": "MiniMaxAI/MiniMax-M3",
       "context_k": 1000,
       "license": "Apache-2.0",
@@ -30,13 +30,13 @@
       "gated": false
     },
     {
-      "name": "GLM-5.3",
+      "name": "GLM-5.1",
       "family": "GLM",
       "origin": "Zhipu / Z.ai, China",
       "params_b": 744,
       "active_b": 40,
-      "ollama_tag": "glm-5.3:cloud",
-      "hf_id": "zai-org/GLM-5.3",
+      "ollama_tag": "glm-5.1",
+      "hf_id": "zai-org/GLM-5.1",
       "context_k": 200,
       "license": "MIT",
       "intelligence": 68,
@@ -48,7 +48,7 @@
       "origin": "Zhipu / Z.ai, China",
       "params_b": 744,
       "active_b": 40,
-      "ollama_tag": "glm-5.2:cloud",
+      "ollama_tag": "glm-5.2",
       "hf_id": "zai-org/GLM-5.2",
       "context_k": 1000,
       "license": "MIT",
@@ -61,24 +61,11 @@
       "origin": "Moonshot AI, China",
       "params_b": 1000,
       "active_b": 32,
-      "ollama_tag": "kimi-k2.7-code:cloud",
+      "ollama_tag": "kimi-k2.7-code",
       "hf_id": "moonshotai/Kimi-K2.7-Code",
       "context_k": 256,
       "license": "Modified MIT",
       "intelligence": 64,
-      "gated": false
-    },
-    {
-      "name": "DeepSeek V4.1-Flash",
-      "family": "DeepSeek",
-      "origin": "DeepSeek, China",
-      "params_b": 552,
-      "active_b": 16,
-      "ollama_tag": "deepseek-v4.1-flash:cloud",
-      "hf_id": "deepseek-ai/DeepSeek-V4.1-Flash",
-      "context_k": 1000,
-      "license": "MIT",
-      "intelligence": 63,
       "gated": false
     },
     {
@@ -91,6 +78,19 @@
       "hf_id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
       "context_k": 256,
       "license": "OpenMDW-1.1",
+      "intelligence": 63,
+      "gated": false
+    },
+    {
+      "name": "DeepSeek V4-Flash",
+      "family": "DeepSeek",
+      "origin": "DeepSeek, China",
+      "params_b": 284,
+      "active_b": 13,
+      "ollama_tag": "deepseek-v4-flash",
+      "hf_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "context_k": 1000,
+      "license": "MIT",
       "intelligence": 63,
       "gated": false
     },
@@ -160,32 +160,6 @@
       "gated": false
     },
     {
-      "name": "Nemotron 3.5 Super",
-      "family": "Nemotron",
-      "origin": "NVIDIA, US",
-      "params_b": 120,
-      "active_b": 12,
-      "ollama_tag": "nemotron-3.5-super:120b",
-      "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16",
-      "context_k": 256,
-      "license": "NVIDIA Open Model",
-      "intelligence": 57,
-      "gated": false
-    },
-    {
-      "name": "Llama 4 Maverick",
-      "family": "Llama",
-      "origin": "Meta, US",
-      "params_b": 402,
-      "active_b": 17,
-      "ollama_tag": "llama4:maverick",
-      "hf_id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-      "context_k": 1000,
-      "license": "Llama Community",
-      "intelligence": 56,
-      "gated": true
-    },
-    {
       "name": "Nemotron 3 Super",
       "family": "Nemotron",
       "origin": "NVIDIA, US",
@@ -212,19 +186,6 @@
       "gated": false
     },
     {
-      "name": "Qwen3.8 27B",
-      "family": "Qwen",
-      "origin": "Alibaba, China",
-      "params_b": 27,
-      "active_b": 27,
-      "ollama_tag": "qwen3.8:27b",
-      "hf_id": "Qwen/Qwen3.8-27B",
-      "context_k": 262,
-      "license": "Apache-2.0",
-      "intelligence": 55,
-      "gated": false
-    },
-    {
       "name": "Qwen3.5 27B",
       "family": "Qwen",
       "origin": "Alibaba, China",
@@ -238,45 +199,6 @@
       "gated": false
     },
     {
-      "name": "Gemma 4 31B",
-      "family": "Gemma",
-      "origin": "Google, US",
-      "params_b": 31,
-      "active_b": 31,
-      "ollama_tag": "gemma4:31b",
-      "hf_id": "google/gemma-4-31B-it",
-      "context_k": 256,
-      "license": "Apache-2.0",
-      "intelligence": 53,
-      "gated": false
-    },
-    {
-      "name": "Gemma 4 26B-A4B",
-      "family": "Gemma",
-      "origin": "Google, US",
-      "params_b": 26,
-      "active_b": 4,
-      "ollama_tag": "gemma4:26b",
-      "hf_id": "google/gemma-4-26B-A4B-it",
-      "context_k": 256,
-      "license": "Apache-2.0",
-      "intelligence": 52,
-      "gated": false
-    },
-    {
-      "name": "Llama 4 Scout",
-      "family": "Llama",
-      "origin": "Meta, US",
-      "params_b": 109,
-      "active_b": 17,
-      "ollama_tag": "llama4:scout",
-      "hf_id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-      "context_k": 1000,
-      "license": "Llama Community",
-      "intelligence": 51,
-      "gated": true
-    },
-    {
       "name": "DeepSeek-R1 32B",
       "family": "DeepSeek",
       "origin": "DeepSeek, China",
@@ -287,19 +209,6 @@
       "context_k": 128,
       "license": "MIT",
       "intelligence": 50,
-      "gated": false
-    },
-    {
-      "name": "Nemotron 3.5 Lightning",
-      "family": "Nemotron",
-      "origin": "NVIDIA, US",
-      "params_b": 30,
-      "active_b": 3,
-      "ollama_tag": "nemotron-3.5-lightning:30b",
-      "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
-      "context_k": 256,
-      "license": "NVIDIA Open Model",
-      "intelligence": 49,
       "gated": false
     },
     {
@@ -343,19 +252,6 @@
       "quant_hf_id": "casperhansen/llama-3.3-70b-instruct-awq"
     },
     {
-      "name": "Granite 4.2 30B-A3B",
-      "family": "Granite",
-      "origin": "IBM, US",
-      "params_b": 30,
-      "active_b": 3,
-      "ollama_tag": "granite4.2:30b",
-      "hf_id": "ibm-granite/granite-4.2-30b",
-      "context_k": 128,
-      "license": "Apache-2.0",
-      "intelligence": 46,
-      "gated": false
-    },
-    {
       "name": "Qwen3.5 9B",
       "family": "Qwen",
       "origin": "Alibaba, China",
@@ -382,27 +278,14 @@
       "gated": true
     },
     {
-      "name": "Gemma 4 12B",
-      "family": "Gemma",
-      "origin": "Google, US",
-      "params_b": 12,
-      "active_b": 12,
-      "ollama_tag": "gemma4:12b",
-      "hf_id": "google/gemma-4-12B-it",
-      "context_k": 256,
-      "license": "Apache-2.0",
-      "intelligence": 43,
-      "gated": false
-    },
-    {
-      "name": "Mistral Small 3.2 24B",
+      "name": "Mistral Small 3 24B",
       "family": "Mistral",
       "origin": "Mistral AI, France (EU)",
       "params_b": 24,
       "active_b": 24,
-      "ollama_tag": "mistral-small3.2:24b",
-      "hf_id": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
-      "context_k": 128,
+      "ollama_tag": "mistral-small:24b",
+      "hf_id": "mistralai/Mistral-Small-24B-Instruct-2501",
+      "context_k": 32,
       "license": "Apache-2.0",
       "intelligence": 42,
       "gated": false
@@ -421,19 +304,6 @@
       "gated": false
     },
     {
-      "name": "Granite 4.2 8B",
-      "family": "Granite",
-      "origin": "IBM, US",
-      "params_b": 9,
-      "active_b": 9,
-      "ollama_tag": "granite4.2:8b",
-      "hf_id": "ibm-granite/granite-4.2-8b",
-      "context_k": 128,
-      "license": "Apache-2.0",
-      "intelligence": 36,
-      "gated": false
-    },
-    {
       "name": "Qwen3.5 4B",
       "family": "Qwen",
       "origin": "Alibaba, China",
@@ -444,45 +314,6 @@
       "context_k": 262,
       "license": "Apache-2.0",
       "intelligence": 34,
-      "gated": false
-    },
-    {
-      "name": "Gemma 4 E4B",
-      "family": "Gemma",
-      "origin": "Google, US",
-      "params_b": 8,
-      "active_b": 4,
-      "ollama_tag": "gemma4:e4b",
-      "hf_id": "google/gemma-4-E4B-it",
-      "context_k": 128,
-      "license": "Apache-2.0",
-      "intelligence": 33,
-      "gated": false
-    },
-    {
-      "name": "Nemotron 3.5 Bolt",
-      "family": "Nemotron",
-      "origin": "NVIDIA, US",
-      "params_b": 8,
-      "active_b": 4,
-      "ollama_tag": "nemotron-3.5-bolt:e4b",
-      "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16",
-      "context_k": 256,
-      "license": "NVIDIA Open Model",
-      "intelligence": 33,
-      "gated": false
-    },
-    {
-      "name": "Nemotron 3 Nano 4B",
-      "family": "Nemotron",
-      "origin": "NVIDIA, US",
-      "params_b": 4,
-      "active_b": 4,
-      "ollama_tag": "nemotron-3-nano:4b",
-      "hf_id": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
-      "context_k": 262,
-      "license": "NVIDIA Open Model",
-      "intelligence": 33,
       "gated": false
     },
     {
@@ -499,19 +330,6 @@
       "gated": true
     },
     {
-      "name": "Gemma 4 E2B",
-      "family": "Gemma",
-      "origin": "Google, US",
-      "params_b": 5,
-      "active_b": 2,
-      "ollama_tag": "gemma4:e2b",
-      "hf_id": "google/gemma-4-E2B-it",
-      "context_k": 128,
-      "license": "Apache-2.0",
-      "intelligence": 26,
-      "gated": false
-    },
-    {
       "name": "Qwen3.5 2B",
       "family": "Qwen",
       "origin": "Alibaba, China",
@@ -522,19 +340,6 @@
       "context_k": 262,
       "license": "Apache-2.0",
       "intelligence": 24,
-      "gated": false
-    },
-    {
-      "name": "Granite 4.2 3B",
-      "family": "Granite",
-      "origin": "IBM, US",
-      "params_b": 3,
-      "active_b": 3,
-      "ollama_tag": "granite4.2:3b",
-      "hf_id": "ibm-granite/granite-4.2-3b",
-      "context_k": 128,
-      "license": "Apache-2.0",
-      "intelligence": 22,
       "gated": false
     },
     {
