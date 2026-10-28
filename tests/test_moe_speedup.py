@@ -179,7 +179,7 @@ def test_region_counts_match_the_real_catalog():
     eu = sizing.suggest_regional_council("EU", catalog=catalog)
     assert set(china.families) == {"DeepSeek", "MiniMax", "GLM", "Kimi", "Qwen"}
     assert china.diverse is True
-    assert set(us.families) == {"gpt-oss", "Llama", "Gemma", "Phi", "Nemotron"}
+    assert set(us.families) == {"gpt-oss", "Llama", "Gemma", "Phi", "Nemotron", "Granite"}
     assert us.diverse is True
     assert eu.families == ("Mistral",)
     assert eu.diverse is False

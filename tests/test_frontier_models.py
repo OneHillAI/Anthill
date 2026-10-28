@@ -48,7 +48,7 @@ def test_frontier_catalog_matches_exactly_these_real_entries():
     frontier = {m.name for m in catalog if not sizing.has_any_self_serve_path(m)}
     assert frontier == {
         "DeepSeek V4-Pro",
-        "GLM-5.1",
+        "GLM-5.3",
         "GLM-5.2",
         "Kimi K2.7 Code",
         "DeepSeek V3.1",
@@ -95,7 +95,7 @@ def test_picker_excludes_frontier_models_from_the_family_lists(monkeypatch):
     by_name = {m["name"]: m for fam in view["families"] for m in fam["models"]}
     assert "Kimi K3" not in by_name
     assert "DeepSeek V4-Pro" not in by_name
-    assert "GLM-5.1" not in by_name
+    assert "GLM-5.3" not in by_name
 
 
 def test_picker_surfaces_frontier_models_in_their_own_list(monkeypatch):
@@ -105,7 +105,7 @@ def test_picker_surfaces_frontier_models_in_their_own_list(monkeypatch):
     frontier_names = {m["name"] for m in view["frontier_models"]}
     assert frontier_names == {
         "DeepSeek V4-Pro",
-        "GLM-5.1",
+        "GLM-5.3",
         "GLM-5.2",
         "Kimi K2.7 Code",
         "DeepSeek V3.1",
@@ -126,7 +126,7 @@ def test_a_family_with_zero_self_servable_members_is_dropped_entirely(monkeypatc
 
 
 def test_a_family_with_some_self_servable_members_keeps_only_those(monkeypatch):
-    # DeepSeek has both frontier (V4-Pro, V3.1) and self-servable (V4-Flash, R1 32B) members - the
+    # DeepSeek has both frontier (V4-Pro, V3.1) and self-servable (V4.1-Flash, R1 32B) members - the
     # family card must still appear, but only listing the self-servable ones.
     monkeypatch.setattr(sizing, "local_hardware", lambda: (16.0, "apple"))
     view = app._model_picker_view(None)
@@ -134,4 +134,4 @@ def test_a_family_with_some_self_servable_members_keeps_only_those(monkeypatch):
     names = {m["name"] for m in deepseek["models"]}
     assert "DeepSeek V4-Pro" not in names
     assert "DeepSeek V3.1" not in names
-    assert "DeepSeek V4-Flash" in names
+    assert "DeepSeek V4.1-Flash" in names
