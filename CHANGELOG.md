@@ -12,6 +12,34 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
      pillar:feature line above is a repo-required exception (see .github/workflows/pr-validation.yml).
      Preview: build_changelog.py --draft -->
 
+## [1.1.1] - 2026-10-28
+
+Anthill 1.1.1 refreshes the bundled local model catalog and task router with the current open-weight generations (Qwen 3.8, Gemma 4, Nemotron 3.5, Llama 4, Mistral Small 3.2, and IBM Granite 4.2) and fixes six non-installable Ollama tags, shows live local-model download progress with automatic pull resume on desktop app launch, lets tasks run once at any future local date and time, and updates Pillow to 13.0.0 to resolve eight security advisories.
+
+### Added
+
+- Tasks can run once at any future local date and time. The form preserves the task timezone and an unchanged pending date when editing, even if already due, and rejects new past, invalid, or ambiguous daylight-saving times without saving changes. Standard form submissions preserve entered values and attachments when showing validation errors.
+- Show live local-model download progress (percentage, downloaded/total size, speed, and ETA) on the Dashboard, Models, and Settings -> Model pages, and automatically resume unfinished local-model pulls when the desktop app starts (`anthill/web/app.py`, `anthill/desktop.py`, `anthill/web/templates/dashboard.html`, `anthill/web/templates/models.html`, `anthill/web/templates/personalize.html`).
+
+### Fixed
+
+- `make smoke` now verifies that the second `ask` hits the semantic cache and points to `ollama pull bge-m3` when it misses; developer setup docs now include pulling `bge-m3`.
+- **`make typecheck` passes again on a fresh `make install` with SQLAlchemy 2.1.** The ORM columns used in
+  the metrics, digest and audit time-window filters are now typed with `Mapped[...]`, and CI type-checks
+  against the real SQLAlchemy stubs so a stricter release can no longer drift past the lint job unseen.
+- **Local model catalog and task-router catalogue refreshed with current open-weight generations (#164).** Fixed non-installable Ollama tags (`deepseek-v4-pro:cloud`, `minimax-m3:cloud`, `glm-5.3:cloud`, `glm-5.2:cloud`, `kimi-k2.7-code:cloud`, `deepseek-v4.1-flash:cloud`) and added the current local model generations across Qwen (`qwen3.8:27b`), Gemma 4 (`gemma4:e2b`, `gemma4:e4b`, `gemma4:12b`, `gemma4:26b`, `gemma4:31b`), Nemotron 3.5 (`nemotron-3.5-bolt:e4b`, `nemotron-3.5-lightning:30b`, `nemotron-3.5-super:120b`), Llama 4 (`llama4:scout`, `llama4:maverick`), Mistral (`mistral-small3.2:24b`), and IBM Granite 4.2 (`granite4.2:3b`, `granite4.2:8b`, `granite4.2:30b`).
+
+### Security
+
+- Bump Pillow to 13.0.0 and raise the upper cap to `<14` in pyproject.toml to resolve 8 CVEs in Pillow 12.3.0, update requirements.lock, and ensure the weekly dependency security audit fails on pip-audit findings.
+
+### Contributors
+
+Thanks to everyone who shipped this release - the humans directing the work and,
+disclosed alongside them, the agents that did it:
+
+- **ramedey** (13 changes), directing Antigravity, pi, GPT-6.1 (pi)
+
 ## [1.1.0] - 2026-10-12
 
 Anthill 1.1.0 makes chat answer sooner and lets you choose, chat by chat, whether a model thinks and whether it searches
