@@ -45,8 +45,41 @@ def test_settings_shows_the_gap_and_install_button(tmp_path, monkeypatch):
     monkeypatch.setattr(_pack, "can_install", lambda: True)
     c, _, _ = _admin(tmp_path, monkeypatch)
     body = c.get("/settings").text
-    assert "not redacted yet" in body  # the gap is surfaced
+    assert "NOT redacted without the privacy pack" in body  # the gap is surfaced
+    assert "not redacted yet" not in body  # no duplicated trailing sentence (#155)
     assert 'action="/privacy-pack/install"' in body  # ...with a one-click install
+
+
+def test_personalize_privacy_scrub_copy_matches_presidio_state(tmp_path, monkeypatch):
+    c, _, _ = _admin(tmp_path, monkeypatch)
+    monkeypatch.setattr(_scrub, "presidio_available", lambda: False)
+    body_absent = c.get("/personalize").text
+    assert "Removes emails, phone numbers and IDs first." in body_absent
+    assert "Names and places need the privacy pack" in body_absent
+    assert "Removes names, emails and IDs first." not in body_absent
+    assert 'href="/audit"' in body_absent  # Solo/admin Privacy tab links to /audit (#156)
+
+    monkeypatch.setattr(_scrub, "presidio_available", lambda: True)
+    body_present = c.get("/personalize").text
+    assert "Removes names, locations, emails, phone numbers and IDs first." in body_present
+
+
+def test_solo_dashboard_links_audit_and_audit_labels_utc(tmp_path, monkeypatch):
+    from anthill.web import audit as audit_mod
+
+    c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    s = app_mod._SessionFactory()
+    cfg = s.query(OrgSettings).filter_by(org_id=org_id).first()
+    cfg.deployment_topology = "solo"
+    cfg.local_model_chosen = True
+    audit_mod.log(s, "inference.call", "model=qwen2.5:3b", org_id=org_id, user_id=1)
+    s.commit()
+
+    dash = c.get("/").text
+    assert "<h3>Your workspace</h3>" in dash
+    assert 'href="/audit"' in dash
+    audit_page = c.get("/audit").text
+    assert " UTC" in audit_page and "inference.call" in audit_page
 
 
 def test_settings_shows_installed_state(tmp_path, monkeypatch):

@@ -64,7 +64,7 @@
     {% for e in events %}
     <tr>
       <td class="text-sm text-muted" style="white-space:nowrap">
-        {{ e.created_at.strftime('%m-%d %H:%M:%S') if e.created_at else '-' }}
+        {{ e.created_at.strftime('%m-%d %H:%M:%S UTC') if e.created_at else '-' }}
       </td>
       <td>
         <span class="badge {% if 'fail' in e.event or 'reject' in e.event %}badge-danger
