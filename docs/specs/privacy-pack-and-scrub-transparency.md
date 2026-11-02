@@ -1,6 +1,6 @@
 # Spec: Surface the PII-scrub coverage + a one-click privacy pack
 
-Status: implemented (CLI + backend). Lane: `pillar:privacy`. Issue: #540.
+Status: implemented (CLI + backend + web). Lane: `pillar:privacy`. Issues: #540, #155, #156.
 
 ## Problem
 
@@ -29,13 +29,19 @@ structured-only. A transparency/posture gap, not a code defect (the scrub works 
 
 ## Web surface
 
-The Settings page shows a "Cloud privacy" card with `scrub_coverage()` and, when name/location redaction
-isn't installed and `privacy_pack.can_install()` is True, a one-click **Install privacy pack** button.
-It posts to `POST /privacy-pack/install` (admin, audit-logged), which runs `privacy_pack.install()` in a
-background thread; the page polls `GET /privacy-pack/status` and updates when it's ready. A packaged app
-that can't install shows the limitation instead of a button. (The web cloud-escalation consent gate is
-still not wired - cloud escalation is fail-closed on the web path - so the CLI `--cloud` prompt remains
-the live per-send surface; the card is where the web admin sees and closes the gap.)
+The Settings page (`/settings`) shows a "Cloud privacy" card with `scrub_coverage()` (without repeating
+the names/locations caveat a second time) and, when name/location redaction isn't installed and
+`privacy_pack.can_install()` is True, a one-click **Install privacy pack** button. It posts to
+`POST /privacy-pack/install` (admin, audit-logged), which runs `privacy_pack.install()` in a background
+thread; the page polls `GET /privacy-pack/status` and updates when it's ready. A packaged app that can't
+install shows the limitation instead of a button.
+
+On `/personalize` (Settings -> Privacy), the "Scrub personal details before training" toggle description
+also branches on `presidio_available()` (#155): when the privacy pack is absent it states that emails,
+phone numbers and IDs are removed while names and places need the privacy pack (linking admins to
+`/settings` to install it), rather than promising that names are removed on a base install. The Privacy
+tab and the Solo dashboard's "Your workspace" card both link directly to `/audit`, and `/audit` labels
+recent event timestamps with `UTC` (#156).
 
 ## Out of scope here (follow-up)
 

@@ -6146,6 +6146,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
     org = _require_org(db, user)
     me = db.query(User).filter(User.id == int(user["sub"])).first()
     from .. import planes
+    from ..hybrid.scrub import presidio_available
     from ..training.model_select import is_local_training, is_solo_account
 
     cfg = _cfg(db, org)
@@ -6284,6 +6285,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
             "thinking_on": bool(getattr(me, "thinking_on", False)) if me else False,
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
+            "presidio_available": presidio_available(),
             "wiki_count": wiki_count,
             "model_storage_gb": model_storage_gb,
             "integrations_connected": integrations_connected,
@@ -9003,6 +9005,9 @@ async def settings_post(
         user_id=user["sub"],
     )
     audit.log(db, "settings.updated", "", org_id=org.id, user_id=user["sub"])
+    from ..hybrid import privacy_pack as pack
+    from ..hybrid.scrub import presidio_available, scrub_coverage
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -9012,6 +9017,10 @@ async def settings_post(
             "org": org,
             "cfg": cfg,
             "saved": True,
+            "scrub_coverage": scrub_coverage(),
+            "presidio_available": presidio_available(),
+            "privacy_pack_can_install": pack.can_install(),
+            "privacy_installing": _privacy_pack_installing,
         },
     )
 

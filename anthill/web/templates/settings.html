@@ -30,9 +30,9 @@
 <div class="card" style="margin-top:16px">
   <h3 style="margin-bottom:12px">Cloud privacy <span class="text-sm text-muted">(PII scrubbing)</span><button type="button" class="help" aria-label="About PII scrubbing">?<span class="help-pop">Before any text goes to a cloud model, Anthill redacts personal information. The privacy pack adds redaction of free-text names and locations.</span></button></h3>
   {% if presidio_available %}
-  <p class="text-sm"><span class="badge badge-active">Full</span> Covers {{ scrub_coverage }}, including names and locations.</p>
+  <p class="text-sm"><span class="badge badge-active">Full</span> Covers {{ scrub_coverage }}.</p>
   {% else %}
-  <p class="text-sm" style="margin:0 0 12px"><span class="badge badge-pending">Partial</span> Covers {{ scrub_coverage }}. Names and locations are not redacted yet.</p>
+  <p class="text-sm" style="margin:0 0 12px"><span class="badge badge-pending">Partial</span> Covers {{ scrub_coverage }}.</p>
   {% if privacy_pack_can_install %}
   <form method="post" action="/privacy-pack/install" style="display:inline">
     <button id="privacy-install-btn" type="submit" class="btn btn-sm btn-primary"

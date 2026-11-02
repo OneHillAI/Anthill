@@ -355,7 +355,7 @@
         <label class="tog"><input type="checkbox" name="memory_on" {% if memory_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
       <div class="setrow">
-        <div class="setrow-main"><span class="setrow-name">Scrub personal details before training</span><span class="setrow-d">Removes names, emails and IDs first.</span></div>
+        <div class="setrow-main"><span class="setrow-name">Scrub personal details before training</span><span class="setrow-d">{% if presidio_available %}Removes names, locations, emails, phone numbers and IDs first.{% else %}Removes emails, phone numbers and IDs first. Names and places need the privacy pack{% if user and user.role == 'admin' %} (<a href="/settings">Install</a>){% endif %}.{% endif %}</span></div>
         <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
       <div class="setrow">
@@ -377,7 +377,7 @@
   </div>
 
   {% if user and user.role == 'admin' %}
-  <p class="text-sm text-muted" style="margin:4px 0 0"><a href="/settings">Advanced privacy settings</a> - PII scrubbing coverage and a one-click privacy pack.</p>
+  <p class="text-sm text-muted" style="margin:4px 0 0"><a href="/settings">Advanced privacy settings</a> - PII scrubbing coverage and a one-click privacy pack. &middot; <a href="/audit">Audit log</a> - every model call and upload.</p>
   {% endif %}
 </div>
 

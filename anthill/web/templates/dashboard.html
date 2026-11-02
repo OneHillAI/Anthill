@@ -300,7 +300,7 @@
     </div>
   </div>
   {# A solo account has no organisation - showing "Organization / Name / role" there is nonsense, so
-     solo gets a plain workspace summary instead; only a real org shows org identity + audit log. #}
+     solo gets a plain workspace summary instead; both link to the audit log and how-it-works guide. #}
   {% if solo %}
   <div class="card">
     <h3>Your workspace</h3>
@@ -309,6 +309,7 @@
       {% if council_members|length > 1 %}<b>Council:</b> {{ council_members|length }} models{% else %}<b>Model:</b> {{ council_members[0] if council_members else 'Not chosen yet' }}{% endif %}
     </div>
     <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
+      <a href="/audit" class="text-sm"><i data-lucide="scroll-text"></i> Audit log →</a>
       <a href="/docs/how-it-works" class="text-sm"><i data-lucide="book-open"></i> How Anthill works →</a>
     </div>
   </div>
