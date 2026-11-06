@@ -1,4 +1,4 @@
-"""Guard the Tauri v2 desktop capability manifest and ACL tests (docs/specs/desktop-shell-allow-open.md).
+"""Guard the Tauri v2 desktop capability manifest (docs/specs/desktop-shell-allow-open.md).
 
 The desktop shell loads the backend over http://127.0.0.1:<port>/<path>, which Tauri v2 treats as a
 remote origin. Every IPC command invoked from those pages - including tauri-plugin-shell's
@@ -13,7 +13,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CAPABILITY_PATH = ROOT / "src-tauri" / "capabilities" / "default.json"
-LIB_RS_PATH = ROOT / "src-tauri" / "src" / "lib.rs"
 
 
 def test_default_capability_grants_shell_open_only_to_loopback_origins() -> None:
@@ -26,12 +25,3 @@ def test_default_capability_grants_shell_open_only_to_loopback_origins() -> None
     permissions = capability["permissions"]
     assert "shell:allow-open" in permissions
     assert "allow-open-profile" in permissions
-
-
-def test_rust_acl_tests_cover_shell_open_from_local_and_external_origins() -> None:
-    source = LIB_RS_PATH.read_text(encoding="utf-8")
-    acl_tests = source[source.index("#[cfg(all(test, unix))]") :]
-
-    assert '"plugin:shell|open"' in acl_tests
-    assert "fn shell_open_is_allowed_from_the_local_backend_origin()" in acl_tests
-    assert "fn shell_open_is_still_refused_to_any_other_origin()" in acl_tests

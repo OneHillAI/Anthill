@@ -662,15 +662,13 @@ mod acl_tests {
         }
     }
 
-    /// Invoke `open_profile` as if the page at `origin_url` had called it, with `sidecar_script` as the
-    /// backend, then stop any backend the command started (the shell plugin never reaps sidecars).
-    /// Returns the command's result (`Err` carries an ACL rejection or whatever `open_profile` itself
-    /// returned) and which profile the shell recorded as showing.
-    fn invoke_open_profile_from(
+    /// Dispatch an IPC `cmd` with `body` against the mock app's `main` window as if the page at
+    /// `origin_url` had invoked it, then stop any backend sidecar the command started.
+    fn invoke_ipc_from(
         origin_url: &str,
-        sidecar_script: &str,
+        cmd: &str,
+        body: serde_json::Value,
     ) -> (Result<(), String>, Option<String>) {
-        let _sidecar = SidecarStandIn::install(sidecar_script);
         let builder = tauri::test::mock_builder().plugin(tauri_plugin_shell::init());
         // As in `run`: the window-state plugin is part of the macOS app only.
         #[cfg(target_os = "macos")]
@@ -688,11 +686,11 @@ mod acl_tests {
         let response = tauri::test::get_ipc_response(
             &webview,
             tauri::webview::InvokeRequest {
-                cmd: "open_profile".into(),
+                cmd: cmd.into(),
                 callback: tauri::ipc::CallbackFn(0),
                 error: tauri::ipc::CallbackFn(1),
                 url: origin_url.parse().unwrap(),
-                body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "id": "work-test" })),
+                body: tauri::ipc::InvokeBody::Json(body),
                 headers: Default::default(),
                 invoke_key: tauri::test::INVOKE_KEY.to_string(),
             },
@@ -713,6 +711,22 @@ mod acl_tests {
                 .unwrap_or_else(|| value.to_string())),
         };
         (result, profile)
+    }
+
+    /// Invoke `open_profile` as if the page at `origin_url` had called it, with `sidecar_script` as the
+    /// backend, then stop any backend the command started (the shell plugin never reaps sidecars).
+    /// Returns the command's result (`Err` carries an ACL rejection or whatever `open_profile` itself
+    /// returned) and which profile the shell recorded as showing.
+    fn invoke_open_profile_from(
+        origin_url: &str,
+        sidecar_script: &str,
+    ) -> (Result<(), String>, Option<String>) {
+        let _sidecar = SidecarStandIn::install(sidecar_script);
+        invoke_ipc_from(
+            origin_url,
+            "open_profile",
+            serde_json::json!({ "id": "work-test" }),
+        )
     }
 
     fn rejected_by_acl(error: &str) -> bool {
@@ -775,36 +789,12 @@ mod acl_tests {
     /// (`not-a-url`, `file:///etc/passwd`, `javascript:alert(1)`) lets the test verify ACL passage
     /// and scope enforcement without spawning the OS browser.
     fn invoke_shell_open_from(origin_url: &str, path: &str) -> Result<(), String> {
-        let builder = tauri::test::mock_builder().plugin(tauri_plugin_shell::init());
-        #[cfg(target_os = "macos")]
-        let builder = builder.plugin(super::window_state_plugin());
-        let app = builder
-            .manage(Backend(Mutex::new(BackendState::default())))
-            .invoke_handler(tauri::generate_handler![open_profile])
-            .build(super::app_context())
-            .expect("build the app with the real capabilities");
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("create the `main` window");
-        let response = tauri::test::get_ipc_response(
-            &webview,
-            tauri::webview::InvokeRequest {
-                cmd: "plugin:shell|open".into(),
-                callback: tauri::ipc::CallbackFn(0),
-                error: tauri::ipc::CallbackFn(1),
-                url: origin_url.parse().unwrap(),
-                body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "path": path })),
-                headers: Default::default(),
-                invoke_key: tauri::test::INVOKE_KEY.to_string(),
-            },
-        );
-        match response {
-            Ok(_) => Ok(()),
-            Err(value) => Err(value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| value.to_string())),
-        }
+        invoke_ipc_from(
+            origin_url,
+            "plugin:shell|open",
+            serde_json::json!({ "path": path }),
+        )
+        .0
     }
 
     #[test]

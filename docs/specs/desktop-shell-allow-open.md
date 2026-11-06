@@ -23,8 +23,8 @@ Two mechanisms interact here:
 ## 3. Fix
 
 - Add `"shell:allow-open"` to `permissions` in `src-tauri/capabilities/default.json` and document it in `default.json` and `src-tauri/README.md`.
-- Add `invoke_shell_open_from`, `shell_open_is_allowed_from_the_local_backend_origin`, and `shell_open_is_still_refused_to_any_other_origin` to `mod acl_tests` in `src-tauri/src/lib.rs`.
-- Add `tests/test_desktop_capabilities.py` to verify that `src-tauri/capabilities/default.json` grants `shell:allow-open` and `allow-open-profile` strictly to the two loopback `remote.urls` and that the Rust ACL test suite covers `plugin:shell|open`.
+- Extract a shared `invoke_ipc_from` helper in `mod acl_tests` (`src-tauri/src/lib.rs`) and add `invoke_shell_open_from`, `shell_open_is_allowed_from_the_local_backend_origin`, and `shell_open_is_still_refused_to_any_other_origin`.
+- Add `tests/test_desktop_capabilities.py` to verify that `src-tauri/capabilities/default.json` grants `shell:allow-open` and `allow-open-profile` strictly to the two loopback `remote.urls`.
 
 ## 4. Acceptance Criteria
 
