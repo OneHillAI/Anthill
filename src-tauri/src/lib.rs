@@ -769,6 +769,84 @@ mod acl_tests {
         );
         assert_eq!(profile.as_deref(), Some("work-test"));
     }
+
+    /// Invoke `plugin:shell|open` as if a `<a target="_blank">` click on `origin_url` had triggered
+    /// `tauri-plugin-shell`'s `init-iife.js` hook. Passing a path outside the default URL scope
+    /// (`not-a-url`, `file:///etc/passwd`, `javascript:alert(1)`) lets the test verify ACL passage
+    /// and scope enforcement without spawning the OS browser.
+    fn invoke_shell_open_from(origin_url: &str, path: &str) -> Result<(), String> {
+        let builder = tauri::test::mock_builder().plugin(tauri_plugin_shell::init());
+        #[cfg(target_os = "macos")]
+        let builder = builder.plugin(super::window_state_plugin());
+        let app = builder
+            .manage(Backend(Mutex::new(BackendState::default())))
+            .invoke_handler(tauri::generate_handler![open_profile])
+            .build(super::app_context())
+            .expect("build the app with the real capabilities");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("create the `main` window");
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "plugin:shell|open".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: origin_url.parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "path": path })),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        );
+        match response {
+            Ok(_) => Ok(()),
+            Err(value) => Err(value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string())),
+        }
+    }
+
+    #[test]
+    fn shell_open_is_allowed_from_the_local_backend_origin() {
+        for origin in [
+            "http://127.0.0.1:52744/",
+            "http://127.0.0.1:52744/chat/1",
+            "http://localhost:8123/chat/1",
+        ] {
+            for non_browser_path in [
+                "not-a-url",
+                "file:///etc/passwd",
+                "javascript:alert(1)",
+            ] {
+                let error = invoke_shell_open_from(origin, non_browser_path)
+                    .expect_err("non-http/mailto/tel path must stop at the shell open scope check");
+                assert!(
+                    !rejected_by_acl(&error),
+                    "plugin:shell|open was rejected by the ACL from {origin}: {error}"
+                );
+                assert!(
+                    error.contains("failed regex validation"),
+                    "plugin:shell|open should reach OpenScope validation for {non_browser_path}, got: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shell_open_is_still_refused_to_any_other_origin() {
+        for origin in [
+            "https://example.com/chat/1",
+            "http://192.168.1.20:8000/chat/1",
+        ] {
+            let error = invoke_shell_open_from(origin, "not-a-url")
+                .expect_err("an unlisted origin must not reach plugin:shell|open");
+            assert!(
+                rejected_by_acl(&error),
+                "plugin:shell|open must not be reachable from {origin}, got: {error:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
