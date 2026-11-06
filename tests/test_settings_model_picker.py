@@ -232,3 +232,31 @@ def test_picker_selection_round_trips_through_personalize_post(tmp_path, monkeyp
     )
     cfg = app_mod._SessionFactory().query(OrgSettings).first()
     assert cfg.ollama_model == "qwen2.5:7b"
+
+
+def test_bare_catalog_tag_matches_ollama_latest_in_picker_and_pull(tmp_path, monkeypatch):
+    # #168: Ollama reports bare pulls like `qwen3.6` as `qwen3.6:latest` in /api/tags. The picker must
+    # mark `qwen3.6` as installed on its catalog row (not duplicate `qwen3.6:latest` under other_installed),
+    # and /models/pull must switch immediately rather than starting a redundant background pull.
+    import anthill.inference.ollama as ollama_mod
+
+    monkeypatch.setattr(
+        ollama_mod.OllamaBackend,
+        "installed_models_with_sizes",
+        lambda self: [{"name": "qwen3.6:latest", "size_bytes": 23_000_000_000}],
+    )
+    monkeypatch.setattr(
+        ollama_mod.OllamaBackend,
+        "installed_models",
+        lambda self: ["qwen3.6:latest"],
+    )
+    c, app_mod = _client(tmp_path, monkeypatch)
+    cfg = app_mod._SessionFactory().query(OrgSettings).first()
+    view = app_mod._model_picker_view(cfg)
+    qwen_models = [m for f in view["families"] if f["family"] == "Qwen" for m in f["models"]]
+    qwen36 = next(m for m in qwen_models if m["tag"] == "qwen3.6")
+    assert qwen36["installed"] is True
+    assert all(m["tag"] != "qwen3.6:latest" for m in view["other_installed"])
+
+    r = c.post("/models/pull", data={"model_tag": "qwen3.6"}, follow_redirects=False)
+    assert r.headers["location"] == "/models?selected=1"

@@ -87,6 +87,12 @@ CATALOGUE: list[ModelSpec] = [
         17.0,
         description="Qwen3.8 27B; frontier general, reasoning, and coding model (32 GB+ RAM)",
     ),
+    ModelSpec(
+        "qwen3.6",
+        [TaskType.GENERAL, TaskType.REASON, TaskType.CODE, TaskType.CREATE],
+        23.0,
+        description="Qwen3.6 35B-A3B MoE (3B active); frontier general, reasoning, and coding model",
+    ),
     # ── code ──────────────────────────────────────────────────────────────────
     ModelSpec(
         "qwen2.5-coder:7b",
@@ -179,11 +185,13 @@ _PREFERENCE: dict[TaskType, list[str]] = {
         "granite4.2:8b",
         "qwen3:14b",
         "qwen3.8:27b",
+        "qwen3.6",
         "qwen2.5:3b",
     ],
     TaskType.REASON: [
         "deepseek-r1:8b",
         "deepseek-r1:14b",
+        "qwen3.6",
         "qwen3.8:27b",
         "gemma4:12b",
         "qwen3:14b",
@@ -193,6 +201,7 @@ _PREFERENCE: dict[TaskType, list[str]] = {
         "qwen2.5-coder:7b",
         "qwen2.5-coder:3b",
         "deepseek-r1:8b",
+        "qwen3.6",
         "qwen3.8:27b",
         "qwen3:8b",
         "qwen3:14b",
@@ -207,7 +216,14 @@ _PREFERENCE: dict[TaskType, list[str]] = {
         "granite3.2-vision:2b",
         "mistral-small3.2:24b",
     ],
-    TaskType.CREATE: ["qwen3:8b", "gemma4:12b", "qwen3:14b", "qwen3.8:27b", "deepseek-r1:8b"],
+    TaskType.CREATE: [
+        "qwen3:8b",
+        "gemma4:12b",
+        "qwen3:14b",
+        "qwen3.6",
+        "qwen3.8:27b",
+        "deepseek-r1:8b",
+    ],
 }
 
 # Vision tags preferred FIRST when the opt-in "maximum accuracy" mode is on. Qwen3-VL is Chinese-origin,
@@ -416,14 +432,21 @@ class TaskRouter:
         Never returns a cloud model unless allow_cloud=True.
         Falls back to fallback_tag if nothing else is installed.
         """
-        installed = self._installed_models()
+        raw_installed = self._installed_models()
+        # Ollama reports bare pulls (e.g. `ollama pull qwen3.6`) as `qwen3.6:latest` in /api/tags.
+        installed = raw_installed | {
+            t.removesuffix(":latest") for t in raw_installed if t.endswith(":latest")
+        }
         # A hard pin overrides task routing for everything except vision (a pinned text model can't do
         # vision). Exact-match only: if the pinned model isn't installed, fall through to normal routing
         # rather than silently substitute a different size.
         if (
             self.pinned_model
             and task != TaskType.VISION
-            and self.pinned_model in installed
+            and (
+                self.pinned_model in installed
+                or (":" not in self.pinned_model and f"{self.pinned_model}:latest" in installed)
+            )
             and self._model_allowed(self.pinned_model)
         ):
             return self.pinned_model
@@ -437,13 +460,13 @@ class TaskRouter:
             # size, or chat 404s with "model not found". Sorted for a deterministic pick.
             same_family = sorted(
                 candidate
-                for candidate in installed
+                for candidate in raw_installed
                 if candidate.split(":")[0] == tag.split(":")[0] and self._model_allowed(candidate)
             )
             if same_family:
                 return same_family[0]
         if task == TaskType.VISION:
-            for tag in sorted(installed):
+            for tag in sorted(raw_installed):
                 if self._model_allowed(tag) and "vision" in self._model_capabilities(tag):
                     return tag
         return fallback_tag if self._model_allowed(fallback_tag) else ""

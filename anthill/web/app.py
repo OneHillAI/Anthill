@@ -2765,7 +2765,11 @@ def _model_picker_view(cfg):
     system_ram_gb = gpu_box_system_ram_gb() if kind == "gpu" else None
     _ollama = OllamaBackend(cfg.ollama_url, cfg.ollama_model) if cfg else None
     _installed_with_sizes = _ollama.installed_models_with_sizes() if _ollama else []
-    installed = {m["name"] for m in _installed_with_sizes}
+    installed = {m["name"] for m in _installed_with_sizes} | {
+        m["name"].removesuffix(":latest")
+        for m in _installed_with_sizes
+        if m["name"].endswith(":latest")
+    }
     # Every installed model that ISN'T in the curated catalog above (an older pull, a model the
     # catalog dropped, one grabbed via /models' "pull a model by tag", or a non-chat model like the
     # embedding model this app itself uses) - founder ask, 2026-09-30: a model doesn't stop existing
@@ -2778,7 +2782,9 @@ def _model_picker_view(cfg):
         (
             {"tag": m["name"], "size_gb": round(m["size_bytes"] / 1e9, 1)}
             for m in _installed_with_sizes
-            if m["name"] and m["name"] not in _catalog_tags
+            if m["name"]
+            and m["name"] not in _catalog_tags
+            and m["name"].removesuffix(":latest") not in _catalog_tags
         ),
         key=lambda m: m["tag"],
     )
@@ -3569,7 +3575,7 @@ def model_picker_post(
                 # check above regardless (a stale page, a not-fully-disabled option, or a direct
                 # request) - re-check fit here too, matching /personalize and /models/pull (#747).
                 return RedirectResponse("/setup/model?error=too_large", status_code=302)
-            if choice in installed:
+            if choice in installed or f"{choice}:latest" in installed:
                 cfg.ollama_model = choice  # already here: activate now
             else:
                 cfg.ollama_model = choice  # first run has no prior model to preserve
@@ -6114,7 +6120,8 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
     unknown data matches this codebase's own stance elsewhere (warn on uncertain data, never hard-block).
     """
     tag = (tag or "").strip()
-    if not tag or tag in _installed_local_models(cfg):
+    installed = _installed_local_models(cfg) if tag else []
+    if not tag or tag in installed or f"{tag}:latest" in installed:
         return False
     try:
         from ..hosting.sizing import fit_tier, gpu_box_system_ram_gb, load_catalog, local_hardware
@@ -11327,7 +11334,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
         return RedirectResponse("/models?error=too_large", status_code=302)
 
     installed = set(OllamaBackend(cfg.ollama_url, model_tag).installed_models()) if cfg else set()
-    if model_tag in installed:
+    if model_tag in installed or f"{model_tag}:latest" in installed:
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately
             cfg.local_model_pulling = ""
@@ -11542,7 +11549,7 @@ def models_pull_status(user: dict = Depends(_require_admin)):
         {
             "pulling": pulling,
             "current": current,
-            "installed": current in installed,
+            "installed": current in installed or f"{current}:latest" in installed,
             "progress": _MODEL_PULL_PROGRESS.get(org.id),
         }
     )
@@ -11562,7 +11569,11 @@ async def delete_model(model_tag: str = Form(...), user: dict = Depends(_require
     model_tag = (model_tag or "").strip()
     if not model_tag or not cfg:
         return RedirectResponse("/models?error=no_tag", status_code=302)
-    if model_tag == (cfg.ollama_model or "") or model_tag == (cfg.local_model_pulling or ""):
+    active = {
+        (cfg.ollama_model or "").removesuffix(":latest"),
+        (cfg.local_model_pulling or "").removesuffix(":latest"),
+    } - {""}
+    if model_tag.removesuffix(":latest") in active:
         # refuse to remove the model we're serving (or still downloading) - it would break local chat
         return RedirectResponse("/models?error=in_use", status_code=302)
 
