@@ -662,15 +662,13 @@ mod acl_tests {
         }
     }
 
-    /// Invoke `open_profile` as if the page at `origin_url` had called it, with `sidecar_script` as the
-    /// backend, then stop any backend the command started (the shell plugin never reaps sidecars).
-    /// Returns the command's result (`Err` carries an ACL rejection or whatever `open_profile` itself
-    /// returned) and which profile the shell recorded as showing.
-    fn invoke_open_profile_from(
+    /// Dispatch an IPC `cmd` with `body` against the mock app's `main` window as if the page at
+    /// `origin_url` had invoked it, then stop any backend sidecar the command started.
+    fn invoke_ipc_from(
         origin_url: &str,
-        sidecar_script: &str,
+        cmd: &str,
+        body: serde_json::Value,
     ) -> (Result<(), String>, Option<String>) {
-        let _sidecar = SidecarStandIn::install(sidecar_script);
         let builder = tauri::test::mock_builder().plugin(tauri_plugin_shell::init());
         // As in `run`: the window-state plugin is part of the macOS app only.
         #[cfg(target_os = "macos")]
@@ -688,11 +686,11 @@ mod acl_tests {
         let response = tauri::test::get_ipc_response(
             &webview,
             tauri::webview::InvokeRequest {
-                cmd: "open_profile".into(),
+                cmd: cmd.into(),
                 callback: tauri::ipc::CallbackFn(0),
                 error: tauri::ipc::CallbackFn(1),
                 url: origin_url.parse().unwrap(),
-                body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "id": "work-test" })),
+                body: tauri::ipc::InvokeBody::Json(body),
                 headers: Default::default(),
                 invoke_key: tauri::test::INVOKE_KEY.to_string(),
             },
@@ -713,6 +711,22 @@ mod acl_tests {
                 .unwrap_or_else(|| value.to_string())),
         };
         (result, profile)
+    }
+
+    /// Invoke `open_profile` as if the page at `origin_url` had called it, with `sidecar_script` as the
+    /// backend, then stop any backend the command started (the shell plugin never reaps sidecars).
+    /// Returns the command's result (`Err` carries an ACL rejection or whatever `open_profile` itself
+    /// returned) and which profile the shell recorded as showing.
+    fn invoke_open_profile_from(
+        origin_url: &str,
+        sidecar_script: &str,
+    ) -> (Result<(), String>, Option<String>) {
+        let _sidecar = SidecarStandIn::install(sidecar_script);
+        invoke_ipc_from(
+            origin_url,
+            "open_profile",
+            serde_json::json!({ "id": "work-test" }),
+        )
     }
 
     fn rejected_by_acl(error: &str) -> bool {
@@ -768,6 +782,60 @@ mod acl_tests {
             "open_profile should have started the backend"
         );
         assert_eq!(profile.as_deref(), Some("work-test"));
+    }
+
+    /// Invoke `plugin:shell|open` as if a `<a target="_blank">` click on `origin_url` had triggered
+    /// `tauri-plugin-shell`'s `init-iife.js` hook. Passing a path outside the default URL scope
+    /// (`not-a-url`, `file:///etc/passwd`, `javascript:alert(1)`) lets the test verify ACL passage
+    /// and scope enforcement without spawning the OS browser.
+    fn invoke_shell_open_from(origin_url: &str, path: &str) -> Result<(), String> {
+        invoke_ipc_from(
+            origin_url,
+            "plugin:shell|open",
+            serde_json::json!({ "path": path }),
+        )
+        .0
+    }
+
+    #[test]
+    fn shell_open_is_allowed_from_the_local_backend_origin() {
+        for origin in [
+            "http://127.0.0.1:52744/",
+            "http://127.0.0.1:52744/chat/1",
+            "http://localhost:8123/chat/1",
+        ] {
+            for non_browser_path in [
+                "not-a-url",
+                "file:///etc/passwd",
+                "javascript:alert(1)",
+            ] {
+                let error = invoke_shell_open_from(origin, non_browser_path)
+                    .expect_err("non-http/mailto/tel path must stop at the shell open scope check");
+                assert!(
+                    !rejected_by_acl(&error),
+                    "plugin:shell|open was rejected by the ACL from {origin}: {error}"
+                );
+                assert!(
+                    error.contains("failed regex validation"),
+                    "plugin:shell|open should reach OpenScope validation for {non_browser_path}, got: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shell_open_is_still_refused_to_any_other_origin() {
+        for origin in [
+            "https://example.com/chat/1",
+            "http://192.168.1.20:8000/chat/1",
+        ] {
+            let error = invoke_shell_open_from(origin, "not-a-url")
+                .expect_err("an unlisted origin must not reach plugin:shell|open");
+            assert!(
+                rejected_by_acl(&error),
+                "plugin:shell|open must not be reachable from {origin}, got: {error:?}"
+            );
+        }
     }
 }
 
