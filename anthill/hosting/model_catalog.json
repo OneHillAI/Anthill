@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Frontier open-weight catalog. Ordered by an intelligence index; the picker re-ranks by intelligence x what fits the target hardware. params_b is TOTAL parameters (the memory driver, incl. all MoE experts); active_b is what computes per token (the speed driver). Ollama tags are verified against the live library; hf_id is best-effort for the newest models and is corrected by Refresh. Refreshable via /models/refresh-catalog.",
-  "generated": "seed",
+  "generated": "2026-10-28",
   "models": [
     {"name": "DeepSeek V4-Pro", "family": "DeepSeek", "origin": "DeepSeek, China", "params_b": 1600, "active_b": 49, "ollama_tag": "deepseek-v4-pro:cloud", "hf_id": "deepseek-ai/DeepSeek-V4-Pro", "context_k": 1000, "license": "MIT", "intelligence": 71, "gated": false},
     {"name": "MiniMax M3", "family": "MiniMax", "origin": "MiniMax, China", "params_b": 428, "active_b": 23, "ollama_tag": "minimax-m3:cloud", "hf_id": "MiniMaxAI/MiniMax-M3", "context_k": 1000, "license": "Apache-2.0", "intelligence": 70, "gated": false},

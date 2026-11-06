@@ -132,7 +132,10 @@ custody question comes back with it.
 A signature proves WHO published a catalog, not WHICH one. Whoever controls the host can replay an older,
 still-validly-signed catalog to re-introduce a model that has since been dropped. `catalog_trust.is_rollback`
 refuses a catalog whose `generated` is older than the one already trusted; a *missing* date counts as a
-rollback, since stripping the field is how you would dodge the check.
+rollback, since stripping the field is how you would dodge the check. At rest, the bundled seed
+(`anthill/hosting/model_catalog.json`) also carries an ISO `generated` date, and `sizing.load_catalog()`
+skips a cached `$ANTHILL_HOME/model_catalog.json` override whose `generated` date is older than the bundled
+seed (#172), so an app upgrade that ships new bundled models is never shadowed by a pre-upgrade refresh file.
 
 ## Trust bottoms out at
 
