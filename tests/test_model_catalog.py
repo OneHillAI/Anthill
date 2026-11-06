@@ -68,6 +68,20 @@ def test_load_catalog_falls_back_when_override_is_garbage(tmp_path, monkeypatch)
     assert len(cat) >= 12 and all(m.ollama_tag for m in cat)
 
 
+def test_stale_override_does_not_hide_newer_bundled_catalog(tmp_path, monkeypatch):
+    """After an app upgrade, a cached override older than the bundled seed must not hide new bundled models."""
+    monkeypatch.setenv("ANTHILL_HOME", str(tmp_path))
+    override = tmp_path / "model_catalog.json"
+    row = {"name": "Old Refresh 7B", "ollama_tag": "old:7b", "hf_id": "lab/Old-7B"}
+    override.write_text(json.dumps({"generated": "2026-10-14", "models": [row]}))
+
+    names = [m.name for m in sizing.load_catalog()]
+    assert "Qwen3.8 27B" in names and "Old Refresh 7B" not in names
+
+    override.write_text(json.dumps({"generated": "2099-01-01", "models": [row]}))
+    assert [m.name for m in sizing.load_catalog()] == ["Old Refresh 7B"]
+
+
 # --- supply chain: the catalog is a download+load instruction list, so a network row is untrusted -----
 
 
