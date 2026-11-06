@@ -11,7 +11,7 @@ import tarfile
 import time
 import urllib.parse
 import zipfile
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 
 import httpx
@@ -21,6 +21,18 @@ from ..platform_layer import detached_process_kwargs
 from .base import BackendError, ChatResult, Message, ToolsUnsupported, _mean_logprob
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
+
+def normalize_ollama_tag(tag: str) -> str:
+    """Canonicalize an Ollama tag by stripping an implicit ``:latest`` suffix (``qwen3.6:latest`` -> ``qwen3.6``)."""
+    return (tag or "").strip().removesuffix(":latest")
+
+
+def tag_matches_installed(tag: str, installed: Iterable[str]) -> bool:
+    """True when ``tag`` matches any entry in ``installed``, treating ``<tag>`` and ``<tag>:latest`` as equal."""
+    norm = normalize_ollama_tag(tag)
+    return bool(norm) and any(normalize_ollama_tag(m) == norm for m in installed if m)
+
 
 # (base_url, model) -> context window in tokens (0 = unknown). A model's context length is fixed, so
 # probe /api/show once and cache it across backend instances (they're created per request). (#277)

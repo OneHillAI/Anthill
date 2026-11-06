@@ -251,6 +251,7 @@ def test_bare_catalog_tag_matches_ollama_latest_in_picker_and_pull(tmp_path, mon
         lambda self: ["qwen3.6:latest"],
     )
     c, app_mod = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_mod, "_installed_local_models", lambda cfg: ["qwen3.6:latest"])
     cfg = app_mod._SessionFactory().query(OrgSettings).first()
     view = app_mod._model_picker_view(cfg)
     qwen_models = [m for f in view["families"] if f["family"] == "Qwen" for m in f["models"]]

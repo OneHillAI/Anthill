@@ -432,41 +432,36 @@ class TaskRouter:
         Never returns a cloud model unless allow_cloud=True.
         Falls back to fallback_tag if nothing else is installed.
         """
-        raw_installed = self._installed_models()
-        # Ollama reports bare pulls (e.g. `ollama pull qwen3.6`) as `qwen3.6:latest` in /api/tags.
-        installed = raw_installed | {
-            t.removesuffix(":latest") for t in raw_installed if t.endswith(":latest")
-        }
+        installed = self._installed_models()
+        from ..inference.ollama import tag_matches_installed
+
         # A hard pin overrides task routing for everything except vision (a pinned text model can't do
         # vision). Exact-match only: if the pinned model isn't installed, fall through to normal routing
         # rather than silently substitute a different size.
         if (
             self.pinned_model
             and task != TaskType.VISION
-            and (
-                self.pinned_model in installed
-                or (":" not in self.pinned_model and f"{self.pinned_model}:latest" in installed)
-            )
+            and tag_matches_installed(self.pinned_model, installed)
             and self._model_allowed(self.pinned_model)
         ):
             return self.pinned_model
         for tag in _preferred_tags(task, vision_max_accuracy=self.vision_max_accuracy):
             if not self._model_allowed(tag):
                 continue
-            if tag in installed:
+            if tag_matches_installed(tag, installed):
                 return tag
             # Exact size absent: accept an INSTALLED same-family model (e.g. want qwen3:14b, have
             # qwen3:8b) - but return the tag Ollama ACTUALLY has, never the requested-but-uninstalled
             # size, or chat 404s with "model not found". Sorted for a deterministic pick.
             same_family = sorted(
                 candidate
-                for candidate in raw_installed
+                for candidate in installed
                 if candidate.split(":")[0] == tag.split(":")[0] and self._model_allowed(candidate)
             )
             if same_family:
                 return same_family[0]
         if task == TaskType.VISION:
-            for tag in sorted(raw_installed):
+            for tag in sorted(installed):
                 if self._model_allowed(tag) and "vision" in self._model_capabilities(tag):
                     return tag
         return fallback_tag if self._model_allowed(fallback_tag) else ""
