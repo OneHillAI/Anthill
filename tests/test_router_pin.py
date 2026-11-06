@@ -88,3 +88,19 @@ def test_413_configured_model_served_not_a_larger_installed_one(monkeypatch):
     monkeypatch.setattr(r, "_installed_models", lambda: {"mistral-nemo:12b", "qwen3:14b"})
     for task in (TaskType.GENERAL, TaskType.REASON, TaskType.FAST):
         assert r.pick(task) == "mistral-nemo:12b"
+
+
+def test_bare_pin_matches_ollama_latest_tag(monkeypatch):
+    """#168 regression: catalog tags without a version suffix (e.g. 'qwen3.6') are stored by Ollama as
+    'qwen3.6:latest' in /api/tags. Both a bare pin and unpinned routing must match 'qwen3.6:latest'
+    rather than falling back to an uninstalled 'qwen2.5:3b'."""
+    r = TaskRouter(pinned_model="qwen3.6")
+    monkeypatch.setattr(r, "_installed_models", lambda: {"qwen3.6:latest", "granite3.2-vision:2b"})
+    for task in (TaskType.GENERAL, TaskType.REASON, TaskType.FAST):
+        assert r.pick(task) == "qwen3.6"
+
+    unpinned = TaskRouter()
+    monkeypatch.delenv("ANTHILL_FORCE_MODEL", raising=False)
+    unpinned.pinned_model = ""
+    monkeypatch.setattr(unpinned, "_installed_models", lambda: {"qwen3.6:latest"})
+    assert unpinned.pick(TaskType.GENERAL) == "qwen3.6"

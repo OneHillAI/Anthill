@@ -2748,7 +2748,7 @@ def _model_picker_view(cfg):
         local_hardware,
         suggest_local_setup,
     )
-    from ..inference.ollama import OllamaBackend
+    from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
 
     # the live (refreshable) catalog, so a Refresh shows new models without a restart. Split off the
     # handful of entries no path Anthill provisions today could ever serve (too big for any local box AND
@@ -2773,12 +2773,12 @@ def _model_picker_view(cfg):
     # installed, what can I remove" picture as everything else, not a second, separate page. On this
     # test machine 9 of 13 actually-installed tags fell outside the curated 23, so this is the common
     # case, not an edge case.
-    _catalog_tags = {m.ollama_tag for m in LOCAL_CATALOG}
+    _catalog_tags = {normalize_ollama_tag(m.ollama_tag) for m in LOCAL_CATALOG}
     other_installed = sorted(
         (
             {"tag": m["name"], "size_gb": round(m["size_bytes"] / 1e9, 1)}
             for m in _installed_with_sizes
-            if m["name"] and m["name"] not in _catalog_tags
+            if m["name"] and normalize_ollama_tag(m["name"]) not in _catalog_tags
         ),
         key=lambda m: m["tag"],
     )
@@ -2819,7 +2819,7 @@ def _model_picker_view(cfg):
                 "offload": tiers[m.ollama_tag]
                 == "offload",  # overflows VRAM, but a modest MoE CPU-RAM spill still runs (slower)
                 "recommended": bool(pick and m.ollama_tag == pick.ollama_tag),
-                "installed": m.ollama_tag in installed,
+                "installed": tag_matches_installed(m.ollama_tag, installed),
                 "intelligence": m.intelligence,  # for the capability bar (relative to intel_max)
             }
             for m in fam_models
@@ -2850,7 +2850,7 @@ def _model_picker_view(cfg):
             "tag": p.recommended.ollama_tag,
             "params_b": p.recommended.params_b,
             "download_gb": p.download_gb,
-            "installed": p.recommended.ollama_tag in installed,
+            "installed": tag_matches_installed(p.recommended.ollama_tag, installed),
         }
         for p in suggestion.members
         if p.recommended is not None
@@ -3569,7 +3569,9 @@ def model_picker_post(
                 # check above regardless (a stale page, a not-fully-disabled option, or a direct
                 # request) - re-check fit here too, matching /personalize and /models/pull (#747).
                 return RedirectResponse("/setup/model?error=too_large", status_code=302)
-            if choice in installed:
+            from ..inference.ollama import tag_matches_installed
+
+            if tag_matches_installed(choice, installed):
                 cfg.ollama_model = choice  # already here: activate now
             else:
                 cfg.ollama_model = choice  # first run has no prior model to preserve
@@ -6113,8 +6115,10 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
     catalog does not recognize is never blocked either (no ``params_b`` to judge it by) - failing open on
     unknown data matches this codebase's own stance elsewhere (warn on uncertain data, never hard-block).
     """
+    from ..inference.ollama import tag_matches_installed
+
     tag = (tag or "").strip()
-    if not tag or tag in _installed_local_models(cfg):
+    if not tag or tag_matches_installed(tag, _installed_local_models(cfg)):
         return False
     try:
         from ..hosting.sizing import fit_tier, gpu_box_system_ram_gb, load_catalog, local_hardware
@@ -11311,7 +11315,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     otherwise download it in the background and switch only when the download finishes - the previous
     model keeps serving meanwhile, so the UI never shows a 'selected but not installed' model. The
     /models page polls /models/pull-status for live progress and a 'ready' confirmation."""
-    from ..inference.ollama import OllamaBackend
+    from ..inference.ollama import OllamaBackend, tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -11327,7 +11331,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
         return RedirectResponse("/models?error=too_large", status_code=302)
 
     installed = set(OllamaBackend(cfg.ollama_url, model_tag).installed_models()) if cfg else set()
-    if model_tag in installed:
+    if tag_matches_installed(model_tag, installed):
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately
             cfg.local_model_pulling = ""
@@ -11530,7 +11534,7 @@ def models_pull_status(user: dict = Depends(_require_admin)):
     """Live state for the /models page poller: the tag currently downloading (or ""), the active
     local model, and whether the engine is reachable. Lets the page show progress + a 'ready'
     confirmation without a manual refresh, and survives tab changes (state is server-side)."""
-    from ..inference.ollama import OllamaBackend
+    from ..inference.ollama import OllamaBackend, tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -11542,7 +11546,7 @@ def models_pull_status(user: dict = Depends(_require_admin)):
         {
             "pulling": pulling,
             "current": current,
-            "installed": current in installed,
+            "installed": tag_matches_installed(current, installed),
             "progress": _MODEL_PULL_PROGRESS.get(org.id),
         }
     )
@@ -11553,7 +11557,7 @@ async def delete_model(model_tag: str = Form(...), user: dict = Depends(_require
     """Uninstall a locally installed model to reclaim disk (and free RAM if it was resident). The
     currently-served model can't be deleted - switch to another first - and neither can the in-progress
     download; both would leave the box with no working local model."""
-    from ..inference.ollama import OllamaBackend
+    from ..inference.ollama import OllamaBackend, tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -11562,7 +11566,7 @@ async def delete_model(model_tag: str = Form(...), user: dict = Depends(_require
     model_tag = (model_tag or "").strip()
     if not model_tag or not cfg:
         return RedirectResponse("/models?error=no_tag", status_code=302)
-    if model_tag == (cfg.ollama_model or "") or model_tag == (cfg.local_model_pulling or ""):
+    if tag_matches_installed(model_tag, (cfg.ollama_model or "", cfg.local_model_pulling or "")):
         # refuse to remove the model we're serving (or still downloading) - it would break local chat
         return RedirectResponse("/models?error=in_use", status_code=302)
 
