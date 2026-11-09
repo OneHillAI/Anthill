@@ -230,7 +230,8 @@ def _model_from_row(row: dict) -> Model:
 
 
 def load_catalog() -> tuple[Model, ...]:
-    """The frontier catalog from JSON (bundled seed, then a refreshed override - last that parses wins).
+    """The frontier catalog from JSON (bundled seed, then a refreshed override - last that parses wins,
+    unless its ``generated`` date is older than the bundled seed after an app upgrade).
     Falls back to a tiny hardcoded set if nothing parses. Never raises.
 
     Rows are gated by ``is_safe_row``: the override is written by a network refresh, so it is untrusted at
@@ -241,14 +242,20 @@ def load_catalog() -> tuple[Model, ...]:
     import json
 
     models: tuple[Model, ...] = ()
+    held_date = ""
     for path in _catalog_paths():
         try:
             data = json.loads(path.read_text())
+            date = str(data.get("generated") or "").strip() if isinstance(data, dict) else ""
+            if held_date and date and date < held_date:
+                continue  # stale override from before an app upgrade -> keep the newer bundled catalog
             rows = data.get("models") if isinstance(data, dict) else data
             rows = rows if isinstance(rows, list) else []
             if not rows or not all(is_safe_row(r) for r in rows):
                 continue  # missing, malformed, or tampered -> fall back to the previous source
             models = tuple(_model_from_row(r) for r in rows)
+            if date:
+                held_date = date
         except Exception:
             continue
     return models or _FALLBACK_CATALOG
