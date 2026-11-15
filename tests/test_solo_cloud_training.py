@@ -266,3 +266,11 @@ def test_model_storage_card_removed_from_settings(tmp_path, monkeypatch):
     c, _app_mod = _client(tmp_path, monkeypatch)
     body = c.get("/personalize").text
     assert "Model storage" not in body  # no standalone storage card in Settings
+
+
+def test_train_now_confirm_uses_plain_words(tmp_path, monkeypatch):
+    # #87: the confirm dialog says where training runs, not "the connected backend".
+    c, _app_mod = _client(tmp_path, monkeypatch, ollama_model="qwen3:8b")
+    body = c.get("/training").text
+    assert "Queue a training run now?" in body
+    assert "connected backend" not in body

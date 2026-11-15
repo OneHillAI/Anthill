@@ -928,3 +928,12 @@ def test_agents_pages_treat_a_future_due_time_as_not_live(tmp_path, monkeypatch)
     detail = client.get(f"/agents/{aid}")
     assert listing.status_code == 200 and detail.status_code == 200
     assert "badge-running" not in listing.text
+
+
+def test_agent_defaults_card_uses_plain_words(tmp_path, monkeypatch):
+    # #87: the per-run cap is described by what it does, not as an implementation "tool-loop cost cap".
+    client, ids = _app(tmp_path, monkeypatch)
+    _auth(client, ids["a"], ids["org"], "admin")
+    body = client.get("/agents").text
+    assert "Max steps per run" in body
+    assert "tool-loop" not in body
