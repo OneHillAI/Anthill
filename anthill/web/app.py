@@ -8572,10 +8572,11 @@ async def wiki_import_connector(
     try:
         tmp_name = (slugify(label) or "document") + ".md"
         tmp_path = _Path(tmp_dir) / tmp_name
-        # Same raw-text-vs-heading heuristic the old inline path used to decide whether the
-        # connector already gave us a titled document, kept so a pre-titled doc's own heading
-        # isn't buried under a synthetic one - the ingest pipeline now does the summarising.
-        page_source = text if text.lstrip().startswith("#") else f"# {label}\n\n{text}\n"
+        # A pre-titled doc keeps its own heading. An untitled one gets a heading only when the user
+        # typed a title: ingest takes the source's H1 as the page title, so a heading made up from
+        # the file name would beat the model's descriptive title (#150).
+        titled = text.lstrip().startswith("#") or not title.strip()
+        page_source = text if titled else f"# {label}\n\n{text}\n"
         tmp_path.write_text(page_source, encoding="utf-8")
 
         cfg = _cfg(db, org)

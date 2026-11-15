@@ -148,3 +148,28 @@ def test_import_unknown_connector_errors(tmp_path):
     )
     assert r.status_code == 302
     assert "error=connector" in r.headers["location"]
+
+
+def test_a_title_typed_by_the_user_is_the_page_title(tmp_path, monkeypatch):
+    # Ingest keeps the source's own H1 as the page title (#150), so the heading the import route
+    # adds from a title the user typed wins over the model's; with no typed title it adds none.
+    c, app_mod, _org, sid = _client(tmp_path, monkeypatch=monkeypatch)
+    from anthill.web import docsource
+
+    monkeypatch.setattr(docsource, "read_document", lambda srv, ref: "The imported body text.")
+    monkeypatch.setattr(
+        app_mod, "_backend_from_cfg", lambda cfg: _FakeBackend("# Model Title\n\nA summary.")
+    )
+    calls = []
+    monkeypatch.setattr(app_mod, "propose_wiki_write", lambda db, **kw: calls.append(kw) or True)
+    c.post(
+        "/wiki/import-connector",
+        data={
+            "server_id": sid,
+            "ref": "folder/plan.md",
+            "target_scope": "personal",
+            "title": "Q3 Plan",
+        },
+        follow_redirects=False,
+    )
+    assert calls[0]["content"].lstrip().startswith("# Q3 Plan")

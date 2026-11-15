@@ -129,6 +129,53 @@ def _is_timeout_error(exc: BaseException) -> bool:
     return False
 
 
+_FIDELITY_SUFFIXES = {".md", ".txt"}
+# A quoted passage is at least two words and 12 characters, on one line; shorter pairs are scare quotes.
+_QUOTE_RE = re.compile(r'"([^"\n]{12,400})"|“([^”\n]{12,400})”')
+
+
+def _source_quotes(text: str) -> list[str]:
+    """The distinct quoted passages in a source, in order of appearance."""
+    seen: dict[str, None] = {}
+    for straight, curly in _QUOTE_RE.findall(text):
+        quote = " ".join((straight or curly).split())
+        if " " in quote:
+            seen.setdefault(quote)
+    return list(seen)
+
+
+def _apply_source_fidelity(page_md: str, source_text: str) -> str:
+    """Make a generated page faithful to its plain-text source in the two ways a small model cannot be
+    trusted with: the page title is the source's own H1, and every quoted passage in the source appears
+    in the page word for word (any the model reworded are restored under `## Quotes`)."""
+    lines = page_md.splitlines()
+    source_title = first_h1(source_text)
+    if source_title:
+        at = next((i for i, line in enumerate(lines) if line.startswith("# ")), None)
+        if at is None:
+            lines[:0] = [f"# {source_title}", ""]
+        else:
+            lines[at] = f"# {source_title}"
+
+    flat = " ".join(" ".join(lines).split())
+    missing = [q for q in _source_quotes(source_text) if q not in flat]
+    if missing:
+        related = next(
+            (i for i, line in enumerate(lines) if line.lower().startswith("## related")), None
+        )
+        at = len(lines) if related is None else related
+        lines[at:at] = [
+            "",
+            "## Quotes",
+            "",
+            "Word for word from the source:",
+            "",
+            *[f'> "{q}"' for q in missing],
+            "",
+        ]
+    return "\n".join(lines).strip()
+
+
 def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str = "") -> str:
     """Drop `[[wiki-link]]` brackets whose target has no existing page yet, keeping the link text;
     a link to a page that genuinely exists is left intact.
@@ -233,6 +280,9 @@ def ingest(
         page_md = enrich_wiki_page(page_md, source.stem, backend=backend)
         page_md = normalize_wiki_page(page_md)
         writer_model = getattr(backend, "model", "") or writer_model
+
+    if source.suffix.lower() in _FIDELITY_SUFFIXES:
+        page_md = _apply_source_fidelity(page_md, fc.text)
 
     if not first_h1(page_md):
         page_md = f"# {source.stem}\n\n{page_md}".strip()
