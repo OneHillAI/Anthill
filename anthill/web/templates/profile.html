@@ -50,12 +50,12 @@
 <div class="card" style="max-width:640px;margin-top:16px">
   <h2 style="font-size:16px;margin:0 0 4px">Your account</h2>
   <p class="text-sm text-muted" style="margin:0 0 14px">
-    {{ account.email }} &middot; role <b>{{ account.role }}</b>{% if account.oauth_provider %} &middot; signed in with {{ account.oauth_provider }}{% endif %}
+    {{ account.email }} {% if not is_solo %}&middot; role <b>{{ account.role }}</b>{% endif %}{% if account.oauth_provider %} &middot; signed in with {{ account.oauth_provider }}{% endif %}
   </p>
   <form method="post" action="/account/name"
         style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:18px">
     <div class="form-group" style="margin:0;flex:1 1 240px">
-      <label>Display name <span class="text-muted">- how you appear to teammates</span></label>
+      <label>Display name <span class="text-muted">- {% if is_solo %}what Anthill calls you{% else %}how you appear to teammates{% endif %}</span></label>
       <input type="text" name="display_name" value="{{ account.display_name or '' }}" maxlength="120"
              autocomplete="name" placeholder="Jane Smith">
     </div>

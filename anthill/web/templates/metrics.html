@@ -14,7 +14,7 @@
 </div>
 
 <p class="text-muted text-sm" style="margin-bottom:12px">
-  How your org is using Anthill over the last {{ m.days }} days. Hover the
+  How {% if is_solo %}you are{% else %}your org is{% endif %} using Anthill over the last {{ m.days }} days. Hover the
   <b>ⓘ</b> for what each number measures.
 </p>
 
@@ -112,7 +112,7 @@
 </div>
 
 <div class="card mt-4" style="position:relative">
-  <span class="metric-i" title="An estimate, not billing. Cache hits run zero inference, so each one is credited your admin-set cloud-equivalent rate.">ⓘ</span>
+  <span class="metric-i" title="An estimate, not billing. Cache hits run zero inference, so each one is credited your {% if not is_solo %}admin-set {% endif %}cloud-equivalent rate.">ⓘ</span>
   <h3 style="margin-bottom:8px">Estimated savings from caching</h3>
   {% if semantic_cache_available %}
   <p class="text-muted text-sm" style="margin:0 0 14px">
@@ -150,7 +150,7 @@
     GPT-4-class query on the US grid. Adjust to your provider and region.
   </p>
   {% else %}
-  <p class="text-sm text-muted" style="margin:0">An admin sets the per-query rates above.</p>
+  <p class="text-sm text-muted" style="margin:0">{% if is_solo %}Only the account owner can change the per-query rates above.{% else %}An admin sets the per-query rates above.{% endif %}</p>
   {% endif %}
 </div>
 {% endblock %}

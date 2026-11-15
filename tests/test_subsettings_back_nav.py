@@ -1,6 +1,7 @@
 """Every org admin sub-page reached from the Manage-organisation hub shows a "back to the hub" link in
 the topbar (founder feedback: "all the sub-settings have no back button to the previous screen"). Top-
-level pages (dashboard, chat, personal Settings) show none.
+level pages (dashboard, chat, personal Settings) show none. A Solo workspace has no hub, so the same pages
+go back to the dashboard or Settings (#158).
 """
 
 from sqlalchemy import create_engine
@@ -20,6 +21,21 @@ def test_back_nav_for_maps_subpages_to_their_parent():
     # not sub-pages: the hub itself and top-level pages get no back link
     for path in ("/settings/org", "/personalize", "/", "/chat", "/knowledge"):
         assert _back_nav_for(path) == ("", ""), path
+
+
+def test_solo_back_nav_goes_to_dashboard_or_settings():
+    from anthill.web.app import _back_nav_for
+
+    for path in ("/teams", "/metrics", "/skills"):
+        assert _back_nav_for(path, solo=True) == ("/", "Dashboard"), path
+    assert _back_nav_for("/teams/3", solo=True) == ("/teams", "Projects")
+    for path in ("/audit", "/training", "/backup", "/settings/general", "/users"):
+        assert _back_nav_for(path, solo=True) == ("/personalize", "Settings"), path
+    # unchanged for Solo: personal Settings, Integrations, the hub and top-level pages
+    assert _back_nav_for("/settings", solo=True) == ("/personalize", "Settings")
+    assert _back_nav_for("/connectors/mcp", solo=True)[1] == "Settings"
+    assert _back_nav_for("/settings/org", solo=True) == ("", "")
+    assert _back_nav_for("/chat", solo=True) == ("", "")
 
 
 def _client(tmp_path, monkeypatch):
