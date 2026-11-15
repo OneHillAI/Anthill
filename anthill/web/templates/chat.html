@@ -322,7 +322,7 @@
   <!-- main -->
   <div class="chat-main">
     <div class="chat-header">
-      <h1>{{ active_conv.title if active_conv else 'Anthill Chat' }}</h1>
+      <h1 id="chat-title">{{ active_conv.title if active_conv else 'Anthill Chat' }}</h1>
       {% if not active_conv or active_conv.plane == 'solo' %}
       {# The dot/text is kept in sync with the live Web-search toggle by JS below (issue: this claim was
          unconditionally true while Web search defaulted ON, which really does send the query text to a
@@ -379,7 +379,8 @@
     {% endif %}
 
     {% if planner_fallback %}
-    <div class="chat-fallback-note" style="margin:0;padding:6px 14px;font-size:12px;
+    {# Only relevant while web search is on: JS shows and hides it with the Web search toggle. #}
+    <div id="chat-fallback-note" class="chat-fallback-note"{% if not web_default %} hidden{% endif %} style="margin:0;padding:6px 14px;font-size:12px;
          background:var(--bg-subtle);color:var(--muted);border-bottom:1px solid var(--border)">
       <i data-lucide="info">ℹ</i> You're using a local model that is too small, so web search uses
       your question as is, instead of planning it. <a href="/personalize#model">Pick a larger model</a> for
@@ -635,6 +636,8 @@
       }
       function syncTrustBanner() {
         paintWeb();
+        var fb = document.getElementById('chat-fallback-note');
+        if (fb && _webBox) fb.hidden = !_webBox.checked;
         var msg = document.getElementById('chat-trust-msg');
         if (!msg || !_webBox) return;  // not rendered on an Org conversation
         msg.textContent = _webBox.checked
@@ -1132,6 +1135,12 @@ function setEscalating(on, providerLabel, row) {
 // being written never read or overwrite each other's line.
 let _streamRow = null;   // the working row of the turn that is streaming right now
 
+// The line a local turn starts with. "Thinking" is only said when the model really will think: the button is
+// on and the model has a thinking mode at all.
+function workingText(think) {
+  return think !== false && !thinkUnavailable() ? 'Thinking, locally.' : 'Writing, locally.';
+}
+
 function buildRowHTML(esc, status) {
   const sym = esc ? '#ah-ant-cape' : '#ah-ant';
   const ant = '<span class="rant"><svg viewBox="0 0 24 14" aria-hidden="true"><use href="' + sym + '"/></svg></span>';
@@ -1166,7 +1175,7 @@ function ensureBuildRow(container, esc, status) {
 function paintStreamText(bubble, header, buffer) {
   let body = bubble.querySelector('.stream-text');
   if (!body) {
-    bubble.innerHTML = (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, 'Thinking, locally.');
+    bubble.innerHTML = (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, workingText(window._thinkOn));
     body = bubble.querySelector('.stream-text');
   }
   body.innerHTML = renderMd(buffer);
@@ -1596,7 +1605,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
     renderIcons();
   }
 
-  const bubble = appendMsg('assistant', (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, 'Thinking, locally.'));
+  const bubble = appendMsg('assistant', (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, workingText(think)));
   _streamRow = rowEl(bubble);
   let buffer = '', metaHtml = '', lastRender = 0;
   let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
@@ -1664,6 +1673,10 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
           paintStreamText(bubble, header, buffer);
         }
         scrollBottom();
+      }
+      if (typeof d.meta?.title === 'string' && d.meta.title) {   // the first message just named this chat
+        const h = document.getElementById('chat-title');
+        if (h) h.textContent = d.meta.title;
       }
       if (d.meta?.message_id) {
         assistantMessageId = d.meta.message_id;
