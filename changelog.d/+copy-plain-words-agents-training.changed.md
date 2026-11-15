@@ -1,0 +1,1 @@
+**Plainer wording on the Agents and Training pages.** The Agents page describes its per-run step limit as keeping a run short and cheaper instead of a "tool-loop cost cap", and the Train now confirmation says training runs on your training machine or cloud GPU instead of "the connected backend" (#87).
