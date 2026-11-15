@@ -182,63 +182,7 @@
 <script>setTimeout(function () { window.location.reload(); }, 4000);</script>
 {% endif %}
 
-<style>
-  .task-md { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
-  .task-md-raw { white-space:pre-wrap; }  /* plain text until the renderer runs, and if it cannot load */
-  .task-md > :first-child { margin-top:0; } .task-md > :last-child { margin-bottom:0; }
-  .task-md pre, .task-error { white-space:pre-wrap; background:var(--bg-subtle); border:1px solid var(--border);
-    border-radius:6px; padding:10px; overflow-x:auto; }
-  .task-md code { font-size:13px; }
-  .task-md table { border-collapse:collapse; display:block; overflow-x:auto; }
-  .task-md th, .task-md td { border:1px solid var(--border); padding:4px 8px; }
-  .task-error { color:var(--danger-text, inherit); }
-</style>
-{# Result text is Markdown from a model or a tool, often written unattended from web, email or other
-   content, and shown to everyone who can see the task. So it gets a strict policy, not Chat's: only the
-   tags and attributes marked itself produces for text (no img, style, form, input, button, id, class or
-   inline style), images become plain links so nothing loads without a click, and only http(s), mailto,
-   same-site and in-page links survive. If either library fails to load the text stays as plain
-   pre-wrapped text, which the template has already HTML-escaped. #}
-<script src="/static/marked.min.js"></script>
-<script src="/static/purify.min.js"></script>
-<script>
-(function () {
-  if (!(window.marked && window.DOMPurify)) return;
-  var esc = function (v) {
-    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  };
-  var renderer = new marked.Renderer();
-  // marked 12 (pinned) passes the alt text already escaped; a later major passes one token with raw text.
-  renderer.image = function (href, title, text) {  // an image is shown as a link to it, never loaded
-    if (href && typeof href === 'object') { text = esc(href.text); href = href.href; }
-    return '<a href="' + esc(href) + '">' + (text || esc(href)) + '</a>';
-  };
-  var POLICY = {
-    ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre',
-                   'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a'],
-    ALLOWED_ATTR: ['href', 'title', 'align', 'start'],
-    // align and start are plain words and numbers; DOMPurify tests every attribute that is not on its own
-    // URI-safe list against the pattern below, so they must be named here or they are always stripped.
-    ADD_URI_SAFE_ATTR: ['align', 'start'],
-    // http(s), mailto, and a site path with one leading slash that is not followed by / or \ (browsers read
-    // "/\\host" as another host). No in-page # links: results have no ids to point at.
-    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|\/(?![\/\\]))/i,
-    ALLOW_DATA_ATTR: false,
-    ALLOW_ARIA_ATTR: false
-  };
-  DOMPurify.addHook('afterSanitizeAttributes', function (node) {
-    if (node.tagName === 'A' && node.getAttribute('href')) {
-      node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer');
-    }
-  });
-  document.querySelectorAll('[data-md]').forEach(function (el) {
-    try {
-      el.innerHTML = DOMPurify.sanitize(marked.parse(el.textContent, { gfm: true, breaks: true, renderer: renderer }), POLICY);
-      el.classList.remove('task-md-raw');
-    } catch (_) {}
-  });
-})();
-</script>
+{% include "_markdown_render.html" %}
 
 <script>
 async function saveResultSnippet() {
