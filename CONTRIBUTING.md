@@ -14,7 +14,10 @@ backend, and the full configuration reference.
 
 ## Build from source
 
-**Requirements:** macOS or Linux, Python 3.10+, [Ollama](https://ollama.com).
+**Requirements:** macOS or Linux, Python 3.10+, `git`, `make` and [Ollama](https://ollama.com). On Debian or
+Ubuntu, `sudo apt install git make`. On Linux, install Ollama once from <https://ollama.com/download>
+(on macOS `start.sh` downloads it for you). Without `make`, `make install` boils down to
+`python3 -m venv .venv && .venv/bin/pip install -e ".[dev,docs]"`.
 
 ```bash
 git clone https://github.com/OneHillAI/Anthill.git
@@ -23,7 +26,9 @@ make install          # create .venv and install deps
 bash start.sh         # first run pulls qwen2.5:3b (~2 GB), generates secrets, opens the dashboard
 ```
 
-The dashboard opens at `http://localhost:8000`; follow the setup screen to create your account.
+The dashboard opens at `http://localhost:8000` (open it yourself if no browser appears); follow the setup screen
+to create your account. `start.sh` holds the terminal: keep it open, Ctrl-C stops Anthill, and `bash start.sh
+--no-wait` starts it detached.
 For user guidance, see [Using Anthill](docs/USING_ANTHILL.md).
 
 **Build the Mac app / installer:**
