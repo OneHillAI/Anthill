@@ -153,3 +153,11 @@ def _local_server_by_default(monkeypatch):
     controls for the owner only), so the hermetic default names the loopback address, as the desktop app does."""
     monkeypatch.setenv("ANTHILL_HOST", "127.0.0.1")
     monkeypatch.setenv("ANTHILL_LOCAL_ONLY", "1")
+
+
+@pytest.fixture
+def summarise_every_note(monkeypatch):
+    """Send even a tiny plain-text source through the summariser. A note at most ``_VERBATIM_NOTE_MAX_CHARS``
+    long is otherwise filed as the page itself with no model call (#181); tests of the summarise path use
+    this so their short fixtures still reach it."""
+    monkeypatch.setattr("anthill.wiki.ingest._VERBATIM_NOTE_MAX_CHARS", 0)

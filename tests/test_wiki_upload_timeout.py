@@ -25,6 +25,10 @@ from anthill.wiki.ingest import (
 )
 from anthill.wiki.workspace import workspace_for
 
+# A short note is filed as it is, with no model call (#181), so it could never stall: these tests
+# use short fixtures and need them summarised, as a longer note would be.
+pytestmark = pytest.mark.usefixtures("summarise_every_note")
+
 NOTE = b"# Bakery interview\n\nThe owner bakes at 4am.\n"
 PAGE = "# Bakery interview\n\nThe owner bakes at 4am.\n"
 TEMPLATE = Path(ingest_mod.__file__).parents[1] / "web" / "templates" / "wiki.html"

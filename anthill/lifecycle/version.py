@@ -13,6 +13,10 @@ PROVENANCE_RE = re.compile(
     r"(?:\s+source=(?P<source>\S+))?\s*-->"
 )
 
+# The writer recorded on a short note filed as uploaded (#181): no model wrote it, so there is
+# nothing for a model upgrade to renovate.
+VERBATIM_MODEL = "verbatim"
+
 
 def tag_page(
     content: str,
@@ -52,15 +56,25 @@ def read_provenance(content: str) -> dict | None:
     return provenance
 
 
+def is_verbatim(content: str) -> bool:
+    """True for a page filed as the note itself, which no model wrote."""
+    prov = read_provenance(content)
+    return prov is not None and prov["model"] == VERBATIM_MODEL
+
+
 def stale_pages(wiki_dir: Path, current_model: str) -> list[tuple[Path, str | None]]:
     """Pages whose configured pipeline model differs from ``current_model``.
 
     Older tags without a pipeline field fall back to their writer model. Untagged
-    pages count as stale because their authoring pipeline is unknown.
+    pages count as stale because their authoring pipeline is unknown. Verbatim notes
+    are never stale: there is no model output to upgrade.
     """
     out: list[tuple[Path, str | None]] = []
     for p in sorted(wiki_dir.glob("*.md")):
-        prov = read_provenance(p.read_text())
+        text = p.read_text()
+        if is_verbatim(text):
+            continue
+        prov = read_provenance(text)
         recorded = (prov.get("pipeline_model") or prov["model"]) if prov else None
         if recorded != current_model:
             out.append((p, recorded))

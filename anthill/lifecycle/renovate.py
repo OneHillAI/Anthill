@@ -11,7 +11,7 @@ from ..wiki.ingest import (
     source_to_page,
 )
 from ..wiki.workspace import Workspace
-from .version import read_provenance, stale_pages, tag_page
+from .version import is_verbatim, read_provenance, stale_pages, tag_page
 
 
 @dataclass
@@ -19,7 +19,7 @@ class RenovationReport:
     new_model: str
     regenerated: list[str] = field(default_factory=list)  # slugs rewritten
     skipped: list[str] = field(default_factory=list)  # slugs with no source in raw/
-    unchanged: list[str] = field(default_factory=list)  # already current model
+    unchanged: list[str] = field(default_factory=list)  # already current, or a verbatim note
 
     def summary(self) -> str:
         return (
@@ -54,7 +54,7 @@ def renovate(
 
     for page_path, recorded in targets:
         slug = page_path.stem
-        if recorded == new_model:
+        if recorded == new_model or is_verbatim(page_path.read_text()):
             report.unchanged.append(slug)
             continue
 

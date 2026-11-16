@@ -2,6 +2,7 @@
 import route (reads the doc over MCP, runs it through the same ingest-then-summarise pipeline
 as an upload, files it through the review gate, scope-aware)."""
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -72,6 +73,7 @@ def test_connector_files_unknown_server(tmp_path):
     assert r.json()["files"] == []
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_import_files_through_review_gate(tmp_path, monkeypatch):
     c, app_mod, _org, sid = _client(tmp_path, monkeypatch=monkeypatch)
     from anthill.web import docsource
@@ -152,7 +154,7 @@ def test_import_unknown_connector_errors(tmp_path):
 
 def test_a_title_typed_by_the_user_is_the_page_title(tmp_path, monkeypatch):
     # Ingest keeps the source's own H1 as the page title (#150), so the heading the import route
-    # adds from a title the user typed wins over the model's; with no typed title it adds none.
+    # adds from a title the user typed wins over the model's.
     c, app_mod, _org, sid = _client(tmp_path, monkeypatch=monkeypatch)
     from anthill.web import docsource
 
@@ -173,3 +175,49 @@ def test_a_title_typed_by_the_user_is_the_page_title(tmp_path, monkeypatch):
         follow_redirects=False,
     )
     assert calls[0]["content"].lstrip().startswith("# Q3 Plan")
+
+
+def _import(tmp_path, monkeypatch, body, **form):
+    c, app_mod, _org, sid = _client(tmp_path, monkeypatch=monkeypatch)
+    from anthill.web import docsource
+
+    monkeypatch.setattr(docsource, "read_document", lambda srv, ref: body)
+    monkeypatch.setattr(
+        app_mod, "_backend_from_cfg", lambda cfg: _FakeBackend("# Model Title\n\nA summary.")
+    )
+    calls = []
+    monkeypatch.setattr(app_mod, "propose_wiki_write", lambda db, **kw: calls.append(kw) or True)
+    c.post(
+        "/wiki/import-connector",
+        data={"server_id": sid, "ref": "folder/plan.md", "target_scope": "personal", **form},
+        follow_redirects=False,
+    )
+    return calls[0]["content"]
+
+
+def test_a_short_untitled_document_is_titled_by_its_file_name_not_the_temp_name(
+    tmp_path, monkeypatch
+):
+    # Short documents are filed as they are (#181), so without a heading they would be titled after
+    # the temporary file ("plan-md"). The route titles them by the file name without its extension.
+    content = _import(tmp_path, monkeypatch, "The imported body text.")
+    assert content.lstrip().startswith("# plan\n")
+    assert "The imported body text." in content
+    assert "A summary." not in content  # filed as it is, not summarised
+
+
+def test_a_long_untitled_document_is_still_summarised_and_titled_by_the_model(
+    tmp_path, monkeypatch
+):
+    content = _import(tmp_path, monkeypatch, "word " * 400)
+    assert content.lstrip().startswith("# Model Title")
+
+
+def test_a_document_just_under_the_limit_is_still_titled_by_its_file_name(tmp_path, monkeypatch):
+    # The route adds a short heading, which can take a document that was a few characters under the
+    # filing limit over it. It is then summarised, but still carries the file-name title (#181).
+    from anthill.wiki.ingest import _VERBATIM_NOTE_MAX_CHARS
+
+    body = "x" * (_VERBATIM_NOTE_MAX_CHARS - 3)
+    content = _import(tmp_path, monkeypatch, body)
+    assert content.lstrip().startswith("# plan")
