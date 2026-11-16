@@ -11,7 +11,7 @@ The whole path is: **approve gold -> Train now -> a GPU pod trains -> the adapte
 ## 0. Preconditions (once)
 
 - **RunPod account + key configured as the org's serving provider.** Training reuses the serving RunPod
-  account - there is no separate token. Settings -> Organization: choose RunPod, paste the API key. That
+  account - there is no separate token. Settings -> Organisation: choose RunPod, paste the API key. That
   stores `org_provision_key_enc`, which both serving and training use.
 - **Gold to train on.** Training only runs on **gold** examples (admin-approved / thumbs-up). Confirm you
   have enough: `anthill export-training --quality gold` prints the count and whether it is

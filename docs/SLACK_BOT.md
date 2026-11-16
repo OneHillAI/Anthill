@@ -1,6 +1,6 @@
 # Slack bot: ask Anthill from Slack
 
-Let your team ask your organization's Anthill from Slack. They **@mention** the bot in a channel, **DM**
+Let your team ask your organisation's Anthill from Slack. They **@mention** the bot in a channel, **DM**
 it, or run **`/anthill <question>`**, and it answers from your org wiki, in-thread, on your org model.
 Personal context is never used (org plane), and only people who are **members of your org on Anthill**
 (matched by their Slack email) get answers - everyone else is told to ask an admin for an invite.
@@ -31,7 +31,7 @@ features:
   slash_commands:
     - command: /anthill
       url: https://YOUR-ANTHILL/slack/command
-      description: Ask your organization's Anthill
+      description: Ask your organisation's Anthill
       usage_hint: "[question]"
 oauth_config:
   redirect_urls:

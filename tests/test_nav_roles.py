@@ -92,7 +92,7 @@ _SHARED_LINKS = ['href="/chat"', 'href="/wiki"', 'href="/teams"']
 # the rail is flat now (no task-group labels); a "cut" divider separates the work surfaces above from
 # setup/admin below.
 _NAV_CUT = 'class="navcut"'
-_OLD_SECTION_LABELS = (">Workspace<", ">General<", ">Insights<", ">Organization<")
+_OLD_SECTION_LABELS = (">Workspace<", ">General<", ">Insights<", ">Organisation<")
 
 
 def test_member_nav_hides_admin_items(tmp_path, monkeypatch):

@@ -129,7 +129,7 @@ def plane_inference(
         org = _org_endpoint(cfg, decrypt)
         if org is None:
             raise PlaneUnavailable(
-                "The organization model backend is not connected. Connect and validate it under "
+                "The organisation model backend is not connected. Connect and validate it under "
                 "Settings -> Organization, or start a Solo chat."
             )
         endpoint, model, api_key = org
@@ -150,7 +150,7 @@ def plane_inference(
             org = _org_endpoint(cfg, decrypt)
             if org is None:
                 raise PlaneUnavailable(
-                    "The organization model backend is not connected. Connect and validate it under "
+                    "The organisation model backend is not connected. Connect and validate it under "
                     "Settings -> Organization, or use a Solo chat."
                 )
             endpoint, model, api_key = org

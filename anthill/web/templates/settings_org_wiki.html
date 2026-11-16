@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Organization wiki hosting{% endblock %}
+{% block title %}Organisation wiki hosting{% endblock %}
 {% block page_title %}Cloud &amp; model <span style="font-size:13px;color:var(--muted);font-weight:normal">- wiki</span>{% endblock %}
 {% block content %}
 {% include "_org_cloud_tabs.html" %}
@@ -10,9 +10,9 @@
 {% set provname = (cfg.org_provider or '')|capitalize %}
 
 <p class="text-sm text-muted" style="max-width:760px;margin-bottom:16px">
-  Your organization runs on <b>its own private cloud</b>. When you set up an org cloud on the
+  Your organisation runs on <b>its own private cloud</b>. When you set up an org cloud on the
   <a href="/settings/organization">Model</a> tab, your <b>model, this wiki, and fine-tuning all run there</b> -
-  provisioned together on the same account, so the whole organization lives in your cloud. Solo chats are the
+  provisioned together on the same account, so the whole organisation lives in your cloud. Solo chats are the
   opposite: a local model and a local wiki, entirely on this device. You do not set the wiki up separately.
 </p>
 
@@ -66,7 +66,7 @@
   <h3 style="margin-bottom:6px">Where it runs right now</h3>
   <p class="text-sm text-muted" style="margin:0">
     {% if cfg.wiki_hosting == 'vpc' and cfg.wiki_vpc_url %}Your org cloud at <code>{{ cfg.wiki_vpc_url }}</code>.{% else %}<b>This device</b> (local){% if has_org_cloud %} - moves to your {{ provname }} cloud automatically when the backend host comes up{% endif %}.{% endif %}
-    See <a href="/backend">Organization -&gt; Backend</a> for the full host and data details.
+    See <a href="/backend">Organisation -&gt; Backend</a> for the full host and data details.
   </p>
 </div>
 {% endblock %}

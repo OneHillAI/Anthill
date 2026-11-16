@@ -238,7 +238,7 @@ def test_invite_endpoint_enforces_org_mode_not_just_the_ui(tmp_path, monkeypatch
     assert _member_count() == 0  # no membership created despite a direct POST
     # the redirect target actually renders the explanation (team_detail reads ?error= via `err`)
     assert (
-        "Set up an organization to invite members"
+        "Set up an organisation to invite members"
         in owner_c.get(f"/teams/{ids['team']}?error=solo_no_members").text
     )
 

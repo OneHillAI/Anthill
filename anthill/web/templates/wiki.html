@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_compute_banner.html" import compute_banner %}
 {% block title %}Wiki{% endblock %}
-{% block page_title %}{% if scope=='org' %}Organization wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}{% endblock %}
+{% block page_title %}{% if scope=='org' %}Organisation wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}{% endblock %}
 {% block content %}
 {{ compute_banner(compute_ready, setup_href) }}
 {% include "_knowledge_tabs.html" %}
@@ -23,7 +23,7 @@
   {% for p in active_principles %}
   <div class="text-sm" style="margin:3px 0">
     <span class="badge badge-clay">{{ p.label }}</span> principles
-    {% if p.label != 'Personal' %}<span title="Managed by your {{ 'admin' if p.label=='Organization' else 'team owner' }}">🔒</span>{% endif %}
+    {% if p.label != 'Personal' %}<span title="Managed by your {{ 'admin' if p.label=='Organisation' else 'team owner' }}">🔒</span>{% endif %}
   </div>
   {% endfor %}
 </div>

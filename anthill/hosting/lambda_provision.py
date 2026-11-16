@@ -205,7 +205,7 @@ class LambdaLiveProvisioner(_LambdaPlanner):
         return (
             True,
             "Lambda Labs provisioning is wired up. Add your Lambda Cloud API key under Settings -> "
-            "Organization, then provision; the GPU instance runs until you tear it down.",
+            "Organisation, then provision; the GPU instance runs until you tear it down.",
         )
 
     def provision(

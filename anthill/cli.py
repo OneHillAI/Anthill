@@ -16,7 +16,7 @@ from .wiki import lint as lint_mod
 from .wiki.agent import run_maintenance
 from .wiki.workspace import Workspace
 
-app = typer.Typer(add_completion=False, help="Local wiki-backed GPT for an organization.")
+app = typer.Typer(add_completion=False, help="Local wiki-backed GPT for an organisation.")
 console = Console()
 
 

@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Anthill",
   "short_name": "Anthill",
-  "description": "Anthill by Onehill Foundation - your organization's private, local AI: chat, wiki, and agents that stay inside your perimeter.",
+  "description": "Anthill by Onehill Foundation - your organisation's private, local AI: chat, wiki, and agents that stay inside your perimeter.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -19,7 +19,7 @@
   ],
   "shortcuts": [
     { "name": "New chat", "short_name": "Chat", "url": "/chat", "description": "Start a new chat" },
-    { "name": "Wiki", "short_name": "Wiki", "url": "/wiki", "description": "Open the organization wiki" },
+    { "name": "Wiki", "short_name": "Wiki", "url": "/wiki", "description": "Open the organisation wiki" },
     { "name": "Tasks", "short_name": "Tasks", "url": "/tasks", "description": "View tasks" }
   ]
 }
