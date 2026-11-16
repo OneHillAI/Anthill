@@ -8190,7 +8190,7 @@ def wiki_page_view(
     import re
 
     from ..common.text import WIKILINK_RE, first_h1, slugify, strip_frontmatter
-    from ..lifecycle.version import PROVENANCE_RE, read_provenance
+    from ..lifecycle.version import PROVENANCE_RE, is_verbatim, read_provenance
 
     db = _db()
     org = _require_org(db, user)
@@ -8225,6 +8225,7 @@ def wiki_page_view(
             "title": first_h1(md) or slugify(slug),
             "content": body,
             "provenance": read_provenance(md),
+            "verbatim": is_verbatim(md),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
@@ -8926,11 +8927,20 @@ async def wiki_import_connector(
     try:
         tmp_name = (slugify(label) or "document") + ".md"
         tmp_path = _Path(tmp_dir) / tmp_name
-        # A pre-titled doc keeps its own heading. An untitled one gets a heading only when the user
-        # typed a title: ingest takes the source's H1 as the page title, so a heading made up from
-        # the file name would beat the model's descriptive title (#150).
-        titled = text.lstrip().startswith("#") or not title.strip()
-        page_source = text if titled else f"# {label}\n\n{text}\n"
+        # A pre-titled doc keeps its own heading. An untitled one gets a heading when the user typed
+        # a title, or when it is short enough to be filed as it is (#181) and so would otherwise be
+        # titled after the temporary file. A longer untitled doc is summarised, and ingest takes the
+        # source's H1 as the page title, so a heading made up from the file name would beat the
+        # model's descriptive title (#150).
+        from ..wiki.ingest import _VERBATIM_NOTE_MAX_CHARS
+
+        untitled = not text.lstrip().startswith("#")
+        short = len(text.strip()) <= _VERBATIM_NOTE_MAX_CHARS
+        if untitled and (title.strip() or short):
+            heading = title.strip() or _Path(label).stem or label
+            page_source = f"# {heading}\n\n{text}\n"
+        else:
+            page_source = text
         tmp_path.write_text(page_source, encoding="utf-8")
 
         cfg = _cfg(db, org)

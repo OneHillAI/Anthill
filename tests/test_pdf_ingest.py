@@ -910,6 +910,7 @@ def test_failed_source_validation_does_not_copy_raw_source(tmp_path, monkeypatch
     assert list(workspace.raw.iterdir()) == []
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_valid_source_is_preserved_before_inference_failure(tmp_path):
     source = tmp_path / "validated.txt"
     source.write_text("Validated source content.")

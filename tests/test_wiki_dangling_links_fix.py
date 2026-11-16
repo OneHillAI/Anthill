@@ -15,6 +15,8 @@ drifted from the backend's actual supported formats (Word/PowerPoint/Excel/HTML 
 
 from __future__ import annotations
 
+import pytest
+
 from anthill.wiki.ingest import _neutralize_dangling_links, ingest
 from anthill.wiki.review import outline_change
 from anthill.wiki.workspace import Workspace
@@ -121,6 +123,7 @@ def test_manual_edit_with_a_real_broken_link_is_still_flagged(tmp_path):
 # ── the actual reported symptom: ingest -> propose_wiki_write now publishes ───────
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_ingest_then_propose_wiki_write_now_publishes_on_a_fresh_personal_wiki(tmp_path):
     """This is the exact failure mode: a brand-new personal wiki, a document whose AI summary
     links to pages that don't exist yet. Before the fix, propose_wiki_write returned False and

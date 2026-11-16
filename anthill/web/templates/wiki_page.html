@@ -11,7 +11,7 @@
   <div class="task-md task-md-raw" data-md>{{ content }}</div>
 </div>
 {% if provenance %}
-<p class="text-sm text-muted" style="margin:10px 0 0">Written by {{ provenance.model }} on {{ provenance.date }}{% if provenance.source %} from {{ provenance.source }}{% endif %}.</p>
+<p class="text-sm text-muted" style="margin:10px 0 0">{% if verbatim %}The note as uploaded{% else %}Written by {{ provenance.model }}{% endif %} on {{ provenance.date }}{% if provenance.source %} from {{ provenance.source }}{% endif %}.</p>
 {% endif %}
 {% include "_markdown_render.html" %}
 {% endblock %}

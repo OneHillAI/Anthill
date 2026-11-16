@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -113,6 +114,7 @@ def test_a_renamed_copy_of_the_same_file_is_still_the_same_file(tmp_path, monkey
     assert len(workspace_for("personal", user_id=uid).pages()) == 1
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_the_same_file_with_a_different_model_title_is_held(tmp_path, monkeypatch):
     """The reported case: a note with no H1 got a new invented title on every run, so the second
     upload became a second page. The source hash catches it whatever the title."""

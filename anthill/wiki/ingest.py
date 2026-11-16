@@ -168,6 +168,9 @@ def _is_timeout_error(exc: BaseException) -> bool:
 
 
 _FIDELITY_SUFFIXES = {".md", ".txt"}
+# A plain-text note this short is filed as it is, not summarised: there is little to condense and a
+# small model can only damage it (#150, #181). About a screen of text.
+_VERBATIM_NOTE_MAX_CHARS = 1_500
 # A quoted passage is at least two words and 12 characters, on one line; shorter pairs are scare quotes.
 _QUOTE_RE = re.compile(r'"([^"\n]{12,400})"|“([^”\n]{12,400})”')
 
@@ -263,6 +266,41 @@ def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str =
     return WIKILINK_RE.sub(_sub, page_md)
 
 
+def _is_verbatim_note(source: Path, fc) -> bool:
+    return (
+        source.suffix.lower() in _FIDELITY_SUFFIXES
+        and not fc.has_images
+        and bool(fc.text.strip())
+        and len(fc.text) <= _VERBATIM_NOTE_MAX_CHARS
+    )
+
+
+def _file_verbatim_note(
+    ws: Workspace, source: Path, text: str, raw_copy: Path, on_write
+) -> Path | None:
+    """File a short note as the page itself, no model involved. The note's own H1 is the title (else
+    the file name); its text is kept as written, so `normalize_wiki_page` (which would merge a
+    `## Related` section) and `_neutralize_dangling_links` (which would strip the user's own
+    `[[links]]`) are not applied, and nothing is restored or enriched because nothing is reworded."""
+    from ..lifecycle.version import VERBATIM_MODEL, tag_page
+
+    body = text.strip()
+    page_md = body if first_h1(body) else f"# {source.stem}\n\n{body}"
+    title = first_h1(page_md) or source.stem
+    page_md = tag_page(page_md, VERBATIM_MODEL, source=raw_copy.name)
+    return _file_page(ws, title, page_md, on_write)
+
+
+def _file_page(ws: Workspace, title: str, page_md: str, on_write) -> Path | None:
+    if on_write is not None:  # caller routes the page through a review gate
+        on_write(title, page_md)
+        return None
+    path = ws.write_page(title, page_md)
+    ws.rebuild_index()
+    ws.append_log("ingest", title)
+    return path
+
+
 def ingest(
     ws: Workspace,
     source: Path,
@@ -285,6 +323,9 @@ def ingest(
     If web_enrich=True, the page is enriched with fresh web search results
     after the initial summary is written.
 
+    A short plain-text note (at most ``_VERBATIM_NOTE_MAX_CHARS``, no images) is not summarised: the
+    page is the note itself, the backend is never called and ``web_enrich`` does not apply (#181).
+
     If on_write is given, the finished (title, page_md) is handed to it instead of
     being written directly - so an autonomous caller can route the page through the
     review gate. Returns None in that case; otherwise the written path.
@@ -306,6 +347,8 @@ def ingest(
     if not is_pdf and source.resolve() != raw_copy.resolve() and not raw_copy.exists():
         preserve_raw_source(ws, source)
     _preflight_pdf_work(fc, allow_large_pdf=allow_large_pdf, budget=budget)
+    if _is_verbatim_note(source, fc):
+        return _file_verbatim_note(ws, source, fc.text, raw_copy, on_write)
     page_md, writer_model = _source_content_to_page(
         ws, source, fc, backend, budget=budget, vision_max_accuracy=vision_max_accuracy
     )
@@ -345,13 +388,7 @@ def ingest(
             pipeline_model=pipeline_model,
         )
 
-    if on_write is not None:  # caller routes the page through a review gate
-        on_write(title, page_md)
-        return None
-    path = ws.write_page(title, page_md)
-    ws.rebuild_index()
-    ws.append_log("ingest", title)
-    return path
+    return _file_page(ws, title, page_md, on_write)
 
 
 def source_to_page(

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -192,6 +193,7 @@ def _queue_upload(
     return row_id, stored
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_scheduler_processes_queued_upload_once_model_ready(tmp_path, monkeypatch):
     from anthill.web import scheduler
 
