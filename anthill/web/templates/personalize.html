@@ -357,7 +357,7 @@
       </div>
       <div class="setrow">
         <div class="setrow-main"><span class="setrow-name">Scrub personal details before training</span><span class="setrow-d">{% if presidio_available %}Removes names, locations, emails, phone numbers and IDs first.{% else %}Removes emails, phone numbers and IDs first. Names and places need the privacy pack{% if user and user.role == 'admin' %} (<a href="/settings">Install</a>){% endif %}.{% endif %}</span></div>
-        <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
+        <label class="tog"><input type="checkbox" name="scrub_pii" {% if scrub_on %}checked{% endif %}{% if not can_edit_org_settings %} disabled title="Set by your administrator"{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
       <div class="setrow">
         <div class="setrow-main"><span class="setrow-name">Web access</span><span class="setrow-d">Let it look things up online when needed. Off by default for a new account; you can change it for each chat in the chat box.</span></div>

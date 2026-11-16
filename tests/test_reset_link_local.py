@@ -57,11 +57,13 @@ def test_single_user_install_shows_link_in_browser(tmp_path, monkeypatch):
     assert "/reset/" in r.text  # the actual reset link is present
 
 
-def test_solo_topology_shows_link_even_with_two_users(tmp_path, monkeypatch):
-    # Solo deployment is explicitly single-operator: surface the link even if a second row exists.
+def test_solo_topology_with_two_users_shows_no_link(tmp_path, monkeypatch):
+    # The link is shown only when the install has a single account in total. A second account means the
+    # page could be used to reset someone else's password, so even a Solo account gets no link.
     client = _app(tmp_path, monkeypatch, users=["a@acme.com", "b@acme.com"], topology="solo")
     r = client.post("/forgot", data={"email": "a@acme.com"})
-    assert "Choose a new password" in r.text and "/reset/" in r.text
+    assert "Choose a new password" not in r.text and "/reset/" not in r.text
+    assert "Ask your administrator" in r.text
 
 
 def test_multiuser_org_directs_to_admin_without_leaking(tmp_path, monkeypatch):

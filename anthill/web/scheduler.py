@@ -27,6 +27,7 @@ from .db import (
     WikiReview,
     create_tables,
     get_engine,
+    normalize_topology,
 )
 
 # Push sources (webhooks / IMAP) set this to wake the fast event tick immediately,
@@ -815,8 +816,6 @@ def _train_tick(engine):
     *execution* (fine-tune → eval-gate → Ollama register) is a separate module;
     a scheduled run waits in status 'scheduled' until that module picks it up.
     """
-    from sqlalchemy import or_
-
     from ..training.model_select import resolve_base_model, training_on
     from ..training.schedule import should_train
 
@@ -825,16 +824,11 @@ def _train_tick(engine):
     now = datetime.now(timezone.utc)
     try:
         # Include solo orgs even with training_enabled unset: local/solo training is always-on.
-        for cfg in (
-            db.query(OrgSettings)
-            .filter(
-                or_(
-                    OrgSettings.training_enabled.is_(True),
-                    OrgSettings.deployment_topology == "solo",
-                )
-            )
-            .all()
-        ):
+        for cfg in db.query(OrgSettings).all():
+            if not (
+                cfg.training_enabled or normalize_topology(cfg.deployment_topology or "") == "solo"
+            ):
+                continue
             gold = _gold_count(db, cfg.org_id)
             go, reason = should_train(cfg, gold, now=now, enabled=training_on(cfg))
             if not go:

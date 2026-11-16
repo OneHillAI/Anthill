@@ -2514,7 +2514,7 @@ def setup_account_type_get(request: Request, user: dict = Depends(_require_user)
 
 @app.post("/setup/account-type")
 def setup_account_type_post(
-    user: dict = Depends(_require_user),
+    user: dict = Depends(_require_admin),
     account_type: str = Form("solo"),
     org_name: str = Form(""),
 ):
@@ -2523,6 +2523,8 @@ def setup_account_type_post(
     db = _db()
     org = _require_org(db, user)
     cfg = _cfg_or_create(db, org)
+    if cfg.account_type_chosen:
+        return RedirectResponse("/", status_code=302)
 
     if account_type == "org":
         cfg.deployment_topology = "org"
@@ -3535,6 +3537,7 @@ def model_picker_post(
     cfg = _cfg(db, org)
     if cfg is None:
         return RedirectResponse("/", status_code=302)
+    _require_admin(user)
 
     # The chooser's council builder posts council_models + council_lead (the model ticked FIRST, in
     # SELECTION order - not list order). Put the lead at index 0. Fall back to `choice` for legacy/skip.
@@ -3892,13 +3895,11 @@ def _user_for_reset(db: Session, token: str) -> User | None:
 
 
 def _is_solo_install(db: Session) -> bool:
-    """A single-operator install - one account total, or an org explicitly in 'solo' topology.
-    Decides whether a password-reset link may be shown in-browser: a multi-user org must NOT,
-    or the page would leak which emails are registered and let anyone reset another account."""
-    if db.query(User).count() <= 1:
-        return True
-    cfg = db.query(OrgSettings).first()
-    return bool(cfg and normalize_topology(cfg.deployment_topology) == "solo")
+    """A single-operator install: one account in total. Decides whether a password-reset link may be
+    shown in-browser. With more than one account it must NOT, or the page would leak which emails are
+    registered and let anyone who knows an address reset that account. Install-wide on purpose: the
+    answer cannot depend on whether the email matched, so the page is identical for every address."""
+    return db.query(User).count() <= 1
 
 
 def _reset_invalid(request: Request):
@@ -3931,8 +3932,9 @@ async def forgot_post(request: Request, email: str = Form(...)):
 
     from .mailer import send_reset_email, smtp_configured
 
-    # Install-level facts, computed independently of whether the email matched so the page can't
-    # be used to tell which emails are registered (enumeration-safe).
+    # Solo is decided from the matched active account's own organisation, and is False for an unknown
+    # or inactive email on a multi-account install, so those get the same page as an organisation
+    # member (enumeration-safe).
     smtp = smtp_configured()
     solo = _is_solo_install(db)
 
@@ -6429,6 +6431,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "is_org_deployment": normalize_topology(getattr(cfg, "deployment_topology", "") or "")
             == "org",
             "org_setup_error": request.query_params.get("org_error", ""),
+            "can_edit_org_settings": user.get("role") == "admin",
         },
     )
 
@@ -6452,7 +6455,17 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     # choice (local | cloud). solo_compute is coerced to the two valid values before it reaches routing.
     local_model = (form.get("ollama_model") or "").strip()
     solo_compute = (form.get("solo_compute") or "").strip()
-    if local_model or solo_compute in ("local", "cloud"):
+    _scfg = _cfg(db, _require_org(db, user))
+    _may_write_org = user.get("role") == "admin"
+    _org_write_refused = not _may_write_org and (
+        (local_model and local_model != ((_scfg.ollama_model if _scfg else "") or "").strip())
+        or (
+            solo_compute in ("local", "cloud")
+            and solo_compute != ((_scfg.solo_compute if _scfg else "") or "")
+        )
+        or ("scrub_pii" in form and not (_scfg and _scfg.cloud_scrub_pii))
+    )
+    if _may_write_org and (local_model or solo_compute in ("local", "cloud")):
         org = _require_org(db, user)
         cfg = _cfg(db, org)
         if not cfg:
@@ -6479,12 +6492,13 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     me.thinking_on = (
         "thinking_on" in form
     )  # Settings -> Model default for Thinking (a new account starts off; a ticked box turns it on)
-    _porg = _require_org(db, user)
-    _pcfg = _cfg(db, _porg)
-    if not _pcfg:
-        _pcfg = OrgSettings(org_id=_porg.id)
-        db.add(_pcfg)
-    _pcfg.cloud_scrub_pii = "scrub_pii" in form
+    if _may_write_org:
+        _porg = _require_org(db, user)
+        _pcfg = _cfg(db, _porg)
+        if not _pcfg:
+            _pcfg = OrgSettings(org_id=_porg.id)
+            db.add(_pcfg)
+        _pcfg.cloud_scrub_pii = "scrub_pii" in form
     db.commit()
     # Mirror the fields into durable personal memory so agent tasks + recall reflect them.
     try:
@@ -6516,6 +6530,8 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     except Exception:
         pass
     audit.log(db, "user.personalized", "profile updated", org_id=me.org_id, user_id=user["sub"])
+    if _org_write_refused:
+        raise HTTPException(status_code=403, detail="Admin only")
     return RedirectResponse("/personalize?saved=1", status_code=302)
 
 
@@ -6569,6 +6585,7 @@ async def personalize_council(request: Request, user: dict = Depends(_require_us
     cfg = _cfg(db, org)
     if cfg is None:
         return JSONResponse({"ok": False}, status_code=400)
+    _require_admin(user)
     form = await request.form()
     action = (form.get("action") or "").strip()
     if action == "single":
