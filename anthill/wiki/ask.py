@@ -403,8 +403,9 @@ def ask(
 
     # ── 4. wiki retrieval (blend personal + any team/org wikis) ───────────────
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
-    cited = _cited_slugs(pages, spaces, q_vec)
+    scores: dict[Path, float] = {}
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
+    cited = _cited_slugs(pages, scores)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
     context = build_reference(pages, question) if pages else ""
@@ -744,8 +745,9 @@ def ask_stream(
         else None
     )
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
-    cited = _cited_slugs(pages, spaces, q_vec)
+    scores: dict[Path, float] = {}
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
+    cited = _cited_slugs(pages, scores)
     context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
@@ -1145,6 +1147,7 @@ def _rank_by_embedding(
     q_vec: np.ndarray | None,
     roots: list[Path] | None = None,
     whole_wiki: bool = False,
+    scores: dict[Path, float] | None = None,
 ) -> list[Path]:
     """Top-k of `paths` by cosine similarity to the question (embeds each page's first 2000 chars).
 
@@ -1156,7 +1159,8 @@ def _rank_by_embedding(
     that workspace's persistent index, so it is embedded once and again only when its text changes (see
     ``anthill.cache.page_vectors``); a page under none, or no ``roots``, is embedded here on every call.
     ``whole_wiki`` says ``paths`` is every page of the single workspace in ``roots``, which lets the index
-    drop the rows of pages that no longer exist."""
+    drop the rows of pages that no longer exist. When ``scores`` is given, the similarity of every page
+    that is returned is recorded in it, so a caller can use it without scoring the pages again."""
     if q_vec is None:
         q_vec = emb.embed(question)
     texts = [embed_text(p) for p in paths]
@@ -1168,7 +1172,10 @@ def _rank_by_embedding(
         if s >= MIN_GROUNDING_SIM:
             scored.append((s, p, v))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return _mmr_select(scored, k)
+    picked = _mmr_select(scored, k)
+    if scores is not None:
+        scores.update({p: s for s, p, _v in scored if p in picked})
+    return picked
 
 
 def _page_vectors(
@@ -1233,28 +1240,30 @@ def _filter_citations(scored: list[tuple[float, Path]]) -> list[Path]:
     return [p for _s, p in scored if p in kept]
 
 
-def _cited_slugs(pages: list[Path], spaces, q_vec: np.ndarray | None) -> list[str]:
-    """Slugs to show as the answer's sources: the retrieved ``pages`` that pass ``_filter_citations``.
-    With no question vector or no way to score a page, every retrieved page is cited as before."""
-    if len(pages) < 2 or q_vec is None:
+def _cited_slugs(pages: list[Path], scores: dict[Path, float]) -> list[str]:
+    """Slugs to show as the answer's sources: the retrieved ``pages`` that pass ``_filter_citations``,
+    using the similarities retrieval already computed. If any page has no score (it was not ranked by
+    embedding), every retrieved page is cited as before."""
+    if len(pages) < 2 or any(p not in scores for p in pages):
         return [p.stem for p in pages]
-    try:
-        roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
-        vecs = _page_vectors(pages, [embed_text(p) for p in pages], roots, False)
-        scored = [(emb.cosine(q_vec, v), p) for p, v in zip(pages, vecs, strict=True)]
-        return [p.stem for p in _filter_citations(scored)]
-    except Exception:
-        return [p.stem for p in pages]
+    return [p.stem for p in _filter_citations([(scores[p], p) for p in pages])]
 
 
-def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = None) -> list[Path]:
+def _merge_relevant(
+    spaces,
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None = None,
+    scores: dict[Path, float] | None = None,
+) -> list[Path]:
     """Top-k relevant pages across several workspaces (personal + team + org),
     de-duplicated and re-ranked. With a single space this matches _relevant_pages,
-    so single-wiki behaviour is unchanged."""
+    so single-wiki behaviour is unchanged. ``scores``, when given, receives the similarity of the pages
+    that were ranked by embedding (none for a Meilisearch or keyword hit)."""
     cands: list[Path] = []
     for w in spaces:
         try:
-            cands.extend(_relevant_pages(w, question, k, q_vec))
+            cands.extend(_relevant_pages(w, question, k, q_vec, scores))
         except Exception:
             pass
     seen, uniq = set(), []
@@ -1267,13 +1276,17 @@ def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = No
         return uniq
     try:
         roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
-        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots)
+        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots, scores=scores)
     except Exception:
         return uniq[:k]
 
 
 def _relevant_pages(
-    ws: Workspace, question: str, k: int, q_vec: np.ndarray | None = None
+    ws: Workspace,
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None = None,
+    scores: dict[Path, float] | None = None,
 ) -> list[Path]:
     pages = ws.pages()
     if not pages:
@@ -1293,7 +1306,9 @@ def _relevant_pages(
         # likely not indexed yet - seed this workspace's own index, use embeddings this turn
         meili.index_pages(pages, index=ws.meili_index)
     try:
-        return _rank_by_embedding(pages, question, k, q_vec, roots=[ws.root], whole_wiki=True)
+        return _rank_by_embedding(
+            pages, question, k, q_vec, roots=[ws.root], whole_wiki=True, scores=scores
+        )
     except Exception:
         return _keyword_fallback(ws, question, k)
 

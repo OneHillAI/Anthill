@@ -168,13 +168,16 @@ def test_ask_stream_cites_only_the_interview_asked_about_but_grounds_on_every_pa
 
 
 def test_the_cited_pages_are_a_subset_of_the_retrieved_pages(interview_wiki):
-    retrieved = ask_mod._merge_relevant([interview_wiki], QUESTION, 3, _fake_embed(QUESTION))
+    scores: dict = {}
+    retrieved = ask_mod._merge_relevant(
+        [interview_wiki], QUESTION, 3, _fake_embed(QUESTION), scores
+    )
     assert sorted(_stems(retrieved)) == [
         "interview-bakery-p07",
         "interview-courier-p11",
         "orders-app-redesign",
     ]
-    cited = ask_mod._cited_slugs(retrieved, [interview_wiki], _fake_embed(QUESTION))
+    cited = ask_mod._cited_slugs(retrieved, scores)
     assert set(cited) < set(_stems(retrieved))
 
 
@@ -196,16 +199,26 @@ def test_the_citations_are_also_what_a_later_cache_hit_reports(interview_wiki, m
     assert stored["slugs"] == slugs
 
 
-def test_without_a_question_vector_every_retrieved_page_is_cited(tmp_path):
-    pages = [_page(tmp_path, "a", "# a\n"), _page(tmp_path, "b", "# b\n")]
-    assert ask_mod._cited_slugs(pages, [], None) == ["a", "b"]
+def test_retrieval_records_the_similarity_of_the_pages_it_returns(interview_wiki):
+    scores: dict = {}
+    retrieved = ask_mod._merge_relevant(
+        [interview_wiki], QUESTION, 3, _fake_embed(QUESTION), scores
+    )
+    assert set(scores) == set(retrieved)
+    assert all(0 < v <= 1 for v in scores.values())
 
 
-def test_a_scoring_failure_falls_back_to_citing_every_retrieved_page(tmp_path, monkeypatch):
-    pages = [_page(tmp_path, "a", "# a\n"), _page(tmp_path, "b", "# b\n")]
-
+def test_citations_use_the_scores_retrieval_computed_and_never_score_again(tmp_path, monkeypatch):
     def _boom(*a, **k):
-        raise RuntimeError("index unavailable")
+        raise AssertionError("scored the pages a second time")
 
     monkeypatch.setattr(ask_mod, "_page_vectors", _boom)
-    assert ask_mod._cited_slugs(pages, [], _fake_embed("x")) == ["a", "b"]
+    monkeypatch.setattr(emb, "embed", _boom)
+    a, b = _page(tmp_path, "a", "# a\n"), _page(tmp_path, "b", "# b\n")
+    assert ask_mod._cited_slugs([a, b], {a: 0.7, b: 0.4}) == ["a"]
+
+
+def test_a_page_without_a_score_means_every_retrieved_page_is_cited(tmp_path):
+    a, b = _page(tmp_path, "a", "# a\n"), _page(tmp_path, "b", "# b\n")
+    assert ask_mod._cited_slugs([a, b], {a: 0.7}) == ["a", "b"]  # b was not ranked by embedding
+    assert ask_mod._cited_slugs([a, b], {}) == ["a", "b"]

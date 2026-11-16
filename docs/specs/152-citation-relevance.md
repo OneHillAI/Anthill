@@ -24,8 +24,11 @@ checking a client fact finds two of three sources irrelevant and stops trusting 
 4. Listed pages keep the order in which they were retrieved.
 5. The filtered list is what `ask` returns, what `ask_stream` hands to `on_context`, and what is stored with the
    cached answer, so a later cache hit shows the same sources as the turn that produced it.
-6. When there is no question vector, only one page was retrieved, or a page cannot be scored, every retrieved page
-   is listed as before.
+6. The filter uses the similarities retrieval already computed: `_rank_by_embedding` records them in an optional
+   `scores` mapping that `_relevant_pages` and `_merge_relevant` pass along, and no page is embedded or scored a
+   second time to decide the citations.
+7. When only one page was retrieved, or any retrieved page has no recorded score, every retrieved page is listed
+   as before.
 
 ## Known limits
 
@@ -40,8 +43,7 @@ checking a client fact finds two of three sources irrelevant and stops trusting 
   was re-uploaded after an edit (a different file), are not grouped.
 - Retrieval itself, including the cosine floor and MMR, is untouched; a wiki where several pages are truly about
   the question still lists several.
-- Pages found by the keyword fallback or Meilisearch are scored by embedding for citation only when an embedding
-  is available; otherwise they are all listed.
+- Pages found by the keyword fallback or Meilisearch have no recorded similarity, so they are all listed.
 
 ## Acceptance
 
