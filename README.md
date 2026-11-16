@@ -53,12 +53,20 @@ Way** (below), which is how every contribution to this repo works.
 
 ## Quick start (from source)
 
+You need `git`, `make`, Python 3.10+ and [Ollama](https://ollama.com). On Debian or Ubuntu, `sudo apt install git make`
+covers the first two; on Linux, install Ollama from <https://ollama.com/download>.
+
 ```bash
 git clone https://github.com/OneHillAI/Anthill
 cd Anthill
 make install      # create the venv and install dependencies
 bash start.sh     # first run pulls the default model, generates secrets, opens the dashboard at :8000
 ```
+
+No `make`? `make install` boils down to `python3 -m venv .venv && .venv/bin/pip install -e ".[dev,docs]"`.
+
+`start.sh` keeps running in the terminal: leave that window open and press Ctrl-C to stop Anthill, or run
+`bash start.sh --no-wait` to start it detached. If no browser opens, go to `http://localhost:8000`.
 
 The default model is `qwen2.5:3b` (runs in 8 GB RAM). Building the Mac app, the CLI, and self-hosting an
 org backend (on-premises, neo cloud, or your own VPC) are all covered in [`CONTRIBUTING.md`](CONTRIBUTING.md).
