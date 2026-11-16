@@ -9,7 +9,7 @@ open source either way; the optional hosted/enterprise offering is a separate ch
 <a href="../README.md">README</a>.)</em></p>
 
 <h2>Use it - install and run</h2>
-<p>For an organization, a team, or anyone who just wants to run their own AI. One click, no Terminal: you
+<p>For an organisation, a team, or anyone who just wants to run their own AI. One click, no Terminal: you
 install Anthill like any Mac app, create your org, and start working. Your knowledge and your model stay
 yours.</p>
 <ul>

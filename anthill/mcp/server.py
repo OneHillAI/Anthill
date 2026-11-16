@@ -18,9 +18,9 @@ PROTOCOL_VERSION = "2024-11-05"
 
 # resource key -> (exposed tool name, description)
 RESOURCES = {
-    "wiki": ("query_wiki", "Answer a question from the organization's wiki and cache."),
+    "wiki": ("query_wiki", "Answer a question from the organisation's wiki and cache."),
     "cache": ("search_cache", "Look up a cached answer to a question, if one exists."),
-    "memory": ("recall_memory", "Recall durable organization memory relevant to a query."),
+    "memory": ("recall_memory", "Recall durable organisation memory relevant to a query."),
 }
 
 
@@ -30,7 +30,7 @@ RESOURCES = {
 A2A_TOOLS = [
     {
         "name": "a2a_ask_agent",
-        "description": "Ask another agent in this organization a question; returns its answer.",
+        "description": "Ask another agent in this organisation a question; returns its answer.",
         "inputSchema": {
             "type": "object",
             "properties": {"agent": {"type": "string"}, "question": {"type": "string"}},
@@ -39,7 +39,7 @@ A2A_TOOLS = [
     },
     {
         "name": "a2a_delegate",
-        "description": "Delegate a goal to another agent in this organization; it runs under "
+        "description": "Delegate a goal to another agent in this organisation; it runs under "
         "its own identity and scopes and returns the result.",
         "inputSchema": {
             "type": "object",

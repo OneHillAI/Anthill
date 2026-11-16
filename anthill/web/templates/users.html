@@ -21,13 +21,13 @@
 {% if uerr == 'owner_protected' %}<div class="alert alert-warn">The install owner cannot be demoted or deactivated. Hand the install to another admin first (Settings, Remote access).</div>{% endif %}
 {% if uerr == 'already_exists' %}<div class="alert alert-warn">That email is already a member or has a pending invite.</div>{% endif %}
 {% if uerr == 'not_active' %}<div class="alert alert-warn">That member hasn't activated their account yet - use their <b>Copy invite link</b> instead.</div>{% endif %}
-{% if uerr == 'not_activated' %}<div class="alert alert-warn">Connect your organization backend first - you cannot invite a team until it is set up.</div>{% endif %}
+{% if uerr == 'not_activated' %}<div class="alert alert-warn">Connect your organisation backend first - you cannot invite a team until it is set up.</div>{% endif %}
 
 {% if not org_activated %}
 <div class="alert" style="background:var(--bg-subtle);color:var(--text)">
-  <b>Activate your organization to invite a team.</b> A shared organization runs its wiki and model on a
+  <b>Activate your organisation to invite a team.</b> A shared organisation runs its wiki and model on a
   backend your org owns. Connect and validate it under
-  <a href="/settings/organization">Settings -&gt; Organization</a>, then you can invite teammates here.
+  <a href="/settings/organization">Settings -&gt; Organisation</a>, then you can invite teammates here.
 </div>
 {% endif %}
 
@@ -37,7 +37,7 @@
   <button onclick="document.getElementById('invite-form').style.display='block'"
           class="btn btn-primary btn-sm">+ Invite user</button>
   {% else %}
-  <a href="/settings/organization" class="btn btn-outline btn-sm">Set up organization</a>
+  <a href="/settings/organization" class="btn btn-outline btn-sm">Set up organisation</a>
   {% endif %}
 </div>
 

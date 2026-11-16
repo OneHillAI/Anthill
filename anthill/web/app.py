@@ -2326,7 +2326,7 @@ async def setup_post(
     if not org_name:
         if topology == "org":
             domain = admin_email.split("@")[-1].split(".")[0] if "@" in admin_email else ""
-            org_name = domain.capitalize() if domain else "My organization"
+            org_name = domain.capitalize() if domain else "My organisation"
         else:
             org_name = "Personal"
     # Every personal sign-up defaults org_name to the same "Personal" (or, for an org sign-up, the
@@ -4607,7 +4607,7 @@ def _slack_answer(
             _say(reply)
         except PlaneUnavailable as e:
             _say(
-                f"The organization's model isn't connected yet ({e}). An admin can set it up in Settings."
+                f"The organisation's model isn't connected yet ({e}). An admin can set it up in Settings."
             )
     except Exception:
         try:
@@ -4643,7 +4643,7 @@ def _discord_respond(engine, application_id: str, token: str, org_id: int, text:
             .first()
         )
         if not member:
-            dc.edit_response(application_id, token, "No active members in this organization yet.")
+            dc.edit_response(application_id, token, "No active members in this organisation yet.")
             return
 
         from .plane_routing import PlaneUnavailable
@@ -4659,7 +4659,7 @@ def _discord_respond(engine, application_id: str, token: str, org_id: int, text:
             )
             db.commit()
         except PlaneUnavailable as e:
-            reply = f"The organization's model isn't connected yet ({e}). An admin can set it up in Settings."
+            reply = f"The organisation's model isn't connected yet ({e}). An admin can set it up in Settings."
         dc.edit_response(application_id, token, reply)
     except Exception:
         try:
@@ -4707,7 +4707,7 @@ async def discord_interactions(request: Request):
                 return {
                     "type": 4,
                     "data": {
-                        "content": "This assistant only serves its organization's members server.",
+                        "content": "This assistant only serves its organisation's members server.",
                         "flags": 64,
                     },
                 }
@@ -5217,7 +5217,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
     compute_ready, compute_href = _compute_readiness(cfg, solo, is_admin)
     activation.append(
         {
-            "label": "Set up your compute" if solo else "Set up your organization",
+            "label": "Set up your compute" if solo else "Set up your organisation",
             "done": compute_ready,
             "href": compute_href,
             "cta": "Set up" if compute_href else "Ask an admin",
@@ -17116,7 +17116,7 @@ def _training_readiness(cfg, gold: int) -> dict:
             # RunPod reuses the org's cloud key (org_provision_key_enc) - no separate training token.
             label = "RunPod (your org cloud account)"
             connected = bool(getattr(cfg, "org_provision_key_enc", "") or "")
-            needs = "Set your RunPod API key under Organization -> Cloud & model."
+            needs = "Set your RunPod API key under Organisation -> Cloud & model."
         else:  # modal
             label = "Neocloud (Modal, your own account)"
             connected = bool(

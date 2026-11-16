@@ -41,7 +41,7 @@ TIERS: dict[str, HostingTier] = {
         always_on=True,
         sovereignty="green",
         billing="always-on, flat",
-        description="Your organization's own cloud VPC (AWS / GCP / Azure / IBM). "
+        description="Your organisation's own cloud VPC (AWS / GCP / Azure / IBM). "
         "Always-on, your account.",
     ),
     "neocloud": HostingTier(

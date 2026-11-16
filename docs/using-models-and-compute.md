@@ -35,7 +35,7 @@ only runs one model at a time, since council members share the same memory bandw
 for it. A multi-model council runs at full speed when each model gets its own compute: your own
 cloud GPU, or an attached inference provider.
 
-Organizations have one more option. A **council reviewer** is an extra model an admin provisions,
+Organisations have one more option. A **council reviewer** is an extra model an admin provisions,
 each on its own GPU, purely to critique the lead's answer before the team sees it.
 
 ## Your own cloud, for a bigger model
@@ -62,7 +62,7 @@ human approved: a thumbs-up in chat, a saved snippet, or an admin approving it i
 is the only tier that actually trains a model.
 
 A solo user fine-tunes on their own gold answers, on whatever compute they've connected. An
-organization fine-tunes the one shared model on the team's gold, including answers promoted from
+organisation fine-tunes the one shared model on the team's gold, including answers promoted from
 individual snippets once corroborated, using the org's connected GPU. Either way, the steps are the
 same: connect a GPU or local toolchain, accumulate enough gold answers, then turn training on.
 Trigger a run manually, or let it run on a schedule as new gold accumulates. A newly trained model

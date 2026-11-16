@@ -84,5 +84,5 @@ def test_nav_collapses_to_one_org_settings_entry(tmp_path, monkeypatch):
     assert ">Org settings</a>" not in nav  # ...no separate Org settings rail item
     assert ">Cloud &amp; model</a>" not in nav  # ...and no old "Cloud & model" rail item
     assert (
-        ">Organization</a>" not in nav
+        ">Organisation</a>" not in nav
     )  # no duplicate "Organization" rail link (the rail is flat now)

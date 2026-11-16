@@ -119,7 +119,7 @@ def scoped_workspaces(db, *, user_id, org_id):
     from ..wiki.workspace import workspace_for
     from .db import TeamMembership
 
-    scoped = [("org", "Organization", workspace_for("org", org_id=org_id))]
+    scoped = [("org", "Organisation", workspace_for("org", org_id=org_id))]
     if user_id:
         team_ids = [
             t
@@ -167,7 +167,7 @@ def context_workspaces(db, *, user_id, plane="solo", team_id=None, is_org=False,
     scoped = []
     if is_org and connects_parent:
         scoped.append(
-            ("org", "Organization", workspace_for("org", org_id=_org_for(db, user_id, org_id)))
+            ("org", "Organisation", workspace_for("org", org_id=_org_for(db, user_id, org_id)))
         )
     if in_project:
         # A project run grounds in ITS OWN wiki only (the user is an active member).

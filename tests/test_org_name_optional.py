@@ -63,7 +63,7 @@ def test_org_signup_without_email_domain_uses_placeholder(tmp_path, monkeypatch)
         follow_redirects=False,
     )
     org = app_mod._SessionFactory().query(Organization).first()
-    assert org.name == "My organization"
+    assert org.name == "My organisation"
 
 
 def test_setup_keeps_an_explicit_name(tmp_path, monkeypatch):

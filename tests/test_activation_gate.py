@@ -68,13 +68,13 @@ def test_invite_allowed_once_activated(tmp_path, monkeypatch):
 def test_users_page_shows_activation_notice_when_not_activated(tmp_path, monkeypatch):
     client, _, _ = _app(tmp_path, monkeypatch, activated=False)
     page = client.get("/users").text
-    assert "Activate your organization to invite a team" in page
+    assert "Activate your organisation to invite a team" in page
     assert "+ Invite user" not in page  # the invite button is hidden until activated
-    assert "Set up organization" in page  # ...replaced by a link to the Organization page
+    assert "Set up organisation" in page  # ...replaced by a link to the Organisation page
 
 
 def test_users_page_shows_invite_button_when_activated(tmp_path, monkeypatch):
     client, _, _ = _app(tmp_path, monkeypatch, activated=True)
     page = client.get("/users").text
     assert "+ Invite user" in page
-    assert "Activate your organization to invite a team" not in page
+    assert "Activate your organisation to invite a team" not in page

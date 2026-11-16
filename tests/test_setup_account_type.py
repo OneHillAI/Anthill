@@ -52,7 +52,7 @@ def test_branch_screen_renders_both_choices(tmp_path, monkeypatch):
     c, _ = _client(tmp_path, monkeypatch)
     body = c.get("/setup/account-type").text
     assert "Continue solo" in body
-    assert "Set up an organization" in body
+    assert "Set up an organisation" in body
     assert 'name="org_name"' in body
 
 

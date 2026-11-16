@@ -130,7 +130,7 @@ def _run_target_agent(db, org_id: int, target_name: str, prompt: str) -> str:
         .first()
     )
     if not target:
-        raise ToolInvalid(f"no agent named '{target_name}' in this organization")
+        raise ToolInvalid(f"no agent named '{target_name}' in this organisation")
     if not target.active:
         raise ToolDenied(f"agent '{target_name}' is inactive")
 

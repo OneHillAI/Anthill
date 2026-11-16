@@ -1,6 +1,6 @@
 # How Anthill works
 
-<p>Anthill is your own AI, solo or for a whole organization. It runs on open-weight models, in your environment. It's accessible only to you, or your org, and trained only on your own work. The knowledge it builds and the model it becomes are yours to keep. This page explains how the pieces fit together. For the deep internals, see <a href="https://github.com/OneHillAI/Anthill/blob/main/ARCHITECTURE.md">Architecture</a> on GitHub.</p>
+<p>Anthill is your own AI, solo or for a whole organisation. It runs on open-weight models, in your environment. It's accessible only to you, or your org, and trained only on your own work. The knowledge it builds and the model it becomes are yours to keep. This page explains how the pieces fit together. For the deep internals, see <a href="https://github.com/OneHillAI/Anthill/blob/main/ARCHITECTURE.md">Architecture</a> on GitHub.</p>
 
 ## One assistant, in your perimeter
 <p>Every person on the team runs a local <strong>node</strong> on their own machine. It does inference, keeps a private cache, and talks to your org's shared backend. The <strong>org backend</strong> hosts the <strong>shared wiki</strong>, the review queue, the cross-machine index, and routing. By default that's the machine an admin runs Anthill on. If you want it independent of any laptop, it can instead be a dedicated <strong>always-on</strong> machine, on-prem or a persistent VM in your own cloud. Everyone connects to it, so knowledge is served live. An approved page shows up for the whole org on their next question, with nothing to copy or sync.</p>
@@ -37,7 +37,7 @@
 <ul>
   <li><strong>Agent.</strong> When a request needs tools, the assistant runs a multi-step agent. It can search the wiki and the web, read and draft, create files, and call approved connectors, under a governed identity with scoped permissions and a full audit trail. On a model that cannot use tools, an agent run or a task answers without them and says so.</li>
   <li><strong>Tasks.</strong> The same agent, on a schedule or on events. A daily inbox digest, weekly competitor research, a report filed to the wiki. You describe it in plain words and confirm.</li>
-  <li><strong>Skills.</strong> Reusable instruction sets the agent loads on its own when a task matches. Scoped Organization, Team, or Personal, so your organization's way of doing something is followed consistently.</li>
+  <li><strong>Skills.</strong> Reusable instruction sets the agent loads on its own when a task matches. Scoped Organisation, Team, or Personal, so your organisation's way of doing something is followed consistently.</li>
   <li><strong>Proactive maintenance.</strong> In the background, the agent drains the <code>inbox/</code> folder (drop a file, it gets ingested), lints for broken links and orphan or duplicate pages, and proposes wiki promotions into the review queue.</li>
 </ul>
 
@@ -59,7 +59,7 @@
   <li>Side-effects in chat are <strong>proposed and confirmed</strong> before they run.</li>
 </ul>
 
-## What your organization can do with it
+## What your organisation can do with it
 <ul>
   <li>Answer "how do we do X here" from your own documents and decisions, instead of re-explaining or digging through drives.</li>
   <li>Stand up a knowledge base from scratch by researching topics into reviewed, cited pages.</li>

@@ -29,7 +29,7 @@ documents, so turn it off for anything that must stay on your machine.
 Group chats into a **project** to keep them together. Open a project to start a chat inside it, or
 move an existing chat in from its menu at the top. A chat you move keeps its messages, and moving
 it back out never deletes anything. A project on a Solo install stays on your machine; in an
-organization, Anthill asks before moving a chat with existing messages into a project that runs on
+organisation, Anthill asks before moving a chat with existing messages into a project that runs on
 a shared model, since those messages would then be sent there. A chat in a project stays yours: other
 members of the project do not see it.
 
