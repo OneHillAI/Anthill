@@ -594,14 +594,11 @@ function trainNow() {
           if (pb) pb.style.display = 'block';
           if (rb) rb.style.display = 'none';
           setTimeout(poll, 2000);
-        } else if (wasPulling && !s.cancelled) {
+        } else if (wasPulling) {
           var rt = document.getElementById('ready-tag');
           if (rt) rt.textContent = s.current || wasPulling;
           if (pb) pb.style.display = 'none';
           if (rb) rb.style.display = 'block';
-          wasPulling = '';
-        } else if (wasPulling) {
-          if (pb) pb.style.display = 'none';
           wasPulling = '';
         }
       })

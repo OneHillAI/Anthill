@@ -160,13 +160,10 @@ async function fetchModelJSON(url, options) {
           if (meta) meta.textContent = formatPullProgress(s.progress);
           pb.style.display = 'block'; rb.style.display = 'none';
           setTimeout(poll, 2000);
-        } else if (wasPulling && !s.cancelled) {
+        } else if (wasPulling) {
           document.getElementById('ready-tag').textContent = s.current;
           pb.style.display = 'none'; rb.style.display = 'block';
           setTimeout(function () { window.location.href = '/models?selected=1'; }, 1600);
-        } else if (wasPulling) {
-          pb.style.display = 'none';
-          wasPulling = '';
         }
       })
       .catch(function () { setTimeout(poll, 5000); });

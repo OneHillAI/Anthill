@@ -656,11 +656,17 @@ def _install_controlled_popen(monkeypatch, app_mod):
     monkeypatch.setattr(ollama_mod, "find_ollama_bin", lambda: "/usr/local/bin/ollama")
     monkeypatch.setattr(ollama_mod, "ensure_serving", lambda *a, **k: True)
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    app_mod._ACTIVE_MODEL_PULLS.clear()
-    app_mod._VISION_AUTOPULL_WAITERS.clear()
+    app_mod._MODEL_PULL_STATE.clear()
     app_mod._MODEL_PULL_PROGRESS.clear()
-    app_mod._LAST_PULL_CANCELLED.clear()
     return procs, spawned
+
+
+def _active_pulls(app_mod, org_id: int) -> dict:
+    return (app_mod._MODEL_PULL_STATE.get(org_id) or {}).get("pulls") or {}
+
+
+def _vision_waiter(app_mod, org_id: int):
+    return (app_mod._MODEL_PULL_STATE.get(org_id) or {}).get("vision_waiter")
 
 
 def _wait_until(pred, timeout: float = 3.0) -> bool:
@@ -730,8 +736,13 @@ def test_concurrent_downloads_and_one_exiting_preserve_active_state(tmp_path, mo
     proc_gemma.emit("pulling model: 80% 4.0 GB/5.0 GB 25 MB/s 40s\n")
     assert _wait_until(
         lambda: (
-            app_mod._active_pull_downloads(org_id).get("qwen3.8:27b", {}).get("percent") == 35
-            and app_mod._active_pull_downloads(org_id).get("gemma3:12b", {}).get("percent") == 80
+            _active_pulls(app_mod, org_id).get("qwen3.8:27b", {}).get("progress", {}).get("percent")
+            == 35
+            and _active_pulls(app_mod, org_id)
+            .get("gemma3:12b", {})
+            .get("progress", {})
+            .get("percent")
+            == 80
         )
     )
 
@@ -750,20 +761,20 @@ def test_concurrent_downloads_and_one_exiting_preserve_active_state(tmp_path, mo
     )
 
     # Stale/non-owner completion cannot clear an active download.
-    app_mod._set_model_pulling(org_id, "", run_id=999999, finished_tag="qwen3.8:27b")
+    app_mod._set_model_pulling(org_id, "")
     cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     assert cfg.local_model_pulling == "qwen3.8:27b"
 
     # Second download is interrupted/exits while the first is still running: state stays on qwen.
     proc_gemma.finish(1)
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == ["qwen3.8:27b"])
+    assert _wait_until(lambda: list(_active_pulls(app_mod, org_id)) == ["qwen3.8:27b"])
     cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     assert cfg.local_model_pulling == "qwen3.8:27b"
     assert (app_mod._MODEL_PULL_PROGRESS.get(org_id) or {}).get("percent") == 35
 
     # Now finish qwen: everything clears cleanly.
     proc_qwen.finish(0)
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
     cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     assert cfg.local_model_pulling == ""
     assert org_id not in app_mod._MODEL_PULL_PROGRESS
@@ -785,13 +796,13 @@ def test_vision_waiter_does_not_overlap_after_one_hour_wait(tmp_path, monkeypatc
     assert spawned.wait(timeout=2)
     app_mod._maybe_autopull_vision(org_id)
 
-    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    assert _wait_until(lambda: _vision_waiter(app_mod, org_id) is None)
     assert [p.tag for p in procs] == ["qwen3.8:27b"]  # Granite did NOT overlap after 1h
     cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     assert cfg.local_model_pulling == "qwen3.8:27b"
 
     procs[0].finish(0)
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
 
 
 def test_repeated_vision_scheduling_deduplicates_waiters(tmp_path, monkeypatch):
@@ -804,10 +815,10 @@ def test_repeated_vision_scheduling_deduplicates_waiters(tmp_path, monkeypatch):
 
     # Schedule vision autopull repeatedly while the chat model is still downloading.
     app_mod._maybe_autopull_vision(org_id)
-    first_waiter = app_mod._VISION_AUTOPULL_WAITERS.get(org_id)
+    first_waiter = _vision_waiter(app_mod, org_id)
     app_mod._maybe_autopull_vision(org_id)
     app_mod._maybe_autopull_vision(org_id)
-    assert app_mod._VISION_AUTOPULL_WAITERS.get(org_id) is first_waiter
+    assert _vision_waiter(app_mod, org_id) is first_waiter
 
     # Complete the chat pull: exactly one Granite pull should launch.
     procs[0].finish(0)
@@ -815,7 +826,7 @@ def test_repeated_vision_scheduling_deduplicates_waiters(tmp_path, monkeypatch):
     assert [p.tag for p in procs] == ["qwen3.8:27b", "granite3.2-vision:2b"]
 
     procs[1].finish(0)
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
 
 
 def test_disabling_vision_autopull_cancels_pending_vision_job(tmp_path, monkeypatch):
@@ -826,7 +837,7 @@ def test_disabling_vision_autopull_cancels_pending_vision_job(tmp_path, monkeypa
     app_mod._start_model_pull(org_id, "qwen3.8:27b")
     assert spawned.wait(timeout=2)
     app_mod._maybe_autopull_vision(org_id)
-    assert org_id in app_mod._VISION_AUTOPULL_WAITERS
+    assert _vision_waiter(app_mod, org_id) is not None
 
     # User disables vision auto-download while the vision job is still pending.
     s = app_mod._SessionFactory()
@@ -835,9 +846,9 @@ def test_disabling_vision_autopull_cancels_pending_vision_job(tmp_path, monkeypa
     s.commit()
     s.close()
 
-    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    assert _wait_until(lambda: _vision_waiter(app_mod, org_id) is None)
     procs[0].finish(0)
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
     assert [p.tag for p in procs] == ["qwen3.8:27b"]  # Granite never started
 
 
@@ -850,12 +861,12 @@ def test_cancelling_or_interrupting_pull_stops_process_and_queued_vision_job(tmp
     app_mod._start_model_pull(org_id, "qwen3.8:27b")
     assert spawned.wait(timeout=2)
     app_mod._maybe_autopull_vision(org_id)
-    assert org_id in app_mod._VISION_AUTOPULL_WAITERS
+    assert _vision_waiter(app_mod, org_id) is not None
 
     r = c.post("/models/pull/cancel", follow_redirects=False)
     assert r.status_code == 302 and "cancelled=1" in r.headers["location"]
     assert procs[0].terminated is True
-    assert org_id not in app_mod._VISION_AUTOPULL_WAITERS
+    assert _vision_waiter(app_mod, org_id) is None
     assert org_id not in app_mod._MODEL_PULL_PROGRESS
     cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     assert cfg.local_model_pulling == ""
@@ -868,6 +879,6 @@ def test_cancelling_or_interrupting_pull_stops_process_and_queued_vision_job(tmp
     assert spawned.wait(timeout=2)
     app_mod._maybe_autopull_vision(org_id)
     procs[1].finish(1)  # interrupted externally
-    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
-    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
+    assert _wait_until(lambda: _vision_waiter(app_mod, org_id) is None)
     assert [p.tag for p in procs] == ["qwen3.8:27b", "qwen3.8:27b"]  # no Granite pull started
