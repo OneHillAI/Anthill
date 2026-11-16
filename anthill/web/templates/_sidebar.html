@@ -174,8 +174,8 @@
         {% endif %}
         {# Organization: the org-wide space (org cloud model + org wiki). #}
         {% if org_convs %}
-        <div class="rail-conv-section">Organization</div>
-        {% for c in org_convs %}{{ conv_item(c, 'rail-conv-org', ' (Organization)', 'org') }}{% endfor %}
+        <div class="rail-conv-section">Organisation</div>
+        {% for c in org_convs %}{{ conv_item(c, 'rail-conv-org', ' (Organisation)', 'org') }}{% endfor %}
         {% endif %}
         {% else %}
         <form method="post" action="/chat/new"><button class="btn btn-primary rail-newchat">+ New chat</button></form>
@@ -371,7 +371,7 @@
       }
       if (box) box.addEventListener('input', applySearch);
 
-      // LONG LISTS: a group (Unfiled, Organization, one project, or the single plain list) shows its 10
+      // LONG LISTS: a group (Unfiled, Organisation, one project, or the single plain list) shows its 10
       // most recent chats and folds the rest behind "Show N more". The chat you are in always stays
       // visible, pinned chats are never folded, and while you search every match shows.
       var RAIL_CAP = 10, EXP_KEY = 'anthill_rail_expanded_v1';

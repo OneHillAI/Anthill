@@ -366,7 +366,7 @@
     <div id="project-move-confirm" class="chat-fallback-note" role="alert" style="margin:0;padding:10px 14px;font-size:13px;
          background:var(--bg-subtle);border-bottom:1px solid var(--border)">
       <strong>Move this chat into {{ confirm_project.name }}?</strong>
-      That project runs on your organization's cloud model, so from the next message on this chat's earlier
+      That project runs on your organisation's cloud model, so from the next message on this chat's earlier
       messages go to that model as context, and answers can draw on the project's wiki. The chat stays
       yours: other project members do not see it.
       <form method="post" action="/chat/{{ active_conv.id }}/project" style="display:inline;margin-left:8px">
@@ -755,7 +755,7 @@ const convId  = {{ active_conv.id if active_conv else 'null' }};
 const convPlane = "{{ active_conv.plane if active_conv else 'solo' }}";
 const SOLO_CLOUD = {{ 'true' if solo_cloud else 'false' }};  // this Solo account runs on a VPC model
 const IS_ORG_MODE = {{ 'true' if shares_org_model else 'false' }};  // a Solo-plane chat here borrows the org model (#278: genuine multi-user org accounts only)
-const IS_ADMIN = {{ 'true' if user.role == 'admin' else 'false' }};  // only an admin can reach Settings -> Organization
+const IS_ADMIN = {{ 'true' if user.role == 'admin' else 'false' }};  // only an admin can reach Settings -> Organisation
 // #1 UX follow-up to #820/#824: an attached inference provider (empty string = none configured) lets
 // every turn offer "Ask {Provider} instead" from the moment local generation starts, not just after a
 // slow local model finally finishes. ESCALATION_CONSENTED is `let`, not `const` - clicking "Always"
@@ -874,7 +874,7 @@ function applyPlaneStatus(d) {
   const msg = (d.state === 'unreachable')
     ? 'Org backend is not responding. It may be waking up (neocloud cold start) or offline. Reconnect to use this chat.'
     : (IS_ADMIN
-        ? 'Org backend is not connected. <a href="/settings/organization">Connect it under Settings &rarr; Organization</a>, or use a Solo chat.'
+        ? 'Org backend is not connected. <a href="/settings/organization">Connect it under Settings &rarr; Organisation</a>, or use a Solo chat.'
         : 'Org backend is not connected. Ask an admin to connect it, or use a Solo chat.');
   setOrgChatEnabled(false, msg);
 }

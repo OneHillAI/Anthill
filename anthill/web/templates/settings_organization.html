@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Organization model server{% endblock %}
+{% block title %}Organisation model server{% endblock %}
 {% block page_title %}Cloud &amp; model <span style="font-size:13px;color:var(--muted);font-weight:normal">- model</span>{% endblock %}
 {% block content %}
 {% include "_org_cloud_tabs.html" %}
@@ -747,7 +747,7 @@ function awsProvisionTest() { _awsAction('/settings/aws/provision-test', 'Launch
   </p>
   {% if not solo and (cfg.wiki_hosting or "local") == "local" %}
   <div class="alert alert-warn" style="margin-bottom:14px">
-    Your organization's wiki is still hosted locally, on whatever device runs Anthill - that doesn't
+    Your organisation's wiki is still hosted locally, on whatever device runs Anthill - that doesn't
     reach the rest of your team on a shared backend like this one. Set up
     <a href="/settings/organization/wiki">wiki hosting</a> so everyone can actually reach it.
   </div>

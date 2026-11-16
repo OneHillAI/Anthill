@@ -93,4 +93,4 @@ def test_agent_context_for_org_plane_excludes_personal(tmp_path, monkeypatch):
     )
     agent_context.agent_context_for(s, user_id=uid, org_id=1, plane="org", is_org=True)
     assert "Personal" not in seen["p"] and "personal" not in seen["s"]  # leak fixed
-    assert "Organization" in seen["p"] and "team" in seen["s"]  # org + team still present
+    assert "Organisation" in seen["p"] and "team" in seen["s"]  # org + team still present

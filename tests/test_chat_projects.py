@@ -199,7 +199,7 @@ def test_org_install_asks_before_sending_a_chats_history_to_the_org_model(tmp_pa
     assert _conv(app_mod, cid)[:2] == ("solo", None)  # NOT moved: the history has not left Solo
 
     page = client.get(f"/chat/{cid}?confirm_project={tid}").text
-    assert 'id="project-move-confirm"' in page and "organization's cloud model" in page
+    assert 'id="project-move-confirm"' in page and "organisation's cloud model" in page
     assert "Move and continue" in page
     assert _conv(app_mod, cid)[:2] == ("solo", None)  # showing the question moves nothing
 
@@ -309,7 +309,7 @@ def test_rail_groups_chats_by_project_and_unfiled(tmp_path, monkeypatch):
     group = re.search(r'<details class="rail-project".*?</details>', page, re.S).group(0)
     assert "Project chat" in group and "Loose chat" not in group
     unfiled = page.split('class="rail-conv-section">Unfiled<', 1)[1]
-    assert "Loose chat" in unfiled and f"/chat/{in_proj}" not in unfiled.split("Organization")[0]
+    assert "Loose chat" in unfiled and f"/chat/{in_proj}" not in unfiled.split("Organisation")[0]
 
 
 # ── R5: legacy databases ─────────────────────────────────────────────────────────────────

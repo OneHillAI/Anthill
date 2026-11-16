@@ -13,6 +13,7 @@ from ..cache import embedder as emb
 from ..cache.page_vectors import PageVectorIndex
 from ..common.text import first_h1, normalize_wiki_page, strip_frontmatter
 from ..inference.base import BackendError, InferenceBackend, Message
+from ..lifecycle.version import read_provenance
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
@@ -25,6 +26,12 @@ from .workspace import Workspace
 # research results) into the answer - so we ground on nothing instead. See the cross-conversation
 # bleed finding in qa/chat-eval/DEV_FINDINGS.md.
 MIN_GROUNDING_SIM = 0.35
+
+# A retrieved page is cited under the answer only when its similarity to the question is within this
+# margin of the best retrieved page. The model still sees every retrieved page; this only trims the list
+# of sources shown, so a short note about one interview is not cited alongside two unrelated pages that
+# merely cleared MIN_GROUNDING_SIM. See docs/specs/152-citation-relevance.md.
+CITATION_SIM_MARGIN = 0.10
 
 # Maximal Marginal Relevance: when several relevant pages are retrieved, balance relevance to the
 # question against diversity from the pages already chosen, so the grounding block covers more of the
@@ -396,7 +403,9 @@ def ask(
 
     # ── 4. wiki retrieval (blend personal + any team/org wikis) ───────────────
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
+    scores: dict[Path, float] = {}
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
+    cited = _cited_slugs(pages, scores)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
     context = build_reference(pages, question) if pages else ""
@@ -600,9 +609,7 @@ def ask(
     # dead-end to every near-identical question - and publishing it spreads that to the whole org.
     cacheable = _is_cacheable_answer(answer) and not _skip_shared and not no_cache
     if not has_img and cacheable:
-        cache.store(
-            question, answer, slugs=[p.stem for p in pages]
-        )  # keep the grounding provenance
+        cache.store(question, answer, slugs=cited)  # keep the grounding provenance
     if org_url and q_vec is not None and not has_img and cacheable:
         _central_publish(org_url, q_vec, answer)
 
@@ -625,7 +632,7 @@ def ask(
         returned_answer += web.sources
     if fixed:
         returned_answer = FixedAnswer(returned_answer)  # the route can tell the text is code-made
-    return returned_answer, ([] if fixed else [p.stem for p in pages]), False
+    return returned_answer, ([] if fixed else cited), False
 
 
 # Said at the top of an answer to a turn that asked for the web when nothing came from it, so the member does not
@@ -738,14 +745,16 @@ def ask_stream(
         else None
     )
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
-    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
+    scores: dict[Path, float] = {}
+    pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
+    cited = _cited_slugs(pages, scores)
     context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
         context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
     if on_context is not None:
-        on_context([p.stem for p in pages])
+        on_context(cited)
 
     # A council answer is only available after every proposer AND the synthesizer finish - there is
     # nothing to stream token-by-token until synthesis is done. So an active council (2+ resolvable
@@ -908,9 +917,7 @@ def ask_stream(
     # does not use the web would otherwise be given an answer written for a web turn (spec 108, requirement 4).
     if _is_cacheable_answer(answer) and not _skip_shared and not no_cache and not web_search:
         try:
-            SemanticCache(db_path=ws.root / ".cache").store(
-                question, answer, slugs=[p.stem for p in pages]
-            )
+            SemanticCache(db_path=ws.root / ".cache").store(question, answer, slugs=cited)
         except Exception:
             pass
 
@@ -1140,6 +1147,7 @@ def _rank_by_embedding(
     q_vec: np.ndarray | None,
     roots: list[Path] | None = None,
     whole_wiki: bool = False,
+    scores: dict[Path, float] | None = None,
 ) -> list[Path]:
     """Top-k of `paths` by cosine similarity to the question (embeds each page's first 2000 chars).
 
@@ -1151,7 +1159,8 @@ def _rank_by_embedding(
     that workspace's persistent index, so it is embedded once and again only when its text changes (see
     ``anthill.cache.page_vectors``); a page under none, or no ``roots``, is embedded here on every call.
     ``whole_wiki`` says ``paths`` is every page of the single workspace in ``roots``, which lets the index
-    drop the rows of pages that no longer exist."""
+    drop the rows of pages that no longer exist. When ``scores`` is given, the similarity of every page
+    that is returned is recorded in it, so a caller can use it without scoring the pages again."""
     if q_vec is None:
         q_vec = emb.embed(question)
     texts = [embed_text(p) for p in paths]
@@ -1163,7 +1172,10 @@ def _rank_by_embedding(
         if s >= MIN_GROUNDING_SIM:
             scored.append((s, p, v))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return _mmr_select(scored, k)
+    picked = _mmr_select(scored, k)
+    if scores is not None:
+        scores.update({p: s for s, p, _v in scored if p in picked})
+    return picked
 
 
 def _page_vectors(
@@ -1209,14 +1221,49 @@ def _mmr_select(scored: list, k: int, lam: float | None = None) -> list[Path]:
     return [p for _s, p, _v in selected]
 
 
-def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = None) -> list[Path]:
+def _filter_citations(scored: list[tuple[float, Path]]) -> list[Path]:
+    """The pages of ``scored`` = [(similarity, path)] worth citing, in their given order: those within
+    ``CITATION_SIM_MARGIN`` of the best one (which is always kept), with pages made from the same source
+    file collapsed to the best-scoring of them."""
+    if not scored:
+        return []
+    floor = max(s for s, _ in scored) - CITATION_SIM_MARGIN
+    best: dict[object, tuple[float, Path]] = {}
+    for s, p in scored:
+        if s < floor:
+            continue
+        prov = read_provenance(p.read_text())
+        key = prov["source"] if prov and "source" in prov else p
+        if key not in best or s > best[key][0]:
+            best[key] = (s, p)
+    kept = {p for _s, p in best.values()}
+    return [p for _s, p in scored if p in kept]
+
+
+def _cited_slugs(pages: list[Path], scores: dict[Path, float]) -> list[str]:
+    """Slugs to show as the answer's sources: the retrieved ``pages`` that pass ``_filter_citations``,
+    using the similarities retrieval already computed. If any page has no score (it was not ranked by
+    embedding), every retrieved page is cited as before."""
+    if len(pages) < 2 or any(p not in scores for p in pages):
+        return [p.stem for p in pages]
+    return [p.stem for p in _filter_citations([(scores[p], p) for p in pages])]
+
+
+def _merge_relevant(
+    spaces,
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None = None,
+    scores: dict[Path, float] | None = None,
+) -> list[Path]:
     """Top-k relevant pages across several workspaces (personal + team + org),
     de-duplicated and re-ranked. With a single space this matches _relevant_pages,
-    so single-wiki behaviour is unchanged."""
+    so single-wiki behaviour is unchanged. ``scores``, when given, receives the similarity of the pages
+    that were ranked by embedding (none for a Meilisearch or keyword hit)."""
     cands: list[Path] = []
     for w in spaces:
         try:
-            cands.extend(_relevant_pages(w, question, k, q_vec))
+            cands.extend(_relevant_pages(w, question, k, q_vec, scores))
         except Exception:
             pass
     seen, uniq = set(), []
@@ -1229,13 +1276,17 @@ def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = No
         return uniq
     try:
         roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
-        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots)
+        return _rank_by_embedding(uniq, question, k, q_vec, roots=roots, scores=scores)
     except Exception:
         return uniq[:k]
 
 
 def _relevant_pages(
-    ws: Workspace, question: str, k: int, q_vec: np.ndarray | None = None
+    ws: Workspace,
+    question: str,
+    k: int,
+    q_vec: np.ndarray | None = None,
+    scores: dict[Path, float] | None = None,
 ) -> list[Path]:
     pages = ws.pages()
     if not pages:
@@ -1255,7 +1306,9 @@ def _relevant_pages(
         # likely not indexed yet - seed this workspace's own index, use embeddings this turn
         meili.index_pages(pages, index=ws.meili_index)
     try:
-        return _rank_by_embedding(pages, question, k, q_vec, roots=[ws.root], whole_wiki=True)
+        return _rank_by_embedding(
+            pages, question, k, q_vec, roots=[ws.root], whole_wiki=True, scores=scores
+        )
     except Exception:
         return _keyword_fallback(ws, question, k)
 

@@ -70,16 +70,16 @@ def test_dashboard_shows_vitals_tiles_and_cores(tmp_path, monkeypatch):
 def test_org_setup_step_shown_first_until_activated(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, topology="org", activated=False)
     page = client.get("/").text
-    assert "Set up your organization" in page
+    assert "Set up your organisation" in page
     assert 'href="/settings/organization"' in page  # the step's CTA
     # it is the first activation step, ahead of inviting the team
-    assert page.index("Set up your organization") < page.index("Invite your team")
+    assert page.index("Set up your organisation") < page.index("Invite your team")
 
 
 def test_org_setup_step_absent_for_solo(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, topology="solo", activated=False)
     page = client.get("/").text
-    assert "Set up your organization" not in page  # solo has no org backend to set up
+    assert "Set up your organisation" not in page  # solo has no org backend to set up
 
 
 def test_org_setup_step_done_when_activated(tmp_path, monkeypatch):
@@ -87,7 +87,7 @@ def test_org_setup_step_done_when_activated(tmp_path, monkeypatch):
     page = client.get("/").text
     # the step is present but completed: no "Set up" CTA button for that row (the org page is still
     # linked from the sidebar - the rail link, with a different class, is unrelated to the step's CTA)
-    assert "Set up your organization" in page
+    assert "Set up your organisation" in page
     assert 'href="/settings/organization" class="btn btn-primary btn-sm"' not in page
 
 
@@ -103,7 +103,7 @@ def test_org_setup_step_no_dead_end_link_for_non_admin_member(tmp_path, monkeypa
         local_model_chosen=True,
     )
     page = client.get("/").text
-    assert "Set up your organization" in page
+    assert "Set up your organisation" in page
     assert "Ask an admin" in page
     assert 'href="/settings/organization"' not in page
 
@@ -141,7 +141,7 @@ def test_dashboard_solo_shows_workspace_not_organization(tmp_path, monkeypatch):
     _set_council(monkeypatch, ["gemma2:9b"])
     page = client.get("/").text
     assert "<h3>Your workspace</h3>" in page
-    assert "<h3>Organization</h3>" not in page
+    assert "<h3>Organisation</h3>" not in page
     assert "Manage users" not in page  # no team to manage in a solo account
     # the Settings quick action (which duplicated the rail) is gone; the rail's own Settings link stays
     assert 'href="/settings"' not in page

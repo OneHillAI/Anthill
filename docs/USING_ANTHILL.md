@@ -4,7 +4,7 @@ Anthill is a private knowledge base with a chat that answers from it. It runs on
 control. Your data and the model stay on infrastructure you choose. This section covers how to use
 it day to day:
 
-- **Your workspace** (this page). Solo, Projects, Organizations, profiles, and privacy.
+- **Your workspace** (this page). Solo, Projects, Organisations, profiles, and privacy.
 - **[Chat & your knowledge base](/using-chat-and-knowledge)**. Chat, the wiki, snippets, memory.
 - **[Automating work](/using-automation)**. Tasks (including one-time future local dates), agents,
   skills, notifications.
@@ -13,11 +13,11 @@ it day to day:
 - **[Connectors & personalization](/using-connectors-and-personalization)**. External tools, and
   tuning how Anthill talks to you.
 
-## Solo, Projects, and Organizations
+## Solo, Projects, and Organisations
 
 Everyone starts with a **Solo** space. It's just you, nothing to set up. You can create an
-**Organization** later, from the dashboard, when you want to share work with a team. Nothing about
-Solo asks you to think about that until you do. Converting to an organization is one-way. Once
+**Organisation** later, from the dashboard, when you want to share work with a team. Nothing about
+Solo asks you to think about that until you do. Converting to an organisation is one-way. Once
 you've set one up, there's no path back to a plain Solo account.
 
 - **Solo** is your private space, with your own wiki and your own model. Choose **Your machine**
@@ -25,12 +25,12 @@ you've set one up, there's no path back to a plain Solo account.
   under **Settings**, on the **Model** tab, in the **Where your AI runs** card.
 - **Projects** group a set of chats, tasks, and agents around their own wiki. Use one to keep a
   topic or client separate from everything else. On a Solo account a project is yours alone. Inside
-  an organization, the same kind of project becomes a shared space you invite members into. It's
+  an organisation, the same kind of project becomes a shared space you invite members into. It's
   the middle tier between your personal knowledge and the whole org's. A project can also read its
   parent's wiki read-only: your Solo wiki, or the org wiki. It never writes anywhere but its own.
   Deleting a project keeps its chats, tasks, and agents as your own Solo items. Only the shared
   boundary and its memberships go away.
-- **Organizations** are the shared tier: one wiki, one model, invited members, multiple projects.
+- **Organisations** are the shared tier: one wiki, one model, invited members, multiple projects.
   An admin connects or provisions the org's model and compute once, on your own machine, an
   on-prem box, or a cloud GPU. From then on the org's wiki, its model, and its training all run
   together on that same account. A project's owner approves anything proposed for promotion out of
