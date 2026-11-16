@@ -11,6 +11,11 @@
     <h1>Welcome to <b>Ant<span style="color:var(--accent)">hill</span></b></h1>
     <p class="subtitle">A few quick steps and your private AI is ready - nothing else to install.</p>
     {% include "_setup_steps.html" %}
+    {% if bring_in_available %}
+    <p class="text-sm text-muted" style="text-align:center;margin-top:-8px">
+      Already used Anthill on this Mac? <a href="#bring-in">Bring in your account</a>
+    </p>
+    {% endif %}
     {% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
 
     {% if signup_closed %}
@@ -69,6 +74,37 @@
     <p class="text-sm text-muted" style="margin-top:14px;text-align:center">
       Already have an account? <a href="/login" style="color:var(--muted)">Sign in</a>
     </p>
+    {% endif %}
+
+    {% if bring_in_available %}
+    <div id="bring-in" style="margin-top:26px;padding-top:18px;border-top:1px solid var(--border)">
+      <h2 style="font-size:16px;margin:0 0 6px">Already used Anthill on this Mac? Bring in your account.</h2>
+      <p class="text-sm text-muted">
+        Enter the folder you started Anthill from (the one that holds a <code>data</code> folder), or that
+        <code>data</code> folder. Your account, wikis and files are copied here and stay on this Mac;
+        the earlier copy is left as it is.
+      </p>
+      {% if bring_in_error %}<div class="alert alert-err">{{ bring_in_error }}</div>{% endif %}
+      {% if bring_in_confirm_keys %}
+      <div class="alert alert-warn">
+        That folder has no saved keys (its <code>.env</code> file was not found or has no encryption key).
+        Your account and wikis will still come across, but passwords and API keys you stored in the earlier
+        copy cannot be read and will need entering again. Continue, or choose another folder.
+      </div>
+      {% endif %}
+      <form method="post" action="/setup/bring-in">
+        <div class="form-group">
+          <label>Folder of the earlier copy</label>
+          <input type="text" name="folder" required value="{{ bring_in_folder }}"
+                 placeholder="/Users/you/Anthill" autocomplete="off" spellcheck="false">
+        </div>
+        {% if bring_in_confirm_keys %}<input type="hidden" name="without_keys" value="1">{% endif %}
+        <button type="submit" class="btn" style="width:100%">
+          {% if bring_in_confirm_keys %}Continue without the saved keys{% else %}Bring in my account{% endif %}
+        </button>
+      </form>
+      <p class="text-sm text-muted" style="margin-top:12px">This app keeps its data in <code>{{ bring_in_home }}</code>.</p>
+    </div>
     {% endif %}
     {% endif %}
   </div>
