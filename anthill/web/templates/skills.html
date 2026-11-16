@@ -4,7 +4,7 @@
 {% block content %}
 {% include "_knowledge_tabs.html" %}
 
-<p class="text-muted" style="margin:0 0 16px" id="skills-intro">Reusable instructions the model follows on its own when a task matches.<button type="button" class="help" aria-label="How skills work">?<span class="help-pop">Skills load automatically in chat, agent mode and scheduled tasks, without bloating every prompt. Scoped: Organization applies to everyone, a Team's to its members, Personal to just you. Org and team skills go through review; each is a SKILL.md file.</span></button> <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.skills.start();return false" class="text-sm">Take a tour</a></p>
+<p class="text-muted" style="margin:0 0 16px" id="skills-intro">Reusable instructions the model follows on its own when a task matches.<button type="button" class="help" aria-label="How skills work">?<span class="help-pop">Skills load automatically in chat, agent mode and scheduled tasks, without bloating every prompt. Scoped: Organisation applies to everyone, a Team's to its members, Personal to just you. Org and team skills go through review; each is a SKILL.md file.</span></button> <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.skills.start();return false" class="text-sm">Take a tour</a></p>
 
 {# Persistent, low-key discoverability note for the chat capture gesture (#683 requirement 2: each
    capture action must be discoverable from the surface it lands on, not just from chat). #}
@@ -160,7 +160,7 @@
         <select name="scope" id="skill-scope" onchange="syncTeam()">
           <option value="personal" selected>Personal (just me)</option>
           {% for t in editable_teams %}<option value="team" data-team="{{ t.id }}">Team: {{ t.name }}</option>{% endfor %}
-          {% if can_edit_org %}<option value="org">Organization (everyone)</option>{% endif %}
+          {% if can_edit_org %}<option value="org">Organisation (everyone)</option>{% endif %}
         </select>
         <input type="hidden" name="team_id" id="skill-team-id" value="">
       </div>
@@ -229,7 +229,7 @@
       <select name="scope" onchange="syncGalleryTeam(this)">
         <option value="personal" selected>Personal (just me)</option>
         {% for t in editable_teams %}<option value="team" data-team="{{ t.id }}">Team: {{ t.name }}</option>{% endfor %}
-        {% if can_edit_org %}<option value="org">Organization (everyone)</option>{% endif %}
+        {% if can_edit_org %}<option value="org">Organisation (everyone)</option>{% endif %}
       </select>
       <input type="hidden" name="team_id" value="">
       <button class="btn btn-primary btn-sm">Adopt</button>

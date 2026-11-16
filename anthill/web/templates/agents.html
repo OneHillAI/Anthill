@@ -5,7 +5,7 @@
 {% include "_first_use_notice.html" %}
 
 <div class="flex justify-between items-center mb-2">
-  <p class="text-muted text-sm" style="margin:0">A named worker with a standing mandate, like an employee with a role.<button type="button" class="help" aria-label="How agents work">?<span class="help-pop">An agent runs toward its mandate on its own, using your memory, wiki and skills. Consequential actions are cross-checked by a second model and held for your approval. {% if is_solo %}Your agents are private to you.{% else %}Solo agents are private to you; Organization agents are shared and governed.{% endif %}</span></button></p>
+  <p class="text-muted text-sm" style="margin:0">A named worker with a standing mandate, like an employee with a role.<button type="button" class="help" aria-label="How agents work">?<span class="help-pop">An agent runs toward its mandate on its own, using your memory, wiki and skills. Consequential actions are cross-checked by a second model and held for your approval. {% if is_solo %}Your agents are private to you.{% else %}Solo agents are private to you; Organisation agents are shared and governed.{% endif %}</span></button></p>
   <button onclick="document.getElementById('new-agent').style.display='block'"
           class="btn btn-primary btn-sm">+ New agent</button>
 </div>
@@ -93,7 +93,7 @@
         <select name="plane" id="agent-plane" onchange="agentToggleTeam()">
           <option value="solo">Solo - private to you</option>
           {% if teams %}<option value="team">Team - shared with a team</option>{% endif %}
-          {% if is_org %}<option value="org">Organization - shared, governed</option>{% endif %}
+          {% if is_org %}<option value="org">Organisation - shared, governed</option>{% endif %}
         </select>
       </div>
       <div class="form-group" id="agent-team-sel" style="display:none">

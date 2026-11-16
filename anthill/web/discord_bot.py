@@ -65,7 +65,7 @@ def register_command(application_id: str, guild_id: str, bot_token: str) -> tupl
     cmd = {
         "name": "anthill",
         "type": 1,
-        "description": "Ask your organization's assistant, or drop an idea or bug",
+        "description": "Ask your organisation's assistant, or drop an idea or bug",
         "options": [
             {"name": "message", "type": 3, "description": "your question or idea", "required": True}
         ],

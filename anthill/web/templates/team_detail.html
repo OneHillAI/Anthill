@@ -8,10 +8,10 @@
 {% set err = request.query_params.get('error','') %}
 {% set invited = request.query_params.get('invited','') %}
 {% if invited %}<div class="alert alert-ok">Invite sent to <b>{{ invited }}</b> (it appears in their Teams page). The link was printed to the server console.</div>{% endif %}
-{% if err == 'not_org_member' %}<div class="alert alert-warn">That email is not an active member of this organization. Invite them as an org user first (Users page), then add them here.</div>{% endif %}
+{% if err == 'not_org_member' %}<div class="alert alert-warn">That email is not an active member of this organisation. Invite them as an org user first (Users page), then add them here.</div>{% endif %}
 {% if err == 'already_member' %}<div class="alert alert-warn">That person is already on the team (or already invited).</div>{% endif %}
 {% if err == 'cannot_remove_owner' %}<div class="alert alert-warn">The team owner cannot be removed.</div>{% endif %}
-{% if err == 'solo_no_members' %}<div class="alert alert-warn">This is a Solo project (single-user). Set up an organization to invite members.</div>{% endif %}
+{% if err == 'solo_no_members' %}<div class="alert alert-warn">This is a Solo project (single-user). Set up an organisation to invite members.</div>{% endif %}
 
 <div class="card mb-2">
   <div class="flex items-center justify-between">
@@ -123,7 +123,7 @@
 {% elif is_owner and not is_org %}
 <div class="card mb-2" style="text-align:center;padding:14px">
   <p class="text-sm text-muted" style="margin:0">This is a <b>Solo project</b> (single-user). Members become
-    available once you <a href="/settings/organization">set up an organization</a>.</p>
+    available once you <a href="/settings/organization">set up an organisation</a>.</p>
 </div>
 {% endif %}
 

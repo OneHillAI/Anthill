@@ -96,7 +96,7 @@ def test_solo_pages_have_no_org_admin_or_teammate_wording(tmp_path, monkeypatch,
     assert r.status_code == 200, path
     found = sorted({m.group(0).lower() for m in _ORG_WORDS.finditer(_text(r.text))})
     # the Solo project pages still point at setting an organisation up later: a deliberate pointer
-    allowed = {"organization"} if path.startswith("/teams") else set()
+    allowed = {"organisation"} if path.startswith("/teams") else set()
     assert set(found) - allowed == set(), (path, found)
 
 
@@ -112,7 +112,7 @@ def test_org_pages_keep_their_wording(tmp_path, monkeypatch):
     assert "how you appear to teammates" in pages["/profile"]
     assert "role admin" in pages["/profile"]
     assert "promotions to the org are approved by the project owner" in pages[f"/teams/{team_id}"]
-    assert "or the org wiki in an organization" in pages["/teams"]
+    assert "or the org wiki in an organisation" in pages["/teams"]
 
 
 def test_solo_leaf_page_renders_no_manage_organisation_link(tmp_path, monkeypatch):

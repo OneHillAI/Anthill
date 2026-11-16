@@ -195,7 +195,7 @@ class RunpodLiveProvisioner(_RunpodPlanner):
         return (
             True,
             "RunPod provisioning is wired up. Add your RunPod API key under Settings -> "
-            "Organization, then provision; the endpoint scales to zero when idle.",
+            "Organisation, then provision; the endpoint scales to zero when idle.",
         )
 
     def provision(

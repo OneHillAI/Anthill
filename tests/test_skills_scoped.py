@@ -39,7 +39,7 @@ def test_skills_page_offers_scope_selector(tmp_path, monkeypatch):
     page = c.get("/skills").text
     assert page.count('action="/skills/create"')  # the scope-aware create form
     assert 'name="scope"' in page and "Personal" in page
-    assert "Organization (everyone)" in page  # admin can target the org scope
+    assert "Organisation (everyone)" in page  # admin can target the org scope
 
 
 def test_personal_skill_applies_directly_and_lists(tmp_path, monkeypatch):
@@ -82,4 +82,4 @@ def test_member_cannot_create_org_skill(tmp_path, monkeypatch):
     )
     assert r.status_code in (302, 303, 403)  # members can't write the org scope
     # nothing rendered for org targeting either
-    assert "Organization (everyone)" not in c.get("/skills").text
+    assert "Organisation (everyone)" not in c.get("/skills").text

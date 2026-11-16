@@ -104,7 +104,7 @@ def send_invite_email(
     to: str, invite_url: str, *, org_name: str = "", team_name: str = "", inviter: str = ""
 ) -> bool:
     """Notify an invited user with their join link. True if the email was sent."""
-    where = f"the {team_name} team" if team_name else (org_name or "an organization")
+    where = f"the {team_name} team" if team_name else (org_name or "an organisation")
     subject = (
         f"You're invited to {team_name} on Anthill" if team_name else "You're invited to Anthill"
     )
@@ -117,7 +117,7 @@ def send_invite_email(
             "Open this link to get started:",
             f"  {invite_url}",
             "",
-            "Anthill is your organization's private, self-hosted assistant.",
+            "Anthill is your organisation's private, self-hosted assistant.",
         ]
     )
     return send_email(to, subject, body)

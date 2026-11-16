@@ -46,7 +46,7 @@ def _shell(
         f'<tr><td style="font-size:15px;line-height:1.55;color:#333">{intro_html}</td></tr>'
         f"{button}{link_fallback}{outro}"
         '<tr><td style="padding-top:22px;color:#9a9a9a;font-size:12px;line-height:1.5;'
-        "border-top:1px solid #eee\">Anthill - your organization's private, self-hosted AI. "
+        "border-top:1px solid #eee\">Anthill - your organisation's private, self-hosted AI. "
         "This is an automated message; reply to reach your admin.</td></tr>"
         "</table></td></tr></table></body></html>"
     )
@@ -57,7 +57,7 @@ def welcome(*, name: str = "", org_name: str = "", url: str = "") -> tuple[str, 
     where = f" for {org_name}" if org_name else ""
     subject = f"Welcome to {org_name}" if org_name else "Welcome to Anthill"
     lead = (
-        f"Hi{who}, your Anthill account{where} is ready. Anthill is your organization's private, "
+        f"Hi{who}, your Anthill account{where} is ready. Anthill is your organisation's private, "
         "self-hosted AI - your chat, wiki, and models stay on your own infrastructure."
     )
     html = _shell(
@@ -69,7 +69,7 @@ def welcome(*, name: str = "", org_name: str = "", url: str = "") -> tuple[str, 
     )
     text_lines = [f"Hi{who}, your Anthill account{where} is ready.", ""]
     text_lines.append(
-        "Anthill is your organization's private, self-hosted AI - your chat, wiki, and models stay "
+        "Anthill is your organisation's private, self-hosted AI - your chat, wiki, and models stay "
         "on your own infrastructure."
     )
     if url:
