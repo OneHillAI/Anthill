@@ -57,6 +57,13 @@ OLLAMA_BODY = """case "$1" in
 esac"""
 
 
+def _default_sigint() -> None:
+    """Run in the child before bash starts. A runner started in the background (`&`, nohup, some CI
+    wrappers) has SIGINT ignored, and a shell cannot trap a signal that was ignored when it started,
+    so without this start.sh's Ctrl-C trap would never fire."""
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+
 class Sandbox:
     def __init__(self, tmp_path: Path, uname: str):
         self.base = tmp_path / uname.lower()
@@ -96,6 +103,7 @@ class Sandbox:
         }
         return subprocess.Popen(
             [str(self.bin / "bash"), "start.sh", *args],
+            preexec_fn=_default_sigint,
             cwd=self.root,
             env=env,
             stdout=subprocess.PIPE,
