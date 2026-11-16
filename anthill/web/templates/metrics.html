@@ -49,8 +49,13 @@
     <span class="metric-i" title="Median (p50) response time. p95 is the slow tail a few users feel; watch it for capacity problems.">ⓘ</span>
     <span class="ic-chip ic-muted" style="margin-bottom:10px"><i data-lucide="clock"></i></span>
     <h3>Median latency</h3>
+    {% if m.p50_ms is not none %}
     <div class="big">{{ m.p50_ms }}ms</div>
     <div class="sub">p95 {{ m.p95_ms }}ms</div>
+    {% else %}
+    <div class="big">-</div>
+    <div class="sub">not measured yet</div>
+    {% endif %}
   </div>
   <div class="card" style="position:relative">
     <span class="metric-i" title="Thumbs-up share of the answers users rated. Unrated answers are not counted. A falling number is your earliest quality warning.">ⓘ</span>
