@@ -8039,7 +8039,10 @@ def wiki_page_view(
 ):
     """Read a single wiki page (a markdown file in this scope's workspace). Makes the Pages list
     clickable. Team pages require membership; personal pages are the viewer's own workspace."""
-    from ..common.text import first_h1, slugify, strip_frontmatter
+    import re
+
+    from ..common.text import WIKILINK_RE, first_h1, slugify, strip_frontmatter
+    from ..lifecycle.version import PROVENANCE_RE, read_provenance
 
     db = _db()
     org = _require_org(db, user)
@@ -8052,6 +8055,16 @@ def wiki_page_view(
     if not path.exists() or path.resolve().parent != ws.wiki.resolve():
         raise HTTPException(status_code=404)
     md = path.read_text()
+    existing = {p.stem for p in ws.pages()}
+    query = f"?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
+
+    def _link(m: re.Match) -> str:
+        label, target = m.group(1).strip(), slugify(m.group(1))
+        if target in existing:
+            return f"[{label}](/wiki/page/{target}{query})"
+        return re.sub(r"([\\`*_{}\[\]()#+!|<>~])", r"\\\1", label)  # a missing page is plain text
+
+    body = WIKILINK_RE.sub(_link, PROVENANCE_RE.sub("", strip_frontmatter(md))).strip()
     return templates.TemplateResponse(
         request,
         "wiki_page.html",
@@ -8062,9 +8075,8 @@ def wiki_page_view(
             "scope": scope,
             "team_id": team_id,
             "title": first_h1(md) or slugify(slug),
-            "content": strip_frontmatter(
-                md
-            ),  # render the body; OKGF frontmatter is metadata, not prose
+            "content": body,
+            "provenance": read_provenance(md),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
