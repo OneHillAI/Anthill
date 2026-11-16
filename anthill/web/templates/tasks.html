@@ -98,7 +98,7 @@
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;font-weight:normal">
         <input type="checkbox" name="escalate_on_uncertainty" value="true" style="width:auto" {% if form_values.get('escalate_on_uncertainty') == 'true' %}checked{% endif %}>
-        If a run's answer looks uncertain, retry it once on your organisation's connected cloud model<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Decided here, not live per run - nobody is watching an unattended task to approve anything mid-run. Bounded by the organisation's monthly cloud retry budget, which an administrator sets in Task settings for administrators, below the list; when off (or the cap is hit), an uncertain run is flagged for you to review instead.</span></button>
+        If a run's answer looks uncertain, retry it once on your {% if is_solo %}connected{% else %}organisation's connected{% endif %} cloud model<button type="button" class="help" aria-label="How this works">?<span class="help-pop">Decided here, not live per run - nobody is watching an unattended task to approve anything mid-run. {% if is_solo %}Bounded by the monthly cloud retry budget you set in Task settings, below the list;{% else %}Bounded by the organisation's monthly cloud retry budget, which an administrator sets in Task settings for administrators, below the list;{% endif %} when off (or the cap is hit), an uncertain run is flagged for you to review instead.</span></button>
       </label>
     </div>
     {% endif %}
@@ -320,10 +320,10 @@
 {% endif %}
 
 {% if is_admin %}
-<!-- administrators: settings that apply to every task in the organisation -->
+<!-- settings that apply to every task -->
 <details class="card mt-4" id="task-admin-settings">
-  <summary style="cursor:pointer;font-weight:600">Task settings for administrators
-    <span class="text-sm text-muted">- limits that apply to every task in your organisation</span></summary>
+  <summary style="cursor:pointer;font-weight:600">{% if is_solo %}Task settings{% else %}Task settings for administrators{% endif %}
+    <span class="text-sm text-muted">- limits that apply to {% if is_solo %}every task you run{% else %}every task in your organisation{% endif %}</span></summary>
   <form method="post" action="/tasks/settings" style="margin-top:12px">
     <div class="form-group" style="max-width:340px">
       <label for="task-max-steps">Most steps a task may take in one run</label>
@@ -333,7 +333,7 @@
     <div class="form-group" style="max-width:340px">
       <label for="task-escalation-cap">Retries on your cloud model per month</label>
       <input id="task-escalation-cap" type="number" name="task_escalation_cap_per_month" min="0" max="500" value="{{ task_escalation_cap_per_month }}">
-      <div class="text-sm text-muted" style="margin-top:4px">From 0 to 500. A task whose answer looks uncertain can try again once on your connected cloud model; this caps how many may do so across the organisation. 0 turns it off.</div>
+      <div class="text-sm text-muted" style="margin-top:4px">From 0 to 500. A task whose answer looks uncertain can try again once on your connected cloud model; this caps how many may do so {% if is_solo %}each month{% else %}across the organisation{% endif %}. 0 turns it off.</div>
     </div>
     <button type="submit" class="btn btn-outline btn-sm">Save settings</button>
   </form>

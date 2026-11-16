@@ -32,7 +32,7 @@
   <h3 style="margin-bottom:4px">Knowledge digest</h3>
   <p class="text-sm text-muted" style="margin-bottom:12px">
     A periodic summary of what changed - pages added or updated, skills learned or adopted, and
-    promotions between scopes - sent to org admins. Built from the events below; off by default.
+    promotions between scopes - sent to {% if is_solo %}you{% else %}org admins{% endif %}. Built from the events below; off by default.
   </p>
   <form method="post" action="/settings/digest">
     <div class="form-group">

@@ -154,10 +154,15 @@ _ORG_SUBSETTINGS = (
 )
 
 
-def _back_nav_for(path: str) -> tuple[str, str]:
+# Org sub-pages a Solo user reaches from the sidebar rather than from Settings.
+_SOLO_SIDEBAR_PAGES = ("/teams", "/metrics", "/skills")
+
+
+def _back_nav_for(path: str, solo: bool = False) -> tuple[str, str]:
     """(href, label) for a "back to the previous screen" link on a leaf sub-settings page, or ("","")
     when the page is not one. Org admin sub-pages go back to the Manage-organisation hub; the advanced
-    inference/workspace knobs (/settings) go back to personal Settings."""
+    inference/workspace knobs (/settings) go back to personal Settings. A Solo workspace has no org
+    hub, so its pages go back to the dashboard (the sidebar pages) or to Settings."""
     p = (path or "").rstrip("/") or "/"
     if p == "/settings":
         return "/personalize", "Settings"
@@ -169,7 +174,13 @@ def _back_nav_for(path: str) -> tuple[str, str]:
     if p == "/connectors/mcp":
         return "/personalize#integrations", "Settings"
     if any(p == s or p.startswith(s + "/") for s in _ORG_SUBSETTINGS):
-        return "/settings/org", "Manage organisation"
+        if not solo:
+            return "/settings/org", "Manage organisation"
+        if p.startswith("/teams/"):
+            return "/teams", "Projects"
+        if p in _SOLO_SIDEBAR_PAGES:
+            return "/", "Dashboard"
+        return "/personalize", "Settings"
     return "", ""
 
 
@@ -241,7 +252,9 @@ def _nav_context(request: Request) -> dict:
             from .plane_routing import shares_org_model
 
             base["nav_org"] = org.name if (org and shares_org_model(_nav_cfg)) else ""
-            base["back_href"], base["back_label"] = _back_nav_for(request.url.path)
+            base["back_href"], base["back_label"] = _back_nav_for(
+                request.url.path, solo=_is_solo(_nav_cfg)
+            )
             me = db.query(User).filter(User.id == uid).first()
             if me:
                 base["nav_account"] = {
@@ -1873,6 +1886,11 @@ def _corroborate_memory(db, org_id, item) -> None:
 def _cfg(db: Session, org: Organization) -> OrgSettings | None:
     """The org's settings row (None until first saved). Centralizes the org-scoped lookup."""
     return db.query(OrgSettings).filter(OrgSettings.org_id == org.id).first()
+
+
+def _is_solo(cfg: OrgSettings | None) -> bool:
+    """True for a Solo ("just me") workspace. Pages use it to drop organisation and admin wording."""
+    return cfg is not None and normalize_topology(cfg.deployment_topology or "") == "solo"
 
 
 def _cfg_or_create(db: Session, org: Organization) -> OrgSettings:
@@ -4104,6 +4122,7 @@ def profile_hub(request: Request, user: dict = Depends(_require_user)):
             "user": user,
             "org": org,
             "account": me,
+            "is_solo": _is_solo(_cfg(db, org)),
             "profile": current,
             "can_manage_profiles": install_scope_allowed(db, request, user),
             "other_count": other_count,
@@ -5653,6 +5672,7 @@ def teams_list(request: Request, user: dict = Depends(_require_user)):
             "owner_of": owner_of,
             "invites": invites,
             "is_org": is_org,
+            "is_solo": _is_solo(_cfg(db, org)),
         },
     )
 
@@ -5763,6 +5783,7 @@ def team_detail(team_id: int, request: Request, user: dict = Depends(_require_us
             # Members are an ORG-project feature: only a real org (a connected backend) can invite people.
             # A Solo project (no org backend) is single-user, so its invite affordance is hidden.
             "is_org": planes.is_org_mode(_cfg(db, org)),
+            "is_solo": _is_solo(_cfg(db, org)),
             "members": members,
             "reviews": reviews,
             "chats": chats,
@@ -11629,6 +11650,7 @@ def audit_log(request: Request, user: dict = Depends(_require_admin)):
             "events": events,
             "alerts": alerts,
             "cfg": cfg,
+            "is_solo": _is_solo(cfg),
         },
     )
 
@@ -11683,6 +11705,7 @@ def metrics_page(request: Request, days: int = 30, user: dict = Depends(_require
             "org": org,
             "m": m,
             "days": days,
+            "is_solo": _is_solo(cfg),
             "semantic_cache_available": semantic_cache_available,
             # the per-query cloud-equivalent rates back the "estimated savings" figures; admins
             # tune them here (moved off Settings - they are about the metrics, not org config).
@@ -15775,6 +15798,7 @@ def tasks_page(
             "snippets": snippets,
             # org-level Task defaults for the admin "Task defaults" card
             "is_admin": user.get("role") == "admin",
+            "is_solo": _is_solo(_cfg(db, org)),
             "task_max_steps": getattr(_cfg(db, org), "task_max_steps", 10),
             "task_escalation_cap_per_month": getattr(
                 _cfg(db, org), "task_escalation_cap_per_month", 20
@@ -16695,6 +16719,7 @@ def agents_home(request: Request, user: dict = Depends(_require_user)):
             "governance_opts": _AGENT_GOV,
             "scopes": _AGENT_SCOPES,
             "is_org": is_org,
+            "is_solo": _is_solo(cfg),
             "teams": teams,
             # org-level agent defaults for the create form + the admin "Agent defaults" card
             "is_admin": user.get("role") == "admin",

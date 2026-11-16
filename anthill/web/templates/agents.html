@@ -5,16 +5,16 @@
 {% include "_first_use_notice.html" %}
 
 <div class="flex justify-between items-center mb-2">
-  <p class="text-muted text-sm" style="margin:0">A named worker with a standing mandate, like an employee with a role.<button type="button" class="help" aria-label="How agents work">?<span class="help-pop">An agent runs toward its mandate on its own, using your memory, wiki and skills. Consequential actions are cross-checked by a second model and held for your approval. Solo agents are private to you; Organization agents are shared and governed.</span></button></p>
+  <p class="text-muted text-sm" style="margin:0">A named worker with a standing mandate, like an employee with a role.<button type="button" class="help" aria-label="How agents work">?<span class="help-pop">An agent runs toward its mandate on its own, using your memory, wiki and skills. Consequential actions are cross-checked by a second model and held for your approval. {% if is_solo %}Your agents are private to you.{% else %}Solo agents are private to you; Organization agents are shared and governed.{% endif %}</span></button></p>
   <button onclick="document.getElementById('new-agent').style.display='block'"
           class="btn btn-primary btn-sm">+ New agent</button>
 </div>
 
 {% if is_admin %}
-<!-- org-wide agent defaults + run cap (admin) -->
+<!-- agent defaults + run cap (admin) -->
 <details class="card mb-2">
   <summary style="cursor:pointer;font-weight:600">Agent defaults
-    <span class="text-sm text-muted">- org-wide defaults for new agents + the per-run cap</span></summary>
+    <span class="text-sm text-muted">- {% if is_solo %}defaults{% else %}org-wide defaults{% endif %} for new agents + the per-run cap</span></summary>
   <form method="post" action="/agents/settings" style="margin-top:12px">
     <div class="grid-2">
       <div class="form-group">

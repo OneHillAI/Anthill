@@ -19,7 +19,7 @@
       <h2 style="font-size:16px;margin:0">{{ team.name }} <span class="text-sm text-muted">/{{ team.slug }}</span></h2>
       <p class="text-sm text-muted" style="margin:4px 0 0">
         You are the <b>{{ role }}</b>. This project's chats, wiki, and memory are scoped to the project;
-        promotions to the org are approved by the project owner.
+        {% if is_solo %}they stay on this device.{% else %}promotions to the org are approved by the project owner.{% endif %}
       </p>
     </div>
     <span class="badge badge-{{ 'amber' if is_owner else 'clay' }}">{{ role }}</span>
