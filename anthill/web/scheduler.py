@@ -1238,12 +1238,12 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
     from ..common.text import slugify
     from ..wiki.ingest import ingest as ingest_file
     from ..wiki.workspace import workspace_for
-    from .app import _backend_from_cfg, _ensure_backend_ready, _wiki_page_url, propose_wiki_write
+    from .app import _backend_from_cfg, _ensure_backend_ready, _wiki_page_url, propose_upload
     from .notify import notify
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == row.org_id).first()
     stored = Path(row.stored_path)
-    applied = None
+    status = None
     tmp_dir: str | None = None
     try:
         if not stored.is_file():
@@ -1278,7 +1278,7 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
             vision_max_accuracy=bool(cfg and getattr(cfg, "vision_max_accuracy", False)),
         )
         slug = slugify(proposal["title"]) or slugify(Path(row.filename).stem) or "document"
-        applied = propose_wiki_write(
+        status = propose_upload(
             db,
             org_id=row.org_id,
             proposed_by=row.user_id,
@@ -1300,7 +1300,11 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
 
     link = _wiki_page_url(row.target_scope, row.team_id)
     if row.status == "done":
-        note = "" if applied else " It was flagged for review, so it's waiting in the review queue."
+        note = {
+            "queued": " It was flagged for review, so it's waiting in the review queue.",
+            "held": " It looks like a duplicate of a page you already have, so it's held for "
+            "your decision in the review queue.",
+        }.get(status, "")
         notify(
             db,
             user_id=row.user_id,

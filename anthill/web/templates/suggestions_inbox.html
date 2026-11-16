@@ -28,8 +28,10 @@
     {% if it.desc %}<div class="sugg-desc">{{ it.desc }}</div>{% endif %}
   </div>
   <div class="sugg-actions">
-    <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open to edit before approving">Adjust</a>
+    <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open to edit before approving">{{ 'Decide' if not it.approve else 'Adjust' }}</a>
+    {% if it.approve %}
     <form method="post" action="{{ it.approve }}"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-primary btn-sm">Approve</button></form>
+    {% endif %}
     <form method="post" action="{{ it.reject }}" data-confirm="Dismiss this suggestion?"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
   </div>
 </div>

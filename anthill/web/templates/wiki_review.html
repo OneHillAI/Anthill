@@ -12,6 +12,7 @@
   auto-applied. Edit the text if needed, then approve - or reject to discard.
 </p>
 {% for rev in reviews %}
+{% set held = rev.flag_list|select('in', ['same_file', 'new_version', 'title_clash'])|list %}
 <div class="card mt-4">
   <div class="flex justify-between items-center mb-2">
     <div>
@@ -19,7 +20,7 @@
       <span class="text-sm text-muted" style="margin-left:10px">submitted {{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
     </div>
     <div class="flex gap-2">
-      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ f }}</span>{% endfor %}
+      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ {'same_file': 'same file', 'new_version': 'new version', 'title_clash': 'same title'}.get(f, f) }}</span>{% endfor %}
     </div>
   </div>
 
@@ -34,8 +35,8 @@
 
   {% if rev.outline %}
   <div class="card mb-2" style="background:var(--bg-subtle)">
-    <b class="text-sm">Agent review</b>
-    <p class="text-sm" style="margin:6px 0 0;line-height:1.6">{{ rev.outline }}</p>
+    <b class="text-sm">{{ "Held upload - nothing has been written yet" if held else "Agent review" }}</b>
+    <p class="text-sm" style="margin:6px 0 0;line-height:1.6;white-space:pre-line">{{ rev.outline }}</p>
   </div>
   {% elif rev.diff_summary %}
   <p class="text-sm text-muted mb-2">{{ rev.diff_summary }}</p>
@@ -44,6 +45,16 @@
   <form method="post" action="/wiki/review/{{ rev.id }}/approve">
     <textarea name="content" spellcheck="false"
       style="width:100%;min-height:220px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">{{ rev.content }}</textarea>
+    {% if held %}
+    {# A held upload: the text above is the NEW page; the existing page is untouched until one of these is chosen. #}
+    <div class="flex gap-2 mt-2">
+      <button class="btn {{ 'btn-success' if 'same_file' in held else 'btn-outline' }} btn-sm" formaction="/wiki/review/{{ rev.id }}/reject" title="Discard this upload and keep the page you already have">Keep existing{{ ' (recommended)' if 'same_file' in held }}</button>
+      <button class="btn {{ 'btn-success' if 'new_version' in held else 'btn-outline' }} btn-sm" title="Write this version over the existing page">Replace existing{{ ' (recommended)' if 'new_version' in held }}</button>
+      <button class="btn {{ 'btn-success' if 'title_clash' in held else 'btn-outline' }} btn-sm" formaction="/wiki/review/{{ rev.id }}/keep-both" title="Keep the existing page and add this one under a new title">Keep both{{ ' (recommended)' if 'title_clash' in held }}</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('form').reset()">Revert edits</button>
+    </div>
+  </form>
+    {% else %}
     <div class="flex gap-2 mt-2">
       <button class="btn btn-success btn-sm">Approve</button>
       <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('form').reset()">Revert edits</button>
@@ -52,6 +63,7 @@
   <form method="post" action="/wiki/review/{{ rev.id }}/reject" class="mt-2">
     <button class="btn btn-danger btn-sm">Reject</button>
   </form>
+    {% endif %}
 </div>
 {% endfor %}
 {% endif %}
@@ -62,7 +74,9 @@
     Every wiki change is first checked by an agent. Clean changes apply automatically;
     only the ones it flags - a possible contradiction, duplicate, broken link, or
     personal data - wait here. <b>Approve</b> writes the page (edit the text first to
-    correct it); <b>Reject</b> discards it. All decisions are logged in the audit
+    correct it); <b>Reject</b> discards it. An upload that matches a page you already have
+    is held here with a recommendation, and nothing changes until you choose to keep the existing page,
+    replace it, or keep both. All decisions are logged in the audit
     trail.
     {% if scope == "personal" %}This queue is your personal wiki - only you see and approve these.
     {% else %}Team changes are approved by the team owner on the team page; this queue is
