@@ -897,7 +897,7 @@ def suggest_local_setup(
     """
     picks = recommend_by_family(mem_gb, kind=kind, catalog=catalog)
     fitting = [p for p in picks if p.recommended is not None]
-    hw_label = f"{mem_gb:.0f} GB {kind}"
+    hw_label = hardware_label(mem_gb, kind)
     if not fitting:
         return LocalSetupSuggestion(mode="single", members=[], hw_label=hw_label)
 
@@ -1221,6 +1221,21 @@ def local_hardware() -> tuple[float, str]:
         return (vram, "gpu")
     ram = (_macos_mem_gb() if system == "Darwin" else _posix_ram_gb()) or 0.0
     return (ram, "apple")  # CPU box: use the conservative unified-memory fraction
+
+
+def hardware_label(mem_gb: float, kind: str) -> str:
+    """User-facing description of ``local_hardware()``'s result. ``kind`` is a sizing bucket, not a
+    platform: a plain CPU box reports ``apple`` to borrow the conservative fraction, so the wording
+    comes from the real platform and only a Mac with Apple Silicon is called one."""
+    if not mem_gb:
+        return "this machine"
+    if kind == "gpu":
+        what = "GPU memory"
+    elif platform.system() == "Darwin" and platform.machine() == "arm64":
+        what = "unified memory (Apple Silicon)"
+    else:
+        what = "RAM (CPU only)"
+    return f"{mem_gb:.0f} GB {what}"
 
 
 def gpu_box_system_ram_gb() -> float | None:

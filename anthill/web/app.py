@@ -2743,6 +2743,7 @@ def _model_picker_view(cfg):
         family_download_gb,
         fit_tier,
         gpu_box_system_ram_gb,
+        hardware_label,
         has_any_self_serve_path,
         load_catalog,
         local_hardware,
@@ -2835,11 +2836,7 @@ def _model_picker_view(cfg):
     if default_tag is None:
         picks = [p for p in family_pick.values() if p is not None]
         default_tag = max(picks, key=lambda m: (m.intelligence, m.params_b)) if picks else None
-    hw_label = (
-        f"{mem_gb:.0f} GB {'unified memory (Apple Silicon)' if kind == 'apple' else 'GPU memory'}"
-        if mem_gb
-        else "this machine"
-    )
+    hw_label = hardware_label(mem_gb, kind)
 
     is_solo = normalize_topology(getattr(cfg, "deployment_topology", "") if cfg else "") == "solo"
     suggestion = suggest_local_setup(mem_gb, kind, catalog=LOCAL_CATALOG)
