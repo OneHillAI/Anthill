@@ -1738,6 +1738,7 @@ def propose_wiki_write(
     source_conversation_id=None,
     source_message_id=None,
     provenance_hash: str = "",
+    conflict: dict | None = None,
 ) -> bool:
     """The single gate for a wiki write (the agent review + auto-apply decision).
 
@@ -1750,9 +1751,15 @@ def propose_wiki_write(
     came from, and ``provenance_hash`` is that turn's content-addressable fingerprint. When no hash is
     supplied a fingerprint of the written content is computed, so every queued review carries a verifiable
     hash of exactly what it would write.
+
+    ``conflict`` (from ``upload_dedup.upload_conflict``) names an existing page this write would
+    duplicate or overwrite. It is never applied: the write is queued for a decision with Anthill's
+    proposal on top, under the conflicting page's slug (what "replace" writes over).
     """
     import hashlib
 
+    if conflict:
+        slug = conflict["slug"]
     if not provenance_hash:
         provenance_hash = hashlib.sha256((content or "").encode()).hexdigest()
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
@@ -1764,9 +1771,12 @@ def propose_wiki_write(
     outline = outline_change(_backend_from_cfg(cfg), ws, slug, content, scope=target_scope)
     verdict = _verify_wiki_write(cfg, content=content, source=source)
     verifier_flagged = verdict is not None and not verdict.ok
-    if outline.flags or verifier_flagged:
+    if outline.flags or verifier_flagged or conflict:
         flags = list(outline.flags)
         outline_text = outline.text
+        if conflict:
+            flags.append(conflict["flag"])
+            outline_text = f"{conflict['proposal']}\n\n{outline_text}"
         if verifier_flagged:
             flags.append("verifier")
             by = (
@@ -1827,6 +1837,40 @@ def propose_wiki_write(
     except Exception:
         pass
     return True
+
+
+def propose_upload(
+    db: Session,
+    *,
+    org_id: int,
+    proposed_by: int,
+    slug: str,
+    content: str,
+    target_scope: str,
+    team_id=None,
+    source: str = "",
+) -> str:
+    """File a page ingested from an uploaded file or imported document: ``added``, ``queued`` for review
+    (flagged), or ``held`` because the wiki already has the same file or a page at this slug (#149).
+    A held upload writes nothing; the person chooses in the review queue."""
+    from .upload_dedup import upload_conflict
+
+    ws = workspace_for(target_scope, team_id=team_id, user_id=proposed_by, org_id=org_id)
+    if not ws.exists():
+        ws.init()
+    conflict = upload_conflict(ws, slug, content)
+    applied = propose_wiki_write(
+        db,
+        org_id=org_id,
+        proposed_by=proposed_by,
+        slug=slug,
+        content=content,
+        target_scope=target_scope,
+        team_id=team_id,
+        source=source,
+        conflict=conflict,
+    )
+    return "held" if conflict else "added" if applied else "queued"
 
 
 def _propose_scoped(
@@ -7625,11 +7669,46 @@ async def approve_review(
     return RedirectResponse(_local_or(next_url, _review_dest(rev)), status_code=302)
 
 
+@app.post("/wiki/review/{rid}/keep-both")
+async def keep_both_review(
+    request: Request,
+    rid: int,
+    content: str = Form(None),
+    next_url: str = Form("", alias="next"),
+    user: dict = Depends(_require_user),
+):
+    """Resolve a held upload by keeping both pages: the existing one stays and the held page is written
+    under a new title (its own H1 plus the upload date), then approved like any other review (#149)."""
+    from ..common.text import first_h1, slugify
+    from .upload_dedup import HELD_FLAGS, distinct_title, retitle
+
+    db = _db()
+    rev = db.query(WikiReview).filter(WikiReview.id == rid).first()
+    if not rev or rev.org_id != user["org"]:
+        raise HTTPException(status_code=404)
+    if not _can_approve(db, user, rev):
+        raise HTTPException(status_code=403, detail="Not allowed to approve this change")
+    if rev.status != "pending" or not HELD_FLAGS.intersection(json.loads(rev.flags or "[]")):
+        raise HTTPException(
+            status_code=400, detail="Only a held upload can be kept as a second page"
+        )
+    ws = workspace_for(
+        rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
+    )
+    body = content if content is not None and content.strip() else rev.content
+    title = distinct_title(ws, first_h1(body) or rev.slug)
+    rev.content = retitle(body, title)
+    rev.slug = slugify(title)
+    db.commit()
+    return await approve_review(request, rid, None, next_url, user)
+
+
 def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
     """Everything the user's AI has suggested for their knowledge, in one list - proposed wiki pages,
     promotions and skills, and distilled skills - each routed through the EXISTING review/approve/reject
     mechanisms (docs/specs/knowledge-guidance-reconciliation.md, req 2). Aggregation only; no new store."""
     from ..common.text import first_h1
+    from .upload_dedup import HELD_FLAGS
 
     items: list[dict] = []
     revs = list(_personal_review_q(db, org_id, uid).order_by(WikiReview.created_at.desc()).all())
@@ -7640,7 +7719,10 @@ def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
         title = (first_h1(r.content) if r.content else "") or (r.slug or "untitled").replace(
             "-", " "
         ).title()
-        if kind == "skill":
+        held = kind == "page" and HELD_FLAGS.intersection(json.loads(r.flags or "[]"))
+        if held:
+            what = "Held upload - possible duplicate"
+        elif kind == "skill":
             what = "Proposed a skill"
         elif kind == "principles":
             what = "Proposed organisation principles"
@@ -7652,9 +7734,11 @@ def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
             {
                 "what": what,
                 "title": title,
-                "desc": "",
+                # A held upload is decided on the review page (keep, replace or keep both), so the
+                # inbox offers no one-click approve that would silently replace the existing page.
+                "desc": (r.outline or "").split("\n\n")[0] if held else "",
                 "icon": "sparkles" if kind == "skill" else "file-text",
-                "approve": f"/wiki/review/{r.id}/approve",
+                "approve": None if held else f"/wiki/review/{r.id}/approve",
                 "reject": f"/wiki/review/{r.id}/reject",
                 "adjust": "/wiki/review" if r.target_scope == "org" else "/wiki/review/personal",
             }
@@ -8201,7 +8285,7 @@ async def _ingest_and_propose(
     cfg,
     *,
     allow_large_pdf: bool = False,
-) -> tuple[bool, str, str]:
+) -> tuple[str, str, str]:
     """Run a local source file through the shared ingest pipeline (read + summarise into a
     page) and file the result through the wiki review gate.
 
@@ -8210,7 +8294,8 @@ async def _ingest_and_propose(
     then summarise - and cannot drift back into one of them filing raw/unsummarised text. Only
     `source_label` (what the proposal's provenance note says) differs between callers.
 
-    Returns (applied, slug, title) - the title so a caller's confirmation message can name the
+    Returns (status, slug, title), status being ``propose_upload``'s ``added`` / ``queued`` / ``held`` -
+    the title so a caller's confirmation message can name the
     actual page produced, not just a generic "document added" (founder, 2026-10-01: an upload
     needs to say what happened to it). Raises whatever `ingest_file` raises
     (`PdfConfirmationRequired`, `PdfProcessingLimitExceeded`, or any other conversion failure) -
@@ -8238,7 +8323,7 @@ async def _ingest_and_propose(
         vision_max_accuracy=bool(getattr(cfg, "vision_max_accuracy", False)),
     )
     slug = slugify(proposal["title"]) or slugify(tmp_path.stem) or "document"
-    applied = propose_wiki_write(
+    status = propose_upload(
         db,
         org_id=org.id,
         proposed_by=uid,
@@ -8248,7 +8333,7 @@ async def _ingest_and_propose(
         team_id=team_id,
         source=source_label,
     )
-    return applied, slug, proposal["title"]
+    return status, slug, proposal["title"]
 
 
 @app.post("/wiki/upload")
@@ -8329,7 +8414,7 @@ async def wiki_upload(
     if not ws.exists():
         ws.init()
 
-    outcome: dict = {"applied": None, "slug": None, "title": None}
+    outcome: dict = {"status": None, "slug": None, "title": None}
 
     tmp_dir = tempfile.mkdtemp()
     backend = None
@@ -8350,7 +8435,7 @@ async def wiki_upload(
             return RedirectResponse(dest + "?error=toobig", status_code=302)
 
         backend = _backend_from_cfg(cfg)
-        outcome["applied"], outcome["slug"], outcome["title"] = await _ingest_and_propose(
+        outcome["status"], outcome["slug"], outcome["title"] = await _ingest_and_propose(
             db,
             org,
             ws,
@@ -8399,14 +8484,14 @@ async def wiki_upload(
     _audit_request(
         request,
         "wiki.upload",
-        f"name={name} scope={target_scope} slug={outcome['slug']} applied={outcome['applied']}",
+        f"name={name} scope={target_scope} slug={outcome['slug']} "
+        f"applied={outcome['status'] == 'added'} status={outcome['status']}",
         org_id=org.id,
         user_id=uid,
     )
-    saved = "added" if outcome["applied"] else "queued"
     via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + f"?saved={saved}&slug={quote(outcome['slug'])}"
+        dest + f"?saved={outcome['status']}&slug={quote(outcome['slug'])}"
         f"&title={quote(outcome['title'])}&via={via}",
         status_code=302,
     )
@@ -8462,7 +8547,7 @@ async def confirm_pdf_upload(
     except OSError:
         return RedirectResponse(dest + "?error=pdfconfirm_missing", status_code=302)
 
-    outcome: dict = {"applied": None, "slug": None, "title": None}
+    outcome: dict = {"status": None, "slug": None, "title": None}
     proposal: dict = {}
 
     def _capture(title, page_md):
@@ -8475,7 +8560,7 @@ async def confirm_pdf_upload(
         slug = slugify(proposal["title"]) or slugify(processing.stem) or "document"
         outcome["slug"] = slug
         outcome["title"] = proposal["title"]
-        outcome["applied"] = propose_wiki_write(
+        outcome["status"] = propose_upload(
             db,
             org_id=org.id,
             proposed_by=uid,
@@ -8539,14 +8624,14 @@ async def confirm_pdf_upload(
     _audit_request(
         request,
         "wiki.upload.confirm",
-        f"name={name} scope={target_scope} slug={outcome['slug']} applied={outcome['applied']}",
+        f"name={name} scope={target_scope} slug={outcome['slug']} "
+        f"applied={outcome['status'] == 'added'} status={outcome['status']}",
         org_id=org.id,
         user_id=uid,
     )
-    saved = "added" if outcome["applied"] else "queued"
     via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + f"?saved={saved}&slug={quote(outcome['slug'])}"
+        dest + f"?saved={outcome['status']}&slug={quote(outcome['slug'])}"
         f"&title={quote(outcome['title'])}&via={via}",
         status_code=302,
     )
@@ -8633,7 +8718,7 @@ async def wiki_import_connector(
 
         cfg = _cfg(db, org)
         backend = _backend_from_cfg(cfg)
-        applied, slug, page_title = await _ingest_and_propose(
+        status, slug, page_title = await _ingest_and_propose(
             db,
             org,
             ws,
@@ -8662,14 +8747,14 @@ async def wiki_import_connector(
     _audit_request(
         request,
         "wiki.import_connector",
-        f"server={srv.name} ref={ref[:80]} scope={target_scope} slug={slug} applied={applied}",
+        f"server={srv.name} ref={ref[:80]} scope={target_scope} slug={slug} "
+        f"applied={status == 'added'} status={status}",
         org_id=org.id,
         user_id=uid,
     )
-    saved = "added" if applied else "queued"
     via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + f"?saved={saved}&slug={quote(slug)}&title={quote(page_title)}&via={via}",
+        dest + f"?saved={status}&slug={quote(slug)}&title={quote(page_title)}&via={via}",
         status_code=302,
     )
 
