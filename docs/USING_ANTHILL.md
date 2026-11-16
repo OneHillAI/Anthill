@@ -48,6 +48,16 @@ apart on one machine. Your name and a colored chip in the sidebar always show wh
 in. Click it to switch or manage profiles. In the desktop app, one profile is open per window at a
 time. From a terminal, each profile runs from its own `anthill web --profile <id>` command.
 
+## Already used Anthill from a project folder?
+
+A copy started with `start.sh` or `make alpha` keeps your account, wikis and keys inside that project
+folder. The downloaded desktop app keeps its own data elsewhere, so on first launch it shows no account.
+On that first screen, under **Already used Anthill on this Mac? Bring in your account**, enter the folder
+you started Anthill from (the one holding the `data` folder). Anthill copies your account, wikis, files and
+saved keys across, leaves the earlier folder as it was, and takes you to sign-in. It only appears on a new
+install with no account, and only on the Mac itself. Without the old `.env` file the account and wikis
+still come across, but passwords and API keys you had stored must be entered again.
+
 ## Privacy and control
 
 Anthill is local-first, with open weights on your own infrastructure. Your Solo space is fully

@@ -35,7 +35,7 @@ from .. import __version__
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import audit, metrics
+from . import audit, bring_in, metrics
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
     decode_token,
@@ -103,6 +103,7 @@ _TASK_QUEUE_RETRY_LIMIT = 4
 _TASK_QUEUE_RETRY_WINDOW = 0.25
 app = FastAPI(title="anthill dashboard", version="0.1.2")
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+app.add_api_route("/setup/bring-in", bring_in.bring_in_post, methods=["POST"])
 
 
 def _org_review_q(db, org_id):
@@ -2299,6 +2300,7 @@ def setup_get(request: Request, user=Depends(_current_user)):
             "setup_step": 1,
             "is_first_run": is_first_run,
             "signup_closed": not signup_is_open(db, request),
+            **bring_in.page_context(request, is_first_run),
             **ctx,
         },
     )
@@ -3703,6 +3705,7 @@ def login_get(request: Request, user=Depends(_current_user)):
         {
             "request": request,
             "error": _ERRORS.get(request.query_params.get("error", ""), ""),
+            "notice": bring_in.login_notice(request),
             **ctx,
         },
     )
