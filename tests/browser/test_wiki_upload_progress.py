@@ -1,9 +1,9 @@
-"""Visual/browser check: uploading a document is a classic multipart form POST (not fetch), so the
-backend - which reads the file and runs it through the local AI to summarise it, genuinely slow for
-anything non-trivial - gives zero visible feedback until the full page reload lands. Without this,
-a click reads as "did anything happen at all?" (founder report, repeated). Verifies the onsubmit
-handler's DOM changes happen synchronously, before the browser ever navigates away - exercised
-directly rather than racing a real submission against page navigation, which would be flaky.
+"""Visual/browser check: the backend reads an uploaded file and runs it through the local AI, which is
+genuinely slow for anything non-trivial, so the page must show what is going on meanwhile (founder
+report, repeated; #148). The submit handler sends the form with an XHR, shows the browser's own upload
+progress, then an elapsed timer against the per-step limit, and ends in a visible state if the
+connection drops. Exercised directly with a stubbed XHR rather than racing a real submission against
+page navigation, which would be flaky.
 """
 
 from __future__ import annotations
@@ -94,27 +94,27 @@ def test_upload_submit_shows_in_progress_feedback(live):
             page.goto(f"{base}/wiki", wait_until="domcontentloaded")
             page.wait_for_selector('input[type="file"][name="file"]')
 
-            # Before: the button reads "Upload" and the progress message is hidden.
+            # Before: the button reads "Upload" and the status bar is hidden.
             btn = page.locator('form[action="/wiki/upload"] button[type="submit"]')
             assert btn.inner_text() == "Upload"
             assert page.locator("#wiki-upload-progress").is_hidden()
 
-            # Call the real onsubmit handler directly (not via an actual file + real submission,
-            # which would race against page navigation) and assert its synchronous DOM effect.
+            # wikiUploadSubmit does nothing (returns true) when no file is selected - exactly the
+            # guard that keeps it from firing on an empty-file submit attempt.
             page.evaluate(
                 "wikiUploadSubmit(document.querySelector('form[action=\"/wiki/upload\"]'))"
             )
-
-            # wikiUploadSubmit short-circuits (returns true, does nothing) when no file is selected -
-            # exactly the guard that keeps it from firing on an empty-file submit attempt.
             assert btn.inner_text() == "Upload"
             assert page.locator("#wiki-upload-progress").is_hidden()
 
-            # Attach a real file via the File API (native file dialogs aren't scriptable), then
-            # the same call must flip the button text and reveal the progress message.
+            # Attach a real file via the File API (native file dialogs aren't scriptable). The XHR is
+            # stubbed so nothing is sent (the server would try to start a model), and kept so the test
+            # can fire the browser events the status bar reacts to.
             page.evaluate(
                 """
                 () => {
+                    window.__xhr = null;
+                    XMLHttpRequest.prototype.send = function () { window.__xhr = this; };
                     const input = document.querySelector('input[type="file"][name="file"]');
                     const file = new File(['hello'], 'test.md', { type: 'text/markdown' });
                     const dt = new DataTransfer();
@@ -123,14 +123,25 @@ def test_upload_submit_shows_in_progress_feedback(live):
                 }
                 """
             )
-            page.evaluate(
+            submitted = page.evaluate(
                 "wikiUploadSubmit(document.querySelector('form[action=\"/wiki/upload\"]'))"
             )
-            assert btn.inner_text() == "Uploading…"
+            assert submitted is False  # the page stays put and shows progress instead of navigating
+            status = page.locator("#wiki-upload-progress")
             assert btn.is_disabled()
-            assert page.locator("#wiki-upload-progress").is_visible()
-            assert (
-                "this can take up to a minute" in page.locator("#wiki-upload-progress").inner_text()
-            )
+            assert status.is_visible()
+            assert "Uploading" in status.inner_text()
+
+            # The server has the whole file: the elapsed timer and the per-step limit appear.
+            page.evaluate("window.__xhr.upload.onload()")
+            text = status.inner_text()
+            assert "reading the document and writing the page" in text
+            assert "s so far" in text and "60 s" in text
+            assert "up to a minute" not in text
+
+            # A dropped connection ends in a visible final state and frees the button.
+            page.evaluate("window.__xhr.onerror()")
+            assert "did not reach Anthill" in status.inner_text()
+            assert btn.is_enabled() and btn.inner_text() == "Upload"
         finally:
             browser.close()

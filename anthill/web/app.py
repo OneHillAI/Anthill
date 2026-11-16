@@ -7941,8 +7941,28 @@ def _move_pdf_confirmation(source: Path, state: str) -> None:
         return
 
 
+def _timed_out_uploads(db, user, org, scope, team_id) -> list[dict]:
+    if not _wiki_can_edit(db, user, scope, team_id):
+        return []
+    rows = (
+        db.query(QueuedUpload)
+        .filter(
+            QueuedUpload.org_id == org.id,
+            QueuedUpload.user_id == int(user["sub"]),
+            QueuedUpload.target_scope == scope,
+            QueuedUpload.team_id == team_id,
+            QueuedUpload.status == "timed_out",
+        )
+        .order_by(QueuedUpload.id.desc())
+        .limit(5)
+        .all()
+    )
+    return [{"id": r.id, "filename": r.filename} for r in rows]
+
+
 def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
     from ..common.text import first_h1
+    from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS, INGEST_MODEL_TIMEOUT_SECONDS
     from ..wiki.principles import read_principles
     from .docsource import doc_source_servers
 
@@ -7977,6 +7997,9 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
             if _wiki_can_edit(db, user, scope, team_id)
             else []
         ),
+        "upload_retries": _timed_out_uploads(db, user, org, scope, team_id),
+        "ingest_limit": INGEST_MODEL_TIMEOUT_SECONDS,
+        "ingest_extended_limit": INGEST_EXTENDED_TIMEOUT_SECONDS,
         "doc_sources": [{"id": s.id, "name": s.name} for s in doc_source_servers(db, org.id)],
         # the Wiki menu is one menu with Pages | Principles | Review sub-tabs
         "wiki_url": _wiki_page_url(scope, team_id),
@@ -8285,6 +8308,7 @@ async def _ingest_and_propose(
     cfg,
     *,
     allow_large_pdf: bool = False,
+    model_timeout: float | None = None,
 ) -> tuple[str, str, str]:
     """Run a local source file through the shared ingest pipeline (read + summarise into a
     page) and file the result through the wiki review gate.
@@ -8300,10 +8324,13 @@ async def _ingest_and_propose(
     needs to say what happened to it). Raises whatever `ingest_file` raises
     (`PdfConfirmationRequired`, `PdfProcessingLimitExceeded`, or any other conversion failure) -
     the caller owns its own error-code mapping and audit logging, which differ by context.
+    A text source whose model call outlasts ``model_timeout`` (default: the standard ingest limit)
+    raises ``IngestTimedOut``.
     """
     from starlette.concurrency import run_in_threadpool
 
     from ..common.text import slugify
+    from ..wiki.ingest import INGEST_MODEL_TIMEOUT_SECONDS, ingest_model_timeout
     from ..wiki.ingest import ingest as ingest_file
 
     proposal: dict = {}
@@ -8313,15 +8340,16 @@ async def _ingest_and_propose(
         proposal["page_md"] = page_md
 
     await run_in_threadpool(_ensure_backend_ready, backend)
-    await run_in_threadpool(
-        ingest_file,
-        ws,
-        tmp_path,
-        backend,
-        allow_large_pdf=allow_large_pdf,
-        on_write=_capture,
-        vision_max_accuracy=bool(getattr(cfg, "vision_max_accuracy", False)),
-    )
+    with ingest_model_timeout(model_timeout or INGEST_MODEL_TIMEOUT_SECONDS):
+        await run_in_threadpool(
+            ingest_file,
+            ws,
+            tmp_path,
+            backend,
+            allow_large_pdf=allow_large_pdf,
+            on_write=_capture,
+            vision_max_accuracy=bool(getattr(cfg, "vision_max_accuracy", False)),
+        )
     slug = slugify(proposal["title"]) or slugify(tmp_path.stem) or "document"
     status = propose_upload(
         db,
@@ -8334,6 +8362,63 @@ async def _ingest_and_propose(
         source=source_label,
     )
     return status, slug, proposal["title"]
+
+
+def _record_timed_out_upload(db, *, org_id, uid, ws, source, name, scope, team_id) -> None:
+    """Remember an upload whose model call timed out, pointing at its preserved raw copy, so the
+    person can retry it from the wiki page without choosing the file again."""
+    from ..wiki.ingest import preserve_raw_source
+
+    raw = str(preserve_raw_source(ws, source))
+    known = (
+        db.query(QueuedUpload)
+        .filter(
+            QueuedUpload.user_id == uid,
+            QueuedUpload.stored_path == raw,
+            QueuedUpload.status == "timed_out",
+        )
+        .first()
+    )
+    if known is None:
+        db.add(
+            QueuedUpload(
+                org_id=org_id,
+                user_id=uid,
+                target_scope=scope,
+                team_id=team_id,
+                filename=name,
+                stored_path=raw,
+                status="timed_out",
+                error="The model did not answer in time.",
+                processed_at=datetime.now(timezone.utc),
+            )
+        )
+    db.commit()
+
+
+def _settle_timed_out_uploads(db, *, uid, scope, team_id, name, digest) -> None:
+    """A file that has now gone through no longer needs its retry button. Only the same file: the raw
+    copy's name carries the first 12 hex digits of its SHA-256, so a different file that happens to
+    share the name keeps its button."""
+    db.query(QueuedUpload).filter(
+        QueuedUpload.user_id == uid,
+        QueuedUpload.target_scope == scope,
+        QueuedUpload.team_id == team_id,
+        QueuedUpload.filename == name,
+        QueuedUpload.stored_path.like(f"%-{digest}%"),
+        QueuedUpload.status == "timed_out",
+    ).update({"status": "done"}, synchronize_session=False)
+    db.commit()
+
+
+def _upload_saved_redirect(dest: str, cfg, status: str, slug: str, title: str) -> RedirectResponse:
+    from urllib.parse import quote
+
+    via = quote(_compute_where_label(cfg))
+    return RedirectResponse(
+        dest + f"?saved={status}&slug={quote(slug)}&title={quote(title)}&via={via}",
+        status_code=302,
+    )
 
 
 @app.post("/wiki/upload")
@@ -8355,9 +8440,9 @@ async def wiki_upload(
     import shutil
     import tempfile
     from pathlib import Path as _Path
-    from urllib.parse import quote
 
     from ..wiki.ingest import (
+        IngestTimedOut,
         PdfConfirmationRequired,
         PdfProcessingLimitExceeded,
     )
@@ -8421,9 +8506,11 @@ async def wiki_upload(
     try:
         tmp_path = _Path(tmp_dir) / name
         size = 0
+        sha = hashlib.sha256()
         with tmp_path.open("wb") as stream:
             while chunk := await file.read(_UPLOAD_READ_CHUNK_BYTES):
                 stream.write(chunk)
+                sha.update(chunk)
                 size += len(chunk)
         if size == 0:
             return RedirectResponse(dest + "?error=empty", status_code=302)
@@ -8467,6 +8554,25 @@ async def wiki_upload(
         )
         code = "pdfretry" if e.transient else "pdflimit"
         return RedirectResponse(dest + f"?error={code}", status_code=302)
+    except IngestTimedOut as e:
+        _record_timed_out_upload(
+            db,
+            org_id=org.id,
+            uid=uid,
+            ws=ws,
+            source=tmp_path,
+            name=name,
+            scope=target_scope,
+            team_id=team_id,
+        )
+        _audit_request(
+            request,
+            "wiki.upload",
+            f"name={name} scope={target_scope} error=IngestTimedOut limit={e.seconds:g}s",
+            org_id=org.id,
+            user_id=uid,
+        )
+        return RedirectResponse(dest + "?error=ingesttimeout", status_code=302)
     except Exception as e:
         reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
         _audit_request(
@@ -8489,12 +8595,102 @@ async def wiki_upload(
         org_id=org.id,
         user_id=uid,
     )
-    via = quote(_compute_where_label(cfg))
-    return RedirectResponse(
-        dest + f"?saved={outcome['status']}&slug={quote(outcome['slug'])}"
-        f"&title={quote(outcome['title'])}&via={via}",
-        status_code=302,
+    _settle_timed_out_uploads(
+        db, uid=uid, scope=target_scope, team_id=team_id, name=name, digest=sha.hexdigest()[:12]
     )
+    return _upload_saved_redirect(dest, cfg, outcome["status"], outcome["slug"], outcome["title"])
+
+
+@app.post("/wiki/upload/retry/{upload_id}")
+async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depends(_require_user)):
+    """Run a timed-out upload again with the longer limit, from the raw copy Anthill kept.
+
+    Only the person who made the upload can retry it. It goes through the same permission check
+    and the same dedup and review path as the original, and an unknown id and someone else's id
+    get the same answer.
+    """
+    import shutil
+    import tempfile
+
+    from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS, IngestTimedOut
+
+    db = _db()
+    org = _require_org(db, user)
+    uid = int(user["sub"])
+    row = (
+        db.query(QueuedUpload)
+        .filter(
+            QueuedUpload.id == upload_id,
+            QueuedUpload.org_id == org.id,
+            QueuedUpload.user_id == uid,
+            QueuedUpload.status == "timed_out",
+        )
+        .first()
+    )
+    if row is None:
+        return RedirectResponse("/wiki?error=retrymissing", status_code=302)
+    scope, team_id, name = row.target_scope, row.team_id, row.filename
+    dest = _wiki_page_url(scope, team_id)
+    if not _wiki_can_edit(db, user, scope, team_id):
+        return RedirectResponse(dest + "?error=forbidden", status_code=302)
+    ws = _wiki_ws(user, scope, team_id)
+    raw = Path(row.stored_path)
+    if not raw.is_file() or raw.resolve().parent != ws.raw.resolve():
+        return RedirectResponse(dest + "?error=retrymissing", status_code=302)
+
+    tmp_dir = tempfile.mkdtemp()
+    backend = None
+    try:
+        source = Path(tmp_dir) / name
+        shutil.copyfile(raw, source)
+        cfg = _cfg(db, org)
+        backend = _backend_from_cfg(cfg)
+        status, slug, title = await _ingest_and_propose(
+            db,
+            org,
+            ws,
+            uid,
+            source,
+            scope,
+            team_id,
+            f"Uploaded {name}",
+            backend,
+            cfg,
+            model_timeout=INGEST_EXTENDED_TIMEOUT_SECONDS,
+        )
+    except IngestTimedOut as e:
+        _audit_request(
+            request,
+            "wiki.upload.retry",
+            f"name={name} scope={scope} error=IngestTimedOut limit={e.seconds:g}s",
+            org_id=org.id,
+            user_id=uid,
+        )
+        return RedirectResponse(dest + "?error=ingesttimeout_long", status_code=302)
+    except Exception as e:
+        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
+        _audit_request(
+            request,
+            "wiki.upload.retry",
+            f"name={name} scope={scope} error={type(e).__name__}"
+            + (f" reason={reason}" if reason else ""),
+            org_id=org.id,
+            user_id=uid,
+        )
+        return RedirectResponse(dest + "?error=ingest", status_code=302)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    row.status = "done"
+    db.commit()
+    _audit_request(
+        request,
+        "wiki.upload.retry",
+        f"name={name} scope={scope} slug={slug} applied={status == 'added'} status={status}",
+        org_id=org.id,
+        user_id=uid,
+    )
+    return _upload_saved_redirect(dest, cfg, status, slug, title)
 
 
 @app.post("/wiki/upload/confirm")
@@ -8679,6 +8875,7 @@ async def wiki_import_connector(
     from urllib.parse import quote
 
     from ..common.text import slugify
+    from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS
     from .docsource import doc_source_servers, read_document
 
     db = _db()
@@ -8729,6 +8926,7 @@ async def wiki_import_connector(
             f"Imported from {srv.name}",
             backend,
             cfg,
+            model_timeout=INGEST_EXTENDED_TIMEOUT_SECONDS,
         )
     except Exception as e:
         reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
