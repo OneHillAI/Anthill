@@ -55,3 +55,41 @@ def test_bigger_context_or_concurrency_shrinks_the_local_recommendation():
 def test_gpu_sizing_is_unchanged():
     """The #490 fix is Apple-only; the cloud-GPU (fp16) path must be untouched (~37B on an 80GB GPU)."""
     assert 35 <= sizing.cloud_gpu_max_params(80) <= 39
+
+
+# Issue #153: a plain CPU box is sized with kind "apple" (the conservative fraction), but the label shown
+# to the user must come from the real platform.
+@pytest.mark.parametrize(
+    "system, machine, mem_gb, kind, expected",
+    [
+        ("Darwin", "arm64", 16.0, "apple", "16 GB unified memory (Apple Silicon)"),
+        ("Linux", "x86_64", 16.0, "apple", "16 GB RAM (CPU only)"),
+        ("Linux", "aarch64", 8.0, "apple", "8 GB RAM (CPU only)"),
+        ("Darwin", "x86_64", 32.0, "apple", "32 GB RAM (CPU only)"),
+        ("Windows", "AMD64", 16.0, "apple", "16 GB RAM (CPU only)"),
+        ("Linux", "x86_64", 24.0, "gpu", "24 GB GPU memory"),
+        ("Linux", "x86_64", 0.0, "apple", "this machine"),
+    ],
+)
+def test_hardware_label_follows_the_platform(monkeypatch, system, machine, mem_gb, kind, expected):
+    monkeypatch.setattr(sizing.platform, "system", lambda: system)
+    monkeypatch.setattr(sizing.platform, "machine", lambda: machine)
+    assert sizing.hardware_label(mem_gb, kind) == expected
+
+
+def test_cpu_only_linux_box_is_sized_as_apple_but_not_labelled_one(monkeypatch):
+    monkeypatch.setattr(sizing.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sizing.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(sizing, "_nvidia_vram_gb", lambda: None)
+    monkeypatch.setattr(sizing, "_posix_ram_gb", lambda: 16.0)
+    mem_gb, kind = sizing.local_hardware()
+    assert (mem_gb, kind) == (16.0, "apple")
+    label = sizing.hardware_label(mem_gb, kind)
+    assert "Apple" not in label and "unified" not in label
+
+
+def test_council_suggestion_label_is_not_the_raw_sizing_kind(monkeypatch):
+    monkeypatch.setattr(sizing.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sizing.platform, "machine", lambda: "x86_64")
+    s = sizing.suggest_local_setup(16.0, "apple", catalog=sizing.load_catalog())
+    assert s.hw_label == "16 GB RAM (CPU only)"
