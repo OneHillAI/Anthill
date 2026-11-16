@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session
 from .db import ChatMessage, Conversation, OrgSettings, QueryMetric, TrainingExample
 
 
-def _pctl(values: list[int], p: float) -> int:
-    """Nearest-rank percentile of an already-sorted list (empty -> 0)."""
+def _pctl(values: list[int], p: float) -> int | None:
+    """Nearest-rank percentile of an already-sorted list (empty -> None, not measured)."""
     if not values:
-        return 0
+        return None
     i = min(len(values) - 1, round((p / 100) * (len(values) - 1)))
     return int(values[i])
 
@@ -51,16 +51,9 @@ def summary(db: Session, org_id: int, days: int = 30) -> dict:
     cache_hits = sum(1 for r in rows if r.cache_hit)
     generated = sum(1 for r in rows if r.source == "generated")
     hit_rate = round(cache_hits / total * 100, 1) if total else 0
-    avg_ms = (
-        (
-            round(
-                sum(r.duration_ms for r in rows if r.duration_ms)
-                / max(1, sum(1 for r in rows if r.duration_ms))
-            )
-        )
-        if rows
-        else 0
-    )
+    # Rows recorded before durations were measured hold NULL; they are not 0 ms.
+    durations = sorted(int(r.duration_ms) for r in rows if r.duration_ms is not None)
+    avg_ms = round(sum(durations) / len(durations)) if durations else None
 
     # Queries that escalated to a paid cloud model (tagged source="cloud" at answer
     # time). These are the only queries where anything (a PII-scrubbed, question-only
@@ -99,7 +92,6 @@ def summary(db: Session, org_id: int, days: int = 30) -> dict:
     # ── operational metrics (what an admin uses to run the system) ────────────
     # Latency percentiles beat the mean: p95 is the tail users actually feel, and a
     # single slow generation will not skew it the way it skews the average.
-    durations = sorted(int(r.duration_ms) for r in rows if r.duration_ms is not None)
     p50_ms = _pctl(durations, 50)
     p95_ms = _pctl(durations, 95)
 

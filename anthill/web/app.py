@@ -12370,6 +12370,7 @@ async def chat_stream(
         )
 
     async def _event_stream():
+        t0 = monotonic()
         from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
         from ..config import Config
@@ -13281,7 +13282,7 @@ async def chat_stream(
                 node_id="web",
                 cache_hit=cache_hit,
                 source=("cloud" if escalations else ("cache" if cache_hit else "generated")),
-                duration_ms=None,
+                duration_ms=int((monotonic() - t0) * 1000),
                 model=config.model,
             )
 
