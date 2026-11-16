@@ -184,3 +184,85 @@ def test_satisfaction_zero_when_unrated(db):
     m = metrics.summary(db, org_id=1, days=30)
     assert m["feedback_rated"] == 0 and m["satisfaction_pct"] == 0
     assert m["active_users"] == 0
+
+
+# ── latency is measured, or shown as not measured (#157) ─────────────────────────
+
+
+def _timed(tmp_path, durations):
+    s = _seed(tmp_path, "lat.db", cloud_enabled=False, rows=[(False, "generated")] * len(durations))
+    for row, ms in zip(s.query(QueryMetric).order_by(QueryMetric.id).all(), durations, strict=True):
+        row.duration_ms = ms
+    s.commit()
+    return s
+
+
+def test_latency_is_none_when_nothing_was_timed(tmp_path):
+    m = metrics.summary(_timed(tmp_path, [None, None]), org_id=1, days=30)
+    assert m["total"] == 2
+    assert m["p50_ms"] is None and m["p95_ms"] is None and m["avg_latency_ms"] is None
+
+
+def test_latency_ignores_untimed_rows_and_keeps_zero(tmp_path):
+    m = metrics.summary(_timed(tmp_path, [None, 0, 4000, 36000]), org_id=1, days=30)
+    assert m["p50_ms"] == 4000 and m["p95_ms"] == 36000
+    assert m["avg_latency_ms"] == round((0 + 4000 + 36000) / 3)
+
+
+def test_record_stores_the_duration_and_none(db):
+    for ms in (1200, None):
+        metrics.record(
+            db,
+            org_id=1,
+            node_id="web",
+            cache_hit=False,
+            source="generated",
+            duration_ms=ms,
+            model="m",
+        )
+    got = [r.duration_ms for r in db.query(QueryMetric).filter(QueryMetric.node_id == "web")]
+    assert sorted(got, key=lambda v: (v is None, v)) == [1200, None]
+
+
+def _metrics_page(db, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import anthill.web.app as app_mod
+    from anthill.web.crypto import make_token
+
+    eng = db.get_bind()
+    app_mod._engine = eng
+    app_mod._SessionFactory = sessionmaker(bind=eng, autoflush=False, autocommit=False)
+    client = TestClient(app_mod.app)
+    client.cookies.set("session_token", make_token(1, 1, "admin"))
+    return client.get("/metrics").text
+
+
+def test_metrics_page_shows_dash_when_latency_is_unmeasured(tmp_path, monkeypatch):
+    s = _timed(tmp_path, [None])
+    page = _metrics_page(s, tmp_path, monkeypatch)
+    assert "not measured yet" in page
+    assert "0ms" not in page
+
+
+def test_metrics_page_shows_the_measured_latency(tmp_path, monkeypatch):
+    s = _timed(tmp_path, [5600, 36900])
+    page = _metrics_page(s, tmp_path, monkeypatch)
+    assert "5600ms" in page and "p95 36900ms" in page
+    assert "not measured yet" not in page
+
+
+def test_a_chat_turn_records_how_long_it_took(tmp_path, monkeypatch):
+    from test_web_turn_stream import _client
+
+    import anthill.web.app as app_mod
+
+    client, cid = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr("anthill.wiki.ask.ask_stream", lambda *a, **k: iter(["a", "b"]))
+    ticks = iter([100.0, 102.5])
+    monkeypatch.setattr(app_mod, "monotonic", lambda: next(ticks, 102.5))
+    r = client.get(f"/chat/{cid}/stream", params={"message": "Hello there"})
+    assert r.status_code == 200
+    rows = app_mod._SessionFactory().query(QueryMetric).all()
+    assert len(rows) == 1
+    assert rows[0].duration_ms == 2500
