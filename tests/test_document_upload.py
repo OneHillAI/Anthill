@@ -427,5 +427,5 @@ def test_pdf_error_copy_distinguishes_a_retryable_host_failure(tmp_path, monkeyp
     limit_page = client.get("/wiki?error=pdflimit").text
 
     assert "try again" in retry_page.lower()
-    assert "exceeds Anthill's hard processing safety limits" not in retry_page
-    assert "exceeds Anthill's hard processing safety limits" in limit_page
+    assert "Split it into smaller PDFs" not in retry_page
+    assert "Split it into smaller PDFs" in limit_page
