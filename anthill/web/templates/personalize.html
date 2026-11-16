@@ -141,6 +141,7 @@
 <form id="solo-cloud-form" method="post" action="/personalize/cloud"></form>
 <form id="compute-form" method="post" action="/personalize/compute"></form>
 <form id="org-setup-form" method="post" action="/personalize/organization/setup"></form>
+<form id="pull-cancel-form" method="post" action="/models/pull/cancel"><input type="hidden" name="next_url" value="personalize"></form>
 
 <form method="post" action="/personalize">
 
@@ -153,6 +154,7 @@
       <div class="pbar" style="margin:4px 0 6px"><i id="pull-progress-bar" style="width:0%;transition:width .3s"></i></div>
       <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
     </div>
+    <button type="submit" form="pull-cancel-form" class="btn btn-outline btn-sm" style="margin-top:8px">Cancel download</button>
   </div>
   <div id="ready-banner" class="alert alert-ok mb-2" style="display:none">
     ✅ <b id="ready-tag"></b> finished downloading and is now ready.
@@ -592,11 +594,14 @@ function trainNow() {
           if (pb) pb.style.display = 'block';
           if (rb) rb.style.display = 'none';
           setTimeout(poll, 2000);
-        } else if (wasPulling) {
+        } else if (wasPulling && !s.cancelled) {
           var rt = document.getElementById('ready-tag');
           if (rt) rt.textContent = s.current || wasPulling;
           if (pb) pb.style.display = 'none';
           if (rb) rb.style.display = 'block';
+          wasPulling = '';
+        } else if (wasPulling) {
+          if (pb) pb.style.display = 'none';
           wasPulling = '';
         }
       })

@@ -590,3 +590,284 @@ def test_refresh_gives_a_fixed_message_when_the_catalog_cannot_be_saved(
         logged="refreshed catalog could not be saved",
     )
     assert _MARKER in log  # a local path, kept for the operator
+
+
+# ── duplicate pulls, concurrent progress, vision waiter, and cancellation (#200) ─────────────────
+
+
+class _ControlledProc:
+    """In-memory stand-in for an `ollama pull <tag>` Popen with controllable stdout frames + exit."""
+
+    def __init__(self, args):
+        import queue
+        import threading
+
+        self.args = list(args)
+        self.tag = self.args[-1] if self.args else ""
+        self._q: queue.Queue[bytes | None] = queue.Queue()
+        self._done = threading.Event()
+        self.returncode: int | None = None
+        self.terminated = False
+        self.stdout = self
+
+    def emit(self, text: str) -> None:
+        self._q.put(text.encode("utf-8"))
+
+    def finish(self, code: int = 0) -> None:
+        self.returncode = code
+        self._done.set()
+        self._q.put(None)
+
+    def read(self, _n: int = 256) -> bytes:
+        chunk = self._q.get()
+        return b"" if chunk is None else chunk
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        self._done.wait(timeout=timeout)
+        return 0 if self.returncode is None else self.returncode
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.finish(code=-15)
+
+    def kill(self) -> None:
+        self.terminated = True
+        self.finish(code=-9)
+
+
+def _install_controlled_popen(monkeypatch, app_mod):
+    import subprocess
+    import threading
+
+    import anthill.inference.ollama as ollama_mod
+
+    procs: list[_ControlledProc] = []
+    spawned = threading.Event()
+
+    def fake_popen(args, **_kw):
+        p = _ControlledProc(args)
+        procs.append(p)
+        spawned.set()
+        return p
+
+    monkeypatch.setattr(ollama_mod, "find_ollama_bin", lambda: "/usr/local/bin/ollama")
+    monkeypatch.setattr(ollama_mod, "ensure_serving", lambda *a, **k: True)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    app_mod._ACTIVE_MODEL_PULLS.clear()
+    app_mod._VISION_AUTOPULL_WAITERS.clear()
+    app_mod._MODEL_PULL_PROGRESS.clear()
+    app_mod._LAST_PULL_CANCELLED.clear()
+    return procs, spawned
+
+
+def _wait_until(pred, timeout: float = 3.0) -> bool:
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return bool(pred())
+
+
+def test_overlapping_same_tag_requests_reuse_active_download(tmp_path, monkeypatch):
+    import anthill.hosting.sizing as sizing
+
+    monkeypatch.setattr(sizing, "local_hardware", lambda: (32.0, "apple"))
+    c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    _set_current(app_mod, org_id, "qwen2.5:3b")
+    procs, spawned = _install_controlled_popen(monkeypatch, app_mod)
+
+    # First pull started without activation (e.g. desktop resume or council); second via /models/pull
+    # requests the same tag (and a :latest alias) and asks to activate when done.
+    app_mod._start_model_pull(org_id, "qwen3.8:27b", activate_when_done=False)
+    assert spawned.wait(timeout=2)
+    assert len(procs) == 1
+
+    r1 = c.post("/models/pull", data={"model_tag": "qwen3.8:27b"}, follow_redirects=False)
+    r2 = c.post("/models/pull", data={"model_tag": "qwen3.8:27b:latest"}, follow_redirects=False)
+    assert "pulling=qwen3.8:27b" in r1.headers["location"]
+    assert "pulling=qwen3.8:27b:latest" in r2.headers["location"]
+    assert len(procs) == 1  # reused the single active pull process; no duplicate Popen
+
+    procs[0].emit("pulling model: 55% 1.5 GB/2.7 GB 20 MB/s 1m00s\n")
+    assert _wait_until(
+        lambda: (app_mod._MODEL_PULL_PROGRESS.get(org_id) or {}).get("percent") == 55
+    )
+
+    procs[0].finish(0)
+    assert _wait_until(
+        lambda: (
+            app_mod._SessionFactory()
+            .query(OrgSettings)
+            .filter(OrgSettings.org_id == org_id)
+            .first()
+            .local_model_pulling
+            == ""
+        )
+    )
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.ollama_model == "qwen3.8:27b:latest"  # upgraded to activate on completion
+
+
+def test_concurrent_downloads_and_one_exiting_preserve_active_state(tmp_path, monkeypatch):
+    c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    _set_current(app_mod, org_id, "qwen2.5:3b")
+    procs, _ = _install_controlled_popen(monkeypatch, app_mod)
+
+    app_mod._start_model_pull(org_id, "qwen3.8:27b", activate_when_done=False)
+    app_mod._start_model_pull(org_id, "gemma3:12b", activate_when_done=False)
+    assert _wait_until(lambda: len(procs) == 2)
+    proc_qwen, proc_gemma = (
+        (procs[0], procs[1]) if procs[0].tag == "qwen3.8:27b" else (procs[1], procs[0])
+    )
+
+    proc_qwen.emit("pulling model: 35% 1.0 GB/3.0 GB 10 MB/s 3m00s\n")
+    proc_gemma.emit("pulling model: 80% 4.0 GB/5.0 GB 25 MB/s 40s\n")
+    assert _wait_until(
+        lambda: (
+            app_mod._active_pull_downloads(org_id).get("qwen3.8:27b", {}).get("percent") == 35
+            and app_mod._active_pull_downloads(org_id).get("gemma3:12b", {}).get("percent") == 80
+        )
+    )
+
+    status = c.get("/models/pull-status").json()
+    assert status["pulling"] == "qwen3.8:27b"
+    assert status["progress"]["tag"] == "qwen3.8:27b"
+    assert status["progress"]["percent"] == 35  # not overwritten by gemma's 80%
+    assert set(status["active_pulls"]) == {"qwen3.8:27b", "gemma3:12b"}
+
+    # Neither active download can be deleted while downloading.
+    assert (
+        "error=in_use"
+        in c.post(
+            "/models/delete", data={"model_tag": "gemma3:12b"}, follow_redirects=False
+        ).headers["location"]
+    )
+
+    # Stale/non-owner completion cannot clear an active download.
+    app_mod._set_model_pulling(org_id, "", run_id=999999, finished_tag="qwen3.8:27b")
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.local_model_pulling == "qwen3.8:27b"
+
+    # Second download is interrupted/exits while the first is still running: state stays on qwen.
+    proc_gemma.finish(1)
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == ["qwen3.8:27b"])
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.local_model_pulling == "qwen3.8:27b"
+    assert (app_mod._MODEL_PULL_PROGRESS.get(org_id) or {}).get("percent") == 35
+
+    # Now finish qwen: everything clears cleanly.
+    proc_qwen.finish(0)
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.local_model_pulling == ""
+    assert org_id not in app_mod._MODEL_PULL_PROGRESS
+
+
+def test_vision_waiter_does_not_overlap_after_one_hour_wait(tmp_path, monkeypatch):
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, spawned = _install_controlled_popen(monkeypatch, app_mod)
+
+    clock = [1000.0]
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: clock[0])
+
+    def advance_sleep(_seconds: float) -> None:
+        clock[0] += 3601.0  # advance past the 1-hour vision wait limit while chat pull stays active
+
+    monkeypatch.setattr(app_mod.time, "sleep", advance_sleep)
+
+    app_mod._start_model_pull(org_id, "qwen3.8:27b")
+    assert spawned.wait(timeout=2)
+    app_mod._maybe_autopull_vision(org_id)
+
+    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    assert [p.tag for p in procs] == ["qwen3.8:27b"]  # Granite did NOT overlap after 1h
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.local_model_pulling == "qwen3.8:27b"
+
+    procs[0].finish(0)
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+
+
+def test_repeated_vision_scheduling_deduplicates_waiters(tmp_path, monkeypatch):
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, spawned = _install_controlled_popen(monkeypatch, app_mod)
+    monkeypatch.setattr(app_mod, "_VISION_AUTOPULL_POLL_SECONDS", 0.01)
+
+    app_mod._start_model_pull(org_id, "qwen3.8:27b")
+    assert spawned.wait(timeout=2)
+
+    # Schedule vision autopull repeatedly while the chat model is still downloading.
+    app_mod._maybe_autopull_vision(org_id)
+    first_waiter = app_mod._VISION_AUTOPULL_WAITERS.get(org_id)
+    app_mod._maybe_autopull_vision(org_id)
+    app_mod._maybe_autopull_vision(org_id)
+    assert app_mod._VISION_AUTOPULL_WAITERS.get(org_id) is first_waiter
+
+    # Complete the chat pull: exactly one Granite pull should launch.
+    procs[0].finish(0)
+    assert _wait_until(lambda: len(procs) == 2)
+    assert [p.tag for p in procs] == ["qwen3.8:27b", "granite3.2-vision:2b"]
+
+    procs[1].finish(0)
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+
+
+def test_disabling_vision_autopull_cancels_pending_vision_job(tmp_path, monkeypatch):
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, spawned = _install_controlled_popen(monkeypatch, app_mod)
+    monkeypatch.setattr(app_mod, "_VISION_AUTOPULL_POLL_SECONDS", 0.01)
+
+    app_mod._start_model_pull(org_id, "qwen3.8:27b")
+    assert spawned.wait(timeout=2)
+    app_mod._maybe_autopull_vision(org_id)
+    assert org_id in app_mod._VISION_AUTOPULL_WAITERS
+
+    # User disables vision auto-download while the vision job is still pending.
+    s = app_mod._SessionFactory()
+    cfg = s.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    cfg.vision_autopull = False
+    s.commit()
+    s.close()
+
+    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    procs[0].finish(0)
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert [p.tag for p in procs] == ["qwen3.8:27b"]  # Granite never started
+
+
+def test_cancelling_or_interrupting_pull_stops_process_and_queued_vision_job(tmp_path, monkeypatch):
+    c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, spawned = _install_controlled_popen(monkeypatch, app_mod)
+    monkeypatch.setattr(app_mod, "_VISION_AUTOPULL_POLL_SECONDS", 0.01)
+
+    # 1. Explicit user cancel via /models/pull/cancel terminates the process and cancels pending vision.
+    app_mod._start_model_pull(org_id, "qwen3.8:27b")
+    assert spawned.wait(timeout=2)
+    app_mod._maybe_autopull_vision(org_id)
+    assert org_id in app_mod._VISION_AUTOPULL_WAITERS
+
+    r = c.post("/models/pull/cancel", follow_redirects=False)
+    assert r.status_code == 302 and "cancelled=1" in r.headers["location"]
+    assert procs[0].terminated is True
+    assert org_id not in app_mod._VISION_AUTOPULL_WAITERS
+    assert org_id not in app_mod._MODEL_PULL_PROGRESS
+    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+    assert cfg.local_model_pulling == ""
+    assert [p.tag for p in procs] == ["qwen3.8:27b"]  # Granite did not replace the cancelled pull
+
+    # 2. External interruption (non-zero exit) of one of two pulls leaves the other alive, and when
+    # the remaining pull is interrupted, the queued vision job still does not start.
+    spawned.clear()
+    app_mod._start_model_pull(org_id, "qwen3.8:27b")
+    assert spawned.wait(timeout=2)
+    app_mod._maybe_autopull_vision(org_id)
+    procs[1].finish(1)  # interrupted externally
+    assert _wait_until(lambda: app_mod._active_pull_tags(org_id) == [])
+    assert _wait_until(lambda: org_id not in app_mod._VISION_AUTOPULL_WAITERS)
+    assert [p.tag for p in procs] == ["qwen3.8:27b", "qwen3.8:27b"]  # no Granite pull started

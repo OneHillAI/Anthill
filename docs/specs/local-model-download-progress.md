@@ -20,6 +20,11 @@ Additionally:
    - The Models page pull banner (`anthill/web/templates/models.html`) must render the same live progress bar and metadata line.
    - The Settings -> Model tab (`anthill/web/templates/personalize.html`) must include a pull banner and progress bar polled via `/models/pull-status`.
 4. **Desktop pull resume on launch:** In `anthill/desktop.py`, once `ensure_serving()` succeeds in `_ensure_engine_async()`, if the single-org user has already chosen a local model (`local_model_chosen=True`, `solo_compute="local"`) and that model is not yet installed in Ollama, the desktop entrypoint must automatically start or resume the background pull via `_start_model_pull(org_id, model_tag, activate_when_done=False)`.
+5. **Deduplication, concurrent tracking, vision waiter discipline, and cancellation (#200):**
+   - Repeating a pull request for an already-downloading tag (normalized via `normalize_ollama_tag`) reuses the active download instead of spawning a second `ollama pull` process.
+   - Concurrent downloads (e.g. council models) maintain per-tag progress and ownership-aware completion (`run_id`) so one worker exiting cannot clear another active worker's state or overwrite its progress.
+   - `_maybe_autopull_vision` deduplicates pending waiters per org, never forces an overlapping vision pull when the 1-hour wait limit expires while a pull is still active, rechecks opt-out and installed/active state before starting, and aborts if an active download is interrupted or cancelled.
+   - `POST /models/pull/cancel` (`_cancel_model_pull`) terminates active `ollama pull` subprocesses and cancels pending vision waiters cleanly.
 
 ## 3. Implementation
 

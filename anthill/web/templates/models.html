@@ -23,6 +23,8 @@
 
 {% if request.query_params.get('selected') %}
 <div class="alert alert-ok">✅ Local model set to <b>{{ current_model }}</b>.</div>
+{% elif request.query_params.get('cancelled') %}
+<div class="alert alert-ok">Stopped the background download.</div>
 {% elif request.query_params.get('deleted') %}
 <div class="alert alert-ok">🗑️ Removed <b>{{ request.query_params.get('deleted') }}</b> and freed its disk space.</div>
 {% elif request.query_params.get('error') == 'no_tag' %}
@@ -59,6 +61,9 @@
     </div>
     <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
   </div>
+  <form method="post" action="/models/pull/cancel" style="margin-top:8px">
+    <button type="submit" class="btn btn-outline btn-sm">Cancel download</button>
+  </form>
 </div>
 <div id="ready-banner" class="alert alert-ok" style="display:none">
   ✅ <b id="ready-tag"></b> finished downloading and is now your local model.
@@ -155,10 +160,13 @@ async function fetchModelJSON(url, options) {
           if (meta) meta.textContent = formatPullProgress(s.progress);
           pb.style.display = 'block'; rb.style.display = 'none';
           setTimeout(poll, 2000);
-        } else if (wasPulling) {
+        } else if (wasPulling && !s.cancelled) {
           document.getElementById('ready-tag').textContent = s.current;
           pb.style.display = 'none'; rb.style.display = 'block';
           setTimeout(function () { window.location.href = '/models?selected=1'; }, 1600);
+        } else if (wasPulling) {
+          pb.style.display = 'none';
+          wasPulling = '';
         }
       })
       .catch(function () { setTimeout(poll, 5000); });
