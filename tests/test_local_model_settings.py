@@ -596,16 +596,11 @@ def test_refresh_gives_a_fixed_message_when_the_catalog_cannot_be_saved(
 
 
 class _ControlledProc:
-    """In-memory stand-in for an `ollama pull <tag>` Popen with controllable stdout frames + exit."""
-
     def __init__(self, args):
         import queue
-        import threading
 
-        self.args = list(args)
-        self.tag = self.args[-1] if self.args else ""
-        self._q: queue.Queue[bytes | None] = queue.Queue()
-        self._done = threading.Event()
+        self.tag = args[-1] if args else ""
+        self._q: queue.SimpleQueue[bytes | None] = queue.SimpleQueue()
         self.returncode: int | None = None
         self.terminated = False
         self.stdout = self
@@ -615,27 +610,20 @@ class _ControlledProc:
 
     def finish(self, code: int = 0) -> None:
         self.returncode = code
-        self._done.set()
         self._q.put(None)
 
     def read(self, _n: int = 256) -> bytes:
-        chunk = self._q.get()
-        return b"" if chunk is None else chunk
+        return self._q.get() or b""
 
     def poll(self) -> int | None:
         return self.returncode
 
     def wait(self, timeout: float | None = None) -> int:
-        self._done.wait(timeout=timeout)
         return 0 if self.returncode is None else self.returncode
 
     def terminate(self) -> None:
         self.terminated = True
         self.finish(code=-15)
-
-    def kill(self) -> None:
-        self.terminated = True
-        self.finish(code=-9)
 
 
 def _install_controlled_popen(monkeypatch, app_mod):

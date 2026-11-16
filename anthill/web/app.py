@@ -2590,6 +2590,8 @@ from typing import Any  # noqa: E402
 
 # Live in-memory progress for an active `ollama pull` per org_id, read by /local-model/status and
 # /models/pull-status so the dashboard, Settings, and /models banners can render a real progress bar.
+# `OrgSettings.local_model_pulling` in SQLite is the persistent store across requests/workers; this
+# companion map holds live Popen handles and stream progress for the host-local Ollama daemon.
 _MODEL_PULL_PROGRESS: dict[int, dict[str, object]] = {}
 _MODEL_PULL_LOCK = threading.Lock()
 _MODEL_PULL_STATE: dict[int, dict[str, Any]] = {}
@@ -2773,57 +2775,64 @@ def _maybe_autopull_vision(org_id: int) -> None:
         st["vision_waiter"] = token
 
     def _run() -> None:
-        try:
-            started_at = time.monotonic()
-            for _ in range(1800):
-                with _MODEL_PULL_LOCK:
-                    st_now = _MODEL_PULL_STATE.get(org_id) or {}
-                    if st_now.get("vision_waiter") is not token:
-                        return
-                    active_busy = bool(st_now.get("pulls"))
-                db2 = _db()
-                try:
-                    c = db2.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-                    if not c or not getattr(c, "vision_autopull", True):
-                        return
-                    busy = active_busy or bool(c.local_model_pulling)
-                finally:
-                    db2.close()
-                if not busy:
-                    break
-                if time.monotonic() - started_at >= _VISION_AUTOPULL_MAX_WAIT_SECONDS:
-                    return
-                time.sleep(_VISION_AUTOPULL_POLL_SECONDS)
-            else:
-                return
-
-            db3 = _db()
-            try:
-                c = db3.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-                if not c or not getattr(c, "vision_autopull", True) or c.local_model_pulling:
-                    return
-                if not _vision_autopull_wanted(c, set(_installed_local_models(c))):
-                    return
-                final_tag = _vision_autopull_tag(c)
-            except Exception:
-                return
-            finally:
-                db3.close()
-
+        # One pull slot: let the chosen text model finish first (bounded ~1h).
+        started_at = time.monotonic()
+        for _ in range(1800):
             with _MODEL_PULL_LOCK:
                 st_now = _MODEL_PULL_STATE.get(org_id) or {}
-                if st_now.get("vision_waiter") is not token or st_now.get("pulls"):
+                if st_now.get("vision_waiter") is not token:
                     return
-                st_now.pop("vision_waiter", None)
-
-            _start_model_pull(org_id, final_tag, activate_when_done=False)
-        finally:
+                active_busy = bool(st_now.get("pulls"))
+            db2 = _db()
+            try:
+                c = db2.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+                if not c or not getattr(c, "vision_autopull", True):
+                    with _MODEL_PULL_LOCK:
+                        (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                    return
+                busy = active_busy or bool(c.local_model_pulling)
+            finally:
+                db2.close()
+            if not busy:
+                break
+            if time.monotonic() - started_at >= _VISION_AUTOPULL_MAX_WAIT_SECONDS:
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                return
+            time.sleep(_VISION_AUTOPULL_POLL_SECONDS)
+        else:
             with _MODEL_PULL_LOCK:
-                st_now = _MODEL_PULL_STATE.get(org_id)
-                if st_now and st_now.get("vision_waiter") is token:
-                    st_now.pop("vision_waiter", None)
-                    if not st_now.get("pulls"):
-                        _MODEL_PULL_STATE.pop(org_id, None)
+                (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+            return
+
+        db3 = _db()
+        try:
+            c = db3.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+            if (
+                not c
+                or not getattr(c, "vision_autopull", True)
+                or c.local_model_pulling
+                or not _vision_autopull_wanted(c, set(_installed_local_models(c)))
+            ):
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                return
+            final_tag = _vision_autopull_tag(c)
+        except Exception:
+            with _MODEL_PULL_LOCK:
+                (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+            return
+        finally:
+            db3.close()
+
+        with _MODEL_PULL_LOCK:
+            st_now = _MODEL_PULL_STATE.get(org_id) or {}
+            if st_now.get("vision_waiter") is not token or st_now.get("pulls"):
+                return
+            st_now.pop("vision_waiter", None)
+        _start_model_pull(
+            org_id, final_tag, activate_when_done=False
+        )  # don't change the chat model
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -2932,25 +2941,25 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                     ok = proc.wait(timeout=7200) == 0 and not bool(entry.get("cancelled"))
         except Exception:
             ok = False
-        finally:
-            owned = False
-            next_tag = ""
-            activate_tag = ""
-            with _MODEL_PULL_LOCK:
-                st_now = _MODEL_PULL_STATE.get(org_id)
-                cur_pulls = (st_now or {}).get("pulls") or {}
-                if cur_pulls.get(norm) is entry:
-                    owned = True
-                    cur_pulls.pop(norm, None)
-                    if not ok or entry.get("cancelled"):
-                        (st_now or {}).pop("vision_waiter", None)
-                    next_tag = _sync_pull_state(org_id)
-                    if not cur_pulls and not (st_now or {}).get("vision_waiter"):
-                        _MODEL_PULL_STATE.pop(org_id, None)
-                    if ok and not entry.get("cancelled") and entry.get("activate"):
-                        activate_tag = str(entry["tag"])
-            if owned:
-                _set_model_pulling(org_id, next_tag, activate=activate_tag)
+        # Clear the flag; activate the new model only if the download actually succeeded.
+        owned = False
+        next_tag = ""
+        activate_tag = ""
+        with _MODEL_PULL_LOCK:
+            st_now = _MODEL_PULL_STATE.get(org_id)
+            cur_pulls = (st_now or {}).get("pulls") or {}
+            if cur_pulls.get(norm) is entry:
+                owned = True
+                cur_pulls.pop(norm, None)
+                if not ok or entry.get("cancelled"):
+                    (st_now or {}).pop("vision_waiter", None)
+                next_tag = _sync_pull_state(org_id)
+                if not cur_pulls and not (st_now or {}).get("vision_waiter"):
+                    _MODEL_PULL_STATE.pop(org_id, None)
+                if ok and not entry.get("cancelled") and entry.get("activate"):
+                    activate_tag = str(entry["tag"])
+        if owned:
+            _set_model_pulling(org_id, next_tag, activate=activate_tag)
 
     threading.Thread(target=_run, daemon=True).start()
 
