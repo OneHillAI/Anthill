@@ -61,8 +61,8 @@
             onclick="document.getElementById('new-team').style.display='none'">Cancel</button>
     <label style="display:flex;align-items:center;gap:8px;min-width:100%;margin-top:4px;cursor:pointer">
       <input type="checkbox" name="connect_parent_wiki" checked>
-      <span class="text-sm">Also read your <b>parent</b> wiki - your personal wiki, or the org wiki in an
-        organization. Uncheck for a project that uses only its own knowledge.</span>
+      <span class="text-sm">Also read your <b>parent</b> wiki - {% if is_solo %}your personal wiki{% else %}your personal wiki, or the org wiki in an
+        organization{% endif %}. Uncheck for a project that uses only its own knowledge.</span>
     </label>
   </form>
   <p class="text-sm text-muted" style="margin-top:10px">
