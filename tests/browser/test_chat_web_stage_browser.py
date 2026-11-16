@@ -134,6 +134,25 @@ def test_the_stage_line_names_the_real_steps(live):
             browser.close()
 
 
+def test_the_working_line_says_thinking_only_when_the_model_thinks(live):
+    base, token, conv_id = live
+    with sync_api.sync_playwright() as p:
+        browser, page = _page(p, base, token, conv_id)
+        try:
+
+            def line(think, can_think=True):
+                return page.evaluate(
+                    "([t, c]) => { window._thinkSupport = {known: true, thinks: c}; return workingText(t); }",
+                    [think, can_think],
+                )
+
+            assert line(True) == "Thinking, locally."
+            assert line(False) == "Writing, locally."
+            assert line(True, can_think=False) == "Writing, locally."
+        finally:
+            browser.close()
+
+
 def test_the_stage_line_follows_the_steps_and_is_gone_once_the_words_arrive(live):
     base, token, conv_id = live
     with sync_api.sync_playwright() as p:
@@ -210,7 +229,8 @@ def test_the_ants_work_inside_the_reply_bubble_and_wear_capes_for_the_provider(l
             assert row.count() == 1
             assert row.locator(".rant").count() == 3
             assert row.locator(".rant use").first.get_attribute("href") == "#ah-ant"
-            assert page.locator("#build-status").inner_text().strip() == "Thinking, locally."
+            # thinking starts off for this account, so the line must not claim it
+            assert page.locator("#build-status").inner_text().strip() == "Writing, locally."
 
             # the provider takes over: capes, a warm glow, and its name
             page.evaluate("window.__push({meta: {escalating: true, provider_label: 'Infercom'}})")
