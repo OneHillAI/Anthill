@@ -1,0 +1,1 @@
+**Setup, shared settings and password-reset decisions now check the right role and account.** Choosing the account type is limited to an admin and to the first run, the shared model, compute, council and PII-scrub settings are written only by an admin, and the in-page password-reset link is shown only when the install has a single account.
