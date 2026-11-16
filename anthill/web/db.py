@@ -881,6 +881,31 @@ class QueuedUpload(Base):
     processed_at = Column(DateTime, nullable=True)
 
 
+class UploadRecord(Base):
+    """What became of one document a person added to a wiki, kept so the wiki page can show it long after
+    the one-time banner is gone. Written when the upload starts and updated when it ends (see
+    ``web/upload_status.py``). Only its owner sees it. ``status`` is reading | added | review | held |
+    waiting_model | timed_out | failed; ``detail`` is a failure reason code. ``queued_upload_id`` ties the
+    record to the ``QueuedUpload`` that later finishes it (a wait for the model, or a timed-out retry).
+    New table, so ``create_all`` picks it up on existing installs."""
+
+    __tablename__ = "upload_records"
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scope = Column(String(10), nullable=False, default="personal")  # personal | team | org
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    filename = Column(String(255), nullable=False)
+    status = Column(String(16), nullable=False, default="reading")
+    detail = Column(String(40), nullable=False, default="")
+    slug = Column(String(120), nullable=False, default="")
+    title = Column(String(300), nullable=False, default="")
+    model = Column(String(120), nullable=False, default="")
+    queued_upload_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    finished_at = Column(DateTime, nullable=True)
+
+
 class ContributionProposal(Base):
     """A public/customer contribution idea (the ASDD "spec object"), drafted by the intake agent from a
     free-text idea + optional reference code. This is the channel-agnostic heart of the public
