@@ -92,7 +92,7 @@
         <button class="btn btn-outline btn-sm" title="Propose a wiki page from this memory (goes through review)">&rarr; Wiki</button>
       </form>
       {% endif %}
-      {% if user.get('role') == 'admin' and m.scope != 'org' %}
+      {% if user.get('role') == 'admin' and m.scope != 'org' and is_org_account %}
       <form method="post" action="/memory/{{ m.id }}/promote" style="display:inline;margin:0">
         <button class="btn btn-outline btn-sm" title="Recall this for everyone in the org">Promote to org</button>
       </form>

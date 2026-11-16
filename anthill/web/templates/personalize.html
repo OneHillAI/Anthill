@@ -372,7 +372,7 @@
       {% if solo_cloud %}Your model lives in <b>your own cloud</b> - yours, not shared. Your wiki and data stay on this device; nothing else leaves.{% else %}Your model, wiki and data stay <b>on this device</b>. Nothing leaves unless you connect a cloud.{% endif %}
       {% if web_access_on %}<b>Web search is on</b>: when a question needs live information, its text is sent to a search provider. Turn it off under Privacy, or for a single chat in the chat box.{% endif %}
     </p>
-    {% if org_available %}
+    {% if org_shares_model %}
     <div class="core-item" style="margin-top:10px">In an org, your Solo chats run on the org model but stay private: grounded in your own wiki, never shared, never retained org-side.</div>
     {% endif %}
   </div>

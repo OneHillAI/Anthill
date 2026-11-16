@@ -80,6 +80,13 @@ def org_endpoint_connected(cfg, decrypt: Callable[[str], str]) -> bool:
     return _org_endpoint(cfg, decrypt) is not None
 
 
+def is_org_account(cfg) -> bool:
+    """True for an Org account: ``deployment_topology`` normalises to ``org`` (also when blank or no settings
+    row exists yet, the column default). TOPOLOGY, not backend status: a Solo account that connects its own
+    endpoint is still Solo, so it gets no Org chat, org wiki, org agents or invites."""
+    return normalize_topology(getattr(cfg, "deployment_topology", "") or "") == "org"
+
+
 def shares_org_model(cfg) -> bool:
     """True only for a genuine multi-user ORG install (``deployment_topology == "org"``) with a shared
     backend configured - narrower than ``planes.is_org_mode``, which is true for ANY account that ever
@@ -87,10 +94,19 @@ def shares_org_model(cfg) -> bool:
     RunPod/inference-provider endpoint but keeps ``solo_compute == "local"`` as its default is not
     "an org" in the sharing sense this flag gates - it's one person choosing to keep a stronger backend
     available on demand (#278's escalation engine), not a team sharing one model."""
-    return (
-        planes.is_org_mode(cfg)
-        and normalize_topology(getattr(cfg, "deployment_topology", "") or "") == "org"
-    )
+    return planes.is_org_mode(cfg) and is_org_account(cfg)
+
+
+def org_plane_ready(cfg) -> bool:
+    """The Org plane can be offered and used: an Org account whose shared backend is validated."""
+    return is_org_account(cfg) and planes.org_available(cfg)
+
+
+def account_plane(plane: str | None, cfg) -> str:
+    """The plane a stored or requested conversation plane actually runs in for this account. A Solo
+    account has no Org plane, so ``org`` collapses to ``solo`` (its own turns, on its own model)."""
+    p = planes.normalize(plane)
+    return "solo" if p == "org" and not is_org_account(cfg) else p
 
 
 def _local_serve(cfg) -> tuple[str, str] | None:
@@ -122,8 +138,8 @@ def plane_inference(
     ``prefer_local`` is the user's "use my local model now" choice for a Solo-cloud (VPC) account whose
     endpoint is unreachable: it forces this Solo run onto the on-device model + the (always-local) personal
     wiki, instead of the VPC. The offline fallback is a PROMPTED choice, never a silent downgrade - so this
-    only applies when the user asked for it. It is ignored for Org/Team runs (those have no local option;
-    offline they wait). ``decrypt`` turns the stored encrypted org key into the plaintext used for the call.
+    only applies when the user asked for it. It is ignored for Org runs and for the projects of an Org account
+    (those have no local option; offline they wait). ``decrypt`` turns the stored encrypted org key into the plaintext used for the call.
     """
     if planes.normalize(plane) == "org":
         org = _org_endpoint(cfg, decrypt)
@@ -144,9 +160,9 @@ def plane_inference(
         )
 
     # Team: grounds in the team wiki. In an org install it runs on the org cloud model (needs the
-    # backend, like Org; personal context excluded); in Solo it is a local project on the local model.
+    # backend, like Org; personal context excluded); in Solo it is a project on the account's own model.
     if planes.normalize(plane) == "team":
-        if planes.is_org_mode(cfg):
+        if shares_org_model(cfg):
             org = _org_endpoint(cfg, decrypt)
             if org is None:
                 raise PlaneUnavailable(
@@ -163,6 +179,19 @@ def plane_inference(
                 wiki_scope="team",
                 use_personal_context=False,
             )
+        if not prefer_local and str(getattr(cfg, "solo_compute", "") or "local").lower() == "cloud":
+            own = _org_endpoint(cfg, decrypt)
+            if own is not None:  # a Solo project runs on the account's own cloud, like a Solo chat
+                endpoint, model, api_key = own
+                return PlaneInference(
+                    plane="team",
+                    backend="openai",
+                    base_url=endpoint,
+                    model=model,
+                    api_key=api_key,
+                    wiki_scope="team",
+                    use_personal_context=True,
+                )
         served = _local_serve(cfg)
         if served is not None:  # a promoted on-device fine-tune serves the local planes
             url, model = served
