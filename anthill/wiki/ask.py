@@ -13,6 +13,7 @@ from ..cache import embedder as emb
 from ..cache.page_vectors import PageVectorIndex
 from ..common.text import first_h1, normalize_wiki_page, strip_frontmatter
 from ..inference.base import BackendError, InferenceBackend, Message
+from ..lifecycle.version import read_provenance
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
@@ -25,6 +26,12 @@ from .workspace import Workspace
 # research results) into the answer - so we ground on nothing instead. See the cross-conversation
 # bleed finding in qa/chat-eval/DEV_FINDINGS.md.
 MIN_GROUNDING_SIM = 0.35
+
+# A retrieved page is cited under the answer only when its similarity to the question is within this
+# margin of the best retrieved page. The model still sees every retrieved page; this only trims the list
+# of sources shown, so a short note about one interview is not cited alongside two unrelated pages that
+# merely cleared MIN_GROUNDING_SIM. See docs/specs/152-citation-relevance.md.
+CITATION_SIM_MARGIN = 0.10
 
 # Maximal Marginal Relevance: when several relevant pages are retrieved, balance relevance to the
 # question against diversity from the pages already chosen, so the grounding block covers more of the
@@ -397,6 +404,7 @@ def ask(
     # ── 4. wiki retrieval (blend personal + any team/org wikis) ───────────────
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
     pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
+    cited = _cited_slugs(pages, spaces, q_vec)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
     context = build_reference(pages, question) if pages else ""
@@ -600,9 +608,7 @@ def ask(
     # dead-end to every near-identical question - and publishing it spreads that to the whole org.
     cacheable = _is_cacheable_answer(answer) and not _skip_shared and not no_cache
     if not has_img and cacheable:
-        cache.store(
-            question, answer, slugs=[p.stem for p in pages]
-        )  # keep the grounding provenance
+        cache.store(question, answer, slugs=cited)  # keep the grounding provenance
     if org_url and q_vec is not None and not has_img and cacheable:
         _central_publish(org_url, q_vec, answer)
 
@@ -625,7 +631,7 @@ def ask(
         returned_answer += web.sources
     if fixed:
         returned_answer = FixedAnswer(returned_answer)  # the route can tell the text is code-made
-    return returned_answer, ([] if fixed else [p.stem for p in pages]), False
+    return returned_answer, ([] if fixed else cited), False
 
 
 # Said at the top of an answer to a turn that asked for the web when nothing came from it, so the member does not
@@ -739,13 +745,14 @@ def ask_stream(
     )
     spaces = [ws] + [w for w in (extra_workspaces or []) if w is not None]
     pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec)
+    cited = _cited_slugs(pages, spaces, q_vec)
     context = build_reference(pages, question) if pages else ""
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
         context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
     if on_context is not None:
-        on_context([p.stem for p in pages])
+        on_context(cited)
 
     # A council answer is only available after every proposer AND the synthesizer finish - there is
     # nothing to stream token-by-token until synthesis is done. So an active council (2+ resolvable
@@ -908,9 +915,7 @@ def ask_stream(
     # does not use the web would otherwise be given an answer written for a web turn (spec 108, requirement 4).
     if _is_cacheable_answer(answer) and not _skip_shared and not no_cache and not web_search:
         try:
-            SemanticCache(db_path=ws.root / ".cache").store(
-                question, answer, slugs=[p.stem for p in pages]
-            )
+            SemanticCache(db_path=ws.root / ".cache").store(question, answer, slugs=cited)
         except Exception:
             pass
 
@@ -1207,6 +1212,39 @@ def _mmr_select(scored: list, k: int, lam: float | None = None) -> list[Path]:
                 best_mmr, best_i = mmr, i
         selected.append(pool.pop(best_i))
     return [p for _s, p, _v in selected]
+
+
+def _filter_citations(scored: list[tuple[float, Path]]) -> list[Path]:
+    """The pages of ``scored`` = [(similarity, path)] worth citing, in their given order: those within
+    ``CITATION_SIM_MARGIN`` of the best one (which is always kept), with pages made from the same source
+    file collapsed to the best-scoring of them."""
+    if not scored:
+        return []
+    floor = max(s for s, _ in scored) - CITATION_SIM_MARGIN
+    best: dict[object, tuple[float, Path]] = {}
+    for s, p in scored:
+        if s < floor:
+            continue
+        prov = read_provenance(p.read_text())
+        key = prov["source"] if prov and "source" in prov else p
+        if key not in best or s > best[key][0]:
+            best[key] = (s, p)
+    kept = {p for _s, p in best.values()}
+    return [p for _s, p in scored if p in kept]
+
+
+def _cited_slugs(pages: list[Path], spaces, q_vec: np.ndarray | None) -> list[str]:
+    """Slugs to show as the answer's sources: the retrieved ``pages`` that pass ``_filter_citations``.
+    With no question vector or no way to score a page, every retrieved page is cited as before."""
+    if len(pages) < 2 or q_vec is None:
+        return [p.stem for p in pages]
+    try:
+        roots = [r for r in (getattr(w, "root", None) for w in spaces) if r is not None]
+        vecs = _page_vectors(pages, [embed_text(p) for p in pages], roots, False)
+        scored = [(emb.cosine(q_vec, v), p) for p, v in zip(pages, vecs, strict=True)]
+        return [p.stem for p in _filter_citations(scored)]
+    except Exception:
+        return [p.stem for p in pages]
 
 
 def _merge_relevant(spaces, question: str, k: int, q_vec: np.ndarray | None = None) -> list[Path]:
