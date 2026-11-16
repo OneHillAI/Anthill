@@ -6056,6 +6056,36 @@ def _installed_local_models(cfg) -> list[str]:
         return []
 
 
+def _local_model_sizes_gb(cfg) -> tuple[float, float]:
+    """(configured model's own size, whole Ollama models folder) in GB for the Settings model card.
+    Either is 0 when unknown (Ollama unreachable, model not installed, folder unreadable) so the card
+    omits it rather than show a wrong number. The folder total also counts other models and leftover
+    blobs, so it is only shown next to the model's size, never in its place."""
+    from ..inference.ollama import OllamaBackend, normalize_ollama_tag
+
+    model_gb = 0.0
+    tag = normalize_ollama_tag(cfg.ollama_model or "") if cfg else ""
+    if tag:
+        try:
+            for m in OllamaBackend(cfg.ollama_url, cfg.ollama_model).installed_models_with_sizes():
+                if normalize_ollama_tag(m["name"]) == tag:
+                    # 0 means unknown, so a real but tiny model must not round down to it
+                    model_gb = max(0.1, round(m["size_bytes"] / 1e9, 1)) if m["size_bytes"] else 0.0
+                    break
+        except Exception:
+            model_gb = 0.0
+    folder_gb = 0.0
+    try:
+        from ..backup import ollama_models_dir
+
+        d = ollama_models_dir()
+        if d and d.exists():
+            folder_gb = round(sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / 1e9, 1)
+    except Exception:
+        folder_gb = 0.0
+    return model_gb, folder_gb
+
+
 def _local_model_options(cfg) -> list[str]:
     """The choices for the Solo / this-device model dropdown: installed Ollama tags first, then the
     catalog's Ollama tags that actually FIT this machine, and the current selection - deduped, so the
@@ -6213,16 +6243,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
         .filter(MCPServer.org_id == org.id, MCPServer.status == "approved")
         .count()
     )
-    model_storage_gb = 0
-    try:
-        from ..backup import ollama_models_dir
-
-        d = ollama_models_dir()
-        if d and d.exists():
-            total = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
-            model_storage_gb = round(total / 1e9, 1)
-    except Exception:
-        model_storage_gb = 0
+    model_size_gb, models_on_disk_gb = _local_model_sizes_gb(cfg)
     # Solo council: the currently-configured members (index 0 = lead) + whether a hardware-fitting council
     # is available to offer (best-effort; suggest_local_setup reads local hardware + the model catalog).
     council_members = []
@@ -6288,7 +6309,8 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "scrub_on": bool(getattr(cfg, "cloud_scrub_pii", True)) if cfg else True,
             "presidio_available": presidio_available(),
             "wiki_count": wiki_count,
-            "model_storage_gb": model_storage_gb,
+            "model_size_gb": model_size_gb,
+            "models_on_disk_gb": models_on_disk_gb,
             "integrations_connected": integrations_connected,
             "council_members": council_members,
             "current_council_tags": current_council_tags,

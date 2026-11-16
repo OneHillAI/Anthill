@@ -167,7 +167,8 @@
           <span class="pill-on">{% if solo_cloud %}In your cloud{% else %}On this device{% endif %}</span></div>
         <div class="core-line">{% if current_local_model %}{{ current_local_model }}{% else %}Your model{% endif %}</div>
         <div class="core-meta">
-          {% if solo_cloud %}Runs on your private cloud GPU{% if not cloud_ready %} - no endpoint connected yet{% endif %}{% else %}On this device{% if model_storage_gb %} &middot; {{ model_storage_gb }} GB{% endif %} &middot; fully offline{% endif %}</div>
+          {% if solo_cloud %}Runs on your private cloud GPU{% if not cloud_ready %} - no endpoint connected yet{% endif %}{% else %}On this device{% if model_size_gb %} &middot; {{ model_size_gb }} GB{% endif %} &middot; fully offline{% endif %}</div>
+        {% if not solo_cloud and model_size_gb and models_on_disk_gb > model_size_gb %}<div class="core-meta">Models on disk: {{ models_on_disk_gb }} GB in total</div>{% endif %}
       </div>
       <div class="wir-sub wir-infer">
         <div class="wir-sub-h"><i data-lucide="zap"></i><span>Inference provider</span>
