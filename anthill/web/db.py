@@ -859,6 +859,9 @@ class QueuedUpload(Base):
     ``OrgSettings.local_model_pulling`` clears. ``stored_path`` points at the durable copy under
     the app's files root; it is deleted once the row leaves ``queued`` (done or error), so the
     row itself is the permanent record and the file is scratch space.
+    A ``timed_out`` row is different: the model did not answer within the upload's time limit, and
+    ``stored_path`` then points at the immutable copy under the wiki's ``raw/`` (never deleted here)
+    so the person can retry that same upload without choosing the file again (#148).
     New table, so ``create_all`` picks it up on existing installs.
     """
 
@@ -870,7 +873,9 @@ class QueuedUpload(Base):
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     filename = Column(String(255), nullable=False)
     stored_path = Column(String(500), nullable=False)
-    status = Column(String(12), nullable=False, default="queued")  # queued | done | error
+    status = Column(
+        String(12), nullable=False, default="queued"
+    )  # queued | done | error | timed_out
     error = Column(Text, nullable=False, default="")  # the failure message when status == error
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     processed_at = Column(DateTime, nullable=True)
