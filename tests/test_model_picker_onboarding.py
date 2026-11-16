@@ -45,6 +45,19 @@ def test_picker_lists_all_four_families(tmp_path):
     assert 'name="choice"' in body  # radio choices present, inside the Advanced/manual section
 
 
+def test_cpu_only_linux_box_is_not_called_apple_silicon(tmp_path, monkeypatch):
+    import anthill.hosting.sizing as sizing
+
+    monkeypatch.setattr(sizing.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sizing.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(sizing, "_nvidia_vram_gb", lambda: None)
+    monkeypatch.setattr(sizing, "_posix_ram_gb", lambda: 16.0)
+    c, _ = _client(tmp_path)
+    body = c.get("/setup/model").text
+    assert "16 GB RAM (CPU only)" in body
+    assert "Apple Silicon" not in body and "unified memory" not in body
+
+
 def test_choosing_a_model_records_it_and_starts_the_pull(tmp_path, monkeypatch):
     import anthill.hosting.sizing as sizing
 
