@@ -12360,11 +12360,13 @@ async def chat_stream(
     # `confirm` runs an already-shown proposal (the user message is already saved); don't
     # re-save it, or the conversation would show the prompt twice.
     user_msg_id = 0  # id of the just-saved user message (links a schedule proposal back to it)
+    # Set when this message names a new conversation; sent so the page header follows.
+    new_title = ""
     if not confirm:
         um = ChatMessage(conversation_id=conv.id, role="user", content=message)
         db.add(um)
         if conv.title == "New conversation" and message:
-            conv.title = message[:60]
+            conv.title = new_title = message[:60]
         conv.updated_at = datetime.now(timezone.utc)
         db.commit()
         user_msg_id = um.id
@@ -12388,6 +12390,9 @@ async def chat_stream(
         from ..config import Config
         from ..inference.base import build_backend, stays_local
         from ..routing import TaskRouter
+
+        if new_title:
+            yield f"data: {json.dumps({'meta': {'title': new_title}})}\n\n"
 
         # Computed up front (not deep inside the try/except below) so it's always defined by the
         # time the assistant message is saved, even if generation fails partway through.
