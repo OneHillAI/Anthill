@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+from collections import OrderedDict
 
 import httpx
 import numpy as np
@@ -65,6 +68,35 @@ def embed(text: str) -> np.ndarray:
     return vec / norm if norm > 0 else vec
 
 
+# One chat turn embeds the same question several times: for the cache lookup, for memory recall, for
+# retrieval and for the cache write. Each is a call to the embedding model, so the last few results are
+# kept for a few minutes and the model is asked once. Only the callers that embed a question use this;
+# page embedding does not, so a burst of pages cannot push a question out.
+_RECENT_MAX = 16
+_RECENT_TTL_SECONDS = 300.0
+_recent: OrderedDict[tuple, tuple[float, np.ndarray]] = OrderedDict()
+_recent_lock = threading.Lock()
+
+
+def embed_recent(text: str) -> np.ndarray:
+    """`embed`, remembering the last few results. A failure raises as `embed` does and is not remembered.
+    The key holds the embed function, so a replaced one (a test double) never shares an entry with the
+    real one. Each caller gets its own copy, so changing a returned vector cannot change the next one."""
+    key = (embed, _base_url(), MODEL_NAME, text)
+    with _recent_lock:
+        hit = _recent.get(key)
+        if hit is not None and time.monotonic() - hit[0] < _RECENT_TTL_SECONDS:
+            _recent.move_to_end(key)
+            return hit[1].copy()
+    vec = embed(text)
+    with _recent_lock:
+        _recent[key] = (time.monotonic(), vec)
+        _recent.move_to_end(key)
+        while len(_recent) > _RECENT_MAX:
+            _recent.popitem(last=False)
+    return vec.copy()
+
+
 def safe_embed(text: str) -> np.ndarray | None:
     """Like `embed`, but returns None instead of raising when embeddings are unavailable
     (Ollama unreachable, or the bge-m3 model not pulled yet). Lets the answer and cache paths fall
@@ -72,7 +104,7 @@ def safe_embed(text: str) -> np.ndarray | None:
     if not available():
         return None
     try:
-        return embed(text)
+        return embed_recent(text)
     except Exception:
         return None
 
