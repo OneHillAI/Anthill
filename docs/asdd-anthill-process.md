@@ -25,8 +25,8 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
    bot's open PR branches up to date after every merge, so nobody clicks "Update branch" and waits for CI again.
 4. **Merge.** A human approves and merges. Protected paths (`.github/**`, `scripts/**` and others) need a named
    human reviewer. No agent merges, approves or force-pushes.
-5. **After the merge**, two agents run on the merged commit and comment on the merged PR: the test agent runs
-   the whole suite and records PASS or FAIL as the `asdd/test` status, and the documentation agent proposes the
+5. **After the merge**, two agents run on the merged commit and comment on the merged PR: the test run (pytest,
+   no model) runs the whole suite and records PASS or FAIL as the `asdd/test` status, and the documentation agent proposes the
    docs the change needs. Both only advise.
 6. **Release.** Merged work reaches users only through a release. A new stable release starts as a pre-release;
    after it is checked, a release owner makes it the latest release by hand. The beta lane (Cut Beta, Promote
@@ -39,21 +39,21 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
 | Developer | the contributor's own (maintainer: Claude) | while building | writes the change; optional council of Opus, Gemini and GPT on Runware | bring-your-own, not provisioned |
 | Intake | none (deterministic) | every PR | disclosure, DCO, exactly one lane label, spec | required check |
 | Reviewer (code, security, spec, quality) | gemma-4-31B-it on Infercom | every PR | advisory recommendation, the `asdd/review` status and one comment | live, advisory |
-| Test runner | gpt-oss-120b on Infercom | after every merge to main | runs the full suite, records the `asdd/test` status | proven on a real merge (2026-10-03) |
+| Test run | none (deterministic: pytest) | after every merge to main | runs the full suite as CI does, records the `asdd/test` status | deterministic since #174; the verdict is pytest's exit code |
 | Test author | gpt-oss-120b on Infercom | on demand, while a change is built | proposes the missing tests | installed, not yet run on a real change |
 | Documentation | gemma-4-31B-it on Infercom | after every merge to main | proposes the impact-log entry, changelog line and untrue doc sentences as paste-ready blocks | first real run on PR 67 (2026-10-04): well formed; its one wrong suggestion (a fragment for a release cut) is fixed |
 | Interaction | gemma-4-31B-it on Infercom | on a chat surface | answers from the wiki, routes ideas into intake | not connected |
 | Merge-reviewer and impact reviewer | to be set | before a merge | one independent go or no-go note | not installed |
 
-The test runner, test author and documentation agent each use a different model family from the developer
-where the roster allows, and the reviewer differs from the test agents. The roster is in `.asdd.yml`
+The test author and documentation agent each use a different model family from the developer
+where the roster allows, and the reviewer differs from the test author. The roster is in `.asdd.yml`
 (`models:`).
 
 ## What blocks a merge and what only advises
 
 - **Required** (the branch ruleset): `lint`, the four Python test runs, and `intake`; the branch must be up to
   date with `main`; protected paths also need the code owner's review.
-- **Advisory:** the review (its `asdd/review` status and comment), the runtime check, the test agent, the
+- **Advisory:** the review (its `asdd/review` status and comment), the runtime check, the post-merge test run, the
   documentation agent, and the report-only invariants and conventions checks.
 - The review is a skeptic by design, but only a real finding fails the status: a security block, or a concern
   from the code or spec lens. A design-only objection from its adversarial pass stays in the comment and the
@@ -84,11 +84,14 @@ where the roster allows, and the reviewer differs from the test agents. The rost
 
 ## Reading the signals
 
-- `NO AI REVIEW RAN`, `NO TEST AGENT RAN`, `NO DOCUMENTATION AGENT RAN`: that agent did not run (no model
-  wired, or Goose missing). It is not a result. Run the **ASDD runtime check**, which shows every agent as
+- `NO AI REVIEW RAN`, `NO DOCUMENTATION AGENT RAN`: that agent did not run (no model wired, or Goose
+  missing). It is not a result. Run the **ASDD runtime check**, which shows every agent as
   LIVE or not (it also runs daily).
 - `No usable AI review`: the model was reached but its answer could not be used, even after retries. A human
   reviews that PR.
+- `NO VERDICT (pytest did not give a usable result)`: pytest did not complete (no tests collected, killed, or its
+  result file was unreadable), so `asdd/test` is recorded as `error`. It is not a pass. Read the run's log, then
+  run **ASDD test** again on that commit.
 - `did not run to completion`: the agent started and left nothing usable. The report shows the exit code and
   the last lines, with the key removed.
 
