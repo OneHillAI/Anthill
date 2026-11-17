@@ -1,6 +1,6 @@
 # Spec: the ASDD test agents (test runner after merge, test author on demand)
 
-Status: implemented, not yet proven live (see section 4)
+Status: the post-merge test runner (R1 to R6, R8, R9) is superseded by [`174-deterministic-test-run.md`](174-deterministic-test-run.md): it now runs pytest with no model. The test author (R7) and the runner/recipe contract (R10) are unchanged. Originally: implemented, not yet proven live (see section 4)
 Lane: `pillar:platform`
 Relates to: [`asdd-model-roster.md`](asdd-model-roster.md) (roles `test_author`, `test_runner`),
 `recipes/`, `cli/operate-run.py`, `.github/asdd/operate/`, the ASDD standard OP.2, OP.3 and OP.5
