@@ -53,7 +53,7 @@ jobs:
       BETA: ${{ inputs.beta }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -172,7 +172,7 @@ jobs:
       # which is what makes today's Release and Desktop release workflows run on the new stable tag.
       - name: Mint the bot token
         id: apptoken
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
           private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}

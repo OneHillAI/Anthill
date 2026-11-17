@@ -95,7 +95,7 @@ jobs:
       - name: Mint bot token
         if: steps.policy.outputs.eligible == 'true' && steps.cfg.outputs.configured == 'true'
         id: apptoken
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ secrets.ANTHILL_BOT_APP_ID }}
           private-key: ${{ secrets.ANTHILL_BOT_APP_KEY }}

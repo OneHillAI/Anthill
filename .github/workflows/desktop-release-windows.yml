@@ -53,7 +53,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # Belt and braces, as in the macOS job: only a plain stable tag (vX.Y.Z) may add files to a LIVE release.
       - name: Refuse anything but a stable version tag
@@ -82,7 +82,7 @@ jobs:
           IS_PRE="$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)"
           [ "$IS_PRE" = "true" ] || { echo "::error::$TAG is not a published pre-release; Windows files are added before a release is made the latest."; exit 1; }
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         if: ${{ env.SIGN_KEY != '' }}
         with:
           python-version: "3.11"
@@ -90,13 +90,15 @@ jobs:
       - name: Install uv
         if: ${{ env.SIGN_KEY != '' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
         if: ${{ env.SIGN_KEY != '' }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ env.SIGN_KEY != '' }}
         with:
           workspaces: src-tauri
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: ${{ env.SIGN_KEY != '' }}
         with:
           node-version: "20"

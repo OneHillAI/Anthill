@@ -40,24 +40,10 @@ REVIEWED_RUN_EXPRESSIONS = {
     ("release.yml", "github.ref_name"): 2,
 }
 
-# `uses:` references still on a tag or branch, per file. Lower a number (or drop the entry) when you pin
-# one by SHA; the test fails if the number is higher than the file's real count or lower than it.
-UNPINNED_USES = {
-    "asdd-automerge.yml": 1,
-    "backend-image.yml": 3,
-    "desktop-beta-windows.yml": 6,
-    "desktop-beta.yml": 6,
-    "desktop-promote.yml": 2,
-    "desktop-release-windows.yml": 5,
-    "desktop-release.yml": 6,
-    "docs-deploy.yml": 2,
-    "pr-validation.yml": 2,
-    "refresh-model-catalog.yml": 1,
-    "release.yml": 3,
-    "security-audit.yml": 3,
-    "trainer-image.yml": 3,
-    "windows-ci.yml": 11,
-}
+# `uses:` references allowed to stay on a tag or branch, per file. Empty: every action is pinned by full commit
+# SHA, so a mutable tag can no longer change what a release or publish job runs. An exception goes here, with a
+# reason in a comment, and is reviewed like any other change to this file.
+UNPINNED_USES: dict[str, int] = {}
 SHA = re.compile(r"@[0-9a-f]{40}$")
 
 
@@ -99,7 +85,7 @@ def test_run_expressions_match_reviewed_list():
     assert not stale, f"reviewed expressions that no longer exist; remove them: {stale}"
 
 
-def test_unpinned_uses_only_go_down():
+def test_every_action_is_pinned_by_full_commit_sha():
     seen = {}
     for path in FILES:
         refs = [s["uses"] for s in _steps(path) if s.get("uses")]
@@ -111,9 +97,37 @@ def test_unpinned_uses_only_go_down():
         f"actions pinned to a tag or branch; pin them by full commit SHA (now, allowed): {grew}"
     )
     shrank = {f: (seen.get(f, 0), n) for f, n in UNPINNED_USES.items() if seen.get(f, 0) < n}
-    assert not shrank, (
-        f"fewer tag-pinned actions than the baseline; lower UNPINNED_USES (now, baseline): {shrank}"
-    )
+    assert not shrank, f"UNPINNED_USES lists exceptions that no longer exist; remove them: {shrank}"
+
+
+def test_every_pin_says_which_version_it_is():
+    """A bare SHA cannot be read or reviewed; the trailing comment names the release it is."""
+    bare = []
+    for path in FILES:
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            m = re.match(r"^\s*(?:-\s+)?uses:\s*(\S+@[0-9a-f]{40})(.*)$", line)
+            if m and not re.match(r"^\s+#\s*\S+", m.group(2)):
+                bare.append(f"{path.name}:{n}")
+    assert not bare, f"a SHA pin with no `# version` comment: {bare}"
+
+
+def test_a_sha_pinned_rust_toolchain_names_its_toolchain():
+    """The action reads the toolchain from the ref name (@stable). Pinned by SHA that is lost, and on the master
+    commits the input is required, so every use must pass it."""
+    uses = [
+        (path.name, s)
+        for path in FILES
+        for s in _steps(path)
+        if str(s.get("uses", "")).startswith("dtolnay/rust-toolchain@")
+    ]
+    assert uses, "expected the desktop workflows to use dtolnay/rust-toolchain"
+    for name, step in uses:
+        assert SHA.search(step["uses"]), (
+            f"{name}: rust-toolchain must be pinned by SHA, not {step['uses']}"
+        )
+        assert (step.get("with") or {}).get("toolchain"), (
+            f"{name}: a SHA-pinned rust-toolchain needs toolchain:"
+        )
 
 
 def test_injection_pattern_catches_the_classic_cases():
