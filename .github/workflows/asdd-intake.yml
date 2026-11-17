@@ -63,6 +63,7 @@ jobs:
           # machine-authored PR (machine_authors in .asdd.yml, e.g. Dependabot) is waived the disclosure
           # box and the lane label only while every commit in it is by that same machine.
           git log --no-merges "$BASE_SHA".."$HEAD_SHA" --format='%an' > .asdd-work/authors.txt
+          git log --no-merges "$BASE_SHA".."$HEAD_SHA" --format='%ae' > .asdd-work/author-emails.txt
           printf '%s\n' "$PR_AUTHOR" > .asdd-work/author.txt
           # Changed files (for the spec-gate: did the PR add/edit a docs/specs/*.md?). Names only.
           # --name-status (not --name-only): the spec gate must count an ADDED/MODIFIED spec, not a

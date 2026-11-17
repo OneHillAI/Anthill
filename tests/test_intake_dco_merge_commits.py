@@ -79,7 +79,9 @@ def _intake(repo, base, head, out_dir, *, no_merges=True):
         .replace(".asdd-work/commits.txt", str(out_dir / "commits.txt"))
     )
     subprocess.run(["bash", "-c", cmd], cwd=repo, env=_ENV, check=True)
-    (out_dir / "body.md").write_text("- [x] Authored by an **AI agent** under human direction.\n")
+    (out_dir / "body.md").write_text(
+        "- [x] Authored by a **human**.\n"
+    )  # the box is incidental here: this is about DCO
     (out_dir / "labels.txt").write_text("chore\n")
     (out_dir / "changed.txt").write_text("")
     (out_dir / "meta.env").write_text("pr_number=1\nhead_sha=" + head + "\n")

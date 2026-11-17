@@ -42,6 +42,9 @@ jobs:
         run: |
           git fetch origin "$BASE_REF" --depth=1 --quiet || true
           mapfile -t changed < <(git diff --name-only "origin/${BASE_REF}...HEAD")
+          # The diff itself, so the checker also judges the ADDED lines (banned characters) and rules that
+          # fire on newly added files; --changed alone cannot see those.
+          git diff "origin/${BASE_REF}...HEAD" > "$RUNNER_TEMP/change.patch"
           lane="$(python -c "import json,os;d=json.load(open(os.environ['GITHUB_EVENT_PATH']));\
           print(next((l['name'] for l in d['pull_request']['labels'] \
           if l['name'].startswith('pillar:') or l['name']=='chore'),''))")"
@@ -50,6 +53,6 @@ jobs:
             echo "Lane: \`${lane:-<none>}\`  |  files changed: ${#changed[@]}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          python cli/conventions-check.py --changed "${changed[@]}" --lane "$lane" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+          python cli/conventions-check.py --changed "${changed[@]}" --diff "$RUNNER_TEMP/change.patch" \
+            --lane "$lane" | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

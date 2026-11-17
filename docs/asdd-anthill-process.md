@@ -20,8 +20,11 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
 2. **On the PR.** Intake checks the contract: disclosure, a sign-off on every authored commit (merge commits are
    not counted), exactly one lane label, and the spec. A PR from a listed machine author (`machine_authors` in
    `.asdd.yml`, today Dependabot) is waived the disclosure box and the lane label while every commit in it is the
-   machine's own; a human commit on its branch ends that. The review reads the diff through four lenses and
-   recommends; it retries a bad model reply instead of giving up. CI runs lint and the tests on Python 3.10 to
+   machine's own; a human commit on its branch ends that. A commit by a configured agent identity must carry the
+   `Agent:` trailer, and a PR that ticks the AI-agent box needs it on at least one commit. The review reads the diff through four lenses and
+   recommends; it retries a bad model reply instead of giving up. A change to product code (`anthill/`) must add a
+   changelog fragment before it merges, unless it is in the chore lane, a release cut, or from a machine author; tests,
+   docs and CI alone need none. CI runs lint and the tests on Python 3.10 to
    3.13. A change to the ASDD setup also runs the runtime check, which pings every agent's model.
 3. **Staying current.** The merge ruleset will not merge a branch that is behind `main`. A workflow brings the
    bot's open PR branches up to date after every merge, so nobody clicks "Update branch" and waits for CI again.
