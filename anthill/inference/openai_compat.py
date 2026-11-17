@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Sequence
+from time import monotonic
 
 import httpx
 
 from ..hybrid.scrub import restore, scrub
 from .base import BackendError, ChatResult, Message, _mean_logprob, stays_local
+from .stats import TurnStats, from_openai
 
 
 def _scrub_messages(messages: Sequence[Message]) -> tuple[list[Message], dict[str, str]]:
@@ -106,6 +108,9 @@ class OpenAICompatBackend:
         self.timeout = timeout
         self.max_tokens = max_tokens
         self._scrub_egress = not stays_local("openai", self.base_url)
+        # The last call's TurnStats, or None while it runs, after a failure, or when the endpoint sent no
+        # usage and the call was not streamed (#219).
+        self.last_turn: TurnStats | None = None
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -151,6 +156,8 @@ class OpenAICompatBackend:
             # safe to always request when a confidence signal is wanted, no capability probe needed.
             payload["logprobs"] = True
             payload["top_logprobs"] = 1
+        self.last_turn = None
+        started = monotonic()
         try:
             resp = httpx.post(
                 f"{self.base_url}/chat/completions",
@@ -189,6 +196,9 @@ class OpenAICompatBackend:
                 raise TypeError("message content is not text")
         except (KeyError, IndexError, TypeError) as e:
             raise BackendError(f"Unexpected response shape from {self.base_url}.") from e
+        self.last_turn = from_openai(
+            data, model=str(payload["model"]), total_ms=round((monotonic() - started) * 1000)
+        )
         return content, data, replacements
 
     def chat_stream(
@@ -210,6 +220,10 @@ class OpenAICompatBackend:
         }
 
         def _tokens() -> Iterator[str]:
+            self.last_turn = None
+            started = monotonic()
+            first_token_ms: int | None = None
+            final: dict = {}
             try:
                 with httpx.stream(
                     "POST",
@@ -251,6 +265,8 @@ class OpenAICompatBackend:
                                 raise BackendError(
                                     f"The model endpoint stream failed: {detail[:200]}"
                                 )
+                            if event.get("usage") or event.get("timings"):
+                                final = event  # the usage chunk may have no choices
                             choice = event["choices"][0]
                             delta = choice.get("delta") or {}
                         except (json.JSONDecodeError, KeyError, IndexError, TypeError):
@@ -263,12 +279,20 @@ class OpenAICompatBackend:
                         if isinstance(refusal, str) and refusal.strip():
                             token += refusal
                         if token:
+                            if first_token_ms is None:
+                                first_token_ms = round((monotonic() - started) * 1000)
                             emitted_text = emitted_text or bool(token.strip())
                             yield token
                     if not completed:
                         raise BackendError("The model endpoint stream ended before completion.")
                     if not emitted_text:
                         raise BackendError("The model endpoint returned an empty response.")
+                    self.last_turn = from_openai(
+                        final,
+                        model=str(payload["model"]),
+                        first_token_ms=first_token_ms,
+                        total_ms=round((monotonic() - started) * 1000),
+                    )
             except httpx.TimeoutException as e:
                 raise BackendError(
                     "The model endpoint did not respond in time. If it is a serverless endpoint "
@@ -308,6 +332,8 @@ class OpenAICompatBackend:
             "stream": False,
             "temperature": temperature,
         }
+        self.last_turn = None
+        started = monotonic()
         try:
             resp = httpx.post(
                 f"{self.base_url}/chat/completions",
@@ -324,8 +350,9 @@ class OpenAICompatBackend:
             raise BackendError(
                 f"Server returned {e.response.status_code}: {e.response.text[:200]}"
             ) from e
+        data = resp.json()
         try:
-            choice = (resp.json().get("choices") or [{}])[0] or {}
+            choice = (data.get("choices") or [{}])[0] or {}
             msg = choice.get("message", {}) or {}
         except (KeyError, IndexError, TypeError) as e:
             raise BackendError(f"Unexpected response shape from {self.base_url}.") from e
@@ -371,6 +398,9 @@ class OpenAICompatBackend:
             raise BackendError(
                 f"Model endpoint returned an incomplete tool call or empty response at {self.base_url}."
             )
+        self.last_turn = from_openai(
+            data, model=str(payload["model"]), total_ms=round((monotonic() - started) * 1000)
+        )
         return {
             "message": {
                 # tool_calls arguments are NOT restored: the model only ever saw scrubbed text, so
