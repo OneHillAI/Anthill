@@ -72,6 +72,17 @@ max_open_prs_per_author: 20
 review_override_owners:
   - "welsbach"
 
+# Machine authors: automation whose own login is the authorship disclosure. A PR AUTHORED BY one of these
+# logins is waived the ticked disclosure box and the lane label at intake, because the tool writes its own
+# PR body and labels and cannot be taught the template; it counts as a `chore` (no spec needed). The waiver
+# holds only while every commit in the PR is authored by that same login, so a human fix pushed onto the
+# branch makes it a human PR again. DCO, anti-flood, the review lenses, the required checks and protected-path
+# review all still apply, and nothing here lets it merge itself. Read from the BASE commit's copy of this
+# file, so a PR cannot add itself, and only a GitHub bot login (ending in `[bot]`) qualifies, so listing a
+# person does nothing. Empty => none. See docs/specs/dependabot-intake-machine-authors.md.
+machine_authors:
+  - "dependabot[bot]"
+
 # Spec-driven by default: a non-trivial PR (any lane but `chore`) must be based on a spec - it references
 # an existing docs/specs/*.md or adds one it implements. Intake fails a spec-less change; the live `spec`
 # lens says what to add. false/unset disables the check. See docs/specs/mandatory-spec-gate.md.
