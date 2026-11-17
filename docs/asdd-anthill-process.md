@@ -18,7 +18,9 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
    of the contract: sign-off, one lane label, the authorship disclosure, tests. A non-chore PR also carries or
    names a spec in `docs/specs/`.
 2. **On the PR.** Intake checks the contract: disclosure, a sign-off on every authored commit (merge commits are
-   not counted), exactly one lane label, and the spec. The review reads the diff through four lenses and
+   not counted), exactly one lane label, and the spec. A PR from a listed machine author (`machine_authors` in
+   `.asdd.yml`, today Dependabot) is waived the disclosure box and the lane label while every commit in it is the
+   machine's own; a human commit on its branch ends that. The review reads the diff through four lenses and
    recommends; it retries a bad model reply instead of giving up. CI runs lint and the tests on Python 3.10 to
    3.13. A change to the ASDD setup also runs the runtime check, which pings every agent's model.
 3. **Staying current.** The merge ruleset will not merge a branch that is behind `main`. A workflow brings the
