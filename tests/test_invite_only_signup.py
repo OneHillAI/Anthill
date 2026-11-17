@@ -46,7 +46,7 @@ def _client(kind=LOCAL, **headers):
 def _signup(email, kind=LOCAL, **headers):
     return _client(kind, **headers).post(
         "/setup",
-        data={"admin_email": email, "admin_password": "longenoughpw1"},
+        data={"admin_email": email, "admin_password": "longenoughpw1", "topology": "org"},
         follow_redirects=False,
     )
 

@@ -221,18 +221,17 @@ def run_agent(agent, db) -> str:
     endpoint + org workspace with personal context excluded. Consequential actions are
     verifier-checked and queued for human approval (never fired headless).
     """
-    from .. import planes
     from ..agent.executor import NO_TOOLS_NOTE, AgentExecutor, strip_no_tools_note
     from . import audit
     from .agent_context import agent_context_for
     from .agents import audit_hook
     from .crypto import decrypt
     from .db import OrgSettings
-    from .plane_routing import plane_inference
+    from .plane_routing import account_plane, plane_inference, shares_org_model
     from .recall import recall_memory
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == agent.org_id).first()
-    plane = planes.normalize(getattr(agent, "plane", "solo"))
+    plane = account_plane(getattr(agent, "plane", "solo"), cfg)
     plane_inf = plane_inference(plane, cfg, decrypt=decrypt)  # raises PlaneUnavailable if org down
     audit.log_inference_call(
         db, plane_inf, org_id=agent.org_id, user_id=agent.created_by, surface="agent"
@@ -246,7 +245,7 @@ def run_agent(agent, db) -> str:
         org_id=agent.org_id,
         plane=plane,
         team_id=getattr(agent, "team_id", None),
-        is_org=planes.is_org_mode(cfg),
+        is_org=shares_org_model(cfg),
     )
     goal, full_principles = _goal_and_principles(agent, principles)
 
@@ -351,11 +350,10 @@ def _execute_escalation(db, approval) -> str:
 
 def execute_approved(db, approval) -> str:
     """Execute a single human-approved tool call once, under the agent's plane-scoped tools."""
-    from .. import planes
     from . import audit
     from .crypto import decrypt
     from .db import Agent, OrgSettings
-    from .plane_routing import plane_inference
+    from .plane_routing import account_plane, plane_inference
 
     if approval.tool == "escalate_to_provider":
         return _execute_escalation(db, approval)
@@ -364,7 +362,7 @@ def execute_approved(db, approval) -> str:
     if agent is None:
         return "ERROR: the agent no longer exists"
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == agent.org_id).first()
-    plane_inf = plane_inference(planes.normalize(agent.plane), cfg, decrypt=decrypt)
+    plane_inf = plane_inference(account_plane(agent.plane, cfg), cfg, decrypt=decrypt)
     audit.log_inference_call(
         db, plane_inf, org_id=agent.org_id, user_id=agent.created_by, surface="agent_approval"
     )
