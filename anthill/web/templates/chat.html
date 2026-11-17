@@ -423,7 +423,7 @@
                 {% endif %}
               {% endif %}
               {% if msg.wiki_slugs %}
-                <span>📖 {{ msg.wiki_slugs }}</span>
+                <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: {{ msg.wiki_slugs.split(',') | join(', ') }}</span>
               {% endif %}
               <button class="thumbs {% if msg.thumbs_up == True %}selected-up{% endif %}"
                       onclick="rate({{ msg.id }}, 1)" title="Good answer"><i data-lucide="thumbs-up">👍</i></button>
@@ -1691,7 +1691,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         setBuildStatus(escalatingLabel ? `Couldn't reach ${escalatingLabel}` : 'Expert check unavailable', rowEl(bubble));
       }
       if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
-      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)">📖 ${d.meta.wiki_slugs.join(', ')}</span>`;
+      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${d.meta.wiki_slugs.join(', ')}</span>`;
       if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
       if (d.meta?.escalated === true) {
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';

@@ -1976,6 +1976,20 @@ def _cfg_or_create(db: Session, org: Organization) -> OrgSettings:
     return cfg
 
 
+def _slugs_for_storage(slugs) -> str:
+    """The page slugs of an answer as the comma-separated string ``ChatMessage.wiki_slugs`` holds. Whole
+    slugs only: it stops before the column's 500 characters rather than cut one in half."""
+    out: list[str] = []
+    size = 0
+    for slug in slugs or []:
+        slug = str(slug)
+        if not slug or "," in slug or size + len(slug) + (1 if out else 0) > 500:
+            continue
+        size += len(slug) + (1 if out else 0)
+        out.append(slug)
+    return ",".join(out)
+
+
 def _compute_where_label(cfg) -> str:
     """Human label for where inference actually runs: `your machine` / `your cloud` / `the org
     model`, from the account's settings. It says where this account's chat runs, not which model read
@@ -13182,6 +13196,7 @@ async def chat_stream(
         generation_failed = False
         fixed_answer = False  # set when the answer is the code-made "no news articles" text
         cache_hit = False  # set by the normal-chat branch; agent mode stays local
+        slugs: list = []  # the wiki pages the normal-chat branch gave the model; saved with the answer
         escalations: list[float] = []  # cloud escalation costs, if the answer left the perimeter
         _escalated = False  # set True on a successful Automated-mode escalation; persisted below so
         # the badge survives a page reload, not just the live SSE stream (chat.html reads msg.escalated
@@ -13680,7 +13695,7 @@ async def chat_stream(
                     except Exception:
                         hit = None
 
-                slugs: list = []
+                slugs = []
                 cache_hit = False
                 if hit is not None:
                     cache_hit, slugs = True, hit.slugs
@@ -13960,6 +13975,10 @@ async def chat_stream(
             answered_locally=_answered_locally,
             generation_failed=generation_failed,
             escalated=_escalated,
+            # What the answer was given, kept with it so the page shows the same after a reload. Not
+            # kept for a turn that failed, and a fixed answer made by code has no slugs.
+            cache_hit=cache_hit and not generation_failed,
+            wiki_slugs="" if generation_failed else _slugs_for_storage(slugs),
         )
         db.add(assistant_msg)
         db.commit()
