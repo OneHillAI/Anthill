@@ -563,3 +563,50 @@ def test_crypto_takes_its_key_from_the_key_layer_and_refuses_without_one(w, monk
     monkeypatch.setattr(crypto, "_KEY", b"o" * 32)  # the override hook still wins
     with pytest.raises(Exception):  # noqa: B017 - InvalidTag
         crypto.decrypt(token)
+
+
+def test_the_ciphertext_format_and_the_function_signatures_are_unchanged(monkeypatch):
+    """Same as main: base64(12-byte nonce + AES-256-GCM ciphertext and tag), no associated data, no prefix."""
+    import inspect
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    key = b"k" * 32
+    monkeypatch.setattr(crypto, "_KEY", key)
+    assert list(inspect.signature(crypto.encrypt).parameters) == ["plaintext"]
+    assert list(inspect.signature(crypto.decrypt).parameters) == ["token"]
+    nonce = b"n" * 12
+    old = base64.b64encode(nonce + AESGCM(key).encrypt(nonce, b"made-on-main", None)).decode()
+    assert crypto.decrypt(old) == "made-on-main"  # what main wrote still opens
+    raw = base64.b64decode(crypto.encrypt("made-now"))
+    assert AESGCM(key).decrypt(raw[:12], raw[12:], None) == b"made-now"  # and main could open ours
+    assert len(raw) == 12 + len(b"made-now") + 16
+    assert crypto.encrypt("same") != crypto.encrypt("same")  # a fresh nonce each time
+
+
+def test_a_token_signed_with_the_old_fixed_or_raw_secret_is_refused(w):
+    from itsdangerous import BadSignature, URLSafeTimedSerializer
+
+    from anthill.web import app as app_mod
+
+    w.legacy(files=False)
+    w.start()
+    fixed = URLSafeTimedSerializer("anthill-dev", salt="slack-oauth").dumps({"org": 1})
+    with pytest.raises(BadSignature):
+        app_mod._slack_oauth_serializer().loads(fixed)
+    raw = URLSafeTimedSerializer(JWT, salt="task-result-review").dumps({"t": 1})
+    with pytest.raises(BadSignature):
+        app_mod._task_review_serializer().loads(raw)
+    good = app_mod._slack_oauth_serializer().dumps({"org": 1})
+    assert app_mod._slack_oauth_serializer().loads(good) == {"org": 1}
+
+
+def test_files_the_key_layer_rewrites_stay_private(w):
+    w.legacy()
+    w.start()
+    w.secrets_env.write_text(f"ANTHILL_ENCRYPTION_KEY={KEY}\n{NOTE_LINE}\n")
+    w.dot_env.write_text(f"ANTHILL_ENCRYPTION_KEY={KEY}\nOTHER=1\n")
+    w.dot_env.chmod(0o644)
+    w.start()
+    for path in (w.secrets_env, w.dot_env, w.marker):
+        assert (path.stat().st_mode & 0o777) == 0o600

@@ -36,6 +36,27 @@ and never a new key (not even with `ANTHILL_ALLOW_EPHEMERAL_KEY=1`).
 "Stored values" means any non-empty `*_enc` column or council-member copy. A database that exists but cannot be read
 (locked, damaged) is a plain error, never "no values". `start.sh` asks the same probe before it generates a key.
 
+## Nothing weaker than main (the key)
+
+Each protection that exists on `main` in the files this change touches, and where it is now. Test names are in
+`tests/test_keystore.py` unless a file is named. Result: none is weaker or gone. Where the behaviour differs it is
+stricter. The cost is availability: a start that used to carry on with a made-up key now stops (see "Not verified").
+
+| Protection | On main | Now | Test |
+|---|---|---|---|
+| AES-256-GCM, random 96-bit nonce, `base64(nonce + ct + tag)`, `encrypt(plaintext)` / `decrypt(token)` | `web/crypto.py` | same code and format; only the key's source changed | `test_the_ciphertext_format_and_the_function_signatures_are_unchanged`, `test_ciphertext_made_before_the_move_still_opens_after_it` |
+| Key must be 32 bytes | `ValueError` at import, lenient base64 | `KeyUnavailable`, strict base64, before serving | `test_a_legacy_key_that_is_not_32_bytes_is_refused` |
+| No silent throwaway key | a missing key became a random one, so data was lost on restart | refused unless `ANTHILL_ALLOW_EPHEMERAL_KEY=1` and no stored values and no marker | `test_stored_values_and_no_key_refuse_and_make_nothing`, `test_the_dev_switch_gives_a_throwaway_key_only_with_no_values_and_no_marker` |
+| Session tokens: HS256 only, clock leeway, TTL, renewal, revocation | `web/crypto.py` | unchanged; the secret comes from the key layer (random per process if none is set, as on main) | `tests/test_session_token_pyjwt.py`, `tests/test_jwt_live_revocation.py` |
+| Slack OAuth `state` is signed and timed | JWT secret from the environment, else the fixed text `anthill-dev` | key derived from the JWT secret; no fixed fallback | `test_a_token_signed_with_the_old_fixed_or_raw_secret_is_refused`, `test_no_fixed_fallback_secret_is_left_in_the_code`, `tests/test_slack_bot.py::test_oauth_callback_rejects_bad_state` |
+| Task-result review link is signed (CSRF) | the JWT secret directly | derived key, own purpose | `tests/test_task_result_review.py::test_review_is_csrf_protected`, `test_signing_keys_differ_by_purpose_and_come_from_the_jwt_secret` |
+| `secrets.env` is 0600 | `desktop._ensure_secrets` | same where it is written; not written at all with a Keychain; files the key layer rewrites are 0600 | `tests/test_key_startup.py::test_without_a_keychain_a_fresh_install_gets_a_key_file_as_before`, `test_files_the_key_layer_rewrites_stay_private` |
+| Existing key never overwritten by the desktop or `start.sh` | only a missing line was added | same, and no key is made while stored values exist | `tests/test_key_startup.py::test_without_a_keychain_a_missing_key_over_stored_values_is_refused`, `tests/test_start_sh.py::test_a_database_with_encrypted_values_and_no_key_stops_instead_of_making_one` |
+| `.env` is 0600 | set when `start.sh` made it | set on every write | `tests/test_start_sh.py::test_a_fresh_project_gets_both_secrets_once_when_the_database_is_empty` |
+| Bring-in: empty install, this machine only, same origin, folder guard, links skipped, env read capped at 64 KiB, staged database 0600, `secrets.env` 0600, undo on failure | `web/bring_in.py` | unchanged, plus the imported key must open every stored value, keys stay out of the environment and files with a Keychain, and the key swap is undone on failure | `tests/test_first_run_bring_in.py` (the `test_refuses_*` family, `test_a_link_that_stays_inside_the_folder_is_skipped_not_followed`, `test_bringing_in_a_project_folder_brings_the_account_wikis_and_keys`, `test_a_failure_after_the_new_item_is_made_restores_the_old_marker_and_removes_it`) |
+| Audit events from bring-in or key handling | none on main | none added to the audit log (key steps go to the logger, no secret in them) | n/a |
+| Database file 0600 | `web/db.py` `_secure_db_file` | not touched | n/a |
+
 ## Recovery cases
 
 - **Fresh install:** item and marker made at first start; nothing written to `secrets.env`.
