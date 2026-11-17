@@ -53,6 +53,11 @@ build_prompt() {
     echo "## Title"; cat "$ASDD_WORKDIR/title.txt"; echo
     echo "## Body";  cat "$ASDD_WORKDIR/body.md";   echo
     echo "## Diff";  echo '```diff'; cat "$ASDD_WORKDIR/changes.diff"; echo '```'
+    if [ -s "$ASDD_WORKDIR/linked-specs.md" ]; then
+      echo
+      echo "## Linked specs (existing specs the description references, as they are on the base branch)"
+      cat "$ASDD_WORKDIR/linked-specs.md"
+    fi
     echo "${fence}"
   } > "$out"
 }
