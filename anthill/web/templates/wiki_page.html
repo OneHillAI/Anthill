@@ -11,7 +11,7 @@
   <div class="task-md task-md-raw" data-md>{{ content }}</div>
 </div>
 {% if provenance %}
-<p class="text-sm text-muted" style="margin:10px 0 0">{% if verbatim %}The note as uploaded{% else %}Written by {{ provenance.model }}{% endif %} on {{ provenance.date }}{% if provenance.source %} from {{ provenance.source }}{% endif %}.</p>
+<p class="text-sm text-muted" style="margin:10px 0 0">{% if verbatim %}The note as uploaded{% else %}AI summary written by {{ provenance.model }}{% endif %} on {{ provenance.date }}{% if provenance.source %} from {% if source_link %}<a href="{{ source_link }}">{{ source_name }}</a>{% else %}{{ source_name }}{% endif %}{% endif %}.{% if not verbatim %} It is not the text of your document{% if source_link %}; the original is kept under Files{% endif %}.{% endif %}</p>
 {% endif %}
 {% include "_markdown_render.html" %}
 {% endblock %}

@@ -1978,8 +1978,8 @@ def _cfg_or_create(db: Session, org: Organization) -> OrgSettings:
 
 def _compute_where_label(cfg) -> str:
     """Human label for where inference actually runs: `your machine` / `your cloud` / `the org
-    model`. Single source of truth so the Dashboard's council card and an upload's "indexed by"
-    confirmation can never describe the same deployment two different ways.
+    model`, from the account's settings. It says where this account's chat runs, not which model read
+    an upload (the upload banner names that from the page's own tag).
     """
     from ..training.model_select import is_solo_account
 
@@ -8221,6 +8221,17 @@ def _timed_out_uploads(db, user, org, scope, team_id) -> list[dict]:
     return [{"id": r.id, "filename": r.filename} for r in rows]
 
 
+_UPLOAD_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+def _upload_types_text() -> str:
+    """The file types an upload accepts, as one sentence built from ``SUPPORTED_UPLOAD_EXT`` so the list
+    on the page and the one in the "unsupported" message cannot drift from what the route checks."""
+    docs = ", ".join(sorted(SUPPORTED_UPLOAD_EXT - _UPLOAD_IMAGE_EXT))
+    images = ", ".join(sorted(SUPPORTED_UPLOAD_EXT & _UPLOAD_IMAGE_EXT))
+    return f"Supported: {docs} and images ({images})."
+
+
 def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
     from ..common.text import first_h1
     from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS, INGEST_MODEL_TIMEOUT_SECONDS
@@ -8260,6 +8271,21 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         ),
         "upload_retries": _timed_out_uploads(db, user, org, scope, team_id),
         "upload_problem": ups.UPLOAD_PROBLEMS.get(request.query_params.get("error", "")),
+        "upload_types_text": _upload_types_text(),
+        "saved_how": (
+            ups.how_it_was_read(
+                db,
+                org_id=org.id,
+                user_id=int(user["sub"]),
+                scope=scope,
+                team_id=team_id,
+                slug=request.query_params.get("slug", ""),
+            )
+            if request.query_params.get("saved") in ("added", "queued")
+            and request.query_params.get("slug")
+            and _wiki_can_edit(db, user, scope, team_id)
+            else ""
+        ),
         "recent_uploads": (
             ups.recent_uploads(
                 db, org_id=org.id, user_id=int(user["sub"]), scope=scope, team_id=team_id
@@ -8481,9 +8507,27 @@ def wiki_page_view(
             "content": body,
             "provenance": read_provenance(md),
             "verbatim": is_verbatim(md),
+            "source_name": _original_name((read_provenance(md) or {}).get("source", "")),
+            "source_link": _raw_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
+
+
+def _original_name(raw_name: str) -> str:
+    """The name the person uploaded, from the name the original is kept under (``<name>-<12 hex>.<ext>``)."""
+    import re
+
+    return re.sub(r"-[0-9a-f]{12}(?=\.[^./\\]*$|$)", "", raw_name or "")
+
+
+def _raw_link(ws, raw_name: str, query: str) -> str:
+    """The link to a kept original, or "" when there is none to open."""
+    from urllib.parse import quote
+
+    if not raw_name or _wiki_raw_file_path(ws, raw_name) is None:
+        return ""
+    return f"/wiki/raw/{quote(raw_name)}{query}"
 
 
 @app.get("/wiki/raw/{name}")
@@ -8693,12 +8737,11 @@ def _settle_timed_out_uploads(db, *, uid, scope, team_id, name, digest) -> None:
     db.commit()
 
 
-def _upload_saved_redirect(dest: str, cfg, status: str, slug: str, title: str) -> RedirectResponse:
+def _upload_saved_redirect(dest: str, status: str, slug: str, title: str) -> RedirectResponse:
     from urllib.parse import quote
 
-    via = quote(_compute_where_label(cfg))
     return RedirectResponse(
-        dest + f"?saved={status}&slug={quote(slug)}&title={quote(title)}&via={via}",
+        dest + f"?saved={status}&slug={quote(slug)}&title={quote(title)}",
         status_code=302,
     )
 
@@ -8899,7 +8942,7 @@ async def wiki_upload(
     _settle_timed_out_uploads(
         db, uid=uid, scope=target_scope, team_id=team_id, name=name, digest=sha.hexdigest()[:12]
     )
-    return _upload_saved_redirect(dest, cfg, outcome["status"], outcome["slug"], outcome["title"])
+    return _upload_saved_redirect(dest, outcome["status"], outcome["slug"], outcome["title"])
 
 
 @app.post("/wiki/upload/retry/{upload_id}")
@@ -9002,7 +9045,7 @@ async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depen
         org_id=org.id,
         user_id=uid,
     )
-    return _upload_saved_redirect(dest, cfg, status, slug, title)
+    return _upload_saved_redirect(dest, status, slug, title)
 
 
 @app.post("/wiki/upload/confirm")
@@ -9014,7 +9057,6 @@ async def confirm_pdf_upload(
     user: dict = Depends(_require_user),
 ):
     """Process one scheduler-held PDF exactly once after an authorized confirmation."""
-    from urllib.parse import quote
 
     from starlette.concurrency import run_in_threadpool
 
@@ -9147,12 +9189,7 @@ async def confirm_pdf_upload(
         org_id=org.id,
         user_id=uid,
     )
-    via = quote(_compute_where_label(cfg))
-    return RedirectResponse(
-        dest + f"?saved={outcome['status']}&slug={quote(outcome['slug'])}"
-        f"&title={quote(outcome['title'])}&via={via}",
-        status_code=302,
-    )
+    return _upload_saved_redirect(dest, outcome["status"], outcome["slug"], outcome["title"])
 
 
 @app.get("/wiki/connector-files")
@@ -9194,7 +9231,6 @@ async def wiki_import_connector(
     import shutil
     import tempfile
     from pathlib import Path as _Path
-    from urllib.parse import quote
 
     from ..common.text import slugify
     from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS
@@ -9287,11 +9323,7 @@ async def wiki_import_connector(
         org_id=org.id,
         user_id=uid,
     )
-    via = quote(_compute_where_label(cfg))
-    return RedirectResponse(
-        dest + f"?saved={status}&slug={quote(slug)}&title={quote(page_title)}&via={via}",
-        status_code=302,
-    )
+    return _upload_saved_redirect(dest, status, slug, page_title)
 
 
 def _research_and_file(eng, *, topic, org_id, proposed_by, target_scope, team_id, backend):
