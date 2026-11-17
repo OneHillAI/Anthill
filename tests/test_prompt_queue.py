@@ -147,6 +147,9 @@ def test_queue_route_returns_retryable_503_after_persistent_lock(tmp_path, monke
             )
 
         monkeypatch.setattr(task_occurrences, "queue_input", locked)
+        # The retry loop also stops when a wall-clock window expires; on a slow runner that cut it to 2
+        # attempts. Make the window unreachable so the attempt limit is the only thing that stops it.
+        monkeypatch.setattr(app_mod, "_TASK_QUEUE_RETRY_WINDOW", 3600.0)
         response = c.post(
             f"/tasks/{tid}/queue",
             data={"instruction": "include a TL;DR"},
@@ -178,6 +181,9 @@ def test_edit_route_returns_retryable_503_after_persistent_lock(tmp_path, monkey
             )
 
         monkeypatch.setattr(task_occurrences, "replace_scheduled", locked)
+        # The retry loop also stops when a wall-clock window expires; on a slow runner that cut it to 2
+        # attempts. Make the window unreachable so the attempt limit is the only thing that stops it.
+        monkeypatch.setattr(app_mod, "_TASK_QUEUE_RETRY_WINDOW", 3600.0)
         response = c.post(
             f"/tasks/{tid}/edit",
             data={
