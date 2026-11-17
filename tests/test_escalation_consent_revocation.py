@@ -11,11 +11,14 @@ Covers both halves of the fix:
     ever clears the flag, mirroring that granting it is chat-runtime-only (never settable to True here).
 """
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from anthill.web import db
 from anthill.web.db import Organization, OrgSettings, User
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 def _client(tmp_path, monkeypatch, *, escalation_provider="berget", consented=True):

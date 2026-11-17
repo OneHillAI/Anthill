@@ -9,8 +9,12 @@ every account today. The point of wiring it now is the extension point: the day 
 training-restricted provider is added to _INFERENCE_PROVIDERS, this starts protecting automatically.
 """
 
+import pytest
+
 import anthill.web.app as app_mod
 from anthill.web.app import _INFERENCE_PROVIDERS, _training_eligible
+
+pytestmark = pytest.mark.model_invariant
 
 
 class _Cfg:
