@@ -13638,8 +13638,12 @@ async def chat_stream(
                         if not is_small_talk(effective_message, history) and not (
                             is_acknowledgement_reply(effective_message, history)
                         ):
+                            from ..wiki.ask import cache_judge
+
                             hit = SemanticCache(
-                                db_path=ws.root / ".cache", threshold=cache_thr
+                                db_path=ws.root / ".cache",
+                                threshold=cache_thr,
+                                judge=cache_judge([ws, *extra_ws]),
                             ).lookup(effective_message)
                     except Exception:
                         hit = None
