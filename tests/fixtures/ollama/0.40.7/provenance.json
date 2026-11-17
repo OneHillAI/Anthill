@@ -1,0 +1,31 @@
+{
+ "version": "0.40.7",
+ "recorded_on": "2026-11-17",
+ "machine": "arm64 Darwin 25.5.0",
+ "models": {
+  "chat": "qwen2.5:3b",
+  "vision": "granite3.2-vision:2b",
+  "embed": "bge-m3"
+ },
+ "files": {
+  "version.json": "recorded",
+  "chat.json": "recorded",
+  "chat_stream.ndjson": "recorded",
+  "chat_tools.json": "recorded",
+  "chat_vision.json": "recorded",
+  "embed.json": "recorded",
+  "show_chat.json": "recorded",
+  "show_vision.json": "recorded",
+  "tags.json": "recorded",
+  "ps.json": "recorded",
+  "show_missing.json": "recorded",
+  "pull_cli.json": {
+   "label": "docs",
+   "source": "progress/bar.go, progress/progress.go, progress/spinner.go and cmd/cmd.go at v0.40.16 (the same output as at v0.30.10 for a normal pull); not recorded: a pull would contact the registry"
+  },
+  "delete.json": {
+   "label": "docs",
+   "source": "docs/api.md, Delete a Model; not recorded: it would delete an installed model"
+  }
+ }
+}

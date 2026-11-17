@@ -1,0 +1,51 @@
+{
+ "version": "0.30.10",
+ "written_on": "2026-11-17",
+ "how": "Written by hand from the documented example responses in docs/api.md and the field lists in api/types.go at git tag v0.30.10, read through a page summariser (not byte-exact). No engine of this version was run. Long strings are shortened, and /api/tags holds the one documented entry.",
+ "files": {
+  "version.json": {
+   "label": "docs",
+   "source": "the version this directory stands for"
+  },
+  "chat.json": {
+   "label": "docs",
+   "source": "docs/api.md, Chat request (No streaming)"
+  },
+  "chat_stream.ndjson": {
+   "label": "docs",
+   "source": "docs/api.md, Chat request (Streaming): first chunk and Final response"
+  },
+  "chat_tools.json": {
+   "label": "docs",
+   "source": "docs/api.md, Chat request (with tools)"
+  },
+  "chat_vision.json": {
+   "label": "docs",
+   "source": "docs/api.md, Chat request (with images); text shortened"
+  },
+  "embed.json": {
+   "label": "docs",
+   "source": "docs/api.md, Generate Embeddings (single input)"
+  },
+  "show_chat.json": {
+   "label": "docs",
+   "source": "docs/api.md, Show Model Information; tokenizer arrays, Modelfile, template and parameters omitted (the parsers read details, model_info and capabilities)"
+  },
+  "ps.json": {
+   "label": "docs",
+   "source": "docs/api.md, List Running Models (no context_length or runner in the example)"
+  },
+  "tags.json": {
+   "label": "docs",
+   "source": "docs/api.md, List Local Models, first entry"
+  },
+  "pull_cli.json": {
+   "label": "docs",
+   "source": "progress/bar.go, progress/progress.go, progress/spinner.go and cmd/cmd.go at v0.30.10: writes to stderr, ANSI cursor-up redraws every 100 ms, no carriage returns, SI units"
+  },
+  "delete.json": {
+   "label": "docs",
+   "source": "docs/api.md, Delete a Model"
+  }
+ }
+}
