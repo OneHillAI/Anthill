@@ -63,6 +63,10 @@ installed by default; the page's own "MCP runtime is not installed here" banner 
   Follow the setup guide to authorise, then Test." - Anthill does not ship a pre-registered OAuth
   client for any provider; an admin must register their own app with that provider first. This is
   the catalog's documented, correct behavior, not a bug this change touches.
+  *Update, November 2026:* Drive was never live-verified end to end. Its upstream server is archived,
+  offers one search tool and serves file contents as MCP resources that the client does not read, so it can
+  find files but cannot read a document. The tile is now `community` tier, no longer a document source
+  (`provides_files: false`) and its note says so. Reading and importing Drive documents is separate work.
 - **Slack / GitHub** ("Connect now", token-based): same code path as Filesystem, just with a pasted
   bot token / PAT the admin creates themselves instead of a folder path - not independently live-
   tested here (would need a real, disposable token), but nothing in the flow differs from the

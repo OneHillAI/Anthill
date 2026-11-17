@@ -29,6 +29,7 @@ from jwt import PyJWTError as JWTError
 from sqlalchemy import insert, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .. import __version__
@@ -11687,8 +11688,6 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
 def backup_export(request: Request, model: int = 1, user: dict = Depends(_require_admin)):
     """Build a full backup archive and stream it as a download (temp file cleaned up after send). A backup
     covers the whole install, not one organisation, so it needs the install owner."""
-    from starlette.background import BackgroundTask
-
     from .. import backup as bk
 
     _require_install_scope(request, user)
@@ -13076,6 +13075,9 @@ async def chat_stream(
             f"fix what's wrong, and add what's missing.]"
         )
 
+    # Work the answer does not need. The stream records it here and it runs after the last event is sent.
+    after_stream: dict = {}
+
     async def _event_stream():
         t0 = monotonic()
         from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
@@ -13974,11 +13976,10 @@ async def chat_stream(
 
         # Distil durable memory from successful conversations only (throttled, best-effort). The code-made
         # "no news articles" text is not something the member or the model said, so it is not distilled either.
+        # Extracting memory is a full model call, so it runs after [DONE] has been sent and off the event loop:
+        # the page is not kept waiting, and the server not blocked, for a call the answer does not need.
         if not generation_failed and not fixed_answer:
-            try:
-                _distil_memory_from_chat(db, org.id, int(user["sub"]), conv, backend)
-            except Exception:
-                pass
+            after_stream["memory"] = (org.id, int(user["sub"]), conv.id, backend)
 
         # Log metric with the real outcome so cache-hit rate and Sovereignty are exact:
         # a cache hit ran zero inference; an escalation (source="cloud") is the only case
@@ -13998,10 +13999,27 @@ async def chat_stream(
 
         yield "data: [DONE]\n\n"
 
+    def _after_stream() -> None:
+        """Best-effort memory extraction for the turn that just ended, on its own database session."""
+        job = after_stream.get("memory")
+        if not job:
+            return
+        org_id, uid, conv_id, job_backend = job
+        s = _new_session()
+        try:
+            conv_row = s.query(Conversation).filter(Conversation.id == conv_id).first()
+            if conv_row is not None:
+                _distil_memory_from_chat(s, org_id, uid, conv_row, job_backend)
+        except Exception:
+            pass
+        finally:
+            s.close()
+
     return StreamingResponse(
         _event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        background=BackgroundTask(_after_stream),
     )
 
 
