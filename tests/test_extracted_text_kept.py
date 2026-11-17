@@ -88,7 +88,7 @@ def test_a_failure_to_write_never_fails_the_upload(tmp_path, monkeypatch):
     def _boom(self, *a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(Path, "write_text", _boom)
+    monkeypatch.setattr(Path, "write_bytes", _boom)
     assert keep_extracted_text(ws, ws.raw / "x-1a2b3c4d5e6f.pdf", FileContent(text="text")) is None
 
 
@@ -223,3 +223,14 @@ def test_every_kept_text_has_its_original_through_ingest(tmp_path):
 
     assert len(list(ws.text.glob("*.txt"))) == 2  # the HTML and the PDF, once each
     assert _orphans(ws) == []
+
+
+def test_text_with_a_lone_surrogate_is_kept_and_does_not_fail_the_upload(tmp_path):
+    """A damaged PDF can give the reader a lone surrogate, which UTF-8 cannot encode. write_text raised
+    UnicodeEncodeError for it, which is not an OSError and escaped the best-effort handler."""
+    ws = _ws(tmp_path)
+    kept = keep_extracted_text(
+        ws, ws.raw / "damaged-1a2b3c4d5e6f.pdf", FileContent(text="Revenue grew \ud800 in March.")
+    )
+    assert kept is not None
+    assert kept.read_text(encoding="utf-8") == "Revenue grew ? in March."
