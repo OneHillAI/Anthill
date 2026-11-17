@@ -63,3 +63,20 @@ Per prompt: time-to-first-token (TTFT) and total completion time, plus response 
 Grouped in the printed summary by source (wildchat / arena-hard-v0.1 category) and, across runs, by
 the `--label` you gave each one. It measures ANTHILL's real end-to-end latency for whichever compute
 tier the target account is configured for - it does not itself switch tiers or provision anything.
+
+## Reference-machine scoreboard (engine speed)
+
+`run_timing.py` above measures a whole Chat turn on a running Anthill server. The scoreboard measures the
+engine itself under a fixed protocol, so a speed change can be told from noise and one release can be compared
+with the next:
+
+- **`run_scoreboard.py`** - talks to a local Ollama, runs decode and prefill at 0 and about 4,000 tokens of context,
+  a fixed wiki prompt cold and warm, cold load, and memory and swap-outs over 20 turns, and writes
+  `benchmarks/scoreboard/<release>/<machine>.json` (Ollama version, model digests and power state included).
+- **`compare_scoreboard.py`** - lists every median that got worse by more than 15% between two result files.
+  Report-only.
+- **`machinebench/`** - the protocol, the engine client, the scenarios and the result file. The wiki prompt it
+  uses is `fixtures/scoreboard_wiki_prompt.json`, built by `fixtures/make_wiki_prompt.py`.
+
+It never pulls or deletes a model and changes no machine setting, and it refuses to run on battery. Which machines
+count and how to take a result: `docs/reference-machines.md`. Spec: `docs/specs/reference-machine-scoreboard.md`.
