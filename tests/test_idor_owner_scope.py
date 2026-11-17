@@ -8,12 +8,15 @@ the legitimate owner still succeeds.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from anthill.web import db as db_mod
 from anthill.web.crypto import make_token
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 def _setup(tmp_path, monkeypatch):

@@ -4,11 +4,15 @@ injection imperative AND the answer looks hijacked ("BANANA"), ask() re-runs wit
 after the content. Injection-suspect turns take the non-streaming path so the answer can be re-checked
 before it's shown. Finding: qa/chat-eval/DEV_FINDINGS.md."""
 
+import pytest
+
 from anthill.search import web as web_mod
 from anthill.wiki import ask as ask_mod
 from anthill.wiki import prompts
 from anthill.wiki.ask import _extract_obey_token, _looks_hijacked, has_injection_imperative
 from anthill.wiki.workspace import Workspace
+
+pytestmark = pytest.mark.knowledge_invariant
 
 
 def test_injection_imperative_detected():

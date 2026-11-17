@@ -7,10 +7,13 @@ plane caches are per-user and must keep working normally.
 """
 
 import numpy as np
+import pytest
 
 from anthill.cache import embedder as emb
 from anthill.wiki import ask as ask_mod
 from anthill.wiki.workspace import Workspace
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 class _Backend:

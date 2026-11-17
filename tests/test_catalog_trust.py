@@ -5,7 +5,11 @@ published by our workflow. These cover the pure policy (who must have signed, ro
 fail-closed contract, without reaching the network.
 """
 
+import pytest
+
 from anthill.hosting import catalog_trust as ct
+
+pytestmark = pytest.mark.model_invariant
 
 # --- who must have signed ---------------------------------------------------------------------------
 

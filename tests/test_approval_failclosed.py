@@ -13,8 +13,12 @@ every read to the wiki directory.
 
 from pathlib import Path
 
+import pytest
+
 from anthill.agent.executor import AgentExecutor
 from anthill.agent.tools import Tool, _read_wiki
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 def _danger_tool(sink):
