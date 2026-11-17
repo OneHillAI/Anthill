@@ -6,9 +6,7 @@ always; anyone else only on a local server (the desktop app, Remote access off) 
 Model-free.
 """
 
-import io
 import sqlite3
-import tarfile
 from types import SimpleNamespace
 
 import pytest
@@ -80,9 +78,18 @@ def _client(world, who, *, local=False, headers=None):
     return c
 
 
+PHRASE = "a-long-test-passphrase"
+
+
+def _export(client):
+    return client.post(
+        "/backup/export", data={"passphrase": PHRASE, "confirm": PHRASE}, follow_redirects=False
+    )
+
+
 def _archive(world, owner_client):
-    r = owner_client.get("/backup/export?model=0")
-    assert r.status_code == 200 and r.headers["content-type"] == "application/gzip"
+    r = _export(owner_client)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/octet-stream"
     return r.content
 
 
@@ -108,34 +115,33 @@ def _db_ready(world):
 def test_the_install_owner_can_download_a_backup_over_the_network(world):
     _db_ready(world)
     data = _archive(world, _client(world, "owner"))
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-        assert any(n.endswith("secrets.env") for n in tar.getnames())
+    assert data.startswith(b"ANTHBAK") and b"secrets.env" not in data  # protected as a whole
 
 
 @pytest.mark.parametrize("who", ["other", "member"])
 def test_another_organisations_admin_and_a_member_cannot_download_a_backup(world, who):
     _db_ready(world)
-    r = _client(world, who).get("/backup/export?model=0")
+    r = _export(_client(world, who))
     assert r.status_code == 403
-    assert "secrets" not in r.text and r.headers.get("content-type") != "application/gzip"
+    assert "secrets" not in r.text and r.headers.get("content-type") != "application/octet-stream"
 
 
 def test_an_admin_on_the_machine_of_a_local_server_can_still_download_a_backup(world):
     _db_ready(world)
-    assert _client(world, "other", local=True).get("/backup/export?model=0").status_code == 200
+    assert _export(_client(world, "other", local=True)).status_code == 200
 
 
 def test_a_request_that_looks_local_on_a_shared_server_is_not_enough(world):
     _db_ready(world)
     _remote_access(True)
-    assert _client(world, "other", local=True).get("/backup/export?model=0").status_code == 403
-    assert _client(world, "owner", local=True).get("/backup/export?model=0").status_code == 200
+    assert _export(_client(world, "other", local=True)).status_code == 403
+    assert _export(_client(world, "owner", local=True)).status_code == 200
 
 
 def test_without_the_desktop_mark_a_loopback_request_is_not_enough(world, monkeypatch):
     _db_ready(world)
     monkeypatch.delenv("ANTHILL_LOCAL_ONLY", raising=False)
-    assert _client(world, "other", local=True).get("/backup/export?model=0").status_code == 403
+    assert _export(_client(world, "other", local=True)).status_code == 403
 
 
 # ── restore ─────────────────────────────────────────────────────────────────────
@@ -144,7 +150,8 @@ def test_without_the_desktop_mark_a_loopback_request_is_not_enough(world, monkey
 def _restore(client, data):
     return client.post(
         "/backup/restore",
-        files={"file": ("backup.tar.gz", data, "application/gzip")},
+        files={"file": ("backup.anthillbak", data, "application/octet-stream")},
+        data={"passphrase": PHRASE},
         follow_redirects=False,
     )
 
@@ -180,11 +187,11 @@ def test_a_local_admin_can_restore_on_a_desktop_and_not_once_remote_access_is_on
 def test_the_backup_page_shows_the_controls_only_to_someone_who_can_use_them(world):
     _db_ready(world)
     owner_page = _client(world, "owner").get("/backup").text
-    assert "/backup/export" in owner_page and 'action="/backup/restore"' in owner_page
+    assert 'action="/backup/export"' in owner_page and 'action="/backup/restore"' in owner_page
     assert str(world.home) in owner_page
     other_page = _client(world, "other").get("/backup").text
-    assert "/backup/export" not in other_page and "/backup/restore" not in other_page
+    assert 'action="/backup/export"' not in other_page and "/backup/restore" not in other_page
     assert str(world.home) not in other_page
     assert "covers the whole install, not one organisation" in other_page
     local_page = _client(world, "other", local=True).get("/backup").text
-    assert "/backup/export" in local_page
+    assert 'action="/backup/export"' in local_page

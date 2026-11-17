@@ -36,9 +36,10 @@ R3. The beta app SHALL have its own identity: product name "Anthill Beta", bundl
 `org.onehill.anthill.beta`, its own update feed, and its own data folder (the backend keeps its data under the
 app's product name), so it installs next to the live app and cannot open the live app's database or keys. It
 is signed with the same key. Its displayed and updater version is the rc number, patched into the checkout and
-never committed. The live app's data folder SHALL be unchanged. The app's secrets (JWT and encryption keys) live in
-that data folder (`secrets.env`), not in the macOS keychain, so the separate folder isolates them; a test fails if
-code starts using the keychain, so the isolation is revisited if that ever changes.
+never committed. The live app's data folder SHALL be unchanged. The app's secrets (JWT and encryption keys) are one
+Keychain item named by a random account recorded in the install's own `key-location.json`, in that data folder (with
+no Keychain they stay in `secrets.env`), so a beta with its own data folder has its own item and cannot read or
+overwrite the live app's; a test fails if any code but `anthill/keystore.py` uses the Keychain.
 
 R4. Today's stable release workflows SHALL fire only on a stable tag (`vX.Y.Z`), so a beta tag can never start
 a live release, and each SHALL also refuse to run at all unless the tag is exactly `vX.Y.Z`, as its first step,

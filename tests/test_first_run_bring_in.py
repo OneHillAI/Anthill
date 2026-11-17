@@ -442,3 +442,87 @@ def test_env_parsing_keeps_only_the_listed_names():
     text = '# c\nexport ANTHILL_JWT_SECRET="a b"\nBAD LINE\nFOO=1\nMEILI_URL = http://x \nJINA_API_KEY=\n'
     assert bring_in._parse_env(text) == {"ANTHILL_JWT_SECRET": "a b", "MEILI_URL": "http://x"}
     assert bring_in._parse_env("FOO=1\n", None) == {"FOO": "1"}
+
+
+# ── the key lives in the Keychain (key-location.json present) ─────────────────────
+
+
+@pytest.fixture
+def in_keychain(home, monkeypatch):
+    """The fresh install keeps its key in a (fake) Keychain item, not in secrets.env or the environment."""
+    from anthill import keystore
+
+    (home / "secrets.env").unlink()
+    for name in ("ANTHILL_ENCRYPTION_KEY", "ANTHILL_JWT_SECRET", "ANTHILL_ALLOW_EPHEMERAL_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(crypto, "_KEY", None)
+    monkeypatch.setattr(crypto, "_JWT_SECRET", None)
+    backend = keystore.FakeBackend()
+    keystore.set_backend(backend)
+    keystore.ensure_ready()
+    return backend, (home / "key-location.json").read_text(), keystore.data_key()
+
+
+def test_bring_in_swaps_the_keychain_item_and_keeps_the_keys_out_of_the_files(
+    home, tmp_path, in_keychain
+):
+    from anthill import keystore
+
+    backend, marker_before, fresh_key = in_keychain
+    project = _old_project(tmp_path, env=GOOD_ENV)
+    r = _bring(_client(), project)
+    assert r.status_code == 302 and r.headers["location"] == "/login?brought_in=1"
+    assert keystore.data_key() == base64.b64decode(OLD_KEY) != fresh_key
+    assert keystore.jwt_secret() == OLD_JWT
+    assert (home / "key-location.json").read_text() != marker_before
+    assert len(backend.items) == 1  # the previous item is removed once the bring-in worked
+    assert (
+        not (home / "secrets.env").exists()
+        or "ANTHILL_ENCRYPTION_KEY" not in (home / "secrets.env").read_text()
+    )
+    assert "ANTHILL_ENCRYPTION_KEY" not in os.environ
+    keystore.reset()
+    keystore.ensure_ready()  # a restart reads the new item and the stored value opens
+    s = app_mod._SessionFactory()
+    stored = s.query(OrgSettings).first().org_lambda_tunnel_key_enc
+    s.close()
+    assert crypto.decrypt(stored) == STORED_SECRET
+
+
+def test_a_failure_after_the_new_item_is_made_restores_the_old_marker_and_removes_it(
+    home, tmp_path, monkeypatch, in_keychain
+):
+    from anthill import keystore
+
+    backend, marker_before, fresh_key = in_keychain
+    items_before = dict(backend.items)
+    project = _old_project(tmp_path, env=GOOD_ENV)
+    monkeypatch.setattr(
+        bring_in, "_swap_database", lambda *a: (_ for _ in ()).throw(OSError("disk full"))
+    )
+    r = _bring(_client(), project)
+    assert r.status_code == 400 and "Nothing in this app was changed" in r.text
+    assert (home / "key-location.json").read_text() == marker_before
+    assert backend.items == items_before and keystore.data_key() == fresh_key
+
+
+def test_a_key_that_does_not_open_the_earlier_copys_values_is_refused_before_any_change(
+    home, tmp_path, in_keychain
+):
+    backend, marker_before, _ = in_keychain
+    wrong = f"ANTHILL_JWT_SECRET={OLD_JWT}\nANTHILL_ENCRYPTION_KEY={FRESH_KEY}\n"
+    project = _old_project(tmp_path, env=wrong)
+    before = _snapshot(home)
+    r = _bring(_client(), project)
+    assert r.status_code == 400 and "does not open its saved passwords" in r.text
+    assert _snapshot(home) == before and (home / "key-location.json").read_text() == marker_before
+    assert len(backend.items) == 1
+
+
+def test_an_earlier_copy_with_no_stored_values_needs_no_matching_key(home, tmp_path):
+    project = _old_project(tmp_path, env=GOOD_ENV)
+    with sqlite3.connect(project / "data" / "anthill.db") as con:
+        con.execute("UPDATE org_settings SET org_lambda_tunnel_key_enc = ''")
+    other = f"ANTHILL_JWT_SECRET={OLD_JWT}\nANTHILL_ENCRYPTION_KEY={FRESH_KEY}\n"
+    (project / ".env").write_text(other)
+    assert _bring(_client(), project).status_code == 302

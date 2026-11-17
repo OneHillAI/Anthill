@@ -31,7 +31,7 @@ from platformdirs import user_data_dir
 # parent package" - which is exactly what left the Tauri sidecar dead on launch. Absolute `anthill.*`
 # imports resolve both when frozen AND when this module is imported as `anthill.desktop`
 # (server.py / cli.py / tests rely on that).
-from anthill import profiles
+from anthill import keystore, profiles
 from anthill.platform_layer import pid_alive
 
 HOST = "127.0.0.1"
@@ -104,7 +104,9 @@ def _ensure_tls_certs() -> None:
 def _ensure_secrets(d: Path) -> None:
     """Persist the JWT + at-rest encryption keys to the data dir so sessions and encrypted
     fields survive restarts (a fresh random key each launch would log everyone out and make
-    stored secrets unreadable). Written 0600; only fills in what isn't already set."""
+    stored secrets unreadable). Written 0600; only fills in what isn't already set. Where the OS offers a protected
+    key store the key layer (anthill/keystore.py) makes and keeps the key instead, and nothing is
+    written here. Without a key, a database that already holds saved passwords stops the start."""
     env_file = d / "secrets.env"
     saved: dict[str, str] = {}
     if env_file.exists():
@@ -112,6 +114,15 @@ def _ensure_secrets(d: Path) -> None:
             if "=" in line and not line.startswith("#"):
                 k, _, v = line.partition("=")
                 saved[k.strip()] = v.strip()
+    if (d / keystore.MARKER_FILE).exists() or (
+        not saved.get("ANTHILL_ENCRYPTION_KEY") and keystore.protected_store_available()
+    ):
+        # The key layer owns the key (a protected OS key store): nothing is generated or written here.
+        for k, v in saved.items():
+            os.environ.setdefault(k, v)
+        return
+    if not saved.get("ANTHILL_ENCRYPTION_KEY") and not os.environ.get("ANTHILL_ENCRYPTION_KEY"):
+        _refuse_if_values_need_the_missing_key(d)
     if not saved.get("ANTHILL_JWT_SECRET"):
         saved["ANTHILL_JWT_SECRET"] = secrets.token_urlsafe(48)
     if not saved.get("ANTHILL_ENCRYPTION_KEY"):
@@ -120,6 +131,36 @@ def _ensure_secrets(d: Path) -> None:
     os.chmod(env_file, 0o600)
     for k, v in saved.items():
         os.environ.setdefault(k, v)
+
+
+def _refuse_if_values_need_the_missing_key(d: Path) -> None:
+    """No key anywhere but the database already holds encrypted values: a new key would make them
+    unreadable. Say so plainly and exit 1 (no traceback, nothing written)."""
+    from anthill import stored_values
+
+    files = {d / "anthill.db", Path(os.environ.get("ANTHILL_DB", d / "anthill.db"))}
+    try:
+        held = any(stored_values.holds_values(f) for f in files)
+    except keystore.ValuesUnreadable:
+        held = True
+    if held:
+        print(
+            "Anthill did not start. Its encryption key is missing and the data may already hold saved "
+            "passwords that need it (the key used to be in secrets.env). A new key would make them "
+            "unreadable, so none was made. Restore that file or a backup of this install, then open "
+            "Anthill again.\nNothing was changed, and no new key was made.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(1)
+
+
+def ensure_key_or_exit() -> None:
+    """Resolve the key before anything serves (also used by anthill/server.py): a missing or untrusted key is
+    a plain message and exit status 1, never a traceback and never a new key."""
+    from anthill.web import key_startup
+
+    key_startup.ensure_or_exit()
 
 
 def _apply_paths(d: Path, *, force: bool) -> None:
@@ -435,6 +476,7 @@ def main() -> None:
     # actual port, then points its webview at it. Harmless noise for the standalone dmg launcher.
     print(f"PORT={port}", flush=True)
     configure_env()
+    ensure_key_or_exit()  # a missing or untrusted key stops here with a plain message, never a new key
     _ensure_engine_async()
     if not _env_truthy("ANTHILL_NO_BROWSER"):
         # Standalone (dmg) launcher opens the system browser; in sidecar mode the Tauri window is

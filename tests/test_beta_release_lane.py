@@ -451,10 +451,11 @@ def test_ci_green_breaks_a_start_time_tie_with_the_run_id():
 # --- the beta cannot reach the live app's keys ------------------------------------------------------
 
 
-def test_the_apps_secrets_live_in_the_data_folder_not_the_keychain():
-    """The beta is isolated from the live app by its own data folder. That only protects the keys while they
-    live inside it (they do: secrets.env in the data dir). If code ever starts using the macOS keychain, the
-    beta and the live app could end up sharing an item, so the beta's isolation would need revisiting."""
+def test_the_keychain_is_used_only_by_the_key_layer_and_its_items_are_per_install():
+    """The beta is isolated from the live app by its own data folder. The Keychain is touched only by
+    anthill/keystore.py, whose item is named after a random account recorded in the install's own
+    key-location.json (tests/test_keystore.py checks that), so a beta with its own data folder has its own
+    item and cannot read or overwrite the live app's."""
     pattern = re.compile(r"keyring|Keychain|keychain|SecItem|add-generic-password")
     offenders = []
     for base in ("anthill", "src-tauri/src"):
@@ -462,6 +463,7 @@ def test_the_apps_secrets_live_in_the_data_folder_not_the_keychain():
             if (
                 path.suffix in (".py", ".rs")
                 and path.is_file()
+                and path.relative_to(ROOT).as_posix() != "anthill/keystore.py"
                 and pattern.search(path.read_text(errors="replace"))
             ):
                 offenders.append(str(path.relative_to(ROOT)))
