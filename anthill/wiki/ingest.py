@@ -614,6 +614,9 @@ def keep_extracted_text(ws: Workspace, raw_copy: Path, fc) -> Path | None:
     except OSError as exc:
         log.warning("could not keep the extracted text of %s: %s", raw_copy.name, exc)
         return None
+    from .doc_index import index_soon
+
+    index_soon(ws.root, target)  # in the background: the upload does not wait for the index
     return target
 
 

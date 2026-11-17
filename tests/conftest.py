@@ -147,6 +147,14 @@ def _no_page_index_warmup(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_doc_index_worker(monkeypatch):
+    """The background passage index of the kept document texts (anthill/wiki/doc_index.py) is off in every
+    test: it would write on a worker thread behind a test's back. A test that wants it calls the index
+    directly, or sets ``doc_index.ENABLED`` itself."""
+    monkeypatch.setattr("anthill.wiki.doc_index.ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_ollama(monkeypatch):
     def _unreachable(self, *args, **kwargs):
         raise BackendError("no local model in tests (hermetic default)")

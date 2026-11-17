@@ -533,6 +533,10 @@ def _startup():
             _warm_page_index_in_background()  # embed the wiki pages now, not at the first question
         except Exception:
             pass
+        try:
+            _index_docs_in_background()  # index the kept document texts, including ones kept earlier
+        except Exception:
+            pass
         from .scheduler import start_scheduler
 
         start_scheduler(_engine or get_engine())
@@ -578,6 +582,19 @@ def _warm_page_index_in_background() -> None:
     if page_index.ENABLED:
         threading.Thread(
             target=page_index.warm_all, daemon=True, name="anthill-warm-page-index"
+        ).start()
+
+
+def _index_docs_in_background() -> None:
+    """Bring the passage index of the kept document texts in line with them (anthill/wiki/doc_index.py). No
+    model is involved; background, best effort, and a wiki with no kept text costs nothing."""
+    import threading
+
+    from ..wiki import doc_index
+
+    if doc_index.ENABLED:
+        threading.Thread(
+            target=doc_index.sync_all, daemon=True, name="anthill-sync-doc-index"
         ).start()
 
 
