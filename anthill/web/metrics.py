@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..inference.stats import INT_FIELDS, TurnStats
 from .db import ChatMessage, Conversation, OrgSettings, QueryMetric, TrainingExample
 
 
@@ -25,7 +26,10 @@ def record(
     source: str,
     duration_ms: int | None,
     model: str,
+    stats: TurnStats | None = None,
 ) -> None:
+    # Numbers only: a TurnStats holds no prompt or answer text. Missing stays NULL.
+    counters = {f: getattr(stats, f) for f in INT_FIELDS} if stats else {}
     db.add(
         QueryMetric(
             org_id=org_id,
@@ -34,6 +38,7 @@ def record(
             source=source,
             duration_ms=duration_ms,
             model=model,
+            **counters,
         )
     )
     db.commit()

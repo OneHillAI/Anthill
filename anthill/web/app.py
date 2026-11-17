@@ -13295,6 +13295,7 @@ async def chat_stream(
         generation_failed = False
         fixed_answer = False  # set when the answer is the code-made "no news articles" text
         cache_hit = False  # set by the normal-chat branch; agent mode stays local
+        turn_stats = None  # the answer call's TurnStats (#219); set by the normal-chat branch only
         slugs: list = []  # the wiki pages the normal-chat branch gave the model; saved with the answer
         escalations: list[float] = []  # cloud escalation costs, if the answer left the perimeter
         _escalated = False  # set True on a successful Automated-mode escalation; persisted below so
@@ -13907,6 +13908,10 @@ async def chat_stream(
                 # was used for it, it is not a training example, and nothing is escalated to a provider for it.
                 if fixed_answer:
                     slugs = []
+                if not cache_hit and not fixed_answer:
+                    turn_stats = getattr(backend, "last_turn", None)
+                    if turn_stats is not None and (speed := turn_stats.speed_line()):
+                        yield f"data: {json.dumps({'meta': {'speed': speed}})}\n\n"
                 if cache_hit:
                     yield f"data: {json.dumps({'meta': {'cache_hit': True}})}\n\n"
                 if slugs:
@@ -14149,6 +14154,7 @@ async def chat_stream(
                 source=("cloud" if escalations else ("cache" if cache_hit else "generated")),
                 duration_ms=int((monotonic() - t0) * 1000),
                 model=config.model,
+                stats=None if escalations else turn_stats,
             )
 
         yield "data: [DONE]\n\n"

@@ -13,12 +13,14 @@ import urllib.parse
 import zipfile
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
+from time import monotonic
 
 import httpx
 from platformdirs import user_data_dir
 
 from ..platform_layer import detached_process_kwargs
 from .base import BackendError, ChatResult, Message, ToolsUnsupported, _mean_logprob
+from .stats import TurnStats, from_ollama
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
@@ -136,6 +138,9 @@ class OllamaBackend:
         # is unchanged, but the cached prefix is re-processed near-instantly (measured: ~1263ms -> ~56ms
         # for an identical prefix on qwen3:8b). Read by a probe / metrics; never affects behaviour.
         self.last_stats: dict = {}
+        # The last call's TurnStats on any path (streamed, not streamed, tools), or None while the call is
+        # running, after it failed, or when the stream was abandoned before its final chunk (#219).
+        self.last_turn: TurnStats | None = None
         # The window requested on every call (issue #109). Without it Ollama silently uses its own default.
         self.num_ctx = num_ctx if num_ctx and num_ctx > 0 else configured_num_ctx()
 
@@ -212,6 +217,8 @@ class OllamaBackend:
             think=think,
             logprobs=logprobs,
         )
+        self.last_turn = None
+        started = monotonic()
         try:
             if trust_env:
                 resp = httpx.post(
@@ -252,6 +259,12 @@ class OllamaBackend:
         content = data.get("message", {}).get("content")
         if not content:
             raise BackendError("Ollama returned an empty response.")
+        self.last_turn = from_ollama(
+            data,
+            model=str(payload["model"]),
+            num_ctx=payload["options"]["num_ctx"],
+            wall_ms=round((monotonic() - started) * 1000),
+        )
         return content, data
 
     def chat_with_tools(
@@ -278,6 +291,8 @@ class OllamaBackend:
         }
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive  # keep the model warm between agent steps
+        self.last_turn = None
+        started = monotonic()
         try:
             resp = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
             resp.raise_for_status()
@@ -293,7 +308,14 @@ class OllamaBackend:
             raise BackendError(
                 f"Ollama returned {e.response.status_code}: {e.response.text[:300]}"
             ) from e
-        return resp.json()
+        data = resp.json()
+        self.last_turn = from_ollama(
+            data,
+            model=str(payload["model"]),
+            num_ctx=options["num_ctx"],
+            wall_ms=round((monotonic() - started) * 1000),
+        )
+        return data
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -320,6 +342,10 @@ class OllamaBackend:
             num_predict=num_predict,
             think=think,
         )
+        self.last_turn = None
+        started = monotonic()
+        first_token_ms: int | None = None
+        final: dict = {}
         try:
             with httpx.stream(
                 "POST",
@@ -348,15 +374,25 @@ class OllamaBackend:
                         raise BackendError(f"Ollama stream error: {str(chunk['error'])[:300]}")
                     token = chunk.get("message", {}).get("content", "")
                     if token:
+                        if first_token_ms is None:
+                            first_token_ms = round((monotonic() - started) * 1000)
                         emitted_text = emitted_text or bool(token.strip())
                         yield token
                     if chunk.get("done"):
                         completed = True
+                        final = chunk
                         break
                 if not completed:
                     raise BackendError("The Ollama stream ended before completion.")
                 if not emitted_text:
                     raise BackendError("Ollama returned an empty response.")
+                self.last_turn = from_ollama(
+                    final,
+                    model=str(payload["model"]),
+                    num_ctx=payload["options"]["num_ctx"],
+                    first_token_ms=first_token_ms,
+                    wall_ms=round((monotonic() - started) * 1000),
+                )
         except httpx.TimeoutException as e:
             raise BackendError(
                 "Ollama did not respond in time. The model may still be loading - try again shortly."
