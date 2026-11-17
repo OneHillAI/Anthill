@@ -9,6 +9,8 @@ import bcrypt as _bcrypt_lib
 import jwt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .. import keystore
+
 # ── password hashing (bcrypt, cost 12) ───────────────────────────────────────
 
 
@@ -24,40 +26,41 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ── AES-256-GCM at rest ───────────────────────────────────────────────────────
-# Key is read from ANTHILL_ENCRYPTION_KEY (base64-encoded 32 bytes).
-# If not set, a random key is generated at startup (data survives only the
-# current process - fine for dev; set the env var in production).
+# The key comes from anthill.keystore on first use (never made up here: a missing key refuses).
+# ``_KEY`` and ``_JWT_SECRET`` stay as overrides (tests set them, bring-in assigns them).
+# The ciphertext format is unchanged: base64(nonce + ciphertext + tag).
+
+_KEY: bytes | None = None
+_JWT_SECRET: str | None = None
 
 
-def _load_key() -> bytes:
-    raw = os.environ.get("ANTHILL_ENCRYPTION_KEY", "")
-    if raw:
-        key = base64.b64decode(raw)
-        if len(key) != 32:
-            raise ValueError("ANTHILL_ENCRYPTION_KEY must be 32 bytes base64-encoded")
-        return key
-    return secrets.token_bytes(32)  # ephemeral dev key
+def _data_key() -> bytes:
+    return _KEY if _KEY is not None else keystore.data_key()
 
 
-_KEY = _load_key()
+def _jwt_secret() -> str:
+    return _JWT_SECRET if _JWT_SECRET is not None else keystore.jwt_secret()
 
 
 def encrypt(plaintext: str) -> str:
     """AES-256-GCM encrypt. Returns base64(nonce + ciphertext + tag)."""
     nonce = secrets.token_bytes(12)  # 96-bit nonce, GCM standard
-    ct = AESGCM(_KEY).encrypt(nonce, plaintext.encode(), None)
+    ct = AESGCM(_data_key()).encrypt(nonce, plaintext.encode(), None)
     return base64.b64encode(nonce + ct).decode()
 
 
-def decrypt(token: str) -> str:
+def decrypt_with_key(key: bytes, token: str) -> str:
     raw = base64.b64decode(token)
     nonce, ct = raw[:12], raw[12:]
-    return AESGCM(_KEY).decrypt(nonce, ct, None).decode()
+    return AESGCM(key).decrypt(nonce, ct, None).decode()
+
+
+def decrypt(token: str) -> str:
+    return decrypt_with_key(_data_key(), token)
 
 
 # ── JWT session tokens ────────────────────────────────────────────────────────
 
-_JWT_SECRET = os.environ.get("ANTHILL_JWT_SECRET", secrets.token_hex(32))
 _ALGORITHM = "HS256"
 _CLOCK_LEEWAY_SECONDS = (
     10  # PyJWT rejects an iat in the future; python-jose did not, so allow a little clock drift
@@ -89,7 +92,7 @@ def make_token(
         "iat": now,
         "exp": now + timedelta(hours=_TTL_HOURS),
     }
-    return jwt.encode(payload, _JWT_SECRET, algorithm=_ALGORITHM)
+    return jwt.encode(payload, _jwt_secret(), algorithm=_ALGORITHM)
 
 
 def session_needs_renewal(claims: dict) -> bool:
@@ -103,7 +106,7 @@ def session_needs_renewal(claims: dict) -> bool:
 
 def decode_token(token: str) -> dict:
     """Raises jwt.PyJWTError (imported as JWTError in app.py) on invalid/expired tokens."""
-    return jwt.decode(token, _JWT_SECRET, algorithms=[_ALGORITHM], leeway=_CLOCK_LEEWAY_SECONDS)
+    return jwt.decode(token, _jwt_secret(), algorithms=[_ALGORITHM], leeway=_CLOCK_LEEWAY_SECONDS)
 
 
 # ── invite tokens ─────────────────────────────────────────────────────────────

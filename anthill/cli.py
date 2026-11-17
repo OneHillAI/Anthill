@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import httpx
@@ -810,67 +811,155 @@ def train_reap_cmd(
 # ── backup & restore ───────────────────────────────────────────────────────────
 
 
+def _backup_passphrase(prompt: str, *, confirm: bool) -> str:
+    """The backup passphrase for a command: ``ANTHILL_BACKUP_PASSPHRASE_FILE`` or ``ANTHILL_BACKUP_PASSPHRASE``,
+    else a hidden prompt when a terminal is attached, else a plain refusal. Never taken from the command line,
+    where it would show in the process list."""
+    from . import backup as bk
+
+    try:
+        found = bk.passphrase_from_env()
+    except bk.BackupError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
+    if found:
+        return found
+    if not sys.stdin.isatty():
+        console.print(
+            f"[red]No passphrase.[/] Set {bk.ENV_BACKUP_PASSPHRASE_FILE} (a file only you can read) or "
+            f"{bk.ENV_BACKUP_PASSPHRASE}, or run this in a terminal to be asked."
+        )
+        raise typer.Exit(1)
+    entered = typer.prompt(prompt, hide_input=True, confirmation_prompt=confirm)
+    if not entered.strip():
+        console.print("[red]The passphrase cannot be empty or only spaces.[/]")
+        raise typer.Exit(1)
+    return entered
+
+
+def _load_key_env() -> None:
+    """A source install keeps its key in ``.env``, the app in ``<data>/secrets.env``: either reaches the key
+    layer as the legacy environment variables, as it does when the server starts. (A key held by the OS key store
+    needs nothing here.)"""
+    from . import backup as bk
+    from .web import key_startup  # registers the database probe the key layer needs
+
+    key_startup.register()
+    _load_dotenv()
+    _load_dotenv(str(bk.data_paths()["secrets"]))
+
+
 @app.command(name="backup")
 def backup_cmd(
     output: Path = typer.Option(
         None, "--output", "-o", help="Archive path (default: <data>/backups/...)."
     ),
     db_path: str = typer.Option("data/anthill.db", "--db"),
-    no_model: bool = typer.Option(False, "--no-model", help="Skip the fine-tuned model (smaller)."),
 ):
-    """Back up everything: DB + wiki + files + skills + encryption keys (and the fine-tuned model)."""
+    """Back up the DB, wikis, files, skills and encryption keys into one passphrase-protected file.
+
+    The passphrase (at least 12 characters) is read from ANTHILL_BACKUP_PASSPHRASE_FILE or
+    ANTHILL_BACKUP_PASSPHRASE, or asked for. Without it the backup cannot be restored and cannot be recovered.
+    Model files are not included."""
     os.environ.setdefault("ANTHILL_DB", db_path)
-    from sqlalchemy.orm import sessionmaker
-
     from . import backup as bk
-    from .web.db import OrgSettings, create_tables, get_engine
+    from .keystore import KeystoreError
 
-    engine = get_engine(Path(db_path))
-    create_tables(engine)
-    db = sessionmaker(bind=engine)()
-    names = (
-        None
-        if no_model
-        else [
-            f"org{c.org_id}-model-v{int(c.training_model_ver)}"
-            for c in db.query(OrgSettings).filter(OrgSettings.training_model_ver > 0).all()
-        ]
-    )
-    result = bk.create_backup(output, include_model=not no_model, model_names=names)
+    _load_key_env()
+    passphrase = _backup_passphrase("Passphrase for this backup", confirm=True)
+    try:
+        result = bk.create_backup(output, passphrase=passphrase)
+    except (bk.BackupError, KeystoreError) as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
     console.print(
         f"[green]backup →[/] {result.path}  "
         f"({result.bytes / 1e6:.1f} MB; includes: {', '.join(result.includes)})"
     )
-    if result.models:
-        console.print(f"[dim]embedded model(s): {', '.join(result.models)}[/]")
 
 
 @app.command(name="restore")
 def restore_cmd(
-    archive: Path = typer.Argument(..., help="Path to an Anthill backup .tar.gz"),
+    archive: Path = typer.Argument(
+        ..., help="Path to an Anthill backup (.anthillbak, or an older .tar.gz)"
+    ),
     db_path: str = typer.Option("data/anthill.db", "--db"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+    without_key: bool = typer.Option(
+        False,
+        "--without-key",
+        help="Restore a backup that has no key, or whose key does not open every saved password: "
+        "those passwords will not open afterwards.",
+    ),
 ):
-    """Restore a backup archive over this install. Stop the server first; a safety copy is taken."""
+    """Restore a backup over this install. Stop the server first; a safety copy is taken."""
     os.environ.setdefault("ANTHILL_DB", db_path)
     from . import backup as bk
+    from .keystore import KeystoreError
 
+    _load_key_env()
+    try:
+        kind = bk.archive_kind(archive)
+    except (bk.BackupError, OSError) as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
     if not yes:
         typer.confirm(
             f"Restore from {archive}? Overwrites current data (a safety copy is taken first).",
             abort=True,
         )
-    result = bk.restore_backup(archive)
+    passphrase = None
+    if kind == "protected" or bk.data_paths()["db"].is_file():
+        passphrase = _backup_passphrase(
+            "Backup passphrase" if kind == "protected" else "Passphrase for the safety copy",
+            confirm=False,
+        )
+    try:
+        result = bk.restore_backup(archive, passphrase=passphrase, allow_without_key=without_key)
+    except (bk.BackupError, KeystoreError) as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
     console.print(f"[green]restored:[/] {', '.join(result.restored) or 'nothing'}")
+    for warning in result.warnings:
+        console.print(f"[yellow]{warning}[/]")
     if result.models:
         console.print(f"[dim]model(s) restored: {', '.join(result.models)}[/]")
     if result.safety_backup:
         console.print(f"[dim]previous state saved to:[/] {result.safety_backup}")
+    for label, aside in (("database", result.db_moved_aside), ("key file", result.key_moved_aside)):
+        if aside:
+            console.print(f"[dim]previous {label} kept at:[/] {aside}")
     if result.moved_aside:
         console.print(
             f"[yellow]The organisation wikis on this machine were not in the backup; moved aside to:[/] "
             f"{result.moved_aside}"
         )
+    if result.restart_needed:
+        console.print("[bold]Restart Anthill now: it still holds the old database.[/]")
+
+
+@app.command(name="restore-snapshot")
+def restore_snapshot_cmd(
+    snapshot: Path = typer.Argument(..., help="A file from <data>/snapshots"),
+    db_path: str = typer.Option("data/anthill.db", "--db"),
+):
+    """Put a pre-migration snapshot back as the database. No passphrase: this machine's key opens it."""
+    os.environ.setdefault("ANTHILL_DB", db_path)
+    from . import backup as bk
+    from .keystore import KeystoreError
+
+    _load_key_env()
+    try:
+        result = bk.restore_snapshot(snapshot)
+    except (bk.BackupError, KeystoreError, OSError) as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
+    console.print(f"[green]restored:[/] {', '.join(result.restored)}")
+    for warning in result.warnings:
+        console.print(f"[yellow]{warning}[/]")
+    if result.db_moved_aside:
+        console.print(f"[dim]previous database kept at:[/] {result.db_moved_aside}")
+    console.print("[bold]Restart Anthill now.[/]")
 
 
 # ── lifecycle (model upgrades) ─────────────────────────────────────────────────
@@ -1179,6 +1268,9 @@ def web(
     os.environ["ANTHILL_HOST"] = (
         host  # the app reads where it listens (sign-up is by invitation beyond loopback)
     )
+    from .web import key_startup
+
+    key_startup.ensure_or_exit()  # a missing or untrusted key: a plain message and exit 1
     uvicorn.run("anthill.web.app:app", host=host, port=port, log_level="warning", reload=False)
 
 

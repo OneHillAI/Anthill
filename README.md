@@ -162,7 +162,7 @@ it running. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE); for commercial lice
 ## Security
 
 Passwords are bcrypt-hashed, sessions use signed JWTs backed by revocable server-side records and
-per-user authentication generations, and sensitive fields are AES-256-GCM encrypted at rest. Every login,
+per-user authentication generations, and saved credentials (provider keys, tokens, mailbox passwords) are AES-256-GCM encrypted at rest. On a Mac the key is kept in the Keychain, not beside the data; the wiki, chats, files and cache are not encrypted yet (see `docs/specs/encryption-at-rest-phase1.md`). Every login,
 wiki promotion, agent action, and data export is in the audit log. Components speak plain HTTP locally, so
 expose the dashboard only behind a TLS-terminating reverse proxy (a self-signed
 dev-cert scaffold for local mTLS is provided under `certs/`, but is not for production). The desktop app

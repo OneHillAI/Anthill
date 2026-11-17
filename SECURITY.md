@@ -28,23 +28,30 @@ time to address the issue before any public disclosure.
 Anthill runs locally and stores data on the operator's own machine. Some risks are
 the operator's responsibility:
 
-- The `.env` file holds the JWT secret and the AES-256-GCM encryption key. Losing the
-  encryption key makes at-rest data unrecoverable; keep `.env` safe and backed up.
+- Saved credentials are AES-256-GCM encrypted. On a Mac the key (and the session secret) is kept in the login
+  Keychain, with a small non-secret marker (`key-location.json`) in the data folder; elsewhere it stays in
+  `secrets.env` or `.env`, which is a plain file and not protected. Losing the key makes the saved credentials
+  unreadable, and a copy of the data folder on another Mac will not open them. A backup made on the
+  Backup page (or with `anthill backup`) is one file encrypted as a whole with a passphrase you choose (at
+  least 12 characters, not recoverable), and carries the key inside it, so it is the way back if the Keychain
+  item is lost. It holds no model files, and what it does not protect is the files on this computer while
+  Anthill runs.
+- Backups and copies of the data folder made before the key moved still open every saved password. Delete older
+  backups and old copies of `secrets.env`; to make them useless, change those passwords or API keys at their
+  source and enter the new ones. The wiki, chats, files and cache are not encrypted by Anthill: turn on disk
+  encryption (FileVault on a Mac) so a lost or stolen computer cannot be read.
 - The dashboard listens on `localhost` by default. Before exposing it, put it behind
   a reverse proxy with TLS (see the "Production hardening" notes in the setup guide).
 - The certificates committed under `certs/` are **self-signed dev certs**, shared across every
   checkout - a **scaffold** for local mTLS that you terminate at your own proxy/ingress; the app itself
   speaks plain HTTP and does **not** load them. **Not for production**. Regenerate per deployment with
   `scripts/gen-dev-certs.sh`, or bring your own CA / real certificates (see `certs/README.md`).
-- The Mac app is **unsigned / not notarized**, so macOS Gatekeeper blocks it on first launch
-  ("Apple could not verify ... is free of malware"). On macOS 15+ (Sequoia / Tahoe) the old
-  right-click → Open no longer clears this, and a quarantined unsigned app can even have its
-  executable removed by XProtect. To run it before notarization ships: drag it to `/Applications`,
-  then **either** run `xattr -dr com.apple.quarantine /Applications/Anthill.app` before the first
-  launch, **or** after a blocked launch open **System Settings → Privacy & Security** and click
-  **Open Anyway**. Code-signing + notarization (Apple Developer ID) is the real fix: the release
-  pipeline signs, notarizes, and staples automatically once the Developer ID secrets are added
-  (see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md)), after which the download just opens.
+- The official Mac release is signed with an Apple Developer ID, notarized and stapled (see the changelog and
+  [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md)), so it opens without a Gatekeeper warning. A Mac app you
+  build yourself is unsigned: macOS blocks it on first launch, and on macOS 15+ the old right-click → Open no
+  longer clears that. Drag it to `/Applications`, then **either** run
+  `xattr -dr com.apple.quarantine /Applications/Anthill.app` before the first launch, **or** after a blocked
+  launch open **System Settings → Privacy & Security** and click **Open Anyway**.
 
 Reports about the project's own code, dependencies, auth, or data handling are
 always in scope and welcome.
