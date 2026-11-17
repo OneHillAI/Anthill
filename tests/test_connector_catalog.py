@@ -30,8 +30,21 @@ def test_headline_connectors_present():
 
 def test_doc_source_ids_are_the_file_providers():
     docs = doc_source_ids()
-    assert "google-drive" in docs and "microsoft-365" in docs  # storage providers
+    assert "microsoft-365" in docs  # storage provider
     assert "sentry" not in docs  # not a document source
+    # Drive can search file names but cannot read a document (no tool for it, files come as MCP
+    # resources that the client does not read), so it must not appear in the import pickers.
+    assert "google-drive" not in docs
+
+
+def test_google_drive_tile_does_not_overclaim():
+    d = catalog_by_id("google-drive")
+    assert d is not None and validate_entry(d) == []
+    assert d["tier"] == "community"  # not the verified tier: it was never live-verified
+    assert d["provides_files"] is False
+    text = f"{d['summary']} {d['note']} {' '.join(d['scopes'])}".lower()
+    assert "cannot read" in text  # says what it cannot do
+    assert "read a drive file" not in text and "search and read" not in text
 
 
 def test_catalog_by_id():
