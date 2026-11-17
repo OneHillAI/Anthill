@@ -67,6 +67,11 @@ class Workspace:
         return self.root / "raw"
 
     @property
+    def text(self) -> Path:
+        """The text read out of each kept original (see ``ingest.keep_extracted_text``). Made on first use."""
+        return self.root / "text"
+
+    @property
     def inbox(self) -> Path:
         return self.root / "inbox"
 
