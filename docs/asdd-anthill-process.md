@@ -31,6 +31,10 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
    description links. A change to the ASDD setup also runs the runtime check, which pings every agent's model.
 3. **Staying current.** The merge ruleset will not merge a branch that is behind `main`. A workflow brings the
    bot's open PR branches up to date after every merge, so nobody clicks "Update branch" and waits for CI again.
+   Every GitHub Action in the workflows is pinned by commit SHA, and Dependabot (`.github/dependabot.yml`) keeps the pins
+   current: one grouped PR a week for minor and patch updates, nothing for majors, and a 7-day cooldown on new releases.
+   `dtolnay/rust-toolchain` is left alone and bumped by hand. These PRs pass intake as a machine author and still need a
+   named reviewer, because they change `.github/**`.
 4. **Merge.** A human approves and merges. Protected paths (`.github/**`, `scripts/**` and others) need a named
    human reviewer. No agent merges, approves or force-pushes.
 5. **After the merge**, two agents run on the merged commit and comment on the merged PR: the test run (pytest,
