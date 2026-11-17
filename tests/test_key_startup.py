@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from anthill import desktop, keystore
+from anthill import desktop, keystore, stored_values
 from anthill.keystore import FakeBackend
 from anthill.web import crypto, key_startup
 
@@ -70,45 +70,45 @@ def home(tmp_path, monkeypatch):
 
 
 def test_the_probe_sees_a_stored_value_in_a_column_or_a_council_copy(tmp_path):
-    assert key_startup.database_holds_values(tmp_path / "missing.db") is False
-    assert key_startup.database_holds_values(_db(tmp_path / "empty.db", table=False)) is False
-    assert key_startup.database_holds_values(_db(tmp_path / "blank.db")) is False
-    assert key_startup.database_holds_values(_db(tmp_path / "col.db", token=_enc(KEY))) is True
+    assert stored_values.holds_values(tmp_path / "missing.db") is False
+    assert stored_values.holds_values(_db(tmp_path / "empty.db", table=False)) is False
+    assert stored_values.holds_values(_db(tmp_path / "blank.db")) is False
+    assert stored_values.holds_values(_db(tmp_path / "col.db", token=_enc(KEY))) is True
     member = [{"name": "m", "provider_config": {"hf_token_enc": _enc(KEY)}}]
-    assert key_startup.database_holds_values(_db(tmp_path / "copy.db", members=member)) is True
+    assert stored_values.holds_values(_db(tmp_path / "copy.db", members=member)) is True
     junk = [{"model_key_enc": ""}, "not a dict", {"provider_config": 5}]
-    assert key_startup.database_holds_values(_db(tmp_path / "junk.db", members=junk)) is False
+    assert stored_values.holds_values(_db(tmp_path / "junk.db", members=junk)) is False
 
 
 def test_an_unreadable_database_is_an_error_never_no_values(tmp_path, monkeypatch):
     bad = tmp_path / "bad.db"
     bad.write_bytes(b"this is not a database" * 100)
     with pytest.raises(keystore.ValuesUnreadable):
-        key_startup.database_holds_values(bad)
+        stored_values.holds_values(bad)
 
     def locked(*a, **k):
         raise sqlite3.OperationalError("database is locked")
 
     good = _db(tmp_path / "good.db", token=_enc(KEY))
-    monkeypatch.setattr(key_startup.sqlite3, "connect", locked)
+    monkeypatch.setattr(stored_values.sqlite3, "connect", locked)
     with pytest.raises(keystore.ValuesUnreadable):
-        key_startup.database_holds_values(good)
+        stored_values.holds_values(good)
 
 
 def test_the_checker_needs_one_stored_value_to_open(home):
     db = _db(home / "anthill.db", token=_enc(KEY))
     assert key_startup.check(KEY) is True
     assert key_startup.check(OTHER) is False
-    assert key_startup.verify_every_value(KEY, db) is True
-    assert key_startup.verify_every_value(OTHER, db) is False
+    assert stored_values.all_open(KEY, db) is True
+    assert stored_values.all_open(OTHER, db) is False
     empty = _db(home / "empty.db", table=False)
-    assert key_startup.verify_every_value(OTHER, empty) is True  # no stored values: nothing to open
+    assert stored_values.all_open(OTHER, empty) is True  # no stored values: nothing to open
 
 
 def test_every_value_must_open_for_bring_in(tmp_path):
     members = [{"model_key_enc": _enc(OTHER)}]
     db = _db(tmp_path / "two.db", token=_enc(KEY), members=members)
-    assert key_startup.verify_every_value(KEY, db) is False
+    assert stored_values.all_open(KEY, db) is False
 
 
 def test_start_sh_probe_command_exit_codes(tmp_path):
@@ -161,7 +161,7 @@ def test_an_unreadable_database_stops_the_start_in_plain_words(home, capsys):
     with pytest.raises(SystemExit):
         real_ensure_or_exit()
     err = capsys.readouterr().err
-    assert "could not read its database" in err and "Traceback" not in err
+    assert "could not read the database" in err and "Traceback" not in err
 
 
 def test_a_good_start_prints_nothing_and_notes_are_shown(home, capsys, monkeypatch):
@@ -258,10 +258,7 @@ def test_the_backup_page_shows_one_status_line_one_note_and_the_disk_sentence(ho
     )
     assert "Delete older backups and old copies of" in html
     assert "Disk encryption (FileVault) is off" in html
-    assert (
-        "does not contain the encryption key" in html
-        and "includes <code>secrets.env</code>" not in html
-    )
+    assert "includes <code>secrets.env</code>" not in html
 
 
 def test_the_backup_page_says_plainly_when_the_key_is_in_a_file(home, monkeypatch):
@@ -278,10 +275,7 @@ def test_the_backup_page_says_plainly_when_the_key_is_in_a_file(home, monkeypatc
         "It is not protected: anyone with a copy of your data folder can read your saved passwords."
         in html
     )
-    assert (
-        "could not tell whether disk encryption is on" in html
-        and "includes <code>secrets.env</code>" in html
-    )
+    assert "could not tell whether disk encryption is on" in html
 
 
 def _backup_html(app_mod) -> str:

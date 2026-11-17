@@ -483,6 +483,12 @@ def _require_install_scope(request: Request, user: dict) -> None:
 def _startup():
     global _scheduler_started
     key_startup.ensure_or_exit()  # any other way of starting the app stops here, not in a traceback
+    try:
+        from .. import backup as _bk
+
+        _bk.sweep_stale_staging()  # a restore that crashed left an unpacked backup behind
+    except Exception:
+        logger.exception("could not sweep stale restore folders")
     if not _scheduler_started:
         # Restore inference/tunnel services before the scheduler releases interrupted runs. Otherwise
         # a recovered one-shot task can hit a stale endpoint, fail terminally, and never retry.
@@ -11640,14 +11646,6 @@ async def settings_org_council_review_toggle(user: dict = Depends(_require_org_a
 # ── backup & restore ──────────────────────────────────────────────────────────
 
 
-def _org_model_names(db) -> list[str]:
-    """Ollama model tags for every org that has promoted a fine-tuned version."""
-    return [
-        f"org{cfg.org_id}-model-v{int(cfg.training_model_ver)}"
-        for cfg in db.query(OrgSettings).filter(OrgSettings.training_model_ver > 0).all()
-    ]
-
-
 @app.get("/backend", response_class=HTMLResponse)
 def backend_info(request: Request, user: dict = Depends(_require_admin)):
     """Admin page: where this org backend runs (host, URL, data location). In the single-machine
@@ -11707,7 +11705,6 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
             "can_backup": can_backup,
             "key_status": keystore.describe() if can_backup else {},
             "data_home": str(p["home"]) if can_backup else "",
-            "models": _org_model_names(db) if can_backup else [],
             "snapshots": [
                 {"name": s.name, "size_mb": round(s.stat().st_size / 1e6, 1)}
                 for s in (snaps if can_backup else [])
@@ -11716,46 +11713,66 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
     )
 
 
-@app.get("/backup/export")
-def backup_export(request: Request, model: int = 1, user: dict = Depends(_require_admin)):
-    """Build a full backup archive and stream it as a download (temp file cleaned up after send). A backup
-    covers the whole install, not one organisation, so it needs the install owner."""
+@app.post("/backup/export")
+def backup_export(
+    request: Request,
+    passphrase: str = Form(""),
+    confirm: str = Form(""),
+    user: dict = Depends(_require_admin),
+):
+    """Build a protected backup (``.anthillbak``) with the passphrase from the form and stream it as a download
+    (temp file cleaned up after send). The passphrase travels only in the POST body. A backup covers the whole
+    install, not one organisation, so it needs the install owner."""
+    from fastapi.responses import FileResponse
+
     from .. import backup as bk
 
     _require_install_scope(request, user)
-
+    if passphrase != confirm:
+        return RedirectResponse("/backup?error=mismatch", status_code=303)
     db = _db()
     org = _require_org(db, user)
-    names = _org_model_names(db) if model else None
-    result = bk.create_backup(include_model=bool(model), model_names=names)
+    try:
+        result = bk.create_backup(passphrase=passphrase)
+    except (bk.BackupError, keystore.KeystoreError) as e:
+        audit.log(db, "backup.export_failed", type(e).__name__, org_id=org.id, user_id=user["sub"])
+        return RedirectResponse(
+            "/backup?error=short"
+            if isinstance(e, bk.PassphraseTooShort)
+            else "/backup?error=export",
+            status_code=303,
+        )
     audit.log(
         db,
         "backup.export",
-        f"{result.bytes}B models={result.models}",
+        f"protected {result.bytes}B includes={result.includes}",
         org_id=org.id,
         user_id=user["sub"],
     )
-    from fastapi.responses import FileResponse
-
     return FileResponse(
         str(result.path),
         filename=result.path.name,
-        media_type="application/gzip",
+        media_type="application/octet-stream",
         background=BackgroundTask(lambda: result.path.unlink(missing_ok=True)),
     )
 
 
 @app.post("/backup/restore")
 async def backup_restore(
-    request: Request, file: UploadFile = File(...), user: dict = Depends(_require_admin)
+    request: Request,
+    file: UploadFile = File(...),
+    passphrase: str = Form(""),
+    user: dict = Depends(_require_admin),
 ):
-    """Restore the uploaded backup archive over this install (a safety copy is taken first).
-    The app must be restarted afterwards - the running process still holds the old DB open. A restore
-    replaces the whole install, not one organisation, so it needs the install owner."""
+    """Restore the uploaded backup over this install. The archive is verified whole, and its key must open every
+    saved password in it, before anything current is touched; then a safety copy is taken. The app must be
+    restarted afterwards - the running process still holds the old database. A restore replaces the whole
+    install, not one organisation, so it needs the install owner."""
     import shutil as _shutil
     import tempfile
 
     from .. import backup as bk
+    from ..backup_crypto import WrongPassphrase
 
     _require_install_scope(request, user)
 
@@ -11765,25 +11782,40 @@ async def backup_restore(
     with open(tmp, "wb") as out:
         _shutil.copyfileobj(file.file, out)
     try:
-        result = bk.restore_backup(tmp)
+        result = bk.restore_backup(tmp, passphrase=passphrase)
     except Exception as e:
-        audit.log(db, "backup.restore_failed", str(e)[:200], org_id=org.id, user_id=user["sub"])
-        return RedirectResponse("/backup?error=1", status_code=302)
+        plain = isinstance(e, bk.BackupError)
+        audit.log(
+            db,
+            "backup.restore_failed",
+            "failed closed: " + (str(e) if plain else type(e).__name__)[:200],
+            org_id=org.id,
+            user_id=user["sub"],
+        )
+        reason = (
+            "passphrase"
+            if isinstance(e, WrongPassphrase)
+            else "empty"
+            if isinstance(e, bk.PassphraseNeeded)
+            else "1"
+        )
+        return RedirectResponse(f"/backup?error={reason}", status_code=302)
     finally:
         tmp.unlink(missing_ok=True)
     aside = result.moved_aside.name if result.moved_aside else ""
     audit.log(
         db,
         "backup.restore",
-        f"restored={result.restored} models={result.models}"
-        + (f" moved_aside={aside}" if aside else ""),
+        f"{'protected' if result.protected else 'unprotected'} restored={result.restored} "
+        f"warnings={len(result.warnings)}" + (f" moved_aside={aside}" if aside else ""),
         org_id=org.id,
         user_id=user["sub"],
     )
     from urllib.parse import quote
 
     suffix = f"&aside={quote(aside)}" if aside else ""
-    return RedirectResponse(f"/backup?restored=1{suffix}", status_code=302)
+    plain_flag = "" if result.protected else "&unprotected=1"
+    return RedirectResponse(f"/backup?restored=1&restart=1{plain_flag}{suffix}", status_code=302)
 
 
 def _now_stamp_safe(filename: str | None) -> str:

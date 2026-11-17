@@ -6,8 +6,15 @@
 
 
 {% if request.query_params.get('aside') %}<div class="alert alert-warn">The organisation wikis on this machine were newer than the backup and were not overwritten. They were moved aside to <code>{{ request.query_params.get('aside') }}</code> next to the data folder, with nothing deleted.</div>{% endif %}
-{% if request.query_params.get('restored') %}<div class="alert alert-ok">✅ Backup restored. <b>Restart Anthill</b> for it to take effect (the running process still holds the old database open).</div>{% endif %}
-{% if request.query_params.get('error') %}<div class="alert alert-danger">⚠️ Restore failed - the file wasn't a valid Anthill backup, or it couldn't be read. Nothing was changed.</div>{% endif %}
+{% if request.query_params.get('restored') %}<div class="alert alert-ok">✅ Backup restored.{% if request.query_params.get('restart') %} <b>Restart Anthill</b> now: the running copy still holds the old database in memory, so close Anthill completely and open it again before you carry on.{% endif %}</div>{% endif %}
+{% if request.query_params.get('unprotected') %}<div class="alert alert-warn">This was an older plain backup. It was restored, but it was not protected: it had no passphrase, and the key inside it could be read by anyone who held the file. Make a new protected backup.</div>{% endif %}
+{% set err = request.query_params.get('error') %}
+{% if err == 'passphrase' %}<div class="alert alert-danger">⚠️ Wrong passphrase, or the file is damaged - nothing was changed.</div>
+{% elif err == 'empty' %}<div class="alert alert-danger">⚠️ Enter the passphrase. Nothing was changed.</div>
+{% elif err == 'short' %}<div class="alert alert-danger">⚠️ Choose a passphrase of at least 12 characters. No backup was made.</div>
+{% elif err == 'mismatch' %}<div class="alert alert-danger">⚠️ The two passphrases are not the same. No backup was made.</div>
+{% elif err == 'export' %}<div class="alert alert-danger">⚠️ The backup could not be made. Nothing on this computer was changed.</div>
+{% elif err %}<div class="alert alert-danger">⚠️ This file could not be restored: it is not an Anthill backup, its key does not open the passwords saved in it, or it could not be read. Nothing was changed.</div>{% endif %}
 
 {% if not can_backup %}
 <div class="card" style="grid-column:1 / -1">
@@ -20,34 +27,30 @@
 <div class="card" style="grid-column:1 / -1">
   <h3 style="margin-bottom:6px">Download a full backup</h3>
   <p class="text-sm text-muted" style="margin-bottom:14px">
-    One archive with everything that isn't reproducible from the code: the database
-    (settings, memory, gold examples, cache), the wiki, files, skills, and the
-    <b>encryption keys</b>. Keep it somewhere safe - it can be reloaded on this or a new machine.
-    Data lives in <code>{{ data_home }}</code>.
+    One file with everything that cannot be made again from the code: the database (settings, memory, gold
+    examples, cache), the wiki, files and skills, and the key that opens your saved passwords. The whole file is
+    encrypted with a passphrase you choose, and the key is carried inside it, so the file shows nothing without
+    the passphrase. It can be restored on this or a new machine, and it is the way back if this Mac's saved key is
+    ever lost. Data lives in <code>{{ data_home }}</code>.
   </p>
-  {% if key_status.where == 'keychain' %}
-  <div class="alert alert-warn" style="margin-bottom:14px">
-    🔒 The archive does not contain the encryption key: it is in this Mac's Keychain. The saved passwords
-    in it can only be read with this Mac's Keychain item.
+  <div class="alert alert-warn" style="margin-bottom:14px" id="backup-passphrase-warning">
+    Choose a passphrase. Without it this backup cannot be restored, and we cannot recover it for you. Use at least 12 characters.
   </div>
-  {% else %}
-  <div class="alert alert-warn" style="margin-bottom:14px">
-    🔒 The archive includes <code>secrets.env</code> (JWT + AES keys). Anyone with it can decrypt your
-    stored provider keys - store it like a password.
-  </div>
-  {% endif %}
-  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <a class="btn btn-primary" href="/backup/export?model=1"><i data-lucide="download">⬇️</i> Download full backup{% if models %} (with model){% endif %}</a>
-    <a class="btn btn-outline" href="/backup/export?model=0">Data only (smaller, no model)</a>
-  </div>
-  {% if models %}
-  <p class="text-sm text-muted" style="margin-top:10px">
-    Fine-tuned model{{ 's' if models|length > 1 else '' }} included: {% for m in models %}<code>{{ m }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
-    The full backup embeds the model weights, so a restore needs no retraining (larger file).
+  <form method="post" action="/backup/export" autocomplete="off">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="password" name="passphrase" placeholder="Passphrase" autocomplete="new-password" minlength="12" required>
+      <input type="password" name="confirm" placeholder="Passphrase again" autocomplete="new-password" required>
+      <button type="submit" class="btn btn-primary"><i data-lucide="download">⬇️</i> Download full backup</button>
+    </div>
+  </form>
+  <p class="text-sm text-muted" style="margin-top:10px" id="backup-models-note">
+    Model files are not in the backup. They hold none of your data and are downloaded or trained again.
   </p>
-  {% else %}
-  <p class="text-sm text-muted" style="margin-top:10px">No fine-tuned org model yet - the backup is data only (the model is retrained from gold when you enable training).</p>
-  {% endif %}
+  <p class="text-sm text-muted" style="margin-top:6px" id="backup-limits">
+    What a backup does not protect: the files on this computer while Anthill runs, and any program running as you
+    (the wiki, chats and cache are plain files here). Older backups and old copies of <code>secrets.env</code>
+    still open every saved password.
+  </p>
 </div>
 
 <div class="card" style="grid-column:1 / -1" id="key-status">
@@ -68,14 +71,19 @@
 <div class="card" style="grid-column:1 / -1">
   <h3 style="margin-bottom:6px">Restore from a backup</h3>
   <p class="text-sm text-muted" style="margin-bottom:14px">
-    Replaces the current database, wiki, files, skills, and keys with the archive's contents. A safety
-    copy of the <b>current</b> state is taken first, so a mistaken restore is itself reversible.
-    <b>Restart Anthill</b> after restoring.
+    Replaces the current database, wiki, files and skills with what is in the backup, and puts its key in place of
+    this install's key. Anthill checks the whole file first, and that its key opens every saved password in it.
+    With the wrong passphrase, or a damaged or cut-short file, it stops and nothing is changed. Only then does it
+    keep a safety copy of the current data, so a mistaken restore can be undone, and replace it.
+    <b>Restart Anthill</b> afterwards: the running copy still holds the old database in memory. An older plain
+    backup (<code>.tar.gz</code>) is accepted too if it carries a key, and the page will say it was not protected;
+    enter a passphrase for the safety copy.
   </p>
   <form method="post" action="/backup/restore" enctype="multipart/form-data"
         data-confirm="Restore from this backup? It overwrites the current data (a safety copy is taken first), and you will need to restart Anthill.">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <input type="file" name="file" accept=".gz,.tar.gz,application/gzip" required>
+      <input type="file" name="file" accept=".anthillbak,.gz,.tar.gz,application/gzip,application/octet-stream" required>
+      <input type="password" name="passphrase" placeholder="Backup passphrase" autocomplete="off" required>
       <button type="submit" class="btn btn-outline"><i data-lucide="upload">⬆️</i> Restore</button>
     </div>
   </form>
@@ -85,7 +93,7 @@
   <h3 style="margin-bottom:6px">Automatic pre-migration snapshots</h3>
   <p class="text-sm text-muted" style="margin-bottom:14px">
     Before any version that changes the database schema, Anthill copies the database here automatically
-    (the last few are kept). These are the safety net for an update - you never have to remember.
+    (the last few are kept). A snapshot holds the database only, never the key, and restoring one on this computer needs no passphrase. These are the safety net for an update - you never have to remember.
   </p>
   {% if snapshots %}
   <table class="table">

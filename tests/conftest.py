@@ -44,7 +44,7 @@ import threading
 import httpx
 import pytest
 
-from anthill import keystore
+from anthill import backup_crypto, keystore
 from anthill.inference.base import BackendError
 from anthill.web import key_startup
 
@@ -122,6 +122,13 @@ def _fresh_keystore(monkeypatch):
     keystore.set_backend(keystore.FakeBackend(available=False))
     yield
     keystore.set_backend(None)
+
+
+@pytest.fixture(autouse=True)
+def _cheap_scrypt(monkeypatch):
+    """The real backup key derivation costs 128 MiB and about half a second per archive: tests use the lowest
+    cost the format accepts (a test of the default cost sets it back)."""
+    monkeypatch.setattr(backup_crypto, "SCRYPT_N", 2**14)
 
 
 @pytest.fixture(autouse=True)

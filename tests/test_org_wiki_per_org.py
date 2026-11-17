@@ -810,14 +810,14 @@ def test_a_backup_is_the_whole_install_and_a_restore_brings_back_every_organisat
     monkeypatch.delenv("ANTHILL_ORG_WIKIS", raising=False)
     _page(1, "one", "# One\nfirst\n")
     _page(2, "two", "# Two\nsecond\n")
-    res = backup.create_backup(include_model=False)
+    res = backup.create_backup(passphrase="a-long-test-passphrase")
     assert {"org_wiki", "org_wikis"} <= set(res.includes)
 
     import shutil
 
     shutil.rmtree(home / "org-wiki")
     shutil.rmtree(home / "org-wikis")
-    rr = backup.restore_backup(res.path)
+    rr = backup.restore_backup(res.path, passphrase="a-long-test-passphrase")
     assert {"org_wiki", "org_wikis"} <= set(rr.restored)
     assert "first" in (home / "org-wiki" / "wiki" / "one.md").read_text()
     assert "second" in (home / "org-wikis" / "org-2" / "wiki" / "two.md").read_text()
@@ -832,17 +832,25 @@ def test_restoring_an_archive_from_before_org_wikis_moves_the_current_org_wikis_
 
     home = _data_home(env, monkeypatch)
     _page(1, "one", "# One\nfirst\n")
-    res = backup.create_backup(include_model=False)
+    res = backup.create_backup(passphrase="a-long-test-passphrase")
     # An archive made before the change has no org-wikis tree.
     old = env / "old.tar.gz"
-    with tarfile.open(res.path) as src, tarfile.open(old, "w:gz") as dst:
-        for m in src.getmembers():
-            if m.name.startswith("data/org-wikis"):
+    from anthill import backup_crypto
+
+    with (
+        open(res.path, "rb") as fh,
+        tarfile.open(
+            fileobj=backup_crypto.DecryptingReader(fh, "a-long-test-passphrase"), mode="r|gz"
+        ) as src,
+        tarfile.open(old, "w:gz") as dst,
+    ):
+        for m in src:
+            if m.name.startswith("data/org-wikis") or m.name.endswith("key-export.json"):
                 continue
             dst.addfile(m, src.extractfile(m) if m.isfile() else None)
     _page(2, "two", "# Two\nsecond, written after the archive\n")
 
-    rr = backup.restore_backup(old)
+    rr = backup.restore_backup(old, passphrase="a-long-test-passphrase")
     assert "org_wiki" in rr.restored and "org_wikis_moved_aside" in rr.restored
     assert rr.moved_aside is not None and rr.moved_aside.name.startswith(
         "org-wikis.before-restore-"

@@ -37,7 +37,7 @@
 </ul>
 
 ## Running this for real, not just trying it out
-<p>Put the dashboard behind a reverse proxy with a real TLS certificate, rather than exposing it directly. Keep the key safe too. On a Mac it is stored in the Keychain, not in the data folder, and the backup page says where it is; elsewhere it is in `secrets.env` or `.env`, a plain file, so back that up. Losing the key makes stored credentials unreadable. The official Mac release is already signed and notarized, so it opens without a security warning.</p>
+<p>Put the dashboard behind a reverse proxy with a real TLS certificate, rather than exposing it directly. Keep the key safe too. On a Mac it is stored in the Keychain, not in the data folder, and the backup page says where it is; elsewhere it is in `secrets.env` or `.env`, a plain file, so back that up. Losing the key makes stored credentials unreadable; a backup from the backup page is encrypted with a passphrase you choose and carries the key inside it, so keep one. The official Mac release is already signed and notarized, so it opens without a security warning.</p>
 
 <p><strong>Don't put the desktop app or a personal install behind a proxy or tunnel by accident.</strong> Those trust requests from the machine itself, so a plain proxy or tunnel on that machine can make a remote request look local. If you need to share one, turn on <strong>Remote access</strong> in Settings first, which is built for exactly that. To run a server for other people from the start, use <code>anthill web</code> or the container image, which are shared by default.</p>
 
