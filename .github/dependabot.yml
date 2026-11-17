@@ -1,0 +1,45 @@
+# Dependabot VERSION updates for GitHub Actions only.
+#
+# Every `uses:` in .github/workflows/ is pinned by full commit SHA with a trailing `# version` comment (#228). A
+# pin never moves on its own, and Dependabot security alerts do not fire for SHA-pinned actions, so this is what
+# keeps the pins current. Dependabot rewrites the SHA and the same-line comment together. Spec:
+# docs/specs/dependabot-actions-updates.md (issue #232).
+#
+# Deliberately narrow:
+#   - one ecosystem. cargo, npm and pip stay on Dependabot SECURITY updates only (no config needed for those);
+#     adding them here would open a PR per dependency.
+#   - all minor and patch updates arrive as ONE grouped PR a week.
+#   - major updates are not proposed: they change the Node runtime or rename inputs and need a person. Take them in a
+#     deliberate pass.
+#   - a release is not adopted until it has been public for 7 days (version updates only; security updates are
+#     never delayed).
+#   - dtolnay/rust-toolchain is ignored. It is pinned to a commit on its master branch on purpose (its README requires
+#     a commit in master's history) with `toolchain: stable` passed explicitly, and it has no release tag, so
+#     Dependabot would move it to the latest master commit. Bump it by hand.
+# Dependabot never merges. Its PRs pass intake as a machine author (#210) and still need the required checks and a
+# named human review, because .github/** is a protected path.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      github-actions-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
