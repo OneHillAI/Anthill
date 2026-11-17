@@ -96,6 +96,12 @@ from .install_scope import (
     signup_is_open,
     transfer_install_owner,
 )
+from .plane_routing import (
+    account_plane,
+    is_org_account,
+    org_plane_ready,
+    shares_org_model,
+)
 
 _HERE = Path(__file__).parent
 TASK_HISTORY_PAGE_SIZE = 25  # runs shown per page on the task result page (#96)
@@ -251,8 +257,6 @@ def _nav_context(request: Request) -> dict:
             # "a backend was configured". This differs from is_org_mode in exactly one case: a Solo
             # account that connects its own cloud endpoint (is_org_mode True, topology "solo") - which
             # must keep reading as Solo in the nav, never sprout an org label.
-            from .plane_routing import shares_org_model
-
             base["nav_org"] = org.name if (org and shares_org_model(_nav_cfg)) else ""
             base["back_href"], base["back_label"] = _back_nav_for(
                 request.url.path, solo=_is_solo(_nav_cfg)
@@ -1545,6 +1549,29 @@ def _require_admin(user=Depends(_require_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+def _user_is_solo(user: dict) -> bool:
+    """True when the session's account is Solo, by topology (never by whether a backend is connected)."""
+    db = _db()
+    try:
+        cfg = db.query(OrgSettings).filter(OrgSettings.org_id == user["org"]).first()
+    finally:
+        db.close()
+    return _is_solo(cfg)
+
+
+def _require_org_topology(user=Depends(_require_user)) -> dict:
+    """404 for a Solo account: the route manages people or the organisation, which a Solo does not have.
+    Org accounts pass."""
+    if _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    return user
+
+
+def _require_org_admin(user=Depends(_require_org_topology)) -> dict:
+    """``_require_admin`` for an Org account only; a Solo account gets 404."""
+    return _require_admin(user)
 
 
 def _activate_invited_user(db: Session, user: User, token: str, **values) -> bool:
@@ -5763,7 +5790,7 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
 
 
 @app.get("/users", response_class=HTMLResponse)
-def users_list(request: Request, user: dict = Depends(_require_admin)):
+def users_list(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     from .. import planes
@@ -5797,7 +5824,7 @@ async def invite_user(
     request: Request,
     email: str = Form(...),
     role: str = Form("member"),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -5833,7 +5860,7 @@ async def invite_user(
 
 
 @app.post("/users/{uid}/role")
-async def set_role(uid: int, role: str = Form(...), user: dict = Depends(_require_admin)):
+async def set_role(uid: int, role: str = Form(...), user: dict = Depends(_require_org_admin)):
     db = _db()
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
@@ -5849,7 +5876,7 @@ async def set_role(uid: int, role: str = Form(...), user: dict = Depends(_requir
 
 
 @app.post("/users/{uid}/deactivate")
-async def deactivate_user(uid: int, user: dict = Depends(_require_admin)):
+async def deactivate_user(uid: int, user: dict = Depends(_require_org_admin)):
     db = _db()
     target = db.query(User).filter(User.id == uid).first()
     if not target or target.org_id != user["org"]:
@@ -5873,7 +5900,7 @@ async def deactivate_user(uid: int, user: dict = Depends(_require_admin)):
 
 
 @app.post("/users/{uid}/reset")
-async def admin_reset_user(request: Request, uid: int, user: dict = Depends(_require_admin)):
+async def admin_reset_user(request: Request, uid: int, user: dict = Depends(_require_org_admin)):
     """Admin-initiated password reset: issue a fresh link for a member and surface it (the
     no-SMTP / 'send reset' case). Pending invitees use their invite link instead."""
     db = _db()
@@ -5922,11 +5949,10 @@ def teams_list(request: Request, user: dict = Depends(_require_user)):
         .filter(TeamMembership.user_id == uid, TeamMembership.status == "invited")
         .all()
     )
-    from .. import planes
 
-    # Solo (no org backend) frames a project as a personal, always-local project (single-user, no invites,
-    # no org tier); an org account frames it as a shared team space (#419 P3, Solo framing).
-    is_org = planes.is_org_mode(_cfg(db, org))
+    # A Solo account (with or without its own cloud endpoint) frames a project as a personal project
+    # (single-user, no invites, no org tier); an org account frames it as a shared team space (#419 P3).
+    is_org = shares_org_model(_cfg(db, org))
     return templates.TemplateResponse(
         request,
         "teams.html",
@@ -6034,7 +6060,6 @@ def team_detail(team_id: int, request: Request, user: dict = Depends(_require_us
     agents = (
         db.query(Agent).filter(Agent.team_id == team_id).order_by(Agent.id.desc()).limit(50).all()
     )
-    from .. import planes
 
     return templates.TemplateResponse(
         request,
@@ -6048,7 +6073,7 @@ def team_detail(team_id: int, request: Request, user: dict = Depends(_require_us
             "is_owner": role == "owner",
             # Members are an ORG-project feature: only a real org (a connected backend) can invite people.
             # A Solo project (no org backend) is single-user, so its invite affordance is hidden.
-            "is_org": planes.is_org_mode(_cfg(db, org)),
+            "is_org": shares_org_model(_cfg(db, org)),
             "is_solo": _is_solo(_cfg(db, org)),
             "members": members,
             "reviews": reviews,
@@ -6070,7 +6095,6 @@ def team_settings_get(team_id: int, request: Request, user: dict = Depends(_requ
         raise HTTPException(
             status_code=403, detail="Only the project owner can change its settings"
         )
-    from .. import planes
 
     return templates.TemplateResponse(
         request,
@@ -6082,7 +6106,7 @@ def team_settings_get(team_id: int, request: Request, user: dict = Depends(_requ
             "team": team,
             # An org project (org backend connected) borrows the org's shared model/skills and can have
             # members; a Solo project borrows your Solo (local) model/skills and is single-user.
-            "is_org": planes.is_org_mode(_cfg(db, org)),
+            "is_org": shares_org_model(_cfg(db, org)),
             "error": request.query_params.get("error", ""),
             "saved": request.query_params.get("saved", ""),
         },
@@ -6199,11 +6223,9 @@ async def invite_to_team(
 ):
     db = _db()
     org = _require_org(db, user)
-    from .. import planes
-
     # Members are an ORG-project feature: enforce the rule at the route boundary, not only by hiding the
-    # invite button - a direct POST to a Solo project (no org backend) is rejected (#419 review).
-    if not planes.is_org_mode(_cfg(db, org)):
+    # invite button - a direct POST to a Solo project (own endpoint or not) is rejected (#419 review).
+    if not shares_org_model(_cfg(db, org)):
         return RedirectResponse(f"/teams/{team_id}?error=solo_no_members", status_code=302)
     email = email.lower().strip()
     # decision 3: a team invite accepts EXISTING active org members only.
@@ -6604,6 +6626,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "council_fit": council_fit,
             "saved": request.query_params.get("saved", ""),
             "org_available": planes.org_available(cfg),
+            "org_shares_model": shares_org_model(cfg),
             "can_tune": can_tune,
             "can_tune_not_ready": can_tune_not_ready,
             "tune_not_ready_detail": tune_not_ready_detail,
@@ -8054,7 +8077,7 @@ def _wiki_can_edit(db, user, scope, team_id) -> bool:
     if scope == "personal":
         return True
     if scope == "org":
-        return user.get("role") == "admin"
+        return user.get("role") == "admin" and not _user_is_solo(user)
     if scope == "team":
         return _team_role(db, int(user["sub"]), team_id) == "owner"
     return False
@@ -8272,7 +8295,7 @@ def wiki_personal(request: Request, user: dict = Depends(_require_user)):
 
 
 @app.get("/wiki/org", response_class=HTMLResponse)
-def wiki_org(request: Request, user: dict = Depends(_require_admin)):
+def wiki_org(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     ctx = _wiki_ctx(request, db, user, org, "org")
@@ -8299,6 +8322,8 @@ def wiki_export_okgf(
     _require_org(db, user)  # ensure an org context
     if scope not in ("org", "team", "personal"):
         scope = "org"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
     if scope == "org" and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Org wiki export is admin-only")
     if scope == "team" and (team_id is None or _team_role(db, int(user["sub"]), team_id) is None):
@@ -8347,6 +8372,8 @@ async def wiki_import_okgf(
     _require_org(db, user)  # ensure an org context
     if scope not in ("org", "team", "personal"):
         scope = "org"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
     if scope == "org" and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Org wiki import is admin-only")
     if scope == "team" and (team_id is None or _team_role(db, int(user["sub"]), team_id) is None):
@@ -8421,6 +8448,8 @@ def wiki_page_view(
     org = _require_org(db, user)
     if scope not in ("personal", "team", "org"):
         scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
     if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
         raise HTTPException(status_code=403, detail="Not a member of this team")
     ws = _wiki_ws(user, scope, team_id)
@@ -8473,6 +8502,8 @@ def wiki_raw_file(
     org = _require_org(db, user)
     if scope not in ("personal", "team", "org"):
         scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
     if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
         raise HTTPException(status_code=403, detail="Not a member of this team")
     ws = _wiki_ws(user, scope, team_id)
@@ -9482,7 +9513,7 @@ def _provider_list() -> list[dict]:
 
 
 @app.get("/settings/org", response_class=HTMLResponse)
-def org_settings_hub(request: Request, user: dict = Depends(_require_admin)):
+def org_settings_hub(request: Request, user: dict = Depends(_require_org_admin)):
     """The single Org settings home (P1): one place that gathers every org-scoped setting - cloud model,
     wiki, skills, tuning, users, projects, connectors, and infrastructure (backend/backup/appliance/
     remote/events, which previously had no nav) - the org step of the solo -> project -> org spine."""
@@ -9503,7 +9534,7 @@ def org_settings_hub(request: Request, user: dict = Depends(_require_admin)):
 
 
 @app.get("/settings/general", response_class=HTMLResponse)
-def settings_general(request: Request, user: dict = Depends(_require_admin)):
+def settings_general(request: Request, user: dict = Depends(_require_org_admin)):
     """Organization -> General: the org's identity (name). Backend and Backup are its sibling sub-pages
     (/backend, /backup); the cloud + served model are under Cloud & model (/settings/organization)."""
     db = _db()
@@ -9671,7 +9702,7 @@ async def settings_post(
 
 
 @app.get("/settings/automation", response_class=HTMLResponse)
-def settings_automation_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_automation_get(request: Request, user: dict = Depends(_require_org_admin)):
     """Automation behaviour (Org hub): how the agent reacts to inputs (event vs scheduled + the interval)
     and whether low-risk wiki promotions auto-approve. These are org-behaviour knobs - moved off the
     personal-ish /settings (this-device inference) page into the Org settings hub."""
@@ -9691,11 +9722,10 @@ def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
     me = db.query(User).filter(User.id == user_id).first()
     if me is None or bool(getattr(me, "chat_defaults_notice_seen", False)):
         return {"first_use_notice": None}
-    from .. import planes
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == me.org_id).first()
     try:
-        org_mode = bool(cfg) and bool(planes.is_org_mode(cfg))
+        org_mode = shares_org_model(cfg)
     except Exception:
         org_mode = False
     return {
@@ -9742,7 +9772,7 @@ async def settings_automation_post(
     request: Request,
     proactivity_mode: str = Form("event"),
     agent_interval_secs: int = Form(300),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -9767,7 +9797,7 @@ async def settings_automation_post(
 
 
 @app.post("/settings/aws/test")
-async def settings_aws_test(request: Request, user: dict = Depends(_require_admin)):
+async def settings_aws_test(request: Request, user: dict = Depends(_require_org_admin)):
     """Validate the saved AWS credentials (read-only STS call) and store the status."""
     db = _db()
     org = _require_org(db, user)
@@ -9783,7 +9813,7 @@ async def settings_aws_test(request: Request, user: dict = Depends(_require_admi
 
 
 @app.post("/settings/aws/provision-test")
-async def settings_aws_provision_test(user: dict = Depends(_require_admin)):
+async def settings_aws_provision_test(user: dict = Depends(_require_org_admin)):
     """Launch a tagged GPU and immediately tear it down - proves the full provisioning
     lifecycle (credentials + IAM + guardrails + guaranteed teardown) without training."""
     db = _db()
@@ -9862,7 +9892,7 @@ async def settings_cloud_test(user: dict = Depends(_require_admin)):
 
 
 @app.get("/settings/slack", response_class=HTMLResponse)
-def settings_slack_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_slack_get(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     bot = db.query(SlackBot).filter(SlackBot.org_id == org.id).first()
@@ -9900,7 +9930,7 @@ async def settings_slack_post(
     client_id: str = Form(""),
     client_secret: str = Form(""),
     enabled: bool = Form(False),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -9944,7 +9974,7 @@ async def settings_slack_post(
 
 
 @app.get("/settings/discord", response_class=HTMLResponse)
-def settings_discord_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_discord_get(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     cfg = db.query(DiscordApp).filter(DiscordApp.org_id == org.id).first()
@@ -9974,7 +10004,7 @@ async def settings_discord_post(
     guild_id: str = Form(""),
     bot_token: str = Form(""),
     enabled: bool = Form(False),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -10028,7 +10058,7 @@ def _slack_oauth_serializer():
 
 
 @app.get("/slack/oauth/start")
-def slack_oauth_start(request: Request, user: dict = Depends(_require_admin)):
+def slack_oauth_start(request: Request, user: dict = Depends(_require_org_admin)):
     """Begin the one-click "Add to Slack" install: send the admin to Slack's consent screen with a
     signed state. Requires the app client_id to be saved first (Settings -> Slack bot)."""
     db = _db()
@@ -10049,7 +10079,7 @@ def slack_oauth_callback(
     code: str = "",
     state: str = "",
     error: str = "",
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     """Slack redirects here after the admin approves. Validate the signed state (CSRF + right org),
     exchange the code for the workspace bot token, store it, and enable the bot."""
@@ -10096,7 +10126,7 @@ def slack_oauth_callback(
 
 
 @app.get("/settings/events", response_class=HTMLResponse)
-def settings_events_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_events_get(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     cfg = _cfg_or_create(db, org)
@@ -10131,7 +10161,7 @@ async def settings_events_post(
     imap_user: str = Form(""),
     imap_password: str = Form(""),
     imap_folder: str = Form("INBOX"),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     from .crypto import encrypt
 
@@ -10167,7 +10197,7 @@ async def settings_events_post(
 
 
 @app.post("/settings/events/imap/test")
-async def settings_imap_test(user: dict = Depends(_require_admin)):
+async def settings_imap_test(user: dict = Depends(_require_org_admin)):
     """Validate the saved IMAP mailbox (login + open the folder) and store the status."""
     db = _db()
     org = _require_org(db, user)
@@ -10469,7 +10499,7 @@ def _org_provisioning_plan(cfg):
 
 
 @app.get("/settings/organization/wiki", response_class=HTMLResponse)
-def settings_org_wiki_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_org_wiki_get(request: Request, user: dict = Depends(_require_org_admin)):
     """Cloud & model -> Wiki: where the org's knowledge base is hosted (this device vs a VPC instance in
     the org cloud). The model server is the sibling /settings/organization tab; training is /training."""
     db = _db()
@@ -10493,7 +10523,7 @@ def settings_org_wiki_get(request: Request, user: dict = Depends(_require_admin)
 async def settings_org_wiki_save(
     wiki_vpc_url: str = Form(""),  # your own backend's URL when you've deployed it off this device
     org_serve_wiki: str = Form(""),  # checkbox: bring up the wiki host when provisioning the model
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     """Record where the org wiki runs. Anthill does not move it - entering a backend URL just records that
     you deployed it on your own server (shown on the Backend page). A neocloud org cloud (RunPod / Modal)
@@ -10518,7 +10548,7 @@ async def settings_org_wiki_save(
 
 
 @app.get("/settings/organization", response_class=HTMLResponse)
-def settings_org_get(request: Request, user: dict = Depends(_require_admin)):
+def settings_org_get(request: Request, user: dict = Depends(_require_org_admin)):
     from ..cloud.aws import default_ami, iam_policy
     from ..hosting import cluster as cluster_mod
     from ..hosting import provision, sizing, source, tiers
@@ -10756,7 +10786,7 @@ async def settings_org_post(
     org_lambda_ssh_keys: str = Form(""),  # Lambda only: registered SSH key name(s), comma-separated
     org_lambda_instance_type: str = Form(""),  # Lambda only: e.g. gpu_1x_a10 (blank = default)
     reviewer_count: int = Form(0),  # council reviewers submitted alongside the lead (Phase 1b)
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -11001,7 +11031,7 @@ async def settings_org_post(
 
 
 @app.post("/settings/organization/cluster")
-async def settings_org_cluster_post(request: Request, user: dict = Depends(_require_admin)):
+async def settings_org_cluster_post(request: Request, user: dict = Depends(_require_org_admin)):
     """Save Tier 5 (#661) distributed-local-pooling config: the main node's memory/kind, and up to 3
     worker machines (label/host/port/memory) the admin has already set up llama.cpp's rpc-server on
     themselves - Anthill never launches or manages these processes. Purely descriptive; the pool's
@@ -11058,7 +11088,7 @@ async def settings_org_cluster_post(request: Request, user: dict = Depends(_requ
 
 
 @app.post("/settings/organization/name")
-async def settings_org_name(org_name: str = Form(""), user: dict = Depends(_require_admin)):
+async def settings_org_name(org_name: str = Form(""), user: dict = Depends(_require_org_admin)):
     """Name (or rename) the organization. Org name is optional at setup, so this is where a blank or
     default-named org gets its real name later."""
     from ..common.text import slugify
@@ -11093,7 +11123,7 @@ async def settings_org_aws(
     aws_security_group_id: str = Form(""),
     aws_max_runtime_min: int = Form(120),
     aws_max_cost_usd: str = Form("25.00"),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     """Save the org's own AWS GPU credentials/config (shown on Cloud & model when the provider is AWS).
     The secret is encrypted at rest; a blank secret keeps the saved one."""
@@ -11124,7 +11154,7 @@ async def settings_org_connect(
     request: Request,
     org_model_endpoint: str = Form(""),
     org_model_key: str = Form(""),  # blank keeps the saved key
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     """The manual escape hatch: connect an endpoint the admin runs themselves and validate it end to
     end (reachable -> chosen model served -> a real round-trip). Used until live provisioning lands."""
@@ -11170,7 +11200,7 @@ async def settings_org_connect(
 async def settings_org_discover_models(
     org_model_endpoint: str = Form(""),
     org_model_key: str = Form(""),  # blank falls back to the saved key
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     """List the models a self-hosted / VPC endpoint actually serves, so the admin picks from the box's real
     set instead of the curated catalog. Uses the URL + key typed into the connect form if present, else the
@@ -11340,7 +11370,7 @@ async def settings_escalation_discover_models(
 
 @app.post("/settings/organization/provision-key")
 async def settings_org_provision_key(
-    org_provision_key: str = Form(""), user: dict = Depends(_require_admin)
+    org_provision_key: str = Form(""), user: dict = Depends(_require_org_admin)
 ):
     """Save the provider-account API key Anthill uses to provision (e.g. a RunPod key). Encrypted."""
     from .crypto import encrypt
@@ -11356,7 +11386,9 @@ async def settings_org_provision_key(
 
 
 @app.post("/settings/organization/hf-token")
-async def settings_org_hf_token(org_hf_token: str = Form(""), user: dict = Depends(_require_admin)):
+async def settings_org_hf_token(
+    org_hf_token: str = Form(""), user: dict = Depends(_require_org_admin)
+):
     """Save the Hugging Face token used to pull gated models (e.g. Llama) onto the cloud GPU. Encrypted.
 
     Sending the field blank clears it (so an admin can remove a token); a stored token is shown only as
@@ -11375,7 +11407,7 @@ async def settings_org_hf_token(org_hf_token: str = Form(""), user: dict = Depen
 
 
 @app.post("/settings/organization/provision")
-async def settings_org_provision(user: dict = Depends(_require_admin)):
+async def settings_org_provision(user: dict = Depends(_require_org_admin)):
     """Provision the org backend now (off-thread; spins up a real, billable GPU)."""
     db = _db()
     org = _require_org(db, user)
@@ -11419,7 +11451,7 @@ async def settings_org_provision(user: dict = Depends(_require_admin)):
 
 
 @app.post("/settings/organization/teardown")
-async def settings_org_teardown(user: dict = Depends(_require_admin)):
+async def settings_org_teardown(user: dict = Depends(_require_org_admin)):
     """Tear down the provisioned org backend (off-thread) and reset to the planned state."""
     db = _db()
     org = _require_org(db, user)
@@ -11448,7 +11480,7 @@ async def settings_org_teardown(user: dict = Depends(_require_admin)):
 
 @app.post("/settings/organization/council/provision")
 async def settings_org_council_provision(
-    member_index: int = Form(...), user: dict = Depends(_require_admin)
+    member_index: int = Form(...), user: dict = Depends(_require_org_admin)
 ):
     """Provision one council reviewer (member_index >= 1) now, off-thread. Mirrors
     /settings/organization/provision for the lead; reviewers share the account's provider key (saved
@@ -11511,7 +11543,7 @@ async def settings_org_council_provision(
 
 @app.post("/settings/organization/council/teardown")
 async def settings_org_council_teardown(
-    member_index: int = Form(...), user: dict = Depends(_require_admin)
+    member_index: int = Form(...), user: dict = Depends(_require_org_admin)
 ):
     """Tear down one council reviewer (member_index >= 1), off-thread, and reset its slot to planned."""
     db = _db()
@@ -11553,7 +11585,7 @@ async def settings_org_council_teardown(
 
 
 @app.post("/settings/organization/council/review-toggle")
-async def settings_org_council_review_toggle(user: dict = Depends(_require_admin)):
+async def settings_org_council_review_toggle(user: dict = Depends(_require_org_admin)):
     """Pause / resume council review for scheduled tasks and agent runs (OrgSettings.
     council_review_tasks). Chat's council answers (Phase 4a) are unaffected - this only gates the
     Phase 4b review-after-the-fact step, since that one adds extra API calls, latency, and cost on
@@ -11841,6 +11873,7 @@ def models_page(request: Request, user: dict = Depends(_require_admin)):
             "user": user,
             "org": org,
             "cfg": cfg,
+            "is_org_account": is_org_account(cfg),
             "available": available,
             "families": picker["families"],
             "frontier_models": picker["frontier_models"],
@@ -12547,7 +12580,7 @@ def chat_conv(
     # so web runs in the basic keyword mode. Org conversations use the capable cloud model; solo/local
     # conversations use the local model, which may be small. Drives a small banner in the chat.
     served_local = (cfg.ollama_model if cfg else "") or "qwen2.5:3b"
-    on_org_model = conv.plane == "org" and planes.org_available(cfg)
+    on_org_model = account_plane(conv.plane, cfg) == "org" and planes.org_available(cfg)
     planner_fallback = (not on_org_model) and not model_can_plan(served_local, "ollama")
     _me = db.query(User).filter(User.id == int(user["sub"])).first()
     web_access_on = bool(getattr(_me, "web_access_on", False))
@@ -12556,15 +12589,16 @@ def chat_conv(
     # project chat in an organisation install, and an organisation chat, run on the shared model and always
     # start on. Decided once here and used for the checkbox, the page's default and the notice hook.
     try:
-        _org_mode = bool(planes.is_org_mode(cfg))
+        _org_mode = shares_org_model(cfg)
     except Exception:
         _org_mode = False
     web_follows_default = conv.plane == "solo" or (conv.plane == "team" and not _org_mode)
     web_default = web_access_on if web_follows_default else True
     # Which knowledge-scope options actually apply to this account (#chat-knowledge-scope-labels):
-    # "Org wiki" only means something once an org backend has ever been configured (planes.is_org_mode
-    # - a Solo account has no org wiki at all); "My teams" only means something once the user actually
-    # belongs to one, and reads oddly generic when there is exactly one - name it directly instead.
+    # "Org wiki" only means something in an Org account with a backend configured (shares_org_model;
+    # a Solo account has no org wiki at all, even with its own cloud endpoint). "My teams" only means
+    # something once the user actually belongs to one, and reads oddly generic when there is exactly one -
+    # name it directly instead.
     my_teams = (
         db.query(Team)
         .filter(Team.id.in_(user_team_ids(db, int(user["sub"]))))
@@ -12588,8 +12622,8 @@ def chat_conv(
             "confirm_project": confirm_target,
             "active_conv": conv,
             "messages": conv.messages,
-            "org_plane_available": planes.org_available(cfg),
-            "is_org_mode": planes.is_org_mode(cfg),
+            "org_plane_available": org_plane_ready(cfg),
+            "is_org_mode": _org_mode,
             "my_teams": my_teams,
             "planner_fallback": planner_fallback,
             # Solo-cloud (VPC) account: a Solo chat runs on the VPC model but keeps the local wiki, so
@@ -12640,9 +12674,9 @@ async def new_conversation(
     # ignored and falls back to the solo/org logic below (never trust the client to scope a chat).
     if team_id and _team_role(db, int(user["sub"]), team_id) is not None:
         chosen, tid = "team", team_id
-    elif chosen == "org" and not planes.org_available(cfg):
-        # An Org conversation needs a connected backend; fall back to Solo if there is none, so a
-        # chat is never created against a backend that cannot answer.
+    elif chosen == "org" and not org_plane_ready(cfg):
+        # An Org conversation needs an Org account with a connected backend; a Solo account (own endpoint
+        # or not) falls back to Solo, so a chat is never created against a plane it does not have.
         chosen = "solo"
     conv = Conversation(org_id=org.id, user_id=int(user["sub"]), plane=chosen, team_id=tid)
     db.add(conv)
@@ -12739,15 +12773,14 @@ def _project_move_needs_confirm(db, conv, cfg) -> bool:
     """True when moving ``conv`` into a project needs the user's explicit yes first.
 
     A project chat runs on the same model the routing rule gives the team plane
-    (``plane_routing.plane_inference``): on the organization's cloud model whenever an org backend has
-    ever been configured (``planes.is_org_mode``), on the local model otherwise. So moving a chat that
+    (``plane_routing.plane_inference``): on the organization's cloud model in an Org account with a
+    backend configured (``shares_org_model``), on the account's own model otherwise. So moving a chat that
     already has history into a project of an org install sends that history to the org model as context
     from the next message on (and gives the chat the project's wiki), and the user must agree first. A Solo install stays local (nothing leaves
     the device), a chat with no messages has nothing to send, and a chat already in a project is
     already on that model, so none of those ask."""
-    from .. import planes
 
-    if conv.plane == "team" or not planes.is_org_mode(cfg):
+    if conv.plane == "team" or not shares_org_model(cfg):
         return False
     return (
         db.query(ChatMessage.id).filter(ChatMessage.conversation_id == conv.id).first() is not None
@@ -12876,7 +12909,7 @@ def chat_thinking_support(conv_id: int, user: dict = Depends(_require_user)):
     if cfg is None:  # settings not saved yet: no model chosen, nothing to say
         return unknown
     try:
-        plane_inf = plane_inference(conv.plane, cfg, decrypt=decrypt)
+        plane_inf = plane_inference(account_plane(conv.plane, cfg), cfg, decrypt=decrypt)
     except PlaneUnavailable:
         return unknown
     if plane_inf.backend != "ollama" or not plane_inf.model:
@@ -12932,9 +12965,8 @@ async def chat_stream(
 
     # Save user message
     cfg = _cfg(db, org)
-    from ..planes import is_org_mode
-
-    is_org = is_org_mode(cfg)  # this install IS an org (backend configured) -> team/org tiers exist
+    is_org = shares_org_model(cfg)  # an Org account with a backend: the team/org tiers exist
+    conv_plane = account_plane(conv.plane, cfg)  # a Solo account has no Org plane
 
     # Two-plane routing (P2): a Solo conversation runs on the local model + personal context; an Org
     # conversation runs on the organization's shared endpoint + org wiki, with personal context
@@ -12975,7 +13007,10 @@ async def chat_stream(
             and org_endpoint_connected(cfg, _safe_decrypt)
         ):
             escalate_org = True
-    effective_plane = "org" if escalate_org else conv.plane
+    # An Org account escalates to its org plane. A Solo account escalates onto its OWN endpoint but stays a
+    # Solo turn (its own wiki and personal context, never the org wiki or the shared org cache).
+    solo_escalation = escalate_org and not is_org_account(cfg)
+    effective_plane = "org" if escalate_org and not solo_escalation else conv_plane
     plane_inf = None
     plane_unavailable = ""
     try:
@@ -12984,6 +13019,7 @@ async def chat_stream(
             cfg,
             decrypt=_safe_decrypt,
             prefer_local=use_local,
+            escalate=solo_escalation,
         )
     except PlaneUnavailable as e:
         plane_unavailable = str(e)
@@ -13386,7 +13422,7 @@ async def chat_stream(
                     db,
                     user_id=int(user["sub"]),
                     org_id=org.id,
-                    plane=conv.plane,
+                    plane=conv_plane,
                     team_id=conv.team_id,
                     is_org=is_org,
                 )
@@ -13544,7 +13580,7 @@ async def chat_stream(
                     db,
                     user_id=int(user["sub"]),
                     org_id=org.id,
-                    plane=conv.plane,
+                    plane=conv_plane,
                     team_id=conv.team_id,
                     is_org=is_org,
                 )
@@ -14141,6 +14177,7 @@ def memory_page(request: Request, q: str = "", user: dict = Depends(_require_use
             "items": items,
             "q": q,
             "auto_off": bool(getattr(urow, "auto_memory_off", False)),
+            "is_org_account": is_org_account(_cfg(db, org)),
         },
     )
 
@@ -14253,7 +14290,7 @@ async def memory_delete(mid: int, user: dict = Depends(_require_user)):
 
 
 @app.post("/memory/{mid}/promote")
-async def memory_promote(mid: int, user: dict = Depends(_require_admin)):
+async def memory_promote(mid: int, user: dict = Depends(_require_org_admin)):
     """Admin promotes a personal memory to org-wide (recalled for everyone)."""
     db = _db()
     org = _require_org(db, user)
@@ -14425,8 +14462,6 @@ async def chat_schedule(
             src_id = source_message_id
     # The task inherits the plane of the chat it was spawned from: an Org chat -> an Org task (runs
     # on the org backend), a Solo chat -> a Solo task (local). Defaults to solo.
-    from .. import planes
-
     task_plane = "solo"
     if conv_id:
         conv = (
@@ -14435,7 +14470,7 @@ async def chat_schedule(
             .first()
         )
         if conv:
-            task_plane = planes.normalize(conv.plane)
+            task_plane = account_plane(conv.plane, _cfg(db, org))
     now = datetime.now(timezone.utc)
     schedule_anchor = _task_schedule_anchor(sched, from_dt=now, timezone_name=tz_name)
     task = ScheduledTask(
@@ -14519,7 +14554,6 @@ async def chat_create_agent(
     governance + model default to the org Agent settings. It starts on a manual schedule (run on
     demand); the user tunes cadence, tools, and governance on the Agents page.
     """
-    from .. import planes
 
     db = _db()
     org = _require_org(db, user)
@@ -14537,9 +14571,9 @@ async def chat_create_agent(
             .first()
         )
         if conv:
-            plane = planes.normalize(conv.plane)
-    if plane == "org" and not planes.is_org_mode(cfg):
-        plane = "solo"  # an org agent needs org mode; fall back to the safe local default
+            plane = account_plane(conv.plane, cfg)
+    if plane == "org" and not shares_org_model(cfg):
+        plane = "solo"  # an org agent needs an Org account with a backend; fall back to Solo
     agent = Agent(
         org_id=org.id,
         created_by=uid,
@@ -15054,7 +15088,7 @@ def skills_page(request: Request, user: dict = Depends(_require_user)):
             "user": user,
             "org": org,
             "skills": enriched,
-            "can_edit_org": is_admin,
+            "can_edit_org": is_admin and is_org_account(_cfg(db, org)),
             "editable_teams": [{"id": t.id, "name": t.name} for t in teams],
             "proposed": proposed,
             "is_admin": is_admin,
@@ -15948,6 +15982,8 @@ async def snippet_to_wiki(
         raise HTTPException(status_code=404)
     if target_scope not in ("personal", "team", "org"):
         target_scope = "org"
+    if target_scope == "org" and not is_org_account(_cfg(db, org)):
+        target_scope = "personal"  # a Solo account has no org wiki
     if target_scope == "team":
         if not team_id or _team_role(db, int(user["sub"]), team_id) is None:
             return RedirectResponse("/snippets?error=not_team_member", status_code=302)
@@ -16037,7 +16073,7 @@ _ALL_SCOPES = [
 
 
 @app.get("/agent-access", response_class=HTMLResponse)
-def agent_access_page(request: Request, user: dict = Depends(_require_admin)):
+def agent_access_page(request: Request, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     idents = (
@@ -16071,7 +16107,7 @@ def agent_access_page(request: Request, user: dict = Depends(_require_admin)):
 async def agent_access_create(
     name: str = Form(...),
     agent_type: str = Form("custom"),
-    user: dict = Depends(_require_admin),
+    user: dict = Depends(_require_org_admin),
 ):
     db = _db()
     org = _require_org(db, user)
@@ -16100,7 +16136,7 @@ async def agent_access_create(
 
 
 @app.post("/agent-access/{aid}/scopes")
-async def agent_access_scopes(request: Request, aid: int, user: dict = Depends(_require_admin)):
+async def agent_access_scopes(request: Request, aid: int, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     ident = (
@@ -16124,7 +16160,7 @@ async def agent_access_scopes(request: Request, aid: int, user: dict = Depends(_
 
 
 @app.post("/agent-access/{aid}/toggle")
-async def agent_access_toggle(aid: int, user: dict = Depends(_require_admin)):
+async def agent_access_toggle(aid: int, user: dict = Depends(_require_org_admin)):
     db = _db()
     org = _require_org(db, user)
     ident = (
@@ -16146,7 +16182,7 @@ async def agent_access_toggle(aid: int, user: dict = Depends(_require_admin)):
 
 
 @app.post("/agent-access/{aid}/mcp-token")
-async def agent_access_mint_token(aid: int, user: dict = Depends(_require_admin)):
+async def agent_access_mint_token(aid: int, user: dict = Depends(_require_org_admin)):
     """Mint (or rotate) the MCP bearer token that authenticates this agent identity to the
     org's own /mcp endpoint for governed agent-to-agent calls. Returned once, not stored
     in plaintext. The identity still needs the `a2a` scope to use the A2A tools."""
@@ -17303,8 +17339,6 @@ def _agent_for_operate(db, aid: int, org, user):
 def agents_home(request: Request, user: dict = Depends(_require_user)):
     from collections import Counter
 
-    from .. import planes
-
     db = _db()
     org = _require_org(db, user)
     uid = int(user["sub"])
@@ -17338,7 +17372,7 @@ def agents_home(request: Request, user: dict = Depends(_require_user)):
             a.status == "active" and a.next_run_at is not None and _as_utc(a.next_run_at) <= now
         )
     cfg = _cfg(db, org)
-    is_org = planes.is_org_mode(cfg)
+    is_org = shares_org_model(cfg)
     teams = [{"id": t, "name": n} for t, n in _team_names(db, _user_team_ids(db, uid))]
     return templates.TemplateResponse(
         request,
@@ -17426,11 +17460,12 @@ async def agents_create_worker(
     name = (name or "").strip()
     if not name:
         return RedirectResponse("/agents", status_code=302)
-    # Plane guards: an org agent needs org mode; a team agent needs a team the user belongs to.
+    # Plane guards: an org agent needs an Org account with a backend; a team agent needs a team the user
+    # belongs to.
     # Anything that fails a guard falls back to the safe default (solo/local).
     pl = planes.normalize(plane)
     tid = int(team_id) if team_id.strip().isdigit() else None
-    if pl == "org" and not planes.is_org_mode(_cfg(db, org)):
+    if pl == "org" and not shares_org_model(cfg):
         pl = "solo"
     if pl == "team" and (tid is None or tid not in _user_team_ids(db, uid)):
         pl = "solo"
