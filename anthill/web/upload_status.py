@@ -254,6 +254,32 @@ def forget_timed_out(db, queued_upload_ids: list[int]) -> None:
     ).delete(synchronize_session=False)
 
 
+def how_it_was_read(
+    db, *, org_id: int, user_id: int, scope: str, team_id: int | None, slug: str
+) -> str:
+    """One sentence on what read the document that became page ``slug``, from the person's latest upload
+    record for it, or "" when there is no such record or it names no model. It is the model the page itself
+    is tagged with (see ``finish_upload``), not a guess from the account's settings."""
+    row = (
+        db.query(UploadRecord)
+        .filter(
+            UploadRecord.org_id == org_id,
+            UploadRecord.user_id == user_id,
+            UploadRecord.scope == scope,
+            UploadRecord.team_id == team_id,
+            UploadRecord.slug == slug,
+            UploadRecord.status.in_(("added", "review", "held")),
+        )
+        .order_by(UploadRecord.id.desc())
+        .first()
+    )
+    if row is None or not row.model:
+        return ""
+    if row.model == VERBATIM_MODEL:
+        return "Filed exactly as written: no AI rewrote it."
+    return f"Read by {row.model}, which wrote the page from your document."
+
+
 def _review_url(scope: str, team_id: int | None) -> str:
     if scope == "org":
         return "/wiki/review"

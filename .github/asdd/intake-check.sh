@@ -160,6 +160,27 @@ if [ "$ai_box" = "true" ] && [ "$any_trailer" = "false" ] && [ "$n_commits" -gt 
   problems+=("The AI-agent box is ticked but no commit carries 'Agent: <name> (automated, instructed-by: <human>)'. Add the trailer to the agent's commits (AGENTS.md).")
 fi
 
+# 7) Spec structure, for a spec this PR ADDS (the workflow copies each added docs/specs/*.md into specs/). A new
+#    spec needs a problem statement, a description of the change and a way to verify it, under whatever
+#    heading this project's specs use (Problem or Introduction; Requirements, Fix or Design; Acceptance,
+#    Verification or Tasks). Only new specs are checked: 39 of the 214 specs already in the tree would not
+#    pass, and editing one of those must not fail. Inert without the specs/ directory.
+spec_structure_ok=true
+hd='^#{2,3}[[:space:]]*([0-9]+\.?[[:space:]]*)?'
+if [ -d "$WORKDIR/specs" ]; then
+  for sf in "$WORKDIR"/specs/*.md; do
+    [ -f "$sf" ] || continue
+    missing=""
+    grep -qiE "${hd}(problem|introduction|background|context|why|summary|motivation|overview)\b" "$sf" || missing="$missing a problem statement (a '## Problem' or '## Introduction' section);"
+    grep -qiE "${hd}(requirements?|fix|design|plan|decisions?|behaviou?r|approach|changes?|goals?|what|rules?|specification|solution|proposal|how)\b" "$sf" || missing="$missing the change itself (a '## Requirements', '## Fix' or '## Design' section);"
+    grep -qiE "${hd}(acceptance|tasks?|done when|verification|tests?|proof|checks?|criteria|known limits)\b" "$sf" || missing="$missing a way to verify it (a '## Acceptance', '## Verification' or '## Tasks' section);"
+    if [ -n "$missing" ]; then
+      spec_structure_ok=false
+      problems+=("New spec docs/specs/$(basename "$sf") is missing:${missing%;}. See docs/specs/mandatory-spec-gate.md.")
+    fi
+  done
+fi
+
 # Owner override: an owner's own PR carrying the `owner-override` label passes intake even with unmet
 # requirements. The problems are RETAINED in the output (advisory, on the record) - the override stops
 # intake blocking, it does not hide what was skipped. `override` comes from the workflow (meta.env).
@@ -178,11 +199,11 @@ jq -n \
   --argjson pr "${pr_number}" --arg head "${head_sha}" \
   --argjson disc "$disclosed" --argjson sign "$signed_off" --argjson lane "$laned" \
   --argjson flood "$flood_ok" --argjson spec "$spec_ok" --argjson ovr "$overridden" --argjson mach "$machine_ok" \
-  --argjson trailer "$agent_trailer_ok" --argjson probs "$probs_json" \
+  --argjson trailer "$agent_trailer_ok" --argjson sstruct "$spec_structure_ok" --argjson probs "$probs_json" \
   '{schema:"asdd/intake/v0.1", pr_number:$pr, head_sha:$head,
-    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr, machine_author:$mach, agent_trailer_ok:$trailer,
-    passed:($ovr or ($disc and $sign and $lane and $flood and $spec and $trailer)),
+    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr, machine_author:$mach, agent_trailer_ok:$trailer, spec_structure_ok:$sstruct,
+    passed:($ovr or ($disc and $sign and $lane and $flood and $spec and $trailer and $sstruct)),
     problems:$probs}' > "$OUT"
 
-echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden machine_author=$machine_ok agent_trailer_ok=$agent_trailer_ok"
+echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden machine_author=$machine_ok agent_trailer_ok=$agent_trailer_ok spec_structure_ok=$spec_structure_ok"
 [ -s "$OUT" ] || { echo "intake-check: no output" >&2; exit 1; }

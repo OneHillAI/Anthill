@@ -197,8 +197,15 @@ def test_the_page_view_says_it_is_the_note_as_uploaded(tmp_path, monkeypatch):
         r = c.get(f"/wiki/page/{ws.pages()[0].stem}")
         assert r.status_code == 200
         meta = BeautifulSoup(r.text, "html.parser").select_one("p.text-muted")
-        assert meta.get_text(" ", strip=True) == f"The note as uploaded on {stamp} from {name}."
-        assert "Written by" not in r.text
+        # The name shown is the one uploaded, as a link to the kept original (kept under a hashed name).
+        assert (
+            " ".join(meta.get_text().split())
+            == f"The note as uploaded on {stamp} from {source.name}."
+        )
+        assert meta.select_one("a") is not None and meta.select_one("a")["href"].startswith(
+            f"/wiki/raw/{name}"
+        )
+        assert "Written by" not in r.text and "AI summary" not in r.text
     finally:
         app_mod._engine = None
         app_mod._SessionFactory = None

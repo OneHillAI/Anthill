@@ -17,8 +17,8 @@ card caption ("the wiki documents in this scope") ran straight into the "Take a 
    policy), shared as `templates/_markdown_render.html`. Page text is untrusted: the policy allows only the tags
    Markdown produces for text, turns images into plain links, and keeps only http(s), mailto and same-site links.
 3. Without JavaScript, or if either library fails to load, the body is the page text, HTML-escaped and pre-wrapped.
-4. The provenance appears as one muted line under the page ("Written by MODEL on DATE from SOURCE."), outside the
-   body. A page with no provenance comment shows no line.
+4. The provenance appears as one muted line under the page ("AI summary written by MODEL on DATE from SOURCE.",
+   changed from "Written by MODEL ..." by `docs/specs/honest-upload-messages.md`), outside the body. A page with no provenance comment shows no line.
 5. A `[[link]]` whose slug matches an existing page in the same scope becomes a link to that page. A link to a
    page that does not exist is shown as its plain text. The link target is the slug, never the typed text.
 6. The Pages card caption on the wiki index reads "The wiki documents in this scope." before the tour link.

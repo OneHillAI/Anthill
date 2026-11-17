@@ -31,8 +31,9 @@ that short notes skip summarising.
    on each run).
 6. A `verbatim` page is never stale: `stale_pages` skips it and `renovate` reports it unchanged, including with
    `only_stale=False`. A model upgrade has nothing to regenerate.
-7. The page view reads "The note as uploaded on <date> from <source>." for a verbatim page, and "Written by
-   <model> on <date> ..." for every other page.
+7. The page view reads "The note as uploaded on <date> from <source>." for a verbatim page, and "AI summary written
+   by <model> on <date> ..." for every other page (it read "Written by <model>" until
+   `docs/specs/honest-upload-messages.md`).
 
 ## Known limits
 

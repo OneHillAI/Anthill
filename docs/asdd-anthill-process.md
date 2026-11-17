@@ -24,8 +24,11 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
    `Agent:` trailer, and a PR that ticks the AI-agent box needs it on at least one commit. The review reads the diff through four lenses and
    recommends; it retries a bad model reply instead of giving up. A change to product code (`anthill/`) must add a
    changelog fragment before it merges, unless it is in the chore lane, a release cut, or from a machine author; tests,
-   docs and CI alone need none. CI runs lint and the tests on Python 3.10 to
-   3.13. A change to the ASDD setup also runs the runtime check, which pings every agent's model.
+   docs and CI alone need none. Product code (`anthill/**/*.py`) must also change a test. CI runs lint and the tests on Python 3.10 to
+   3.13, and holds new code to a stricter bar than the old: only on lines a PR adds, a new over-complex function or
+   commented-out code fails and a new blind `except` warns (annotate a deliberate one with `# noqa: BLE001 - why`).
+   A spec a PR adds needs a problem, the change and a way to verify it. The spec review sees the existing specs the
+   description links. A change to the ASDD setup also runs the runtime check, which pings every agent's model.
 3. **Staying current.** The merge ruleset will not merge a branch that is behind `main`. A workflow brings the
    bot's open PR branches up to date after every merge, so nobody clicks "Update branch" and waits for CI again.
 4. **Merge.** A human approves and merges. Protected paths (`.github/**`, `scripts/**` and others) need a named

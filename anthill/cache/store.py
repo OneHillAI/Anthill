@@ -66,6 +66,9 @@ class CacheStore:
         import hashlib
 
         row_id = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+        # The same question stored again replaces its old answer. Appending left two rows that tied on
+        # similarity, so the older answer could still be the one served.
+        self.delete(row_id)
         self._table.add(
             [
                 {
@@ -78,6 +81,11 @@ class CacheStore:
                 }
             ]
         )
+
+    def delete(self, row_id: str) -> None:
+        """Remove the row with this id (the ids are hex digests, so the filter cannot be injected into)."""
+        if row_id and all(c in "0123456789abcdef" for c in row_id):
+            self._table.delete(f"id = '{row_id}'")
 
     def search(self, embedding: np.ndarray, threshold: float, limit: int = 5) -> list[CacheRow]:
         """Return rows whose embedding is within `threshold` cosine of `embedding`."""
