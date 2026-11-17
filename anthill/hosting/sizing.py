@@ -21,6 +21,7 @@ biggest number.
 
 from __future__ import annotations
 
+import functools
 import platform
 import re
 import shutil
@@ -362,12 +363,21 @@ class Sizing:
     fits: list[ModelFit]  # every catalog model annotated for this hardware
 
 
-def _kv_budget_gb(context_k: float, concurrency: int) -> float:
-    return max(0.0, context_k) * max(1, concurrency) * _KV_PER_K_PER_STREAM
+def _kv_budget_gb(context_k: float, concurrency: int, kv_gb_per_k: float | None = None) -> float:
+    """KV cache for the window. ``kv_gb_per_k`` is the model's own figure (decimal GB per 1,000 tokens, from
+    ``model_memory.ModelArch``); without it the flat `_KV_PER_K_PER_STREAM` guess is used."""
+    per_k = _KV_PER_K_PER_STREAM if kv_gb_per_k is None else max(0.0, kv_gb_per_k)
+    return max(0.0, context_k) * max(1, concurrency) * per_k
 
 
 def usable_gb(
-    mem_gb: float, *, kind: str, context_k: float, concurrency: int, gpu_count: int = 1
+    mem_gb: float,
+    *,
+    kind: str,
+    context_k: float,
+    concurrency: int,
+    gpu_count: int = 1,
+    kv_gb_per_k: float | None = None,
 ) -> float:
     """Memory left for weights after OS/serving overhead, the runner working set, and the KV budget.
 
@@ -381,16 +391,26 @@ def usable_gb(
     pool across the tensor-parallel group. Defaults to 1 (today's single-GPU behavior, unchanged for
     every existing caller) - meaningless for "apple" and ignored there.
     """
-    kv = _kv_budget_gb(context_k, concurrency)
+    kv = _kv_budget_gb(context_k, concurrency, kv_gb_per_k)
     if kind == "apple":
         return max(0.0, mem_gb * _APPLE_USABLE - kv - _LOCAL_RUNNER_GB)
     return max(0.0, (gpu_count * mem_gb - gpu_count * _GPU_OVERHEAD_GB) - kv)
 
 
-def resident_gb(params_b: float, *, context_k: float = 8.0, concurrency: int = 1) -> float:
+def resident_gb(
+    params_b: float,
+    *,
+    context_k: float = 8.0,
+    concurrency: int = 1,
+    kv_gb_per_k: float | None = None,
+) -> float:
     """Approx memory a locally-served 4-bit model occupies while running: weights + KV cache + the
     runner working set. This is what actually competes with the OS/app for unified memory (issue #416)."""
-    return params_b * _GB_PER_B_Q4 + _kv_budget_gb(context_k, concurrency) + _LOCAL_RUNNER_GB
+    return (
+        params_b * _GB_PER_B_Q4
+        + _kv_budget_gb(context_k, concurrency, kv_gb_per_k)
+        + _LOCAL_RUNNER_GB
+    )
 
 
 def onprem_council_fits(
@@ -512,6 +532,7 @@ def fit_tier(
     concurrency: int = 1,
     active_b: float = 0.0,
     system_ram_gb: float | None = None,
+    kv_gb_per_k: float | None = None,
 ) -> str:
     """How well a model runs on this box: ``"recommended"`` (fits with comfortable free RAM),
     ``"tight"`` (fits but leaves little headroom - warn before running), ``"offload"`` (overflows VRAM,
@@ -526,7 +547,13 @@ def fit_tier(
     unified memory is shared, so a model that only just fits still starves the app: it is ``"tight"``
     unless it leaves at least ``_COMFORT_FREE_GB`` free after its resident footprint (issue #416)."""
     if kind != "apple":
-        ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
+        ceiling = max_params_b(
+            mem_gb,
+            kind=kind,
+            context_k=context_k,
+            concurrency=concurrency,
+            kv_gb_per_k=kv_gb_per_k,
+        )
         if params_b <= ceiling:
             return "recommended"
         is_moe = active_b > 0.0 and active_b < params_b
@@ -543,7 +570,9 @@ def fit_tier(
             if est is not None and est >= _MIN_USABLE_TOK_S:
                 return "offload"
         return "too_large"
-    resident = resident_gb(params_b, context_k=context_k, concurrency=concurrency)
+    resident = resident_gb(
+        params_b, context_k=context_k, concurrency=concurrency, kv_gb_per_k=kv_gb_per_k
+    )
     if resident > mem_gb * _APPLE_USABLE:
         return "too_large"
     return "recommended" if (mem_gb - resident) >= _COMFORT_FREE_GB else "tight"
@@ -557,6 +586,7 @@ def max_params_b(
     concurrency: int = 4,
     gb_per_b: float = _GB_PER_B_Q4,
     gpu_count: int = 1,
+    kv_gb_per_k: float | None = None,
 ) -> float:
     """The largest model (in billions of params) the box can hold, given context + concurrency.
 
@@ -566,7 +596,12 @@ def max_params_b(
     """
     return (
         usable_gb(
-            mem_gb, kind=kind, context_k=context_k, concurrency=concurrency, gpu_count=gpu_count
+            mem_gb,
+            kind=kind,
+            context_k=context_k,
+            concurrency=concurrency,
+            gpu_count=gpu_count,
+            kv_gb_per_k=kv_gb_per_k,
         )
         / gb_per_b
     )
@@ -1009,22 +1044,36 @@ _GPU_OFFLOAD_CALIBRATION_FACTOR = 0.8
 # 60 / (3 * 0.678 * 0.5) ~= 59.0 tok/s; 59.0 * 0.8 ~= 47.2 tok/s - safely under (never over) the ~50 tok/s
 # measured, and comfortably clears `_MIN_USABLE_TOK_S`.
 
-# Apple Silicon chip -> memory bandwidth (GB/s). Gathered from public benchmarks, NOT Apple's own spec
-# sheets - verify against support.apple.com before adding a chip or trusting this for a new product
-# claim. An unrecognized chip (including any not yet listed here) deliberately returns no bandwidth, so
-# it never trips the speed floor - see `_apple_chip_bandwidth_gbps`.
-_APPLE_CHIP_BANDWIDTH_GBPS: dict[str, float] = {
-    "M1": 70.0,
-    "M2": 102.0,
-    "M3 Pro": 154.0,
-    "M3 Max": 400.0,
+# Apple Silicon chip -> unified-memory bandwidth (GB/s), from Apple's own technical specifications pages
+# (support.apple.com), checked 2026-11-17. A float is one figure for every GPU-core variant of the chip. A
+# dict maps GPU cores to bandwidth, for the chips where Apple lists two: the Max chips with fewer GPU cores
+# have a narrower memory bus. The base M1 is the exception to "Apple's own": Apple states no figure, and
+# 68.25 is what its LPDDR4X-4266 on a 128-bit bus gives. The M6 (bandwidth depends on memory size) and the
+# M5 Ultra are not listed, so they return no bandwidth until someone verifies them. A chip that is not
+# listed, or a chip with variants whose GPU cores cannot be read, returns None - see
+# `_apple_chip_bandwidth_gbps`.
+_APPLE_CHIP_BANDWIDTH_GBPS: dict[str, float | dict[int, float]] = {
+    "M1": 68.25,
+    "M1 Pro": 200.0,
+    "M1 Max": 400.0,
+    "M1 Ultra": 800.0,
+    "M2": 100.0,
+    "M2 Pro": 200.0,
+    "M2 Max": 400.0,
+    "M2 Ultra": 800.0,
+    "M3": 100.0,
+    "M3 Pro": 150.0,
+    "M3 Max": {30: 300.0, 40: 400.0},
     "M3 Ultra": 819.0,
     "M4": 120.0,
     "M4 Pro": 273.0,
-    "M4 Max": 546.0,
-    "M5": 154.0,
+    "M4 Max": {32: 410.0, 40: 546.0},
+    "M5": 153.0,
     "M5 Pro": 307.0,
+    "M5 Max": {32: 460.0, 40: 614.0},
 }
+
+_APPLE_CHIP_RE = re.compile(r"^Apple (M\d+(?: (?:Pro|Max|Ultra))?)$")
 
 
 def _apple_chip_brand() -> str | None:
@@ -1043,18 +1092,43 @@ def _apple_chip_brand() -> str | None:
     return None
 
 
-def _apple_chip_bandwidth_gbps() -> float | None:
-    """This machine's Apple Silicon memory bandwidth (GB/s), or None if not Apple Silicon or the exact
-    chip isn't in `_APPLE_CHIP_BANDWIDTH_GBPS`. Deliberately returns None for an unrecognized chip - a
-    caller must treat that as "cannot estimate speed", never guess a bandwidth figure."""
-    brand = _apple_chip_brand()
-    if not brand:
+@functools.lru_cache(maxsize=1)
+def _apple_gpu_cores() -> int | None:
+    """This Mac's GPU core count (``system_profiler``'s "Total Number of Cores"), or None if it cannot be read."""
+    try:
+        out = subprocess.run(
+            ["system_profiler", "SPDisplaysDataType"], capture_output=True, text=True, timeout=15
+        )
+    except Exception:
         return None
-    # Longest key first: "M3 Ultra" must match before a hypothetical bare "M3" entry would.
-    for name in sorted(_APPLE_CHIP_BANDWIDTH_GBPS, key=len, reverse=True):
-        if name in brand:
-            return _APPLE_CHIP_BANDWIDTH_GBPS[name]
-    return None
+    match = (
+        re.search(r"Total Number of Cores:\s*(\d+)", out.stdout) if out.returncode == 0 else None
+    )
+    return int(match.group(1)) if match else None
+
+
+def apple_chip_bandwidth_gbps(chip: str, gpu_cores: int | None = None) -> float | None:
+    """Memory bandwidth (GB/s) of an exactly named Apple Silicon chip such as ``"M4 Max"``, or None when the
+    chip is not in the table, or has GPU-core variants and ``gpu_cores`` is not one of the listed counts."""
+    entry = _APPLE_CHIP_BANDWIDTH_GBPS.get(chip)
+    if isinstance(entry, dict):
+        return entry.get(gpu_cores) if gpu_cores is not None else None
+    return entry
+
+
+def _apple_chip_bandwidth_gbps() -> float | None:
+    """This machine's Apple Silicon memory bandwidth (GB/s), or None if not Apple Silicon, or the chip (or its
+    GPU-core variant) is not an exact match in `_APPLE_CHIP_BANDWIDTH_GBPS`. Deliberately returns None for an
+    unrecognized chip - a caller must treat that as "cannot estimate speed", never guess a bandwidth figure.
+    The name must match whole: "Apple M1 Pro" is the M1 Pro, never the base M1."""
+    brand = _apple_chip_brand()
+    match = _APPLE_CHIP_RE.match(brand or "")
+    if not match:
+        return None
+    chip = match.group(1)
+    if isinstance(_APPLE_CHIP_BANDWIDTH_GBPS.get(chip), dict):
+        return apple_chip_bandwidth_gbps(chip, _apple_gpu_cores())
+    return apple_chip_bandwidth_gbps(chip)
 
 
 def estimate_tokens_per_second(
@@ -1115,6 +1189,32 @@ def estimate_tokens_per_second(
     if denom <= 0:
         return None
     return (_GPU_OFFLOAD_RAM_BANDWIDTH_GBPS / denom) * _GPU_OFFLOAD_CALIBRATION_FACTOR
+
+
+_DENSE_DECODE_EFFICIENCY = 0.7
+# EXPERIMENTAL prior for `estimate_dense_decode_tokens_per_second`: the share of the memory bandwidth a dense
+# model's token generation actually uses. Two on-device points on a base M4 (120 GB/s): qwen2.5:3b measured
+# 42.2 tok/s on its 1.93 GB file (0.68 of the bandwidth-bound 62.2), and qwen3.5:9b 12.7 tok/s in #97
+# (about 0.7). Published Max-chip results for a 70B 4-bit model sit higher (about 0.8 to 0.95), so 0.7 leans
+# low (a model is rated slower, never faster, than it runs). Nothing here is calibrated per chip tier.
+
+
+def estimate_dense_decode_tokens_per_second(
+    weight_gb: float, *, bandwidth_gbps: float | None = None
+) -> float | None:
+    """EXPERIMENTAL tokens/sec for a DENSE model on this Mac: every weight is read once per token, so the
+    bandwidth divided by the model file's size, times `_DENSE_DECODE_EFFICIENCY`. Takes the real file size
+    (what `ollama list` shows), not parameters at a guessed 4 bits, because the same "Q4" label differs by
+    a fifth or more between builds and a small model's embeddings are not 4-bit. None when the chip is not an
+    exact match in the table or the size is not positive. A Mixture-of-Experts model reads only its active
+    experts, so it must not use this. A vision model's file includes an image encoder that decoding never
+    reads, so it is rated slower than it runs."""
+    if weight_gb <= 0:
+        return None
+    bandwidth = bandwidth_gbps if bandwidth_gbps is not None else _apple_chip_bandwidth_gbps()
+    if bandwidth is None:
+        return None
+    return bandwidth / weight_gb * _DENSE_DECODE_EFFICIENCY
 
 
 def is_usable_speed(model: Model, *, kind: str) -> bool:

@@ -104,6 +104,9 @@ def test_chip_bandwidth_lookup_matches_longer_variant_names_first(monkeypatch):
     monkeypatch.setattr(sizing, "_apple_chip_brand", lambda: "Apple M4 Pro")
     assert sizing._apple_chip_bandwidth_gbps() == 273.0
     monkeypatch.setattr(sizing, "_apple_chip_brand", lambda: "Apple M4 Max")
+    monkeypatch.setattr(
+        sizing, "_apple_gpu_cores", lambda: 40
+    )  # a Max has two bandwidths, by GPU cores
     assert sizing._apple_chip_bandwidth_gbps() == 546.0
     monkeypatch.setattr(sizing, "_apple_chip_brand", lambda: "Apple M4")
     assert sizing._apple_chip_bandwidth_gbps() == 120.0
