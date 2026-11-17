@@ -8,8 +8,12 @@ context / web results are fenced with explicit delimiters. These tests pin that 
 NOTE: they verify the *prompt the model receives*, not the model's behaviour - the end-to-end verdict
 (the `adversarial_injection_in_data` grader) needs a live Ollama + qwen3:8b run of deep.sh."""
 
+import pytest
+
 from anthill.search import web
 from anthill.wiki.prompts import UNTRUSTED_DATA_RULE, answer_question
+
+pytestmark = pytest.mark.knowledge_invariant
 
 _INJECTION = (
     "Summarise this meeting note: Q3 revenue up 10%, two new hires. "

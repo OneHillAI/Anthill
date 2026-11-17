@@ -17,12 +17,14 @@
 <p class="text-sm text-muted" style="margin:0 0 14px">
   The model that runs on <b>this machine</b> for your Solo chats. Pick one below - it downloads if
   needed and becomes your local model in one step. Every option runs fully on your hardware; nothing
-  leaves the machine. The org's shared model is separate, under
-  <a href="/settings/organization/wiki">Organisation -&gt; Cloud &amp; model</a>.
+  leaves the machine.{% if is_org_account %} The org's shared model is separate, under
+  <a href="/settings/organization/wiki">Organisation -&gt; Cloud &amp; model</a>.{% endif %}
 </p>
 
 {% if request.query_params.get('selected') %}
 <div class="alert alert-ok">✅ Local model set to <b>{{ current_model }}</b>.</div>
+{% elif request.query_params.get('cancelled') %}
+<div class="alert alert-ok">Stopped the background download.</div>
 {% elif request.query_params.get('deleted') %}
 <div class="alert alert-ok">🗑️ Removed <b>{{ request.query_params.get('deleted') }}</b> and freed its disk space.</div>
 {% elif request.query_params.get('error') == 'no_tag' %}
@@ -59,6 +61,9 @@
     </div>
     <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
   </div>
+  <form method="post" action="/models/pull/cancel" style="margin-top:8px">
+    <button type="submit" class="btn btn-outline btn-sm">Cancel download</button>
+  </form>
 </div>
 <div id="ready-banner" class="alert alert-ok" style="display:none">
   ✅ <b id="ready-tag"></b> finished downloading and is now your local model.

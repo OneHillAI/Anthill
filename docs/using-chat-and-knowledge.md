@@ -37,7 +37,10 @@ members of the project do not see it.
 
 Upload a document or paste text and Anthill turns it into a structured page: a title, a summary,
 key facts, and links to related pages. Anthill keeps the wiki itself tidy in the background,
-fixing broken links and flagging duplicates. The wiki has three tabs:
+fixing broken links and flagging duplicates. Under **Add a document**, **Recent uploads** lists your
+latest ten uploads to that wiki with what happened to each one (reading, added, waiting for your
+review, held, timed out or could not be read, and what to do next). Only you see your own list. The wiki
+has three tabs:
 
 - **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages.
 - **Principles**. Your own (or your org's) writing rules and house style. Applied automatically

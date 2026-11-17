@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Render the test agent's structured result as the markdown report the workflow posts.
+"""Render the test run's structured result as the markdown report the workflow posts.
 
 Usage: test-report.py <result.json> <change_ref> <model>      (the markdown report, on stdout)
        test-report.py --verdict <result.json>                 (pass, fail or none, for the commit status)
 
-The result file is MODEL OUTPUT, so only known fields are read, each is length-capped, and nothing in it is
-executed. A verdict other than pass or fail reads "NO VERDICT", never a pass. Called by test.sh.
+The result file comes from test-junit.py (a pytest run) or, in older runs, from a model, so only known fields
+are read, each is length-capped, and nothing in it is executed. A verdict other than pass or fail reads "NO VERDICT", never a pass. Called by test.sh.
 """
 
 import json
@@ -34,13 +34,22 @@ def verdict(result):
 def render(result, ref, model):
     payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
     verdict = str(result.get("verdict", "")).strip().lower()
+    by_pytest = result.get("runner") == "pytest"
     head = {"pass": "PASS", "fail": "FAIL"}.get(
-        verdict, "NO VERDICT (the agent wrote an unusable result)"
+        verdict,
+        "NO VERDICT (pytest did not give a usable result)"
+        if by_pytest
+        else "NO VERDICT (the agent wrote an unusable result)",
+    )
+    how = (
+        "deterministic: pytest on the merged commit, no model involved"
+        if by_pytest
+        else f"agent-reported; run on `{model}`, the test_runner role"
     )
     lines = [
         f"## Test agent - result for `{ref}`",
         "",
-        f"**{head}** (agent-reported; run on `{model}`, the test_runner role)",
+        f"**{head}** ({how})",
         "",
     ]
     if payload.get("tested"):

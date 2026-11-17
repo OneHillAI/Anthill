@@ -1,16 +1,18 @@
-# ASDD operate - test agent (post-merge regression run).
+# ASDD operate - post-merge test run.
 #
-# Runs the test-runner agent after a change lands on main and posts its pass/fail on the merged PR. It
-# triggers on push to main, so the input is TRUSTED (a human already reviewed and merged): that is why a
-# tool-using agent (the test-runner has a shell, it runs the suite) is acceptable here and a single
-# workflow is fine. The tester must NOT run automatically on untrusted pre-merge PR content: running a
-# stranger's code with the model key in reach needs an egress-free, secret-isolated sandbox this repo does
-# not have. The runner calls cli/operate-guard.py to enforce that rule mechanically.
+# Runs the project's test suite after a change lands on main and posts its pass/fail on the merged PR. It is
+# deterministic: pytest runs the same command CI runs, the verdict is pytest's exit code and the counts come
+# from its JUnit XML (.github/asdd/operate/test.sh). No model is involved, because counting passes is not a
+# judgement, and a model endpoint that is down or a malformed reply used to record `asdd/test=error` on a
+# green suite, which blocks Promote Beta. The run has no model key or secret in its environment.
 #
-# It reports; it never merges and never edits code. Advisory: it posts a comment for a human to act on.
-# Adapted from the ASDD kit's template (cli/templates/operate/asdd-test.yml): it also installs the project's
-# test dependencies (the agent cannot run the suite without them) and can be started by hand for a chosen
-# commit, which is how the agent is proven on a real merged change.
+# It triggers on push to main, so the input is TRUSTED (a human already reviewed and merged). It must NOT run
+# automatically on untrusted pre-merge PR content: it executes the code under test, and a stranger's code
+# needs a sandbox this repo does not have. A hand-started run must name a commit that is on main (below).
+#
+# It reports; it never merges and never edits code. Advisory: it posts a comment for a human to act on and
+# records the `asdd/test` commit status Promote Beta reads. It installs the project's test dependencies and
+# can be started by hand for a chosen commit.
 
 name: ASDD test
 
@@ -20,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       change_ref:
-        description: "Commit (SHA) on main to run the test agent against; default is the branch head"
+        description: "Commit (SHA) on main to run the tests against; default is the branch head"
         required: false
         default: ""
 
@@ -28,7 +30,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  statuses: write   # to record the test agent's verdict on the commit (Promote Beta reads it)
+  statuses: write   # to record the test run's verdict on the commit (Promote Beta reads it)
 
 concurrency:
   group: asdd-test-${{ inputs.change_ref || github.sha }}
@@ -40,7 +42,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # The agent re-runs the whole suite; cap it so a hung run cannot hold a runner.
+    # Re-runs the whole suite; cap it so a hung run cannot hold a runner.
     timeout-minutes: 30
     steps:
       - name: Check out the commit under test (need history for the change diff)
@@ -50,41 +52,27 @@ jobs:
           fetch-depth: 50
           persist-credentials: false
 
-      # The tester has a shell and the model key, so it only ever runs on merged, trusted code. A push to
+      # The run executes the code under test, so it only ever runs on merged, trusted code. A push to
       # main satisfies that by construction; a hand-started run must name a commit that is on main.
       - name: Refuse any commit that is not on main
         id: onmain
         run: |
           git fetch --no-tags --depth=1000 origin main
           git merge-base --is-ancestor "$CHANGE_REF" FETCH_HEAD \
-            || { echo "::error::${CHANGE_REF} is not on main; the test agent only runs on merged code."; exit 1; }
+            || { echo "::error::${CHANGE_REF} is not on main; the post-merge test run only runs on merged code."; exit 1; }
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
-      # The agent runs the project's own suite (AGENTS.md: `make test`, i.e. pytest). It cannot do that
-      # without the project's test dependencies, so install them first, with no model key in this step.
+      # The run needs the project's test dependencies (the same extra CI installs).
       - name: Install the project's test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[ci]"
 
-      - name: Install Goose (best-effort; the run reports "no test agent ran" if absent)
-        run: |
-          curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash || echo "goose install failed; the run will say so"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # An operate agent in CI needs BOTH the shared provider pair and its own role's pair in the env, or the
-      # per-role override is silently inert. This is the test_runner role's suffix; unset secrets and vars
-      # evaluate to empty, so a single-provider deployment simply falls back to the shared pair.
-      - name: Run the test agent (trusted post-merge input)
-        env:
-          ASDD_RUNTIME_TOKEN: ${{ secrets.ASDD_RUNTIME_TOKEN }}
-          ASDD_MODEL_URL: ${{ vars.ASDD_MODEL_URL }}
-          ASDD_MODEL: ${{ vars.ASDD_MODEL }}
-          ASDD_RUNTIME_TOKEN__TEST_RUNNER: ${{ secrets.ASDD_RUNTIME_TOKEN__TEST_RUNNER }}
-          ASDD_MODEL_URL__TEST_RUNNER: ${{ vars.ASDD_MODEL_URL__TEST_RUNNER }}
+      # No env: block on purpose. This step runs the merged code, so no token or secret is passed to it.
+      - name: Run the test suite (trusted post-merge input)
         run: bash .github/asdd/operate/test.sh "$CHANGE_REF" test-report.md
 
       - name: Post the result on the merged PR (or the commit)
@@ -95,7 +83,7 @@ jobs:
           set -euo pipefail
           [ -s test-report.md ] || { echo "no report; nothing to post"; exit 0; }
           body="$(cat test-report.md)"
-          footer=$'\n\n<sub>Reported by the ASDD test agent (advisory, post-merge). A human acts on it. Nothing merges automatically.</sub>'
+          footer=$'\n\n<sub>Reported by the ASDD post-merge test run (deterministic pytest, advisory). A human acts on it. Nothing merges automatically.</sub>'
           # find the PR this commit merged, if any
           pr="$(gh api "repos/$REPO/commits/$CHANGE_REF/pulls" -H "Accept: application/vnd.github.groot-preview+json" --jq '.[0].number' 2>/dev/null || true)"
           if [ -n "${pr:-}" ] && [ "$pr" != "null" ]; then
@@ -107,7 +95,7 @@ jobs:
           fi
 
       # The structured verdict, recorded as a commit status (the mechanism CI already uses), so Promote Beta
-      # reads a signal instead of parsing the report text. It is recorded even when the agent did not run (then
+      # reads a signal instead of parsing the report text. It is recorded even when pytest did not complete (then
       # the state is "error"), but only for a commit that passed the on-main check above.
       - name: Record the verdict as a commit status
         if: ${{ always() && steps.onmain.outcome == 'success' }}
@@ -118,9 +106,9 @@ jobs:
           set -euo pipefail
           verdict="$(python3 .github/asdd/operate/test-report.py --verdict .asdd-work/operate-result.json 2>/dev/null || echo none)"
           case "$verdict" in
-            pass) state=success; desc="Test agent: PASS" ;;
-            fail) state=failure; desc="Test agent: FAIL" ;;
-            *)    state=error;   desc="Test agent: no verdict (it did not run, or left no usable result)" ;;
+            pass) state=success; desc="Test run: PASS" ;;
+            fail) state=failure; desc="Test run: FAIL" ;;
+            *)    state=error;   desc="Test run: no verdict (pytest did not complete, or left no usable result)" ;;
           esac
           gh api "repos/$REPO/statuses/$CHANGE_REF" -f state="$state" -f context="asdd/test" -f description="$desc" >/dev/null
           echo "recorded asdd/test=$state on $CHANGE_REF"

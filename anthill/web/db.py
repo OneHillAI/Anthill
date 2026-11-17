@@ -859,6 +859,9 @@ class QueuedUpload(Base):
     ``OrgSettings.local_model_pulling`` clears. ``stored_path`` points at the durable copy under
     the app's files root; it is deleted once the row leaves ``queued`` (done or error), so the
     row itself is the permanent record and the file is scratch space.
+    A ``timed_out`` row is different: the model did not answer within the upload's time limit, and
+    ``stored_path`` then points at the immutable copy under the wiki's ``raw/`` (never deleted here)
+    so the person can retry that same upload without choosing the file again (#148).
     New table, so ``create_all`` picks it up on existing installs.
     """
 
@@ -870,10 +873,37 @@ class QueuedUpload(Base):
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     filename = Column(String(255), nullable=False)
     stored_path = Column(String(500), nullable=False)
-    status = Column(String(12), nullable=False, default="queued")  # queued | done | error
+    status = Column(
+        String(12), nullable=False, default="queued"
+    )  # queued | done | error | timed_out
     error = Column(Text, nullable=False, default="")  # the failure message when status == error
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     processed_at = Column(DateTime, nullable=True)
+
+
+class UploadRecord(Base):
+    """What became of one document a person added to a wiki, kept so the wiki page can show it long after
+    the one-time banner is gone. Written when the upload starts and updated when it ends (see
+    ``web/upload_status.py``). Only its owner sees it. ``status`` is reading | added | review | held |
+    waiting_model | timed_out | failed; ``detail`` is a failure reason code. ``queued_upload_id`` ties the
+    record to the ``QueuedUpload`` that later finishes it (a wait for the model, or a timed-out retry).
+    New table, so ``create_all`` picks it up on existing installs."""
+
+    __tablename__ = "upload_records"
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scope = Column(String(10), nullable=False, default="personal")  # personal | team | org
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    filename = Column(String(255), nullable=False)
+    status = Column(String(16), nullable=False, default="reading")
+    detail = Column(String(40), nullable=False, default="")
+    slug = Column(String(120), nullable=False, default="")
+    title = Column(String(300), nullable=False, default="")
+    model = Column(String(120), nullable=False, default="")
+    queued_upload_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    finished_at = Column(DateTime, nullable=True)
 
 
 class ContributionProposal(Base):

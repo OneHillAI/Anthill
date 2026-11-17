@@ -23,9 +23,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 OPERATE = ROOT / ".github/asdd/operate"
-# runner script -> the recipe it runs
+# runner script -> the recipe it runs (test.sh is not here: it runs pytest, no recipe)
 PAIRS = {
-    "test.sh": "recipes/test-runner.yaml",
     "docsync.sh": "recipes/documentation.yaml",
 }
 

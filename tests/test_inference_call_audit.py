@@ -2,6 +2,7 @@
 the admin-facing trail of who, when, which model, which endpoint. Never the message content itself
 (that's the egress scrubber's job, tested in test_openai_compat.py)."""
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -9,6 +10,8 @@ import anthill.web.db as db_mod
 from anthill.web import audit
 from anthill.web.db import AuditLog, Organization
 from anthill.web.plane_routing import PlaneInference
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 def _session(tmp_path):

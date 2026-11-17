@@ -7,7 +7,9 @@ import re
 import shutil
 import time
 import urllib.parse
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from itertools import chain
 from math import ceil
@@ -32,6 +34,10 @@ _PDF_AUTO_MAX_MODEL_CALLS = 24
 _PDF_HARD_MAX_MODEL_CALLS = 64
 _PDF_HARD_MAX_TEXT_CHUNKS = 32
 _PDF_PROCESSING_TIMEOUT_SECONDS = PDF_HARD_PROCESSING_SECONDS
+INGEST_MODEL_TIMEOUT_SECONDS = 60
+INGEST_EXTENDED_TIMEOUT_SECONDS = 300
+_INGEST_MAX_NEW_TOKENS = 1_500
+_model_timeout: ContextVar[float | None] = ContextVar("ingest_model_timeout", default=None)
 _DEFAULT_FILESYSTEM_NAME_MAX_BYTES = 255
 
 
@@ -51,6 +57,29 @@ class PdfProcessingLimitExceeded(ValueError):
         self.transient = transient
 
 
+class IngestTimedOut(TimeoutError):
+    """One model call on a non-PDF source ran past the per-call limit the caller set."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(f"The model did not answer within {seconds:g} seconds.")
+        self.seconds = seconds
+
+
+@contextmanager
+def ingest_model_timeout(seconds: float) -> Iterator[None]:
+    """Give every model call that `ingest` makes on a non-PDF source this many seconds.
+
+    Without it a call keeps the backend's own, much longer, timeout - the right default for a
+    background job nobody is waiting on. An interactive caller sets it so a stalled model ends in a
+    clear answer instead of a spinner.
+    """
+    token = _model_timeout.set(seconds)
+    try:
+        yield
+    finally:
+        _model_timeout.reset(token)
+
+
 class _NoSourceSummaries(ValueError):
     pass
 
@@ -60,11 +89,21 @@ class _ProcessingBudget:
     deadline: float | None
     pdf: bool = True
     calls_remaining: int | None = None
+    model_timeout: float | None = None
 
     @classmethod
     def start(cls, *, pdf: bool = True) -> _ProcessingBudget:
         deadline = time.monotonic() + _PDF_PROCESSING_TIMEOUT_SECONDS if pdf else None
-        return cls(deadline, pdf=pdf)
+        return cls(deadline, pdf=pdf, model_timeout=None if pdf else _model_timeout.get())
+
+    def _call_timeout(self, configured) -> float | None:
+        if not isinstance(configured, (int, float)):
+            return None
+        if self.pdf:
+            if self.deadline is None:
+                return None
+            return min(float(configured), max(0.001, self.deadline - time.monotonic()))
+        return self.model_timeout
 
     def check_time(self) -> None:
         if not self.pdf or self.deadline is None:
@@ -89,23 +128,22 @@ class _ProcessingBudget:
                 )
             self.calls_remaining -= 1
         original_timeout = getattr(backend, "timeout", None)
-        if self.pdf and self.deadline is not None and isinstance(original_timeout, (int, float)):
-            remaining = max(0.001, self.deadline - time.monotonic())
-            backend.timeout = min(float(original_timeout), remaining)
+        call_timeout = self._call_timeout(original_timeout)
+        if call_timeout is not None:
+            backend.timeout = call_timeout
         try:
             result = backend.chat(messages, **kwargs)
         except Exception as exc:
-            if self.pdf and _is_timeout_error(exc):
-                raise PdfProcessingLimitExceeded(
-                    "PDF processing exceeded the 10 minute hard safety limit.", transient=True
-                ) from exc
+            if _is_timeout_error(exc):
+                if self.pdf:
+                    raise PdfProcessingLimitExceeded(
+                        "PDF processing exceeded the 10 minute hard safety limit.", transient=True
+                    ) from exc
+                if self.model_timeout is not None:
+                    raise IngestTimedOut(self.model_timeout) from exc
             raise
         finally:
-            if (
-                self.pdf
-                and self.deadline is not None
-                and isinstance(original_timeout, (int, float))
-            ):
+            if call_timeout is not None:
                 backend.timeout = original_timeout
         self.check_time()
         return result
@@ -130,6 +168,9 @@ def _is_timeout_error(exc: BaseException) -> bool:
 
 
 _FIDELITY_SUFFIXES = {".md", ".txt"}
+# A plain-text note this short is filed as it is, not summarised: there is little to condense and a
+# small model can only damage it (#150, #181). About a screen of text.
+_VERBATIM_NOTE_MAX_CHARS = 1_500
 # A quoted passage is at least two words and 12 characters, on one line; shorter pairs are scare quotes.
 _QUOTE_RE = re.compile(r'"([^"\n]{12,400})"|“([^”\n]{12,400})”')
 
@@ -225,6 +266,41 @@ def _neutralize_dangling_links(page_md: str, ws: Workspace, *, self_title: str =
     return WIKILINK_RE.sub(_sub, page_md)
 
 
+def _is_verbatim_note(source: Path, fc) -> bool:
+    return (
+        source.suffix.lower() in _FIDELITY_SUFFIXES
+        and not fc.has_images
+        and bool(fc.text.strip())
+        and len(fc.text) <= _VERBATIM_NOTE_MAX_CHARS
+    )
+
+
+def _file_verbatim_note(
+    ws: Workspace, source: Path, text: str, raw_copy: Path, on_write
+) -> Path | None:
+    """File a short note as the page itself, no model involved. The note's own H1 is the title (else
+    the file name); its text is kept as written, so `normalize_wiki_page` (which would merge a
+    `## Related` section) and `_neutralize_dangling_links` (which would strip the user's own
+    `[[links]]`) are not applied, and nothing is restored or enriched because nothing is reworded."""
+    from ..lifecycle.version import VERBATIM_MODEL, tag_page
+
+    body = text.strip()
+    page_md = body if first_h1(body) else f"# {source.stem}\n\n{body}"
+    title = first_h1(page_md) or source.stem
+    page_md = tag_page(page_md, VERBATIM_MODEL, source=raw_copy.name)
+    return _file_page(ws, title, page_md, on_write)
+
+
+def _file_page(ws: Workspace, title: str, page_md: str, on_write) -> Path | None:
+    if on_write is not None:  # caller routes the page through a review gate
+        on_write(title, page_md)
+        return None
+    path = ws.write_page(title, page_md)
+    ws.rebuild_index()
+    ws.append_log("ingest", title)
+    return path
+
+
 def ingest(
     ws: Workspace,
     source: Path,
@@ -247,6 +323,9 @@ def ingest(
     If web_enrich=True, the page is enriched with fresh web search results
     after the initial summary is written.
 
+    A short plain-text note (at most ``_VERBATIM_NOTE_MAX_CHARS``, no images) is not summarised: the
+    page is the note itself, the backend is never called and ``web_enrich`` does not apply (#181).
+
     If on_write is given, the finished (title, page_md) is handed to it instead of
     being written directly - so an autonomous caller can route the page through the
     review gate. Returns None in that case; otherwise the written path.
@@ -268,6 +347,8 @@ def ingest(
     if not is_pdf and source.resolve() != raw_copy.resolve() and not raw_copy.exists():
         preserve_raw_source(ws, source)
     _preflight_pdf_work(fc, allow_large_pdf=allow_large_pdf, budget=budget)
+    if _is_verbatim_note(source, fc):
+        return _file_verbatim_note(ws, source, fc.text, raw_copy, on_write)
     page_md, writer_model = _source_content_to_page(
         ws, source, fc, backend, budget=budget, vision_max_accuracy=vision_max_accuracy
     )
@@ -307,13 +388,7 @@ def ingest(
             pipeline_model=pipeline_model,
         )
 
-    if on_write is not None:  # caller routes the page through a review gate
-        on_write(title, page_md)
-        return None
-    path = ws.write_page(title, page_md)
-    ws.rebuild_index()
-    ws.append_log("ingest", title)
-    return path
+    return _file_page(ws, title, page_md, on_write)
 
 
 def source_to_page(
@@ -345,7 +420,7 @@ def _source_content_to_page(
     vision_max_accuracy: bool = False,
 ) -> tuple[str, str]:
     fc.source_name = source.name
-    model_kwargs = _model_kwargs(backend, model)
+    model_kwargs = _model_kwargs(backend, model, pdf=budget.pdf)
     writer_model = model or (getattr(backend, "model", "") or "")
 
     if fc.mime_type == "application/pdf":
@@ -513,12 +588,15 @@ def _raw_source_path(ws: Workspace, source: Path) -> Path:
     return ws.raw / f"{stem}{tail}"
 
 
-def _model_kwargs(backend, model: str | None) -> dict:
-    if not model:
-        return {}
+def _model_kwargs(backend, model: str | None, *, pdf: bool = False) -> dict:
     from ..inference.ollama import OllamaBackend
 
-    return {"model": model} if isinstance(backend, OllamaBackend) else {}
+    if not isinstance(backend, OllamaBackend):
+        return {}
+    kwargs: dict = {} if pdf else {"num_predict": _INGEST_MAX_NEW_TOKENS, "think": False}
+    if model:
+        kwargs["model"] = model
+    return kwargs
 
 
 def _summarize_text(

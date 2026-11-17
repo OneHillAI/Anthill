@@ -1,85 +1,57 @@
-"""The post-merge test agent runner reports what actually happened.
+"""The post-merge test run reports what pytest actually did, with no model in the path.
 
-Runs the real `.github/asdd/operate/test.sh` in an isolated copy of the files it needs, with only the
-`goose` command stubbed (no network, no model). Pins that:
+Runs the real `.github/asdd/operate/test.sh` in an isolated copy of the files it needs, against tiny suites
+written for each case. Pins that:
 
-- a PASS and a FAIL are reported from the agent's structured result, with counts and failing cases;
-- a run that left no result says it did not run to completion, with the model key redacted;
-- an unwired or Goose-less runner says "NO TEST AGENT RAN" and never reads like a result;
-- the roster's test_runner model, and the per-role endpoint and key, are what the agent runs on;
-- either spelling of the endpoint URL reaches Goose as host + the full chat-completions path
-  (the kit's template, and the docs agent before it, sent Goose a bare /v1 and got a 404);
-- the recipe's parameter is the one the runner passes (the kit's template passed the wrong name).
+- a green suite is a PASS with its counts, a red one is a FAIL naming the failing cases;
+- a suite that cannot be collected is a FAIL, and a run pytest did not complete (no tests, killed) is
+  "NO VERDICT"; neither is ever a pass;
+- the verdict follows pytest's exit code, and an exit code and JUnit file that disagree are not a pass;
+- every run leaves the structured result the `asdd/test` status reads, and exactly one audit record;
+- the workflow runs only on main, and neither it nor the script touches a model key or any secret.
 """
 
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+OPERATE = ROOT / ".github/asdd/operate"
 
 _FILES = [
     ".github/asdd/operate/test.sh",
     ".github/asdd/operate/test-report.py",
+    ".github/asdd/operate/test-junit.py",
     "cli/audit.py",
-    "cli/operate-guard.py",
-    "cli/operate-run.py",
-    "cli/resolve-model.sh",
-    "recipes/test-runner.yaml",
 ]
-
-_ASDD_YML = """models:
-  developer: "dev-model"
-  test_runner: "runner-model"
-"""
 
 
 @pytest.fixture
 def repo(tmp_path):
-    """An isolated tree holding just what test.sh needs."""
+    """An isolated tree holding just what test.sh needs, plus an empty tests/ directory to fill."""
     r = tmp_path / "repo"
     for f in _FILES:
         dst = r / f
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / f, dst)
-    (r / ".asdd.yml").write_text(_ASDD_YML)
+    (r / "tests").mkdir()
     return r
 
 
-def _goose(repo: Path, body: str) -> Path:
-    """Put a stub `goose` first on PATH. It logs its argv and provider env, then runs `body`."""
-    d = repo / "stubbin"
-    d.mkdir(exist_ok=True)
-    g = d / "goose"
-    g.write_text(
-        "#!/usr/bin/env bash\n"
-        f'printf "%s\\n" "$@" > "{repo}/goose.argv"\n'
-        f'printf "HOST=%s\\nPATH=%s\\nKEY=%s\\n" "$OPENAI_HOST" "$OPENAI_BASE_PATH" "$OPENAI_API_KEY" > "{repo}/goose.env"\n'
-        + body
-    )
-    g.chmod(0o755)
-    return d
+def _suite(repo: Path, body: str) -> None:
+    (repo / "tests" / "test_sample.py").write_text(body)
 
 
-def _result(repo: Path, obj: dict) -> str:
-    """goose-stub body that writes the agent's structured result file."""
-    p = repo / "result.json"
-    p.write_text(json.dumps(obj))
-    return f'mkdir -p .asdd-work && cp "{p}" .asdd-work/operate-result.json\n'
-
-
-def _run(repo: Path, extra_env=None, path_dirs=()):
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("ASDD_", "OPENAI_"))  # a clean slate: only what the test sets
-    }
-    env["PATH"] = ":".join([*(str(p) for p in path_dirs), env["PATH"]])
-    env.update(extra_env or {})
+def _run(repo: Path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ASDD_", "OPENAI_", "PYTEST_"))}
+    env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env["PATH"]])
     out = repo / "report.md"
     r = subprocess.run(
         ["bash", str(repo / ".github/asdd/operate/test.sh"), "abc123", str(out)],
@@ -91,185 +63,178 @@ def _run(repo: Path, extra_env=None, path_dirs=()):
     return r, out.read_text() if out.exists() else ""
 
 
-_WIRED = {
-    "ASDD_MODEL_URL": "https://api.example.ai/v1/chat/completions",
-    "ASDD_RUNTIME_TOKEN": "sekret-key-123",
-}
+def _result(repo: Path) -> dict:
+    return json.loads((repo / ".asdd-work/operate-result.json").read_text())
 
 
-def test_a_pass_is_reported_from_the_structured_result(repo):
-    body = _result(
-        repo,
-        {
-            "verdict": "pass",
-            "reasoning": "all green",
-            "payload": {"tested": "pytest", "passed": 2849, "failed": 0, "failing": []},
-        },
-    )
-    r, report = _run(repo, _WIRED, [_goose(repo, body)])
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "result for `abc123`" in report
-    assert "**PASS**" in report
-    assert "Passed: 2849 / Failed: 0" in report
-    assert "runner-model" in report  # the roster's test_runner model, named in the report
-
-
-def test_a_fail_lists_the_failing_cases(repo):
-    body = _result(
-        repo,
-        {
-            "verdict": "fail",
-            "reasoning": "two regressions",
-            "payload": {
-                "tested": "pytest",
-                "passed": 10,
-                "failed": 2,
-                "failing": ["tests/test_a.py::t1", "tests/test_b.py::t2"],
-            },
-        },
-    )
-    _, report = _run(repo, _WIRED, [_goose(repo, body)])
-    assert "**FAIL**" in report
-    assert "`tests/test_a.py::t1`" in report and "`tests/test_b.py::t2`" in report
-
-
-def test_an_unusable_verdict_is_not_called_a_pass(repo):
-    body = _result(repo, {"verdict": "yolo", "payload": {}})
-    _, report = _run(repo, _WIRED, [_goose(repo, body)])
-    assert "NO VERDICT" in report
-    assert "**PASS**" not in report
-
-
-def test_a_run_with_no_result_says_it_did_not_complete_and_redacts_the_key(repo):
-    body = 'echo "401 Unauthorized for key sekret-key-123" >&2\nexit 3\n'
-    r, report = _run(repo, _WIRED, [_goose(repo, body)])
-    assert r.returncode == 0  # advisory: the workflow still posts the report
-    assert "did not run to completion" in report
-    assert "goose exit code 3" in report
-    assert "[redacted]" in report and "sekret-key-123" not in report
-    assert "PASS" not in report
-
-
-def test_an_unwired_runner_says_no_test_agent_ran(repo):
-    r, report = _run(repo, {}, [_goose(repo, "exit 0\n")])
-    assert r.returncode == 0
-    assert "NO TEST AGENT RAN" in report
-    assert "not wired" in report
-    assert not (repo / "goose.argv").exists()  # Goose was never started
-
-
-def test_a_missing_goose_says_no_test_agent_ran(repo):
-    # The shared test PATH may hold a real goose; point PATH at a dir with only the essentials.
-    bare = repo / "bare"
-    bare.mkdir()
-    for tool in (
-        "bash",
-        "python3",
-        "dirname",
-        "cat",
-        "grep",
-        "tail",
-        "printf",
-        "mkdir",
-        "env",
-        "sed",
-        "awk",
-        "tr",
-    ):
-        src = shutil.which(tool)
-        if src:
-            (bare / tool).symlink_to(src)
-    env = {"PATH": str(bare), **_WIRED}
-    out = repo / "report.md"
-    r = subprocess.run(
-        [str(bare / "bash"), str(repo / ".github/asdd/operate/test.sh"), "abc123", str(out)],
-        env=env,
-        capture_output=True,
-        text=True,
-        cwd=repo,
-    )
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "NO TEST AGENT RAN" in out.read_text()
-    assert "Goose is not installed" in out.read_text()
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://api.example.ai/v1",  # the base form: Goose used to get BASE_PATH=v1 and 404
-        "https://api.example.ai/v1/",
-        "https://api.example.ai/v1/chat/completions",
-    ],
+GREEN = (
+    "def test_a():\n    pass\n\ndef test_b():\n    assert 1 + 1 == 2\n\ndef test_c():\n    pass\n"
 )
-def test_goose_always_gets_host_and_the_full_chat_completions_path(repo, url):
-    body = _result(repo, {"verdict": "pass", "payload": {}})
-    _run(repo, {**_WIRED, "ASDD_MODEL_URL": url}, [_goose(repo, body)])
-    env = (repo / "goose.env").read_text()
-    assert "HOST=https://api.example.ai\n" in env
-    assert "PATH=v1/chat/completions\n" in env
+RED = "def test_good():\n    pass\n\ndef test_bad():\n    assert 1 == 2\n"
 
 
-def test_the_runner_passes_the_recipes_own_parameter_and_the_roster_model(repo):
-    """The kit's template passed `change_ref`; the recipe's parameter is `pr`, so the run would fail."""
-    recipe = (repo / "recipes/test-runner.yaml").read_text()
-    assert "key: pr" in recipe
-    body = _result(repo, {"verdict": "pass", "payload": {}})
-    _run(repo, _WIRED, [_goose(repo, body)])
-    argv = (repo / "goose.argv").read_text().split("\n")
-    assert argv[argv.index("--params") + 1] == "pr=abc123"
-    assert argv[argv.index("--model") + 1] == "runner-model"
-    assert argv[argv.index("--provider") + 1] == "openai"
+def test_a_green_suite_is_a_pass_with_its_counts(repo):
+    _suite(repo, GREEN + "\nimport pytest\n\n@pytest.mark.skip\ndef test_skipped():\n    pass\n")
+    r, report = _run(repo)
+    assert r.returncode == 0, r.stderr
+    assert "## Test agent - result for `abc123`" in report
+    assert "**PASS**" in report and "deterministic: pytest" in report
+    assert "Passed: 3 / Failed: 0" in report
+    res = _result(repo)
+    assert res["verdict"] == "pass" and res["runner"] == "pytest"
 
 
-def test_the_per_role_endpoint_and_key_win_over_the_shared_pair(repo):
-    body = _result(repo, {"verdict": "pass", "payload": {}})
-    env = {
-        **_WIRED,
-        "ASDD_MODEL_URL__TEST_RUNNER": "https://runner.example.ai/v1",
-        "ASDD_RUNTIME_TOKEN__TEST_RUNNER": "runner-key-456",
-    }
-    _run(repo, env, [_goose(repo, body)])
-    seen = (repo / "goose.env").read_text()
-    assert "HOST=https://runner.example.ai\n" in seen
-    assert "KEY=runner-key-456\n" in seen
+def test_a_red_suite_is_a_fail_naming_the_failing_case_and_still_exits_zero(repo):
+    _suite(repo, RED)
+    r, report = _run(repo)
+    assert r.returncode == 0  # the workflow still posts the report and records the status
+    assert "**FAIL**" in report and "test_bad" in report
+    assert "Passed: 1 / Failed: 1" in report
+    assert _result(repo)["verdict"] == "fail"
 
 
-def test_a_real_run_leaves_one_audit_record_and_a_dry_run_leaves_one_too(repo):
-    body = _result(repo, {"verdict": "pass", "payload": {"tested": "pytest"}})
-    _run(repo, _WIRED, [_goose(repo, body)])
-    ledger = (repo / ".asdd-work/audit.jsonl").read_text().strip().splitlines()
-    assert len(ledger) == 1 and json.loads(ledger[0])["agent"]["role"] == "test-runner"
-
-    shutil.rmtree(repo / ".asdd-work")
-    _run(repo, {}, [_goose(repo, "exit 0\n")])  # unwired
-    ledger = (repo / ".asdd-work/audit.jsonl").read_text().strip().splitlines()
-    assert len(ledger) == 1 and json.loads(ledger[0])["agent"]["role"] == "test-runner"
-
-
-def test_the_workflow_only_runs_on_main_and_never_on_pull_requests():
-    text = (ROOT / ".github/workflows/asdd-test.yml").read_text()
-    on = text.split("\njobs:")[0]
-    assert "push:" in on and "branches: [main]" in on
-    assert "pull_request" not in on  # the tester has a shell and the key: merged code only
-    assert "git merge-base --is-ancestor" in text  # a hand-started run must name a commit on main
-
-
-# --- the report renderer on its own (test-report.py) ----------------------------------------------
-
-
-def _report_module():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "test_report", ROOT / ".github/asdd/operate/test-report.py"
+def test_an_erroring_fixture_counts_as_failing(repo):
+    _suite(
+        repo,
+        "import pytest\n\n@pytest.fixture\ndef boom():\n    raise RuntimeError('x')\n\n"
+        "def test_uses_boom(boom):\n    pass\n",
     )
+    _, report = _run(repo)
+    assert "**FAIL**" in report and "test_uses_boom" in report
+
+
+def test_a_collection_error_is_a_fail_naming_the_module_never_a_pass(repo):
+    _suite(
+        repo, "def test_a(:\n    pass\n"
+    )  # syntax error: under xdist pytest reports it as an error
+    r, report = _run(repo)
+    assert r.returncode == 0
+    assert "**FAIL**" in report and "test_sample" in report and "**PASS**" not in report
+    assert _result(repo)["verdict"] == "fail"
+
+
+def test_a_suite_with_no_tests_is_no_verdict_not_a_pass(repo):
+    _suite(repo, "x = 1\n")  # pytest exits 5: nothing collected
+    _, report = _run(repo)
+    assert "NO VERDICT" in report and "**PASS**" not in report
+
+
+def test_the_run_needs_no_model_and_leaves_one_audit_record(repo):
+    _suite(repo, GREEN)
+    r, _ = _run(repo)  # no key, no endpoint, no goose on PATH: a pass anyway
+    assert r.returncode == 0
+    ledger = (repo / ".asdd-work/audit.jsonl").read_text().strip().splitlines()
+    assert len(ledger) == 1
+    rec = json.loads(ledger[0])
+    assert rec["agent"]["role"] == "test-runner" and rec["action"] == "test.run"
+    assert rec["outcome"]["verdict"] == "pass"
+
+
+# --- the converter on its own (test-junit.py) -----------------------------------------------------
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), OPERATE / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
+def _junit(tmp_path, cases: str, wrap="testsuite") -> str:
+    p = tmp_path / "junit.xml"
+    inner = f'<testsuite tests="9">{cases}</testsuite>'
+    p.write_text(f"<testsuites>{inner}</testsuites>" if wrap == "testsuites" else inner)
+    return str(p)
+
+
+OK3 = '<testcase classname="t" name="a"/><testcase classname="t" name="b"/><testcase classname="t" name="c"/>'
+
+
+def test_exit_zero_with_a_clean_file_is_a_pass(tmp_path):
+    mod = _load("test-junit")
+    for wrap in ("testsuite", "testsuites"):
+        res = mod.build(_junit(tmp_path, OK3, wrap), 0, "abc")
+        assert res["verdict"] == "pass" and res["payload"]["passed"] == 3
+
+
+def test_exit_zero_and_a_file_that_lists_failures_is_not_a_pass(tmp_path):
+    mod = _load("test-junit")
+    bad = OK3 + '<testcase classname="t" name="d"><failure/></testcase>'
+    assert mod.build(_junit(tmp_path, bad), 0, "abc")["verdict"] == "none"
+
+
+@pytest.mark.parametrize("code", [2, 3, 4, 5, 124, 137])
+def test_any_exit_code_other_than_zero_or_one_is_no_verdict(tmp_path, code):
+    mod = _load("test-junit")
+    assert mod.build(_junit(tmp_path, OK3), code, "abc")["verdict"] == "none"
+
+
+def test_exit_zero_without_a_readable_file_or_without_tests_is_no_verdict(tmp_path):
+    mod = _load("test-junit")
+    assert mod.build(str(tmp_path / "missing.xml"), 0, "abc")["verdict"] == "none"
+    broken = tmp_path / "broken.xml"
+    broken.write_text("<testsuite")
+    assert mod.build(str(broken), 0, "abc")["verdict"] == "none"
+    assert mod.build(_junit(tmp_path, ""), 0, "abc")["verdict"] == "none"
+
+
+def test_exit_one_is_a_fail_even_without_a_file(tmp_path):
+    mod = _load("test-junit")
+    res = mod.build(str(tmp_path / "missing.xml"), 1, "abc")
+    assert res["verdict"] == "fail" and res["payload"]["failing"] == []
+
+
+def test_failing_cases_are_capped_and_clipped(tmp_path):
+    mod = _load("test-junit")
+    many = "".join(
+        f'<testcase classname="t{"x" * 400}" name="c{i}"><failure/></testcase>' for i in range(80)
+    )
+    res = mod.build(_junit(tmp_path, many), 1, "abc")
+    assert len(res["payload"]["failing"]) == 50
+    assert all(len(c) <= 200 for c in res["payload"]["failing"])
+
+
+def test_a_bad_exit_code_argument_is_a_usage_error(tmp_path):
+    mod = _load("test-junit")
+    assert mod.main(["test-junit.py", str(tmp_path / "x.xml"), "not-a-number", "abc"]) == 2
+
+
+# --- the workflow ----------------------------------------------------------------------------------
+
+
+def _workflow():
+    text = (ROOT / ".github/workflows/asdd-test.yml").read_text()
+    return text, yaml.safe_load(text)
+
+
+def test_the_workflow_only_runs_on_main_and_never_on_pull_requests():
+    text, _ = _workflow()
+    on = text.split("\njobs:")[0]
+    assert "push:" in on and "branches: [main]" in on
+    assert "pull_request" not in on  # it executes the code under test: merged code only
+    assert "git merge-base --is-ancestor" in text  # a hand-started run must name a commit on main
+
+
+def test_no_model_and_no_secret_reach_the_test_run():
+    text, doc = _workflow()
+    assert (
+        "goose" not in text.lower()
+        and "ASDD_RUNTIME_TOKEN" not in text
+        and "ASDD_MODEL" not in text
+    )
+    steps = doc["jobs"]["test"]["steps"]
+    runner = [s for s in steps if "operate/test.sh" in s.get("run", "")]
+    assert len(runner) == 1
+    assert "env" not in runner[0]  # the step that runs the merged code is given nothing
+    script = (OPERATE / "test.sh").read_text()
+    assert "goose" not in script.lower() and "TOKEN" not in script
+
+
+# --- the report renderer (test-report.py) -----------------------------------------------------------
+
+
 def test_report_renders_pass_and_fail_and_never_calls_garbage_a_pass():
-    mod = _report_module()
+    mod = _load("test-report")
     ok = mod.render(
         {"verdict": "pass", "payload": {"tested": "pytest", "passed": 5, "failed": 0}}, "abc", "m"
     )
@@ -280,8 +245,15 @@ def test_report_renders_pass_and_fail_and_never_calls_garbage_a_pass():
         assert "NO VERDICT" in mod.render(junk, "abc", "m")
 
 
-def test_report_caps_what_model_output_can_put_in_a_pr_comment():
-    mod = _report_module()
+def test_report_says_pytest_ran_it_when_a_pytest_result_has_no_verdict():
+    mod = _load("test-report")
+    text = mod.render({"verdict": "none", "runner": "pytest"}, "abc", "pytest")
+    assert "NO VERDICT (pytest did not give a usable result)" in text
+    assert "deterministic: pytest" in text and "test_runner role" not in text
+
+
+def test_report_caps_what_a_result_file_can_put_in_a_pr_comment():
+    mod = _load("test-report")
     text = mod.render(
         {
             "verdict": "fail",
@@ -296,7 +268,7 @@ def test_report_caps_what_model_output_can_put_in_a_pr_comment():
 
 
 def test_report_survives_a_missing_or_corrupt_result_file(tmp_path):
-    mod = _report_module()
+    mod = _load("test-report")
     assert mod.load(tmp_path / "nope.json") == {}
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")

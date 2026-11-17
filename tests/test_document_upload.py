@@ -6,6 +6,7 @@ the other web-route tests.
 
 from io import BytesIO
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -84,6 +85,7 @@ def test_upload_adds_page_to_personal_wiki(tmp_path, monkeypatch):
     assert len(ws.pages()) == 1  # the uploaded doc became a wiki page
 
 
+@pytest.mark.usefixtures("summarise_every_note")
 def test_flagged_upload_survives_the_request_boundary_and_can_be_approved(tmp_path, monkeypatch):
     """#827: a flagged upload redirected to "?saved=queued" (a success message) while the WikiReview
     row it should have created was silently discarded - propose_wiki_write() added it but never
@@ -425,5 +427,5 @@ def test_pdf_error_copy_distinguishes_a_retryable_host_failure(tmp_path, monkeyp
     limit_page = client.get("/wiki?error=pdflimit").text
 
     assert "try again" in retry_page.lower()
-    assert "exceeds Anthill's hard processing safety limits" not in retry_page
-    assert "exceeds Anthill's hard processing safety limits" in limit_page
+    assert "Split it into smaller PDFs" not in retry_page
+    assert "Split it into smaller PDFs" in limit_page

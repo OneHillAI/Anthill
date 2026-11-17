@@ -2,7 +2,11 @@
 leave the perimeter (cloud escalation, training export, wiki-review flagging). These cover the hardened
 patterns - JWT / IBAN / MAC - plus the common set and the no-false-positive guard. Model-free."""
 
+import pytest
+
 from anthill.hybrid.scrub import restore, scrub
+
+pytestmark = pytest.mark.privacy_invariant
 
 
 def test_scrubs_jwt_iban_and_mac():

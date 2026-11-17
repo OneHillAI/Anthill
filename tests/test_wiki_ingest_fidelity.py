@@ -7,9 +7,13 @@ for the rest. Model-free: the backend returns the reworded page the issue report
 
 from __future__ import annotations
 
+import pytest
+
 from anthill.wiki import prompts
 from anthill.wiki.ingest import _source_quotes, ingest
 from anthill.wiki.workspace import Workspace
+
+pytestmark = pytest.mark.usefixtures("summarise_every_note")
 
 COURIER_NOTE = (
     "# Interview: courier (P11), 19 Sep 2026\n"

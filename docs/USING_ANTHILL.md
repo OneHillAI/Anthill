@@ -23,6 +23,8 @@ you've set one up, there's no path back to a plain Solo account.
 - **Solo** is your private space, with your own wiki and your own model. Choose **Your machine**
   (runs locally, works offline) or **Your cloud** (your own connected server, for a bigger model)
   under **Settings**, on the **Model** tab, in the **Where your AI runs** card.
+  Connecting your own cloud does not make you an organisation: a Solo account stays Solo, with no Org
+  chat, org wiki, people or invites, until you create an organisation.
 - **Projects** group a set of chats, tasks, and agents around their own wiki. Use one to keep a
   topic or client separate from everything else. On a Solo account a project is yours alone. Inside
   an organisation, the same kind of project becomes a shared space you invite members into. It's
@@ -47,6 +49,16 @@ and data, and shares nothing with any other profile. Use one to keep work and pe
 apart on one machine. Your name and a colored chip in the sidebar always show which profile you're
 in. Click it to switch or manage profiles. In the desktop app, one profile is open per window at a
 time. From a terminal, each profile runs from its own `anthill web --profile <id>` command.
+
+## Already used Anthill from a project folder?
+
+A copy started with `start.sh` or `make alpha` keeps your account, wikis and keys inside that project
+folder. The downloaded desktop app keeps its own data elsewhere, so on first launch it shows no account.
+On that first screen, under **Already used Anthill on this Mac? Bring in your account**, enter the folder
+you started Anthill from (the one holding the `data` folder). Anthill copies your account, wikis, files and
+saved keys across, leaves the earlier folder as it was, and takes you to sign-in. It only appears on a new
+install with no account, and only on the Mac itself. Without the old `.env` file the account and wikis
+still come across, but passwords and API keys you had stored must be entered again.
 
 ## Privacy and control
 

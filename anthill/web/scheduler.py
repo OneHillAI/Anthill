@@ -27,6 +27,7 @@ from .db import (
     WikiReview,
     create_tables,
     get_engine,
+    normalize_topology,
 )
 
 # Push sources (webhooks / IMAP) set this to wake the fast event tick immediately,
@@ -302,10 +303,11 @@ def _run_task(task: ScheduledTask, db) -> str:
     from ..inference.base import build_backend
     from . import audit
     from .crypto import decrypt
-    from .plane_routing import plane_inference
+    from .plane_routing import account_plane, plane_inference
 
     cfg_row = db.query(OrgSettings).filter(OrgSettings.org_id == task.org_id).first()
-    plane_inf = plane_inference(getattr(task, "plane", "solo"), cfg_row, decrypt=decrypt)
+    task_plane = account_plane(getattr(task, "plane", "solo"), cfg_row)
+    plane_inf = plane_inference(task_plane, cfg_row, decrypt=decrypt)
     audit.log_inference_call(
         db, plane_inf, org_id=task.org_id, user_id=task.created_by, surface="task"
     )
@@ -341,16 +343,16 @@ def _run_task(task: ScheduledTask, db) -> str:
     from .agents import audit_hook, get_or_create_identity, principal_for
 
     ident = get_or_create_identity(db, task.org_id, "scheduler", agent_type="scheduler")
-    from .. import planes
     from .agent_context import agent_context_for
+    from .plane_routing import shares_org_model
 
     principles, skills = agent_context_for(
         db,
         user_id=task.created_by,
         org_id=task.org_id,
-        plane=getattr(task, "plane", "solo"),
+        plane=task_plane,
         team_id=getattr(task, "team_id", None),
-        is_org=planes.is_org_mode(cfg_row),
+        is_org=shares_org_model(cfg_row),
     )
     executor = AgentExecutor(
         backend,
@@ -815,8 +817,6 @@ def _train_tick(engine):
     *execution* (fine-tune → eval-gate → Ollama register) is a separate module;
     a scheduled run waits in status 'scheduled' until that module picks it up.
     """
-    from sqlalchemy import or_
-
     from ..training.model_select import resolve_base_model, training_on
     from ..training.schedule import should_train
 
@@ -825,16 +825,11 @@ def _train_tick(engine):
     now = datetime.now(timezone.utc)
     try:
         # Include solo orgs even with training_enabled unset: local/solo training is always-on.
-        for cfg in (
-            db.query(OrgSettings)
-            .filter(
-                or_(
-                    OrgSettings.training_enabled.is_(True),
-                    OrgSettings.deployment_topology == "solo",
-                )
-            )
-            .all()
-        ):
+        for cfg in db.query(OrgSettings).all():
+            if not (
+                cfg.training_enabled or normalize_topology(cfg.deployment_topology or "") == "solo"
+            ):
+                continue
             gold = _gold_count(db, cfg.org_id)
             go, reason = should_train(cfg, gold, now=now, enabled=training_on(cfg))
             if not go:
@@ -1238,13 +1233,23 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
     from ..common.text import slugify
     from ..wiki.ingest import ingest as ingest_file
     from ..wiki.workspace import workspace_for
-    from .app import _backend_from_cfg, _ensure_backend_ready, _wiki_page_url, propose_upload
+    from . import upload_status as ups
+    from .app import (
+        _backend_from_cfg,
+        _ensure_backend_ready,
+        _ingest_failure_reason,
+        _wiki_page_url,
+        propose_upload,
+    )
     from .notify import notify
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == row.org_id).first()
     stored = Path(row.stored_path)
     status = None
     tmp_dir: str | None = None
+    backend = None
+    rec = ups.record_for_queued(db, row.id, row.user_id)
+    ups.restart_upload(db, rec)
     try:
         if not stored.is_file():
             raise FileNotFoundError(f"queued upload file is missing: {stored}")
@@ -1289,9 +1294,12 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
             source=f"Queued upload {row.filename}",
         )
         row.status = "done"
+        ups.finish_upload(db, rec, status, slug, proposal["title"], proposal["page_md"])
     except Exception as exc:
         row.status = "error"
         row.error = str(exc)[:300]
+        code = ups.classify_failure(exc, _ingest_failure_reason(backend), row.filename)
+        ups.fail_upload(db, rec, code)
     finally:
         row.processed_at = datetime.now(timezone.utc)
         stored.unlink(missing_ok=True)
@@ -1448,21 +1456,20 @@ def _distil_skill_from_agent(agent, result: str, db) -> None:
     OrgSettings.skill_autolearn; deduped against the owner's pending proposals. Best-effort, never
     raises - a distillation hiccup must not affect the run it came from."""
     try:
-        from .. import planes
         from ..agent.skills import conform_name, distil_skill
         from ..config import Config
         from ..inference.base import build_backend
         from . import audit
         from .crypto import decrypt
         from .db import OrgSettings, ProposedSkill
-        from .plane_routing import plane_inference
+        from .plane_routing import account_plane, plane_inference
 
         if not (result and agent.created_by):
             return
         cfg = db.query(OrgSettings).filter(OrgSettings.org_id == agent.org_id).first()
         if not getattr(cfg, "skill_autolearn", True):
             return  # an admin paused skill auto-learning
-        plane_inf = plane_inference(planes.normalize(agent.plane), cfg, decrypt=decrypt)
+        plane_inf = plane_inference(account_plane(agent.plane, cfg), cfg, decrypt=decrypt)
         audit.log_inference_call(
             db,
             plane_inf,
