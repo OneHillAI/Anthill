@@ -1,0 +1,16 @@
+{
+ "model": "llava",
+ "created_at": "2023-12-13T22:42:50.203334Z",
+ "message": {
+  "role": "assistant",
+  "content": " The image features a cute, little pig with an angry facial expression.",
+  "images": null
+ },
+ "done": true,
+ "total_duration": 1668506709,
+ "load_duration": 1986209,
+ "prompt_eval_count": 26,
+ "prompt_eval_duration": 359682000,
+ "eval_count": 83,
+ "eval_duration": 1303285000
+}
