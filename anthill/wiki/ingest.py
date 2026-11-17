@@ -609,9 +609,11 @@ def keep_extracted_text(ws: Workspace, raw_copy: Path, fc) -> Path | None:
     try:
         ws.text.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(target.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
+        # Bytes, with what cannot be encoded (a lone surrogate from a damaged PDF) replaced: write_text would
+        # raise UnicodeEncodeError, which is not an OSError, and fail the upload.
+        tmp.write_bytes(text.encode("utf-8", "replace"))
         tmp.replace(target)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         log.warning("could not keep the extracted text of %s: %s", raw_copy.name, exc)
         return None
     from .doc_index import index_soon

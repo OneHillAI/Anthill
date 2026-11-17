@@ -3,16 +3,20 @@ document itself and not only against its summary page. Spec: docs/specs/index-ex
 
 Each kept text (``<workspace>/text/<original's name>.txt``, see ``ingest.keep_extracted_text``) is split into
 passages of about 800 characters packed from whole paragraphs. Every passage keeps where it came from: its
-character offsets in the text file, the page number for a PDF (counted from the ``---`` page separators the
-reader writes) and the heading above it. The passages go into a SQLite full-text index next to the page vectors
-(``<workspace>/.cache/doc_passages.sqlite3``), keyed by the text's name and a hash of its content: an unchanged
-text is not indexed again, a changed one replaces its passages, and a text that is gone drops its passages.
+character and byte offsets in the text file, the page number for a PDF (counted from the ``---`` page separators
+the reader writes) and the heading above it. The words of the passages go into a SQLite full-text index next to
+the page vectors (``<workspace>/.cache/doc_passages.sqlite3``), keyed by the text's name and a hash of its
+content: an unchanged text is not indexed again, a changed one replaces its passages, and a text that is gone
+drops them.
 
-Ranking is BM25 inside SQLite. Nothing here calls a model, so indexing a text takes milliseconds to a second and
-a search takes about a millisecond, and nothing competes with chat for the model. Like the semantic cache and the
-page-vector index it is a disposable performance layer, never a source of truth: an index that cannot be opened,
-read or written (or an SQLite without full-text search) is skipped, a plainly corrupt file is deleted and rebuilt,
-and nothing in this module raises to its caller. Nothing uses it for answers yet.
+The index holds positions and words, not the text: a hit is read back from the text file by its byte offsets and
+checked against a CRC kept with it, so the file stays the one copy of the text and a stale entry is dropped
+instead of returning the wrong words. Ranking is BM25 inside SQLite. Nothing here calls a model, so indexing a
+text takes milliseconds to a second and a search about a millisecond, and nothing competes with chat for the
+model. Like the semantic cache and the page-vector index it is a disposable performance layer, never a source of
+truth: an index that cannot be opened, read or written (or an SQLite without contentless full-text tables, which
+needs 3.43) is skipped, a plainly corrupt file is deleted and rebuilt, and nothing in this module raises to its
+caller. Nothing uses it for answers yet.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import queue
 import re
 import sqlite3
 import threading
+import zlib
 from contextlib import closing
 from pathlib import Path
 from typing import NamedTuple
@@ -36,6 +41,7 @@ DB_NAME = "doc_passages.sqlite3"
 # Versioned like the other derived stores: a layout change renames the tables and the old rows are orphaned.
 DOCS_TABLE = "docs_v1"
 PASSAGES_TABLE = "passages_v1"
+WORDS_TABLE = "words_v1"
 PASSAGE_CHARS = 800  # the size a passage is packed up to (about 200 tokens), as in wiki/passages.py
 MAX_QUERY_TERMS = 12
 BUSY_TIMEOUT_S = 2.0
@@ -45,12 +51,23 @@ _BLANK_LINE = re.compile(r"\n[ \t\r]*\n+")
 _HEADING = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 _WORD = re.compile(r"\w{2,}")
 
+_ENCODING = "utf-8"
+# A text is read with its bytes kept exactly (an invalid byte becomes one lone surrogate and encodes back to the
+# same byte), so a passage's byte offsets always lead back to the same bytes in the file.
+_ESCAPE = "surrogateescape"
+
 _SCHEMA = (
     f"CREATE TABLE IF NOT EXISTS {DOCS_TABLE} ("
     "doc TEXT PRIMARY KEY, text_hash TEXT NOT NULL, chars INTEGER NOT NULL, passages INTEGER NOT NULL)",
-    f"CREATE VIRTUAL TABLE IF NOT EXISTS {PASSAGES_TABLE} USING fts5("
-    "text, doc UNINDEXED, n UNINDEXED, start UNINDEXED, stop UNINDEXED, page UNINDEXED, "
-    "heading UNINDEXED, tokenize='unicode61 remove_diacritics 2')",
+    f"CREATE TABLE IF NOT EXISTS {PASSAGES_TABLE} ("
+    "id INTEGER PRIMARY KEY, doc TEXT NOT NULL, n INTEGER NOT NULL, start INTEGER NOT NULL, "
+    "stop INTEGER NOT NULL, bstart INTEGER NOT NULL, bstop INTEGER NOT NULL, crc INTEGER NOT NULL, "
+    "page INTEGER, heading TEXT NOT NULL)",
+    f"CREATE INDEX IF NOT EXISTS {PASSAGES_TABLE}_doc ON {PASSAGES_TABLE} (doc)",
+    # Contentless: it keeps the words and ranks them, not the text. contentless_delete (SQLite 3.43) lets
+    # a text's rows be removed by rowid.
+    f"CREATE VIRTUAL TABLE IF NOT EXISTS {WORDS_TABLE} USING fts5("
+    "text, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2')",
 )
 
 
@@ -66,11 +83,11 @@ class Passage(NamedTuple):
 class Hit(NamedTuple):
     doc: str  # the original's name, as in the Files tab
     n: int
-    start: int
+    start: int  # character offsets in the text file
     stop: int
     page: int | None
     heading: str
-    text: str
+    text: str  # read back from the text file by the passage's byte offsets
     score: float  # BM25: lower is a better match
 
 
@@ -173,11 +190,18 @@ def text_hash(text: str) -> str:
 # ── the index ─────────────────────────────────────────────────────────────────
 
 
-class DocIndex:
-    """The passage index of one workspace. ``cache_dir`` is the workspace's ``.cache`` folder."""
+def _fts_text(passage: str) -> str:
+    """The passage as text SQLite can bind: a lone surrogate (an invalid byte of the file) becomes U+FFFD."""
+    return passage.encode(_ENCODING, "replace").decode(_ENCODING)
 
-    def __init__(self, cache_dir: Path) -> None:
+
+class DocIndex:
+    """The passage index of one workspace. ``cache_dir`` is the workspace's ``.cache`` folder; the kept texts
+    it points into are in ``text_dir`` (by default the workspace's ``text`` folder, beside it)."""
+
+    def __init__(self, cache_dir: Path, text_dir: Path | None = None) -> None:
         self.path = Path(cache_dir) / DB_NAME
+        self.text_dir = Path(text_dir) if text_dir is not None else Path(cache_dir).parent / "text"
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,7 +212,7 @@ class DocIndex:
 
     def _run(self, work, default):
         """Run ``work(connection)``. A corrupt file is deleted and the work tried once more; any other
-        failure, or SQLite without full-text search, returns ``default``."""
+        failure, or an SQLite without contentless full-text tables, returns ``default``."""
         for attempt in (1, 2):
             try:
                 with closing(self._connect()) as con:
@@ -211,28 +235,58 @@ class DocIndex:
     def docs(self) -> dict[str, str]:
         """The indexed texts: name -> content hash."""
         return self._run(
-            lambda con: dict(con.execute(f"SELECT doc, text_hash FROM {DOCS_TABLE}").fetchall()), {}
+            lambda con: dict(con.execute(f"SELECT doc, text_hash FROM {DOCS_TABLE}").fetchall()),  # nosec B608
+            {},
         )
 
+    @staticmethod
+    def _delete_rows(con: sqlite3.Connection, doc: str) -> None:
+        # The table names are module constants, not input.
+        con.execute(  # nosec B608
+            f"DELETE FROM {WORDS_TABLE} WHERE rowid IN (SELECT id FROM {PASSAGES_TABLE} WHERE doc = ?)",
+            (doc,),
+        )
+        con.execute(f"DELETE FROM {PASSAGES_TABLE} WHERE doc = ?", (doc,))  # nosec B608
+
     def index(self, doc: str, text: str, *, pdf: bool = False) -> int:
-        """Index the text of ``doc``, replacing what was indexed for it. Returns the passages written, or 0
-        when the text is unchanged since it was last indexed."""
+        """Index the text of ``doc`` (the content of its text file), replacing what was indexed for it.
+        Returns the passages written, or 0 when the text is unchanged since it was last indexed."""
         digest = text_hash(text)
 
         def work(con: sqlite3.Connection) -> int:
-            row = con.execute(
+            row = con.execute(  # nosec B608
                 f"SELECT text_hash FROM {DOCS_TABLE} WHERE doc = ?", (doc,)
             ).fetchone()
             if row is not None and row[0] == digest:
                 return 0
             passages = split_document(text, pdf=pdf)  # only a new or changed text is split
-            con.execute(f"DELETE FROM {PASSAGES_TABLE} WHERE doc = ?", (doc,))
-            con.executemany(
-                f"INSERT INTO {PASSAGES_TABLE} (text, doc, n, start, stop, page, heading) "
-                "VALUES (?,?,?,?,?,?,?)",
-                [(p.text, doc, p.n, p.start, p.stop, p.page, p.heading) for p in passages],
-            )
-            con.execute(
+            self._delete_rows(con, doc)
+            char_pos = byte_pos = 0
+            for p in passages:
+                byte_pos += len(text[char_pos : p.start].encode(_ENCODING, _ESCAPE))
+                raw = p.text.encode(_ENCODING, _ESCAPE)
+                cur = con.execute(  # nosec B608
+                    f"INSERT INTO {PASSAGES_TABLE} (doc, n, start, stop, bstart, bstop, crc, page, heading) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        doc,
+                        p.n,
+                        p.start,
+                        p.stop,
+                        byte_pos,
+                        byte_pos + len(raw),
+                        zlib.crc32(raw),
+                        p.page,
+                        p.heading,
+                    ),
+                )
+                con.execute(  # nosec B608
+                    f"INSERT INTO {WORDS_TABLE} (rowid, text) VALUES (?, ?)",
+                    (cur.lastrowid, _fts_text(p.text)),
+                )
+                byte_pos += len(raw)
+                char_pos = p.stop
+            con.execute(  # nosec B608
                 f"INSERT OR REPLACE INTO {DOCS_TABLE} (doc, text_hash, chars, passages) VALUES (?,?,?,?)",
                 (doc, digest, len(text), len(passages)),
             )
@@ -242,27 +296,48 @@ class DocIndex:
 
     def drop(self, doc: str) -> None:
         def work(con: sqlite3.Connection) -> None:
-            con.execute(f"DELETE FROM {PASSAGES_TABLE} WHERE doc = ?", (doc,))
-            con.execute(f"DELETE FROM {DOCS_TABLE} WHERE doc = ?", (doc,))
+            self._delete_rows(con, doc)
+            con.execute(f"DELETE FROM {DOCS_TABLE} WHERE doc = ?", (doc,))  # nosec B608
 
         self._run(work, None)
 
     def search(self, query: str, limit: int = 5) -> list[Hit]:
-        """The best passages for ``query``, best first, by BM25 over the words of the query (any of them)."""
+        """The best passages for ``query``, best first, by BM25 over the words of the query (any of them). The
+        text of each is read from its text file; a hit whose file is gone or no longer matches what was
+        indexed (the CRC differs) is left out, which is a stale entry the next sync replaces."""
         terms = list(dict.fromkeys(_WORD.findall((query or "").lower())))[:MAX_QUERY_TERMS]
         if not terms or limit < 1:
             return []
         match = " OR ".join(f'"{t}"' for t in terms)
 
-        def work(con: sqlite3.Connection) -> list[Hit]:
-            rows = con.execute(
-                f"SELECT doc, n, start, stop, page, heading, text, bm25({PASSAGES_TABLE}) AS score "
-                f"FROM {PASSAGES_TABLE} WHERE {PASSAGES_TABLE} MATCH ? ORDER BY score LIMIT ?",
+        def work(con: sqlite3.Connection) -> list[tuple]:
+            return con.execute(  # nosec B608
+                "SELECT p.doc, p.n, p.start, p.stop, p.bstart, p.bstop, p.crc, p.page, p.heading, "
+                f"bm25({WORDS_TABLE}) AS score FROM {WORDS_TABLE} "
+                f"JOIN {PASSAGES_TABLE} p ON p.id = {WORDS_TABLE}.rowid "
+                f"WHERE {WORDS_TABLE} MATCH ? ORDER BY score LIMIT ?",
                 (match, limit),
             ).fetchall()
-            return [Hit(*r) for r in rows]
 
-        return self._run(work, [])
+        hits = []
+        for doc, n, start, stop, bstart, bstop, crc, page, heading, score in self._run(work, []):
+            text = self._read(doc, bstart, bstop, crc)
+            if text is not None:
+                hits.append(Hit(doc, n, start, stop, page, heading, text, score))
+        return hits
+
+    def _read(self, doc: str, bstart: int, bstop: int, crc: int) -> str | None:
+        """The passage at these byte offsets of the text file of ``doc``, or None when the file is gone or its
+        bytes there are not the ones that were indexed."""
+        try:
+            with (self.text_dir / f"{doc}.txt").open("rb") as f:
+                f.seek(bstart)
+                raw = f.read(bstop - bstart)
+        except OSError:
+            return None
+        if len(raw) != bstop - bstart or zlib.crc32(raw) != crc:
+            return None
+        return raw.decode(_ENCODING, "replace")
 
 
 # ── keeping it up to date ─────────────────────────────────────────────────────
@@ -276,8 +351,8 @@ def index_text_file(root: Path, path: Path) -> int:
     """Index one kept text of the workspace at ``root``. Returns the passages written. Never raises."""
     try:
         doc = path.name.removesuffix(".txt")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        return DocIndex(root / ".cache").index(doc, text, pdf=_is_pdf(doc))
+        text = path.read_bytes().decode(_ENCODING, _ESCAPE)
+        return DocIndex(root / ".cache", path.parent).index(doc, text, pdf=_is_pdf(doc))
     except Exception as e:
         log.debug("doc index skips %s: %s", path, e)
         return 0

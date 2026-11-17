@@ -112,7 +112,14 @@ def test_a_passage_knows_the_heading_above_it():
 
 
 def _index(tmp_path) -> DocIndex:
-    return DocIndex(tmp_path / "cache")
+    return DocIndex(tmp_path / "cache", tmp_path / "text")
+
+
+def _add(idx: DocIndex, doc: str, text: str, *, pdf: bool = False) -> int:
+    """Keep the text as ingest does, then index it."""
+    idx.text_dir.mkdir(exist_ok=True)
+    (idx.text_dir / f"{doc}.txt").write_bytes(text.encode("utf-8", "surrogateescape"))
+    return idx.index(doc, text, pdf=pdf)
 
 
 def test_a_search_finds_the_passage_and_reports_where_it_is(tmp_path):
@@ -122,7 +129,7 @@ def test_a_search_finds_the_passage_and_reports_where_it_is(tmp_path):
         + "\n\nThe vault code is ZEBRA-4417."
     )
     idx = _index(tmp_path)
-    assert idx.index("report-1a2b3c4d5e6f.html", text) > 0
+    assert _add(idx, "report-1a2b3c4d5e6f.html", text) > 0
 
     hit = idx.search("what is the vault code")[0]
     assert "ZEBRA-4417" in hit.text and hit.doc == "report-1a2b3c4d5e6f.html"
@@ -131,9 +138,9 @@ def test_a_search_finds_the_passage_and_reports_where_it_is(tmp_path):
 
 def test_the_better_match_ranks_first_across_documents(tmp_path):
     idx = _index(tmp_path)
-    idx.index("a.pdf", "Quarterly revenue grew in March.", pdf=True)
-    idx.index(
-        "b.html", "The vault code for the maintenance cabinet is 4417 and the cabinet is blue."
+    _add(idx, "a.pdf", "Quarterly revenue grew in March.", pdf=True)
+    _add(
+        idx, "b.html", "The vault code for the maintenance cabinet is 4417 and the cabinet is blue."
     )
     top = idx.search("vault code maintenance cabinet")
     assert top[0].doc == "b.html" and {h.doc for h in top} <= {"a.pdf", "b.html"}
@@ -141,24 +148,24 @@ def test_the_better_match_ranks_first_across_documents(tmp_path):
 
 def test_a_pdf_passage_reports_its_page(tmp_path):
     idx = _index(tmp_path)
-    idx.index("r.pdf", "Intro page.\n\n---\n\nThe refund window is forty five days.", pdf=True)
+    _add(idx, "r.pdf", "Intro page.\n\n---\n\nThe refund window is forty five days.", pdf=True)
     (hit,) = idx.search("refund window")
     assert hit.page == 2
 
 
 def test_an_unchanged_text_is_not_indexed_again_and_a_changed_one_replaces_its_passages(tmp_path):
     idx = _index(tmp_path)
-    assert idx.index("a.html", "The old fact is zebra.") == 1
-    assert idx.index("a.html", "The old fact is zebra.") == 0  # same content: nothing to do
-    assert idx.index("a.html", "The new fact is otter.") == 1
+    assert _add(idx, "a.html", "The old fact is zebra.") == 1
+    assert _add(idx, "a.html", "The old fact is zebra.") == 0  # same content: nothing to do
+    assert _add(idx, "a.html", "The new fact is otter.") == 1
     assert idx.search("zebra") == [] and len(idx.search("otter")) == 1
     assert len(idx.docs()) == 1
 
 
 def test_dropping_a_text_drops_its_passages(tmp_path):
     idx = _index(tmp_path)
-    idx.index("a.html", "alpha beta")
-    idx.index("b.html", "alpha gamma")
+    _add(idx, "a.html", "alpha beta")
+    _add(idx, "b.html", "alpha gamma")
     idx.drop("a.html")
     assert [h.doc for h in idx.search("alpha")] == ["b.html"]
     assert list(idx.docs()) == ["b.html"]
@@ -169,19 +176,19 @@ def test_dropping_a_text_drops_its_passages(tmp_path):
 )
 def test_a_query_with_syntax_characters_never_raises(tmp_path, query):
     idx = _index(tmp_path)
-    idx.index("a.html", "alpha beta gamma")
+    _add(idx, "a.html", "alpha beta gamma")
     assert isinstance(idx.search(query), list)
 
 
 def test_accents_and_case_do_not_hide_a_match(tmp_path):
     idx = _index(tmp_path)
-    idx.index("a.html", "Le café crème est excellent.")
+    _add(idx, "a.html", "Le café crème est excellent.")
     assert len(idx.search("CAFE creme")) == 1
 
 
 def test_limit_caps_the_hits(tmp_path):
     idx = _index(tmp_path)
-    idx.index("a.html", "\n\n".join(f"alpha paragraph {i} " * 40 for i in range(20)))
+    _add(idx, "a.html", "\n\n".join(f"alpha paragraph {i} " * 40 for i in range(20)))
     assert len(idx.search("alpha", limit=3)) == 3 and idx.search("alpha", limit=0) == []
 
 
@@ -189,7 +196,7 @@ def test_a_damaged_index_is_rebuilt(tmp_path):
     idx = _index(tmp_path)
     idx.path.parent.mkdir(parents=True)
     idx.path.write_bytes(b"this is not a sqlite database at all" * 100)
-    assert idx.index("a.html", "alpha beta") == 1
+    assert _add(idx, "a.html", "alpha beta") == 1
     assert len(idx.search("alpha")) == 1
 
 
@@ -199,14 +206,14 @@ def test_without_full_text_search_nothing_breaks(tmp_path, monkeypatch):
 
     monkeypatch.setattr(DocIndex, "_connect", _no_fts5)
     idx = _index(tmp_path)
-    assert idx.index("a.html", "alpha") == 0 and idx.search("alpha") == [] and idx.docs() == {}
+    assert _add(idx, "a.html", "alpha") == 0 and idx.search("alpha") == [] and idx.docs() == {}
     idx.drop("a.html")
 
 
 def test_an_index_that_cannot_be_opened_is_skipped(tmp_path):
     (tmp_path / "cache").write_text("a file where the folder should be")
     idx = _index(tmp_path)
-    assert idx.index("a.html", "alpha") == 0 and idx.search("alpha") == []
+    assert _add(idx, "a.html", "alpha") == 0 and idx.search("alpha") == []
 
 
 # ── keeping it in line with the texts ─────────────────────────────────────────
@@ -304,3 +311,74 @@ def test_a_full_queue_never_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(doc_index, "_pending", q)
     monkeypatch.setattr(doc_index, "_ensure_worker", lambda: None)
     doc_index.index_soon(tmp_path, tmp_path / "x.txt")  # does not raise
+
+
+# ── the index points into the text file; it does not copy it ──────────────────
+
+
+def test_the_index_holds_no_copy_of_the_text(tmp_path):
+    phrase = "The Quick Brown Fox, jumps (twice) over THE lazy dog!"
+    idx = _index(tmp_path)
+    _add(idx, "a.html", phrase + "\n\n" + "Filler words about weather. " * 40)
+    assert idx.search("quick fox")  # it finds it...
+    assert phrase.encode() not in idx.path.read_bytes()  # ...without having kept it
+
+
+def test_the_index_is_smaller_than_the_text_it_covers(tmp_path):
+    import random
+
+    random.seed(3)
+    words = [f"w{i}" for i in range(4000)]
+    text = "\n\n".join(" ".join(random.choice(words) for _ in range(90)) + "." for _ in range(700))
+    idx = _index(tmp_path)
+    _add(idx, "big.pdf", text, pdf=True)
+    assert idx.path.stat().st_size < len(text.encode())
+
+
+def test_a_hit_is_dropped_when_its_text_file_changed_or_is_gone(tmp_path):
+    idx = _index(tmp_path)
+    _add(idx, "a.html", "The vault code is ZEBRA-4417 in the cabinet.")
+    path = idx.text_dir / "a.html.txt"
+    assert len(idx.search("vault code")) == 1
+
+    original = path.read_bytes()
+    path.write_bytes(original.replace(b"ZEBRA", b"OTTER"))  # same length, different bytes
+    assert idx.search("vault code") == []
+    path.unlink()
+    assert idx.search("vault code") == []
+    path.write_bytes(original)
+    assert len(idx.search("vault code")) == 1  # the file is as indexed again
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Café crème brûlée est délicieux. " * 60
+        + "\n\n"
+        + "Le mot rare est ÉLÉPHANT ici."
+        + "\n\n"
+        + "Fin. " * 80,
+        "ขนมปังอบใหม่ทุกเช้า " * 60 + "\n\n" + "ข้อความสุดท้าย zebra ที่นี่" + "\n\n" + "จบ " * 200,
+        "日本語のテキスト。" * 100 + "\n\n" + "最後の段落 zebra です。",
+    ],
+)
+def test_non_ascii_text_reads_back_exactly_by_byte_offsets(tmp_path, text):
+    idx = _index(tmp_path)
+    assert _add(idx, "a.html", text) >= 1
+    for query in ("zebra", "ELEPHANT"):
+        for hit in idx.search(query):
+            assert text[hit.start : hit.stop] == hit.text
+
+
+def test_invalid_bytes_in_a_text_file_do_not_break_indexing_or_reading(tmp_path):
+    ws = _ws(tmp_path)
+    path = ws.text / "odd-1a2b3c4d5e6f.html.txt"
+    ws.text.mkdir()
+    path.write_bytes(
+        b"Before the bad bytes. " * 30
+        + b"\xff\xfe broken \x80 "
+        + b"After they come the zebra. " * 30
+    )
+    assert doc_index.index_text_file(ws.root, path) >= 1
+    hits = DocIndex(ws.root / ".cache").search("zebra")
+    assert hits and "zebra" in hits[0].text
