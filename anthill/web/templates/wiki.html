@@ -87,13 +87,12 @@
   {% set uerr = request.query_params.get('error') %}
   {% set saved_title = request.query_params.get('title') %}
   {% set saved_slug = request.query_params.get('slug') %}
-  {% set saved_via = request.query_params.get('via') %}
   <div id="wiki-upload-result">
-  {% if saved=='added' %}<div class="alert alert-ok">"{{ saved_title or 'Your document' }}" added to this wiki - indexed by {{ saved_via or 'your model' }}. {% if saved_slug %}<a href="/wiki/page/{{ saved_slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">View the page →</a>{% endif %}</div>{% endif %}
-  {% if saved=='queued' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was indexed by {{ saved_via or 'your model' }} and flagged on review - it's waiting in the <a href="{% if scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}{% else %}/wiki/review/personal{% endif %}">review queue</a>.</div>{% endif %}
+  {% if saved=='added' %}<div class="alert alert-ok">"{{ saved_title or 'Your document' }}" added to this wiki.{% if saved_how %} {{ saved_how }}{% endif %} The original is kept under <a href="?tab=files{% if scope!='personal' %}&amp;scope={{ scope }}{% endif %}">Files</a>. {% if saved_slug %}<a href="/wiki/page/{{ saved_slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">View the page →</a>{% endif %}</div>{% endif %}
+  {% if saved=='queued' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was flagged on review and is waiting in the <a href="{% if scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}{% else %}/wiki/review/personal{% endif %}">review queue</a>.{% if saved_how %} {{ saved_how }}{% endif %}</div>{% endif %}
   {% if saved=='held' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was <b>not</b> added: this wiki already has the same file or a page with that title. It is held for your decision in the <a href="{% if scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}{% else %}/wiki/review/personal{% endif %}">review queue</a>, with a recommendation from Anthill. Nothing changes until you choose.</div>{% endif %}
   {% if saved=='queued_for_model' %}<div class="alert alert-warn">Your local AI is still downloading. This document is saved and will be added automatically as soon as it's ready.</div>{% endif %}
-  {% if uerr=='unsupported' %}<div class="alert alert-warn">Unsupported file type. Use .md, .txt, .pdf, or an image (.png/.jpg/.gif/.webp).</div>{% endif %}
+  {% if uerr=='unsupported' %}<div class="alert alert-warn">Unsupported file type. {{ upload_types_text }}</div>{% endif %}
   {% if uerr=='ingesttimeout' %}<div class="alert alert-warn">Your AI did not finish reading that document within {{ ingest_limit }} seconds, so nothing was added. A short note normally takes a few seconds, so the model may be busy or still loading. Use <b>Try again with a longer limit</b> below, or upload it again later.</div>{% endif %}
   {% if uerr=='ingesttimeout_long' %}<div class="alert alert-warn">Your AI still did not finish within {{ ingest_extended_limit }} seconds, so nothing was added. Check your <a href="/personalize#model">model setup</a>, or try a shorter document.</div>{% endif %}
   {% if uerr=='retrymissing' %}<div class="alert alert-warn">That upload is no longer available to retry. Choose the file again to upload it.</div>{% endif %}
@@ -103,7 +102,7 @@
   {% if uerr=='toobig' %}<div class="alert alert-warn">That file is too large (the limit is 25 MB). Split it into smaller files and upload each one.</div>{% endif %}
   {% if uerr=='forbidden' %}<div class="alert alert-warn">You can't add documents to this scope.</div>{% endif %}
   </div>
-  <p class="text-sm text-muted" style="margin:0 0 10px">Supported: .md, .txt, .pdf, .docx, .pptx, .xlsx, .html, images.{% if scope!='personal' %} Flagged changes wait in the review queue.{% endif %}</p>
+  <p class="text-sm text-muted" style="margin:0 0 10px">{{ upload_types_text }}{% if scope!='personal' %} Flagged changes wait in the review queue.{% endif %}</p>
   {% if pdf_confirmations %}
   <div class="alert alert-warn" style="margin-bottom:10px">
     <b>PDFs awaiting confirmation</b>

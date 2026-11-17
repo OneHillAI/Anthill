@@ -45,6 +45,9 @@ three upload paths (`wiki_upload`, `confirm_pdf_upload`, `wiki_import_connector`
 `slug`/`title`/`via` through the redirect; the banner now reads e.g. `"Anthill Upload Live Check"
 added to this wiki - indexed by your machine. View the page →`, linking straight to the real page.
 The review-queue case similarly names the document and links to `/wiki/review`.
+*Update, November 2026:* the "indexed by <where>" wording is gone. The label came from the account's settings, not
+from the model that read the file, and nothing is indexed by a model. The banner now says what read the document
+(`docs/specs/honest-upload-messages.md`).
 
 **3. The local engine self-heals instead of just failing.** First pass here surfaced
 `OllamaBackend.health()`'s live diagnosis (e.g. "Ollama not reachable... is `ollama serve`

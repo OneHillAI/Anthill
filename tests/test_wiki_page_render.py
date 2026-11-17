@@ -33,9 +33,9 @@ def test_wiki_page_hides_the_provenance_comment_and_shows_a_metadata_line(tmp_pa
         soup = BeautifulSoup(r.text, "html.parser")
         meta = soup.select_one("p.text-muted")
         assert meta is not None
-        assert (
-            meta.get_text(" ", strip=True)
-            == "Written by qwen2.5:3b on 2026-10-21 from note one.md."
+        assert meta.get_text(" ", strip=True) == (
+            "AI summary written by qwen2.5:3b on 2026-10-21 from note one.md. "
+            "It is not the text of your document."
         )
     finally:
         app_mod._engine = None
