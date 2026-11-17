@@ -55,3 +55,6 @@ the operator's responsibility:
 
 Reports about the project's own code, dependencies, auth, or data handling are
 always in scope and welcome.
+
+Who Anthill is defended against, install by install, what is out of scope, and every way data can leave a
+node are written down in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).

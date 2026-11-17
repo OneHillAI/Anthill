@@ -45,6 +45,7 @@ env:
   #                      test_jwt_live_revocation.py; also docs-site/scripts/collect-docs.js
   #   docs/OKGF.md       anthill/web/app.py (/docs/okgf) via tests/test_okf.py
   #   docs/releasing.md  tests/test_stable_releases_start_as_prereleases.py
+  #   docs/THREAT_MODEL.md  tests/test_threat_model_doc.py
   #   the other docs/*.md below: docs-site/scripts/collect-docs.js FILES (a missing one throws at
   #                      deploy), guarded by tests/test_ci_docs_only_fast_path.py
   DOCS_ONLY_CARVE_OUT: |-
@@ -60,6 +61,7 @@ env:
     docs/using-automation.md
     docs/using-models-and-compute.md
     docs/using-connectors-and-personalization.md
+    docs/THREAT_MODEL.md
 
 concurrency:
   group: pr-validation-${{ github.event.pull_request.number }}
