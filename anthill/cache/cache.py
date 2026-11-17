@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,11 +11,13 @@ import numpy as np
 
 from . import embedder as emb
 from .guard import passes
-from .store import CacheStore
+from .store import CacheRow, CacheStore
 
 log = logging.getLogger(__name__)
 
 DEFAULT_THRESHOLD = 0.93
+# A judge's rulings on a cached row (see SemanticCache.lookup).
+FRESH, STALE, SKIP = "fresh", "stale", "skip"
 # A very short query embeds imprecisely, so a loose cosine match to an unrelated cached prompt is a
 # false positive - the vector behind cross-conversation cache bleed ("book the room for tomorrow"
 # hitting a wind-power roadmap answer). Require a stricter similarity for short prompts.
@@ -56,6 +59,7 @@ class SemanticCache:
 
     db_path: Path
     threshold: float = DEFAULT_THRESHOLD
+    judge: Callable[[CacheRow], str] | None = None  # see lookup()
     _store: CacheStore | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
@@ -82,6 +86,10 @@ class SemanticCache:
     def lookup(self, prompt: str) -> CacheResult | None:
         """Return a cached answer if one exists and passes the correctness guard.
 
+        When the cache has a ``judge`` it rules on each candidate row: "fresh" serves it, "stale" drops it
+        from the cache for good (what it was built on has changed) and "skip" leaves it stored but does
+        not serve it now.
+
         No-op (returns None) when embeddings are unavailable or the store could not open - the
         semantic cache simply disables itself rather than breaking the answer path."""
         if self._store is None:
@@ -92,6 +100,11 @@ class SemanticCache:
         rows = self._store.search(vec, self._effective_threshold(prompt))
         for row in rows:
             if passes(prompt, row.prompt):
+                verdict = self.judge(row) if self.judge is not None else FRESH
+                if verdict == STALE:
+                    self._store.delete(row.id)
+                if verdict != FRESH:
+                    continue
                 similarity = emb.cosine(vec, np.array(row.embedding, dtype=np.float32))
                 return CacheResult(
                     answer=row.answer,

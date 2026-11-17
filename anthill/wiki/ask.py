@@ -17,6 +17,7 @@ from ..lifecycle.version import read_provenance
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
+from .cache_freshness import judge_for
 from .page_index import embed_text
 from .passages import build_reference
 from .workspace import Workspace
@@ -349,7 +350,11 @@ def ask(
 
     Returns (answer, slugs_used_as_context, cache_hit).
     """
-    cache = SemanticCache(db_path=ws.root / ".cache", threshold=cache_threshold)
+    cache = SemanticCache(
+        db_path=ws.root / ".cache",
+        threshold=cache_threshold,
+        judge=cache_judge([ws, *(extra_workspaces or [])]),
+    )
     has_img = bool(images_b64)
     # Default: no council was used for this answer. Only reassigned on the non-image text path below
     # (an image turn never goes through _council_answer at all) - initialized here so it is always
@@ -1032,6 +1037,12 @@ def _decorate_context(context: str, *, profile: str = "", principles: str = "") 
             f"every answer):\n{principles}\n\n---\n\n{context}"
         )
     return context
+
+
+def cache_judge(workspaces):
+    """The judge that decides whether a cached answer may still be served, given the workspaces (``ws``
+    and any extra ones) that ground this chat. See ``cache_freshness``."""
+    return judge_for([w.root for w in workspaces if w is not None], MIN_GROUNDING_SIM)
 
 
 def stream_chat(
