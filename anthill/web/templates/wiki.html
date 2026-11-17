@@ -97,13 +97,10 @@
   {% if uerr=='ingesttimeout' %}<div class="alert alert-warn">Your AI did not finish reading that document within {{ ingest_limit }} seconds, so nothing was added. A short note normally takes a few seconds, so the model may be busy or still loading. Use <b>Try again with a longer limit</b> below, or upload it again later.</div>{% endif %}
   {% if uerr=='ingesttimeout_long' %}<div class="alert alert-warn">Your AI still did not finish within {{ ingest_extended_limit }} seconds, so nothing was added. Check your <a href="/personalize#model">model setup</a>, or try a shorter document.</div>{% endif %}
   {% if uerr=='retrymissing' %}<div class="alert alert-warn">That upload is no longer available to retry. Choose the file again to upload it.</div>{% endif %}
-  {% if uerr=='ingest' %}<div class="alert alert-warn">Couldn't reach your AI to read that document. <a href="/personalize#model">Check your model setup</a>, then try again.</div>{% endif %}
-  {% if uerr=='pdfconfirm' %}<div class="alert alert-warn">This PDF needs more work than Anthill runs automatically. Re-select it, confirm larger PDF processing below, and upload again.</div>{% endif %}
-  {% if uerr=='pdflimit' %}<div class="alert alert-warn">This PDF exceeds Anthill's hard processing safety limits and cannot be uploaded automatically.</div>{% endif %}
-  {% if uerr=='pdfretry' %}<div class="alert alert-warn">Couldn't process that PDF right now - this isn't a problem with the file. Check that Ollama and this host are set up, then try again.</div>{% endif %}
+  {% if upload_problem %}<div class="alert alert-warn" id="wiki-upload-problem">{{ upload_problem.text }}{% if upload_problem.href %} <a href="{{ upload_problem.href }}">{{ upload_problem.link_text }}</a>{% endif %}</div>{% endif %}
   {% if uerr=='pdfconfirm_missing' %}<div class="alert alert-warn">That pending PDF is no longer available. Refresh and try another.</div>{% endif %}
   {% if uerr=='empty' %}<div class="alert alert-warn">That file was empty.</div>{% endif %}
-  {% if uerr=='toobig' %}<div class="alert alert-warn">File too large (max 25 MB).</div>{% endif %}
+  {% if uerr=='toobig' %}<div class="alert alert-warn">That file is too large (the limit is 25 MB). Split it into smaller files and upload each one.</div>{% endif %}
   {% if uerr=='forbidden' %}<div class="alert alert-warn">You can't add documents to this scope.</div>{% endif %}
   </div>
   <p class="text-sm text-muted" style="margin:0 0 10px">Supported: .md, .txt, .pdf, .docx, .pptx, .xlsx, .html, images.{% if scope!='personal' %} Flagged changes wait in the review queue.{% endif %}</p>
@@ -121,7 +118,7 @@
   </div>
   {% endif %}
   {% if upload_retries %}
-  <div class="alert alert-warn" style="margin-bottom:10px">
+  <div class="alert alert-warn" id="wiki-upload-retries" style="margin-bottom:10px">
     <b>Timed out earlier</b>
     {% for r in upload_retries %}
     <form method="post" action="/wiki/upload/retry/{{ r.id }}" data-limit="{{ ingest_extended_limit }}" style="display:inline-flex;gap:6px;align-items:center;margin:6px 0 0 8px" onsubmit="return wikiUploadSubmit(this)">
@@ -141,6 +138,24 @@
   <div id="wiki-upload-progress" role="status" aria-live="polite" hidden style="margin-top:8px">
     <div class="text-sm text-muted" id="wiki-upload-stage"></div>
     <progress id="wiki-upload-bar" max="100" style="width:100%;max-width:420px"></progress>
+  </div>
+  <div id="wiki-recent-uploads" style="margin-top:14px">
+    <h3 style="font-size:13px;margin:0 0 6px">Recent uploads</h3>
+    {% if recent_uploads %}
+    <ul style="list-style:none;margin:0;padding:0">
+      {% for u in recent_uploads %}
+      <li class="text-sm" style="padding:6px 0;border-top:1px solid var(--border)">
+        <b>{{ u.filename }}</b>
+        <span class="text-muted">- <span data-utc="{{ u.created_at|utc_iso }}">{{ u.created_at.strftime('%m-%d %H:%M') }} UTC</span></span>
+        <div><b>{{ u.label }}.</b> {{ u.meaning }}{% if u.href %} <a href="{{ u.href }}">{{ u.href_text }}</a>{% endif %}</div>
+        {% if u.model %}<div class="text-muted">{{ u.model }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="text-sm text-muted" style="margin:6px 0 0">Only you see this list. It shows your latest 10 uploads to this wiki.</p>
+    {% else %}
+    <p class="text-sm text-muted" style="margin:0">Documents you add appear here with what happened to each one, so you can check on them later.</p>
+    {% endif %}
   </div>
 </div>
 
@@ -271,16 +286,16 @@ function wikiUploadSubmit(form) {
   xhr.onload = function () {
     var back = xhr.responseURL || '';
     if (xhr.status !== 200 || !back || back === form.action || back.indexOf(location.origin) !== 0) {
-      stop('Anthill hit an error finishing that upload (error ' + xhr.status + '). Check Pages before trying again.');
+      stop('Anthill hit an error finishing that upload (error ' + xhr.status + '). Check Recent uploads, then Pages, before trying again.');
       return;
     }
     clearInterval(timer);
-    show('Done. Showing the result…', 100, 100);
+    show('Done. Showing the result; it also stays under Recent uploads.', 100, 100);
     location.assign(back);
   };
   xhr.onerror = function () { stop('The upload did not reach Anthill. Check that Anthill is still running, then try again.'); };
   xhr.onabort = xhr.onerror;
-  xhr.ontimeout = function () { stop('Still no answer after 12 minutes, so this page stopped waiting. Anthill may still finish: check Pages before uploading again.'); };
+  xhr.ontimeout = function () { stop('Still no answer after 12 minutes, so this page stopped waiting. Anthill may still finish: check Recent uploads before uploading again.'); };
   xhr.send(new FormData(form));
   return false;
 }

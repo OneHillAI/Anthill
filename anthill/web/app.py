@@ -36,6 +36,7 @@ from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
 from ..wiki.workspace import org_wiki_root, workspace_for
 from . import audit, bring_in, metrics
+from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
     decode_token,
@@ -8234,6 +8235,14 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
             else []
         ),
         "upload_retries": _timed_out_uploads(db, user, org, scope, team_id),
+        "upload_problem": ups.UPLOAD_PROBLEMS.get(request.query_params.get("error", "")),
+        "recent_uploads": (
+            ups.recent_uploads(
+                db, org_id=org.id, user_id=int(user["sub"]), scope=scope, team_id=team_id
+            )
+            if _wiki_can_edit(db, user, scope, team_id)
+            else []
+        ),
         "ingest_limit": INGEST_MODEL_TIMEOUT_SECONDS,
         "ingest_extended_limit": INGEST_EXTENDED_TIMEOUT_SECONDS,
         "doc_sources": [{"id": s.id, "name": s.name} for s in doc_source_servers(db, org.id)],
@@ -8406,7 +8415,7 @@ def wiki_page_view(
     import re
 
     from ..common.text import WIKILINK_RE, first_h1, slugify, strip_frontmatter
-    from ..lifecycle.version import PROVENANCE_RE, read_provenance
+    from ..lifecycle.version import PROVENANCE_RE, is_verbatim, read_provenance
 
     db = _db()
     org = _require_org(db, user)
@@ -8441,6 +8450,7 @@ def wiki_page_view(
             "title": first_h1(md) or slugify(slug),
             "content": body,
             "provenance": read_provenance(md),
+            "verbatim": is_verbatim(md),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
@@ -8545,6 +8555,7 @@ async def _ingest_and_propose(
     *,
     allow_large_pdf: bool = False,
     model_timeout: float | None = None,
+    record=None,
 ) -> tuple[str, str, str]:
     """Run a local source file through the shared ingest pipeline (read + summarise into a
     page) and file the result through the wiki review gate.
@@ -8561,7 +8572,7 @@ async def _ingest_and_propose(
     (`PdfConfirmationRequired`, `PdfProcessingLimitExceeded`, or any other conversion failure) -
     the caller owns its own error-code mapping and audit logging, which differ by context.
     A text source whose model call outlasts ``model_timeout`` (default: the standard ingest limit)
-    raises ``IngestTimedOut``.
+    raises ``IngestTimedOut``. A ``record`` (the person's ``UploadRecord``) is finished with the outcome.
     """
     from starlette.concurrency import run_in_threadpool
 
@@ -8597,10 +8608,11 @@ async def _ingest_and_propose(
         team_id=team_id,
         source=source_label,
     )
+    ups.finish_upload(db, record, status, slug, proposal["title"], proposal["page_md"])
     return status, slug, proposal["title"]
 
 
-def _record_timed_out_upload(db, *, org_id, uid, ws, source, name, scope, team_id) -> None:
+def _record_timed_out_upload(db, *, org_id, uid, ws, source, name, scope, team_id) -> QueuedUpload:
     """Remember an upload whose model call timed out, pointing at its preserved raw copy, so the
     person can retry it from the wiki page without choosing the file again."""
     from ..wiki.ingest import preserve_raw_source
@@ -8616,34 +8628,36 @@ def _record_timed_out_upload(db, *, org_id, uid, ws, source, name, scope, team_i
         .first()
     )
     if known is None:
-        db.add(
-            QueuedUpload(
-                org_id=org_id,
-                user_id=uid,
-                target_scope=scope,
-                team_id=team_id,
-                filename=name,
-                stored_path=raw,
-                status="timed_out",
-                error="The model did not answer in time.",
-                processed_at=datetime.now(timezone.utc),
-            )
+        known = QueuedUpload(
+            org_id=org_id,
+            user_id=uid,
+            target_scope=scope,
+            team_id=team_id,
+            filename=name,
+            stored_path=raw,
+            status="timed_out",
+            error="The model did not answer in time.",
+            processed_at=datetime.now(timezone.utc),
         )
+        db.add(known)
     db.commit()
+    return known
 
 
 def _settle_timed_out_uploads(db, *, uid, scope, team_id, name, digest) -> None:
     """A file that has now gone through no longer needs its retry button. Only the same file: the raw
     copy's name carries the first 12 hex digits of its SHA-256, so a different file that happens to
     share the name keeps its button."""
-    db.query(QueuedUpload).filter(
+    same_file = db.query(QueuedUpload).filter(
         QueuedUpload.user_id == uid,
         QueuedUpload.target_scope == scope,
         QueuedUpload.team_id == team_id,
         QueuedUpload.filename == name,
         QueuedUpload.stored_path.like(f"%-{digest}%"),
         QueuedUpload.status == "timed_out",
-    ).update({"status": "done"}, synchronize_session=False)
+    )
+    ups.forget_timed_out(db, [q.id for q in same_file])
+    same_file.update({"status": "done"}, synchronize_session=False)
     db.commit()
 
 
@@ -8709,17 +8723,26 @@ async def wiki_upload(
         if not data:
             return RedirectResponse(dest + "?error=empty", status_code=302)
         stored_path = _store_queued_upload(org.id, name, data)
-        db.add(
-            QueuedUpload(
-                org_id=org.id,
-                user_id=uid,
-                target_scope=target_scope,
-                team_id=team_id,
-                filename=name,
-                stored_path=stored_path,
-            )
+        queued = QueuedUpload(
+            org_id=org.id,
+            user_id=uid,
+            target_scope=target_scope,
+            team_id=team_id,
+            filename=name,
+            stored_path=stored_path,
         )
+        db.add(queued)
         db.commit()
+        ups.begin_upload(
+            db,
+            org_id=org.id,
+            user_id=uid,
+            scope=target_scope,
+            team_id=team_id,
+            filename=name,
+            status="waiting_model",
+            queued_upload_id=queued.id,
+        )
         _audit_request(
             request,
             "wiki.upload.queued_for_model",
@@ -8739,6 +8762,7 @@ async def wiki_upload(
 
     tmp_dir = tempfile.mkdtemp()
     backend = None
+    rec = None
     try:
         tmp_path = _Path(tmp_dir) / name
         size = 0
@@ -8757,6 +8781,9 @@ async def wiki_upload(
                 preserve_raw_source(ws, tmp_path)
             return RedirectResponse(dest + "?error=toobig", status_code=302)
 
+        rec = ups.begin_upload(
+            db, org_id=org.id, user_id=uid, scope=target_scope, team_id=team_id, filename=name
+        )
         backend = _backend_from_cfg(cfg)
         outcome["status"], outcome["slug"], outcome["title"] = await _ingest_and_propose(
             db,
@@ -8770,6 +8797,7 @@ async def wiki_upload(
             backend,
             cfg,
             allow_large_pdf=confirm_large_pdf,
+            record=rec,
         )
     except PdfConfirmationRequired as e:
         _audit_request(
@@ -8779,6 +8807,7 @@ async def wiki_upload(
             org_id=org.id,
             user_id=uid,
         )
+        ups.fail_upload(db, rec, "pdfconfirm")
         return RedirectResponse(dest + "?error=pdfconfirm", status_code=302)
     except PdfProcessingLimitExceeded as e:
         _audit_request(
@@ -8789,9 +8818,10 @@ async def wiki_upload(
             user_id=uid,
         )
         code = "pdfretry" if e.transient else "pdflimit"
+        ups.fail_upload(db, rec, code)
         return RedirectResponse(dest + f"?error={code}", status_code=302)
     except IngestTimedOut as e:
-        _record_timed_out_upload(
+        queued = _record_timed_out_upload(
             db,
             org_id=org.id,
             uid=uid,
@@ -8801,6 +8831,7 @@ async def wiki_upload(
             scope=target_scope,
             team_id=team_id,
         )
+        ups.time_out_upload(db, rec, queued.id)
         _audit_request(
             request,
             "wiki.upload",
@@ -8810,7 +8841,9 @@ async def wiki_upload(
         )
         return RedirectResponse(dest + "?error=ingesttimeout", status_code=302)
     except Exception as e:
-        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
+        reason = _ingest_failure_reason(backend)
+        code = ups.classify_failure(e, reason, name)
+        ups.fail_upload(db, rec, code)
         _audit_request(
             request,
             "wiki.upload",
@@ -8819,7 +8852,7 @@ async def wiki_upload(
             org_id=org.id,
             user_id=uid,
         )
-        return RedirectResponse(dest + "?error=ingest", status_code=302)
+        return RedirectResponse(dest + f"?error={code}", status_code=302)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -8876,6 +8909,13 @@ async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depen
 
     tmp_dir = tempfile.mkdtemp()
     backend = None
+    rec = ups.record_for_queued(db, row.id, uid)
+    if rec is None:
+        rec = ups.begin_upload(
+            db, org_id=org.id, user_id=uid, scope=scope, team_id=team_id, filename=name
+        )
+    else:
+        ups.restart_upload(db, rec)
     try:
         source = Path(tmp_dir) / name
         shutil.copyfile(raw, source)
@@ -8893,8 +8933,10 @@ async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depen
             backend,
             cfg,
             model_timeout=INGEST_EXTENDED_TIMEOUT_SECONDS,
+            record=rec,
         )
     except IngestTimedOut as e:
+        ups.time_out_upload(db, rec, row.id)
         _audit_request(
             request,
             "wiki.upload.retry",
@@ -8904,7 +8946,9 @@ async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depen
         )
         return RedirectResponse(dest + "?error=ingesttimeout_long", status_code=302)
     except Exception as e:
-        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
+        reason = _ingest_failure_reason(backend)
+        code = ups.classify_failure(e, reason, name)
+        ups.fail_upload(db, rec, code)
         _audit_request(
             request,
             "wiki.upload.retry",
@@ -8913,7 +8957,7 @@ async def wiki_upload_retry(request: Request, upload_id: int, user: dict = Depen
             org_id=org.id,
             user_id=uid,
         )
-        return RedirectResponse(dest + "?error=ingest", status_code=302)
+        return RedirectResponse(dest + f"?error={code}", status_code=302)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -9008,6 +9052,9 @@ async def confirm_pdf_upload(
             processing.rename(source)
 
     backend = None
+    rec = ups.begin_upload(
+        db, org_id=org.id, user_id=uid, scope=target_scope, team_id=team_id, filename=name
+    )
     try:
         cfg = _cfg(db, org)
         backend = _backend_from_cfg(cfg)
@@ -9023,6 +9070,9 @@ async def confirm_pdf_upload(
         )
         processing.unlink(missing_ok=True)
         _route()
+        ups.finish_upload(
+            db, rec, outcome["status"], outcome["slug"], outcome["title"], proposal["page_md"]
+        )
     except PdfProcessingLimitExceeded as exc:
         if exc.transient:
             _restore()
@@ -9036,13 +9086,17 @@ async def confirm_pdf_upload(
             user_id=uid,
         )
         code = "pdfretry" if exc.transient else "pdflimit"
+        ups.fail_upload(db, rec, code)
         return RedirectResponse(dest + f"?error={code}", status_code=302)
     except PdfConfirmationRequired:
         _restore()
+        ups.fail_upload(db, rec, "pdfconfirm")
         return RedirectResponse(dest + "?error=pdfconfirm", status_code=302)
     except Exception as exc:
         _restore()
-        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
+        reason = _ingest_failure_reason(backend)
+        code = ups.classify_failure(exc, reason, name)
+        ups.fail_upload(db, rec, code)
         _audit_request(
             request,
             "wiki.upload.confirm",
@@ -9051,7 +9105,7 @@ async def confirm_pdf_upload(
             org_id=org.id,
             user_id=uid,
         )
-        return RedirectResponse(dest + "?error=ingest", status_code=302)
+        return RedirectResponse(dest + f"?error={code}", status_code=302)
 
     _audit_request(
         request,
@@ -9139,14 +9193,26 @@ async def wiki_import_connector(
 
     tmp_dir = tempfile.mkdtemp()
     backend = None
+    rec = ups.begin_upload(
+        db, org_id=org.id, user_id=uid, scope=target_scope, team_id=team_id, filename=label
+    )
     try:
         tmp_name = (slugify(label) or "document") + ".md"
         tmp_path = _Path(tmp_dir) / tmp_name
-        # A pre-titled doc keeps its own heading. An untitled one gets a heading only when the user
-        # typed a title: ingest takes the source's H1 as the page title, so a heading made up from
-        # the file name would beat the model's descriptive title (#150).
-        titled = text.lstrip().startswith("#") or not title.strip()
-        page_source = text if titled else f"# {label}\n\n{text}\n"
+        # A pre-titled doc keeps its own heading. An untitled one gets a heading when the user typed
+        # a title, or when it is short enough to be filed as it is (#181) and so would otherwise be
+        # titled after the temporary file. A longer untitled doc is summarised, and ingest takes the
+        # source's H1 as the page title, so a heading made up from the file name would beat the
+        # model's descriptive title (#150).
+        from ..wiki.ingest import _VERBATIM_NOTE_MAX_CHARS
+
+        untitled = not text.lstrip().startswith("#")
+        short = len(text.strip()) <= _VERBATIM_NOTE_MAX_CHARS
+        if untitled and (title.strip() or short):
+            heading = title.strip() or _Path(label).stem or label
+            page_source = f"# {heading}\n\n{text}\n"
+        else:
+            page_source = text
         tmp_path.write_text(page_source, encoding="utf-8")
 
         cfg = _cfg(db, org)
@@ -9163,9 +9229,12 @@ async def wiki_import_connector(
             backend,
             cfg,
             model_timeout=INGEST_EXTENDED_TIMEOUT_SECONDS,
+            record=rec,
         )
     except Exception as e:
-        reason = _ingest_failure_reason(backend)  # logged only - not actionable for the user
+        reason = _ingest_failure_reason(backend)
+        code = ups.classify_failure(e, reason, label)
+        ups.fail_upload(db, rec, code)
         _audit_request(
             request,
             "wiki.import_connector",
@@ -9174,7 +9243,7 @@ async def wiki_import_connector(
             org_id=org.id,
             user_id=uid,
         )
-        return RedirectResponse(dest + "?error=ingest", status_code=302)
+        return RedirectResponse(dest + f"?error={code}", status_code=302)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

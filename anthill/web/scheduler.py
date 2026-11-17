@@ -1232,13 +1232,23 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
     from ..common.text import slugify
     from ..wiki.ingest import ingest as ingest_file
     from ..wiki.workspace import workspace_for
-    from .app import _backend_from_cfg, _ensure_backend_ready, _wiki_page_url, propose_upload
+    from . import upload_status as ups
+    from .app import (
+        _backend_from_cfg,
+        _ensure_backend_ready,
+        _ingest_failure_reason,
+        _wiki_page_url,
+        propose_upload,
+    )
     from .notify import notify
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == row.org_id).first()
     stored = Path(row.stored_path)
     status = None
     tmp_dir: str | None = None
+    backend = None
+    rec = ups.record_for_queued(db, row.id, row.user_id)
+    ups.restart_upload(db, rec)
     try:
         if not stored.is_file():
             raise FileNotFoundError(f"queued upload file is missing: {stored}")
@@ -1283,9 +1293,12 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
             source=f"Queued upload {row.filename}",
         )
         row.status = "done"
+        ups.finish_upload(db, rec, status, slug, proposal["title"], proposal["page_md"])
     except Exception as exc:
         row.status = "error"
         row.error = str(exc)[:300]
+        code = ups.classify_failure(exc, _ingest_failure_reason(backend), row.filename)
+        ups.fail_upload(db, rec, code)
     finally:
         row.processed_at = datetime.now(timezone.utc)
         stored.unlink(missing_ok=True)
