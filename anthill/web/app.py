@@ -8180,6 +8180,7 @@ def _wiki_raw_files(ws) -> list[dict]:
                 "size": stat.st_size,
                 "mtime": stat.st_mtime,
                 "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "has_text": _wiki_text_file_path(ws, p.name) is not None,
             }
         )
     out.sort(key=lambda f: f["mtime"], reverse=True)
@@ -8530,6 +8531,7 @@ def wiki_page_view(
             "verbatim": is_verbatim(md),
             "source_name": _original_name((read_provenance(md) or {}).get("source", "")),
             "source_link": _raw_link(ws, (read_provenance(md) or {}).get("source", ""), query),
+            "text_link": _text_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
     )
@@ -8549,6 +8551,15 @@ def _raw_link(ws, raw_name: str, query: str) -> str:
     if not raw_name or _wiki_raw_file_path(ws, raw_name) is None:
         return ""
     return f"/wiki/raw/{quote(raw_name)}{query}"
+
+
+def _text_link(ws, raw_name: str, query: str) -> str:
+    """The link to the text extracted from a kept original, or "" when none was kept."""
+    from urllib.parse import quote
+
+    if not raw_name or _wiki_text_file_path(ws, raw_name) is None:
+        return ""
+    return f"/wiki/text/{quote(raw_name)}{query}"
 
 
 @app.get("/wiki/raw/{name}")
@@ -8584,6 +8595,62 @@ def wiki_raw_file(
         user_id=int(user["sub"]),
     )
     return FileResponse(str(target), filename=target.name)
+
+
+def _wiki_text_file_path(ws, raw_name: str) -> Path | None:
+    """The text Anthill extracted from the kept original ``raw_name`` (``text/<raw name>.txt``), or None.
+    Same refusals as ``_wiki_raw_file_path``: a bare file name, no symlink, nothing outside ``ws.text``,
+    and only for an original that is itself kept."""
+    if _wiki_raw_file_path(ws, raw_name) is None:
+        return None
+    candidate = ws.text / f"{raw_name}.txt"
+    if (
+        not ws.text.is_dir()
+        or candidate.is_symlink()
+        or not candidate.is_file()
+        or candidate.resolve().parent != ws.text.resolve()
+    ):
+        return None
+    return candidate
+
+
+@app.get("/wiki/text/{name}")
+def wiki_extracted_text(
+    name: str,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    """Open the text Anthill extracted from one of this scope's kept originals, as plain text: what the AI was
+    given to write the page from. ``name`` is the original's name in the Files tab. Same scope and membership
+    rules as the original itself."""
+    from fastapi.responses import FileResponse
+
+    db = _db()
+    org = _require_org(db, user)
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    target = _wiki_text_file_path(ws, name)
+    if target is None:
+        raise HTTPException(status_code=404)
+    _audit_request(
+        request,
+        "wiki.text_view",
+        f"name={name} scope={scope}",
+        org_id=org.id,
+        user_id=int(user["sub"]),
+    )
+    return FileResponse(
+        str(target),
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Content-Type-Options": "nosniff", "Content-Disposition": "inline"},
+    )
 
 
 def _wiki_dest(scope, team_id):

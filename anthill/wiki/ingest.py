@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ from ..multimodal import read_file
 from ..multimodal.reader import PDF_HARD_PROCESSING_SECONDS
 from . import prompts
 from .workspace import Workspace
+
+log = logging.getLogger(__name__)
 
 _SOURCE_CHUNK_CHARS = 10_000
 _INTERMEDIATE_SUMMARY_CHARS = 4_000
@@ -346,6 +349,7 @@ def ingest(
         raise
     if not is_pdf and source.resolve() != raw_copy.resolve() and not raw_copy.exists():
         preserve_raw_source(ws, source)
+    keep_extracted_text(ws, raw_copy, fc)
     _preflight_pdf_work(fc, allow_large_pdf=allow_large_pdf, budget=budget)
     if _is_verbatim_note(source, fc):
         return _file_verbatim_note(ws, source, fc.text, raw_copy, on_write)
@@ -562,6 +566,55 @@ def preserve_raw_source(ws: Workspace, source: Path) -> Path:
         ws.raw.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, raw_copy)
     return raw_copy
+
+
+# The most text kept for one document. A longer one is cut at this length with a line that says so.
+EXTRACTED_TEXT_MAX_CHARS = 5_000_000
+# Files whose original already is the text: nothing is kept beside them.
+_TEXT_ORIGINALS = {".md", ".txt"}
+
+
+def _is_stand_in(text: str) -> bool:
+    """True for the line the reader returns when it found no text ("[DOCX: a.docx - no extractable text.]",
+    "[Image: a.png]"), which is not text taken from the document."""
+    one = text.strip()
+    return (
+        one.startswith("[")
+        and one.endswith("]")
+        and "\n" not in one
+        and ("no extractable text" in one or one.startswith("[Image: "))
+    )
+
+
+def keep_extracted_text(ws: Workspace, raw_copy: Path, fc) -> Path | None:
+    """Keep the text the reader took out of a document, beside the original, as ``text/<raw name>.txt``.
+
+    It is what the model is given to write the page from, kept as extracted, so a person can see what the AI
+    read and so it can be searched later. Nothing is kept for a ``.md`` or ``.txt`` (the original is the text),
+    or when the reader found no text (an image, a scan: the vision model's description is not the document's
+    text). A text over ``EXTRACTED_TEXT_MAX_CHARS`` is cut there, with a last line that says so. Best effort:
+    a failure to write is logged and never fails the upload."""
+    if raw_copy.suffix.lower() in _TEXT_ORIGINALS:
+        return None
+    text = getattr(fc, "text", "") or ""
+    if not text.strip() or _is_stand_in(text):
+        return None
+    if len(text) > EXTRACTED_TEXT_MAX_CHARS:
+        text = (
+            text[:EXTRACTED_TEXT_MAX_CHARS]
+            + f"\n\n[Anthill stopped keeping the text here: the document has more than "
+            f"{EXTRACTED_TEXT_MAX_CHARS:,} characters.]\n"
+        )
+    target = ws.text / f"{raw_copy.name}.txt"
+    try:
+        ws.text.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(target)
+    except OSError as exc:
+        log.warning("could not keep the extracted text of %s: %s", raw_copy.name, exc)
+        return None
+    return target
 
 
 def _raw_source_path(ws: Workspace, source: Path) -> Path:
