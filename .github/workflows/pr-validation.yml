@@ -84,22 +84,29 @@ jobs:
           fi
           echo "CHANGELOG.md [Unreleased] section present."
 
-      - name: Feature PRs must add a changelog fragment
+      # A change to product code (anthill/), or any pillar:feature change, must add a changelog fragment. The rule
+      # is the post-merge documentation agent's own (needs_changelog in operate/docsync-render.py), loaded by
+      # changelog-gate.py so the two cannot drift: a release cut, and test, docs and CI-only changes, need none.
+      # The chore lane is exempt, and so is a machine author (Dependabot touches no product code).
+      - name: Product changes must add a changelog fragment
         env:
           LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          is_feature=$(echo "$LABELS_JSON" | jq -r 'any(.[]; .name == "pillar:feature")')
-          if [ "$is_feature" != "true" ]; then
-            echo "Not a pillar:feature PR - no changelog requirement."
-            exit 0
+          set -euo pipefail
+          git diff --name-only "origin/${BASE_REF}"...HEAD > "$RUNNER_TEMP/changed.txt"
+          printf '%s' "$LABELS_JSON" | jq -r '.[].name' > "$RUNNER_TEMP/labels.txt"
+          # The machine-author list comes from the base branch's .asdd.yml, never the PR's own copy.
+          git show "origin/${BASE_REF}:.asdd.yml" > "$RUNNER_TEMP/base-asdd.yml" 2>/dev/null || : > "$RUNNER_TEMP/base-asdd.yml"
+          machine="$(bash .github/asdd/machine-author.sh "$PR_AUTHOR" "$RUNNER_TEMP/base-asdd.yml" 2>/dev/null || echo false)"
+          python .github/asdd/changelog-gate.py --changed "$RUNNER_TEMP/changed.txt" \
+            --labels "$RUNNER_TEMP/labels.txt" --title "$PR_TITLE" --machine "$machine"
+          if grep -qE '^changelog\.d/.+\.(added|changed|deprecated|removed|fixed|security)\.md$' "$RUNNER_TEMP/changed.txt"; then
+            python scripts/build_changelog.py --draft >/dev/null
+            echo "Changelog fragment is valid."
           fi
-          fragment_re='^changelog\.d/.+\.(added|changed|deprecated|removed|fixed|security)\.md$'
-          if ! git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -qE "$fragment_re"; then
-            echo "::error file=changelog.d/README.md::pillar:feature PRs must add changelog.d/<id>.<category>.md. See CONTRIBUTING.md."
-            exit 1
-          fi
-          python scripts/build_changelog.py --draft >/dev/null
-          echo "Changelog fragment present and valid."
 
       - name: Version must be consistent across pyproject.toml and anthill/__init__.py
         run: |

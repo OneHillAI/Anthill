@@ -2,14 +2,16 @@
 # ASDD - intake gate. DETERMINISTIC, read-only, no model.
 #
 # A PR that does not (1) disclose authorship, (2) sign off every commit (DCO), and (3) carry exactly one
-# lane tag fails intake (a machine author such as Dependabot is waived (1) and (3), see step 0). This runs in a read-only job: it only pattern-matches untrusted text as data
+# lane tag fails intake (a machine author such as Dependabot is waived (1) and (3), see step 0). A commit by a
+# configured agent identity must carry the Agent: trailer (step 6). This runs in a read-only job: it only pattern-matches untrusted text as data
 # (no prompt, no shell-exec), so it adds no write-scoped untrusted-input step. It filters non-conforming
 # PRs without a maintainer having to read them.
 #
 # Usage: intake-check.sh <workdir> <out.json>
 #   workdir holds: body.md (PR body, untrusted), commits.txt (NUL-delimited commit messages),
 #                  labels.txt (one label per line), meta.env (pr_number, head_sha),
-#                  optional authors.txt (one commit author name per line) + author.txt (the PR author's login)
+#                  optional authors.txt + author-emails.txt (commit author name and email, one line per commit, in
+#                  commits.txt order), author.txt (the PR author's login), base-asdd.yml (the BASE commit's config)
 set -euo pipefail
 WORKDIR="${1:?usage: intake-check.sh <workdir> <out.json>}"
 OUT="${2:?usage: intake-check.sh <workdir> <out.json>}"
@@ -120,6 +122,44 @@ if [ "${require_spec:-false}" = "true" ] && [ "$laned" = "true" ] && [ "$is_chor
   fi
 fi
 
+# 6) Agent trailer (STANDARD 1.2, AGENTS.md): an agent-authored commit must say so. Two rules, both from the
+#    trusted base config and the PR's own data: (a) every non-merge commit whose author name or email contains
+#    an identity in the base .asdd.yml `agents` list carries `Agent: <name> (automated, instructed-by: <human>)`;
+#    (b) a PR that ticks the AI-agent box has that trailer on at least one commit. A human commit in a mixed PR
+#    is not asked for one. Inert without the author files or an agents list, so older callers are unaffected.
+trailer_re='^[[:space:]]*Agent:[[:space:]]+.+\(automated,[[:space:]]*instructed-by:[[:space:]]*[^)]+\)'
+agent_trailer_ok=true
+ai_box=false
+grep -qiE '^[[:space:]]*-?[[:space:]]*\[[xX]\].*(\bAI\b|\bagents?\b)' "$WORKDIR/body.md" 2>/dev/null && ai_box=true
+agents_list=""
+[ -f "$WORKDIR/base-asdd.yml" ] && agents_list="$(bash "$(dirname "$0")/config-list.sh" agents "$WORKDIR/base-asdd.yml" | tr '[:upper:]' '[:lower:]')"
+n_commits=0; agent_commits=0; agent_unmarked=0; any_trailer=false
+if [ -f "$WORKDIR/commits.txt" ]; then
+  have_ids=false
+  [ -f "$WORKDIR/authors.txt" ] && [ -f "$WORKDIR/author-emails.txt" ] && have_ids=true
+  while IFS= read -r -d '' msg; do
+    n_commits=$((n_commits+1))   # counted before any skip, so line N of the author files is commit N
+    has_trailer=false
+    grep -qE "$trailer_re" <<<"$msg" && { has_trailer=true; any_trailer=true; }
+    if [ "$have_ids" = "true" ] && [ -n "$agents_list" ]; then
+      who="$(sed -n "${n_commits}p" "$WORKDIR/authors.txt") $(sed -n "${n_commits}p" "$WORKDIR/author-emails.txt")"
+      who="$(printf '%s' "$who" | tr '[:upper:]' '[:lower:]')"
+      while IFS= read -r a; do
+        [ -n "$a" ] || continue
+        case "$who" in *"$a"*) agent_commits=$((agent_commits+1)); [ "$has_trailer" = "true" ] || agent_unmarked=$((agent_unmarked+1)); break ;; esac
+      done <<<"$agents_list"
+    fi
+  done < "$WORKDIR/commits.txt"
+fi
+if [ "$agent_unmarked" -gt 0 ]; then
+  agent_trailer_ok=false
+  problems+=("Agent trailer: $agent_unmarked of $agent_commits commit(s) by a configured agent identity lack 'Agent: <name> (automated, instructed-by: <human>)' (STANDARD 1.2, AGENTS.md).")
+fi
+if [ "$ai_box" = "true" ] && [ "$any_trailer" = "false" ] && [ "$n_commits" -gt 0 ]; then
+  agent_trailer_ok=false
+  problems+=("The AI-agent box is ticked but no commit carries 'Agent: <name> (automated, instructed-by: <human>)'. Add the trailer to the agent's commits (AGENTS.md).")
+fi
+
 # Owner override: an owner's own PR carrying the `owner-override` label passes intake even with unmet
 # requirements. The problems are RETAINED in the output (advisory, on the record) - the override stops
 # intake blocking, it does not hide what was skipped. `override` comes from the workflow (meta.env).
@@ -137,11 +177,12 @@ fi
 jq -n \
   --argjson pr "${pr_number}" --arg head "${head_sha}" \
   --argjson disc "$disclosed" --argjson sign "$signed_off" --argjson lane "$laned" \
-  --argjson flood "$flood_ok" --argjson spec "$spec_ok" --argjson ovr "$overridden" --argjson mach "$machine_ok" --argjson probs "$probs_json" \
+  --argjson flood "$flood_ok" --argjson spec "$spec_ok" --argjson ovr "$overridden" --argjson mach "$machine_ok" \
+  --argjson trailer "$agent_trailer_ok" --argjson probs "$probs_json" \
   '{schema:"asdd/intake/v0.1", pr_number:$pr, head_sha:$head,
-    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr, machine_author:$mach,
-    passed:($ovr or ($disc and $sign and $lane and $flood and $spec)),
+    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr, machine_author:$mach, agent_trailer_ok:$trailer,
+    passed:($ovr or ($disc and $sign and $lane and $flood and $spec and $trailer)),
     problems:$probs}' > "$OUT"
 
-echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden machine_author=$machine_ok"
+echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden machine_author=$machine_ok agent_trailer_ok=$agent_trailer_ok"
 [ -s "$OUT" ] || { echo "intake-check: no output" >&2; exit 1; }

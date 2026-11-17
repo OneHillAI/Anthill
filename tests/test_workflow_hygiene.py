@@ -35,7 +35,7 @@ REVIEWED_RUN_EXPRESSIONS = {
     ("desktop-promote.yml", "steps.resolve.outputs.beta_sha"): 1,
     ("desktop-promote.yml", "steps.resolve.outputs.release_sha"): 1,
     ("desktop-release.yml", "github.ref_name"): 1,
-    ("pr-validation.yml", "github.base_ref"): 2,
+    ("pr-validation.yml", "github.base_ref"): 1,
     ("refresh-model-catalog.yml", "inputs.force_publish"): 1,
     ("release.yml", "github.ref_name"): 2,
 }
