@@ -49,12 +49,12 @@
    (founder, 2026-10-01: "where are uploaded docs stored?" - previously filesystem-only). ────── #}
 <div class="card">
   <h2 style="font-size:15px;margin:0 0 4px">Files</h2>
-  <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them.</p>
+  <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them. For most file types the text Anthill read out of the document is kept too: open it to see what your AI was given.</p>
   {% if raw_files %}
   <table class="text-sm" style="width:100%;border-collapse:collapse">
     {% for f in raw_files %}
     <tr style="border-top:1px solid var(--border)">
-      <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name }}</a></td>
+      <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name }}</a>{% if f.has_text %} <a class="text-muted" href="/wiki/text/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">text read from it</a>{% endif %}</td>
       <td class="text-muted" style="padding:8px;white-space:nowrap">{{ f.size | filesizeformat }}</td>
       <td class="text-muted" style="padding:8px 0 8px 8px;white-space:nowrap">{{ f.modified }}</td>
     </tr>
