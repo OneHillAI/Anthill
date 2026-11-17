@@ -98,7 +98,7 @@ def embed_text(text: str):
     try:
         from .cache import embedder as emb
 
-        return emb.embed(text)
+        return emb.embed_recent(text)
     except Exception:
         return None
 
