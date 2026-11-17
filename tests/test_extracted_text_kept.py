@@ -179,3 +179,47 @@ def test_only_a_kept_original_has_text_to_open(tmp_path, monkeypatch):
     # another person's wiki has no such file
     _login(client, ids["mate"])
     assert client.get(f"/wiki/text/{name}").status_code == 404
+
+
+# ── no kept text without its original ─────────────────────────────────────────
+
+
+def _orphans(ws: Workspace) -> list[str]:
+    """Kept texts whose original is not in ``raw/``."""
+    kept = (
+        {p.name.removesuffix(".txt") for p in ws.text.glob("*.txt")} if ws.text.is_dir() else set()
+    )
+    return sorted(kept - {p.name for p in ws.raw.iterdir()})
+
+
+def test_a_pdf_that_cannot_be_read_leaves_no_original_and_no_text(tmp_path):
+    """The one place ingest removes an original is a PDF it could not read. The text is only kept after a
+    successful read, so that removal can never leave a text behind."""
+    ws = _ws(tmp_path)
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"this is not a pdf")
+    with pytest.raises(Exception):  # noqa: B017 - which error depends on the PDF reader
+        ingest_mod.ingest(ws, broken, _Backend())
+    assert list(ws.raw.iterdir()) == []
+    assert not ws.text.exists()
+
+
+@pytest.mark.usefixtures("summarise_every_note")
+def test_every_kept_text_has_its_original_through_ingest(tmp_path):
+    ws = _ws(tmp_path)
+    html = tmp_path / "report.html"
+    html.write_text(f"<html><body><h1>Q1</h1><p>{REPORT_TEXT}</p></body></html>")
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(_text_pdf(REPORT_TEXT))
+    note = tmp_path / "note.md"
+    note.write_text("# A note\n\nThe owner bakes at 4am.\n")
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"this is not a pdf")
+
+    for source in (html, pdf, note, html):  # the HTML twice: a re-upload
+        ingest_mod.ingest(ws, source, _Backend())
+    with pytest.raises(Exception):  # noqa: B017
+        ingest_mod.ingest(ws, broken, _Backend())
+
+    assert len(list(ws.text.glob("*.txt"))) == 2  # the HTML and the PDF, once each
+    assert _orphans(ws) == []

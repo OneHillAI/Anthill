@@ -24,7 +24,10 @@ away. So:
    one-line stand-ins it returns for a scan or an image ("[PDF: a.pdf - no extractable text. ...]",
    "[Image: a.png]") are not text from the document. A document whose real text only begins with a bracketed line
    is kept.
-3. A text longer than `EXTRACTED_TEXT_MAX_CHARS` (5,000,000) is cut there and ends with a line saying so.
+3. A text longer than `EXTRACTED_TEXT_MAX_CHARS` (5,000,000) is cut there and ends with a line saying so. The cut
+   applies to the kept copy only: the text the model is given is the reader's text, unchanged. (5,000,000
+   characters is about a million tokens, far above what a 25 MB upload yields in practice; it only stops a
+   pathological file from filling the disk.)
 4. Keeping it is best effort: a failure to write is logged and never fails or slows the upload.
 5. The Files tab shows "text read from it" beside each original that has one, and says what it is. The wiki page's
    line for a model-written page adds "you can open the text Anthill read from it" when it exists.
@@ -43,7 +46,12 @@ away. So:
   folders). The OKGF export does not, as it does not include the originals.
 - Documents uploaded before this change have no text kept. Re-uploading one keeps it; a re-read of old originals is
   not done here.
-- Nothing deletes it. Deleting a document and everything derived from it is Knowledge roadmap item K3.
+- Nothing deletes it, because nothing deletes a wiki page or a kept original today. The only place ingest removes an
+  original is a PDF it could not read, and the text is kept only after a successful read, so that removal cannot
+  leave a text behind (`test_a_pdf_that_cannot_be_read_leaves_no_original_and_no_text`). Deleting a document and
+  everything derived from it is Knowledge roadmap item K3. Whoever builds it must remove
+  `text/<original's name>.txt` with the original; `test_every_kept_text_has_its_original_through_ingest` shows how
+  to check that no text is left without its original.
 - Scans and images have no text kept, because the vision model's description is derived, not extracted.
 
 ## Acceptance
