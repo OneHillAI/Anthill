@@ -1,0 +1,9 @@
+{
+ "description": "stderr of `ollama pull`, one list entry per redrawn frame, as the app reads it with stderr merged into stdout",
+ "frames": [
+  "\u001b[?2026h\u001b[?25lpulling manifest ⠋ \u001b[K\u001b[?2026l\u001b[?25h",
+  "\u001b[?2026h\u001b[?25l\u001b[A\u001b[1G\u001b[A\u001b[1Gpulling manifest \u001b[K\npulling 2af3b81862c6:  45% ▕█████          ▏ 1.2 GB/2.6 GB   12 MB/s  1m50s\u001b[K\npulling 8c4a1b0d5e7f: 100% ▕████████████████▏  487 B       \u001b[K\u001b[?2026l\u001b[?25h",
+  "\u001b[?2026h\u001b[?25l\u001b[A\u001b[1Gpulling 2af3b81862c6: 100% ▕████████████████▏ 2.6 GB       \u001b[K\nverifying sha256 digest ⠙ \u001b[K\u001b[?2026l\u001b[?25h",
+  "\u001b[?2026h\u001b[?25l\u001b[A\u001b[1Gwriting manifest \u001b[K\nsuccess \u001b[K\u001b[?2026l\u001b[?25h"
+ ]
+}
