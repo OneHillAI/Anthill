@@ -2,13 +2,14 @@
 # ASDD - intake gate. DETERMINISTIC, read-only, no model.
 #
 # A PR that does not (1) disclose authorship, (2) sign off every commit (DCO), and (3) carry exactly one
-# lane tag fails intake. This runs in a read-only job: it only pattern-matches untrusted text as data
+# lane tag fails intake (a machine author such as Dependabot is waived (1) and (3), see step 0). This runs in a read-only job: it only pattern-matches untrusted text as data
 # (no prompt, no shell-exec), so it adds no write-scoped untrusted-input step. It filters non-conforming
 # PRs without a maintainer having to read them.
 #
 # Usage: intake-check.sh <workdir> <out.json>
 #   workdir holds: body.md (PR body, untrusted), commits.txt (NUL-delimited commit messages),
-#                  labels.txt (one label per line), meta.env (pr_number, head_sha)
+#                  labels.txt (one label per line), meta.env (pr_number, head_sha),
+#                  optional authors.txt (one commit author name per line) + author.txt (the PR author's login)
 set -euo pipefail
 WORKDIR="${1:?usage: intake-check.sh <workdir> <out.json>}"
 OUT="${2:?usage: intake-check.sh <workdir> <out.json>}"
@@ -17,9 +18,28 @@ set -a; . "$WORKDIR/meta.env"; set +a
 
 problems=()
 
+# 0) Machine author: automation such as Dependabot writes its own PR body and labels and cannot tick the
+#    template or carry a lane tag. When the PR author is in `machine_authors` of the trusted base .asdd.yml
+#    (the workflow sets machine_author=true; a PR cannot add itself) AND every commit in the PR is authored by
+#    that same login, the authorship disclosure and the lane tag are waived: the identity is the disclosure,
+#    and the PR counts as a `chore`. A human commit pushed onto the branch ends the waiver, so the PR then
+#    needs a disclosure like any human PR. DCO, anti-flood and everything after intake still apply.
+machine_ok=false
+if [ "${machine_author:-false}" = "true" ] && [ -s "$WORKDIR/authors.txt" ] && [ -s "$WORKDIR/author.txt" ]; then
+  pr_author="$(head -n1 "$WORKDIR/author.txt" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  machine_ok=true
+  while IFS= read -r name; do
+    name="$(printf '%s' "${name%$'\r'}" | tr '[:upper:]' '[:lower:]')"
+    [ -n "$name" ] || continue
+    [ "$name" = "$pr_author" ] || { machine_ok=false; break; }
+  done < "$WORKDIR/authors.txt"
+fi
+
 # 1) Disclosure: the PR body must tick the human or agent/AI box.
 disclosed=false
-if grep -qiE '^[[:space:]]*-?[[:space:]]*\[[xX]\].*(human|agent|\bAI\b)' "$WORKDIR/body.md" 2>/dev/null; then
+if [ "$machine_ok" = "true" ]; then
+  disclosed=true
+elif grep -qiE '^[[:space:]]*-?[[:space:]]*\[[xX]\].*(human|agent|\bAI\b)' "$WORKDIR/body.md" 2>/dev/null; then
   disclosed=true
 else
   problems+=("No authorship disclosure: tick the human or AI-agent box in the PR template (ASDD 1).")
@@ -47,7 +67,7 @@ if [ -f "$WORKDIR/labels.txt" ]; then
   lane_count=$(grep -cE '^(pillar:(privacy|knowledge|model|platform|feature)|chore)$' "$WORKDIR/labels.txt" || true)
 fi
 laned=false
-if [ "$lane_count" -eq 1 ]; then
+if [ "$lane_count" -eq 1 ] || { [ "$machine_ok" = "true" ] && [ "$lane_count" -eq 0 ]; }; then
   laned=true
 else
   problems+=("Lane tag: add exactly one of pillar:privacy|knowledge|model|platform|feature or chore (found $lane_count). Anthill charters, Section 2.")
@@ -71,6 +91,7 @@ fi
 spec_ok=true
 is_chore=false
 grep -qxE 'chore' "$WORKDIR/labels.txt" 2>/dev/null && is_chore=true
+[ "$machine_ok" = "true" ] && [ "$lane_count" -eq 0 ] && is_chore=true
 if [ "${require_spec:-false}" = "true" ] && [ "$laned" = "true" ] && [ "$is_chore" = "false" ]; then
   has_spec=false
   # (a) a docs/specs/*.md ADDED, MODIFIED or RENAMED-to in THIS PR is a spec by definition. changed.txt
@@ -116,11 +137,11 @@ fi
 jq -n \
   --argjson pr "${pr_number}" --arg head "${head_sha}" \
   --argjson disc "$disclosed" --argjson sign "$signed_off" --argjson lane "$laned" \
-  --argjson flood "$flood_ok" --argjson spec "$spec_ok" --argjson ovr "$overridden" --argjson probs "$probs_json" \
+  --argjson flood "$flood_ok" --argjson spec "$spec_ok" --argjson ovr "$overridden" --argjson mach "$machine_ok" --argjson probs "$probs_json" \
   '{schema:"asdd/intake/v0.1", pr_number:$pr, head_sha:$head,
-    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr,
+    disclosed:$disc, signed_off:$sign, laned:$lane, flood_ok:$flood, spec_ok:$spec, override:$ovr, machine_author:$mach,
     passed:($ovr or ($disc and $sign and $lane and $flood and $spec)),
     problems:$probs}' > "$OUT"
 
-echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden"
+echo "intake: disclosed=$disclosed signed_off=$signed_off ($signed/$total signed) laned=$laned flood_ok=$flood_ok spec_ok=$spec_ok override=$overridden machine_author=$machine_ok"
 [ -s "$OUT" ] || { echo "intake-check: no output" >&2; exit 1; }
