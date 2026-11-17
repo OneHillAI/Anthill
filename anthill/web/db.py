@@ -561,6 +561,18 @@ class QueryMetric(Base):
     # source where anything left the perimeter; drives the exact Sovereignty %)
     duration_ms = Column(Integer, nullable=True)
     model = Column(String(80), nullable=False, default="")
+    # The answer's model call (#219), numbers only, NULL when the engine did not report it. total_ms is the
+    # model call; duration_ms above is the whole turn. cached_tokens is the part of the prompt the engine
+    # reused; first_token_ms is measured by Anthill and only exists for a streamed answer.
+    num_ctx = Column(Integer, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    cached_tokens = Column(Integer, nullable=True)
+    prefill_ms = Column(Integer, nullable=True)
+    decode_tokens = Column(Integer, nullable=True)
+    decode_ms = Column(Integer, nullable=True)
+    load_ms = Column(Integer, nullable=True)
+    first_token_ms = Column(Integer, nullable=True)
+    total_ms = Column(Integer, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )

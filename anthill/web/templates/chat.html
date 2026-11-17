@@ -1690,6 +1690,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         setEscalating(false, '', rowEl(bubble));  // just let "Checking with..." vanish unexplained
         setBuildStatus(escalatingLabel ? `Couldn't reach ${escalatingLabel}` : 'Expert check unavailable', rowEl(bubble));
       }
+      if (d.meta?.speed)            metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Time to the first word and generation speed of this answer, measured on the model server">⏱ ${d.meta.speed}</span>`;
       if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
       if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)">📖 ${d.meta.wiki_slugs.join(', ')}</span>`;
       if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
