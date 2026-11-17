@@ -3,6 +3,13 @@
 Status: part 1 implemented, for review. Lane: `pillar:privacy`. Part 2 (protected backups) and phase 2 (encrypting
 the whole data folder) are separate changes. Code: `anthill/keystore.py`, `anthill/web/key_startup.py`.
 
+## Problem
+
+The key that protects the saved credentials (`ANTHILL_ENCRYPTION_KEY`) and the session secret
+(`ANTHILL_JWT_SECRET`) sit in a plain file beside the data (`secrets.env`, or `.env` on a source install). A copy of
+the data folder therefore opens every saved password, token and API key. A missing key is also replaced silently by a
+random one, which makes stored values unreadable with no warning.
+
 ## Goal, and what it protects
 
 Everything encrypted today stays AES-256-GCM, with the same key value, in the same format
@@ -75,6 +82,19 @@ stricter. The cost is availability: a start that used to carry on with a made-up
 
 Residual risk: if the Keychain item is lost after the plain copies are gone, the saved passwords cannot be read. Recovery
 is a protected backup that carries the key (part 2). Until then, re-entering the credentials is the way back.
+
+## Acceptance
+
+- On a Mac with the Keychain available, `secrets.env` and `.env` no longer hold the data key or session secret after
+  the move, and every stored value still decrypts (`tests/test_keystore.py`, `tests/test_key_startup.py`).
+- A missing Keychain item, or one that does not match the marker, stops the start with a plain message and never makes
+  a new key, not even with the development switch when stored values exist (`tests/test_key_startup.py`).
+- A failed migration step leaves the old copy in place and deletes only what it created (`tests/test_keystore.py`).
+- With no Keychain the key stays where it is today and the interface says so (`tests/test_keystore.py`,
+  `tests/test_start_sh.py`).
+- `crypto.encrypt` / `decrypt` keep their signatures and format; the Slack and review-link secrets come from the key
+  layer with no fixed fallback.
+- The tables above name the test that covers each protection that exists on main.
 
 ## What was not verified
 
