@@ -1087,7 +1087,7 @@ def _apple_chip_brand() -> str | None:
         )
         if out.returncode == 0 and out.stdout.strip():
             return out.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
     return None
 
@@ -1099,7 +1099,7 @@ def _apple_gpu_cores() -> int | None:
         out = subprocess.run(
             ["system_profiler", "SPDisplaysDataType"], capture_output=True, text=True, timeout=15
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
     match = (
         re.search(r"Total Number of Cores:\s*(\d+)", out.stdout) if out.returncode == 0 else None

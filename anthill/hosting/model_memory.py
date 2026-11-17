@@ -18,6 +18,7 @@ Four figures are reported apart, each marked ``estimated`` or ``measured``:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -109,84 +110,105 @@ def _per_layer(value: object, layers: int) -> tuple[int, ...] | None:
     return None if n is None else (n,) * layers
 
 
+def _head_shape(
+    get: Callable[[str], object], layers: int
+) -> tuple[tuple[int, ...], int, int] | None:
+    """KV heads per layer, key length and value length; None when any of it is missing or odd."""
+    heads = get("attention.head_count")
+    kv = get("attention.head_count_kv")
+    # No grouped-query attention key: one cache head per attention head.
+    kv_heads = _per_layer(heads if kv is None else kv, layers)
+    heads_per_layer = _per_layer(heads, layers)
+    if kv_heads is None or heads_per_layer is None:
+        return None
+    key_len = _whole(get("attention.key_length"))
+    value_len = _whole(get("attention.value_length"))
+    if key_len is None or value_len is None:
+        # The usual default: the embedding is split evenly between the attention heads.
+        embedding = _whole(get("embedding_length"))
+        first = next((h for h in heads_per_layer if h), None)
+        if embedding is None or first is None or embedding % first:
+            return None
+        key_len = key_len or embedding // first
+        value_len = value_len or embedding // first
+    return kv_heads, key_len, value_len
+
+
+def _local_layers(
+    name: str, get: Callable[[str], object], layers: int
+) -> tuple[int | None, list[bool]]:
+    """The sliding window and which layers use it. A per-layer pattern array is not decoded (which value means
+    "local" was not confirmed): every layer is then counted as global, which over-counts the cache and never
+    under-counts it."""
+    window = _whole(get("attention.sliding_window"))
+    pattern = get("attention.sliding_window_pattern")
+    local = [False] * layers
+    if window is not None and not isinstance(pattern, list):
+        period = _whole(pattern) or _SWA_PERIOD.get(name)
+        if period:
+            local = [(i % period) < period - 1 for i in range(layers)]
+    return window, local
+
+
+def _hybrid_layout(
+    get: Callable[[str], object], layers: int, kv_heads: tuple[int, ...]
+) -> tuple[list[bool], int, tuple[int, ...]] | None:
+    """Which layers are recurrent, the bytes of their constant state, and KV heads with the recurrent layers
+    zeroed. None when the layout is not understood (a per-layer recurrent list, or missing state keys)."""
+    if get("attention.recurrent_layers") is not None:
+        return None  # a per-layer list of recurrent layers: its meaning was not confirmed
+    interval = _whole(get("full_attention_interval")) or _FULL_ATTENTION_INTERVAL
+    recurrent = [(i + 1) % interval != 0 for i in range(layers)]
+    conv_kernel, inner = _whole(get("ssm.conv_kernel")), _whole(get("ssm.inner_size"))
+    d_state, groups = _whole(get("ssm.state_size")), _whole(get("ssm.group_count"))
+    if conv_kernel is None or inner is None or d_state is None or groups is None:
+        return None
+    # llama.cpp n_embd_r + n_embd_s per recurrent layer, f32. The qwen35 layers were not confirmed to use
+    # exactly this shape; it is a constant per sequence and small next to the weights.
+    per_layer = (conv_kernel - 1) * (inner + 2 * groups * d_state) + d_state * inner
+    # Published blobs may give one KV head count for every layer, recurrent ones included.
+    top = max(kv_heads, default=0)
+    heads = tuple(0 if recurrent[i] else (kv_heads[i] or top) for i in range(layers))
+    return recurrent, sum(recurrent) * per_layer * 4, heads
+
+
 def arch_from_show(show: dict) -> ModelArch | None:
     """Read the attention shape from an ``/api/show`` reply, or None when any part of it is missing, odd or
     not understood (an embedding model, a model with no attention keys, a layer count that disagrees with its
     per-layer arrays, a per-layer recurrent array whose meaning is not known). None means "use the flat
     estimate", never "zero cache"."""
     info = show.get("model_info") if isinstance(show, dict) else None
-    if not isinstance(info, dict):
-        return None
-    name = info.get("general.architecture")
-    if not isinstance(name, str) or not name:
+    name = info.get("general.architecture") if isinstance(info, dict) else None
+    if not isinstance(info, dict) or not isinstance(name, str) or not name:
         return None
 
     def get(key: str) -> object:
         return info.get(f"{name}.{key}")
 
     layers = _whole(get("block_count"))
-    heads = get("attention.head_count")
-    kv = get("attention.head_count_kv")
-    if kv is None:
-        kv = heads  # no grouped-query attention key: one cache head per attention head
-    if layers is None:
+    shape = _head_shape(get, layers) if layers is not None else None
+    if layers is None or shape is None:
         return None
-    kv_heads = _per_layer(kv, layers)
-    heads_per_layer = _per_layer(heads, layers)
-    if kv_heads is None or heads_per_layer is None:
-        return None
-    key_len = _whole(get("attention.key_length"))
-    value_len = _whole(get("attention.value_length"))
-    embedding = _whole(get("embedding_length"))
-    if key_len is None or value_len is None:
-        # The usual default: the embedding is split evenly between the attention heads.
-        first = next((h for h in heads_per_layer if h), None)
-        if embedding is None or first is None or embedding % first:
+    kv_heads, key_len, value_len = shape
+    state_bytes = 0
+    if name in _HYBRID:
+        hybrid = _hybrid_layout(get, layers, kv_heads)
+        if hybrid is None:
             return None
-        key_len = key_len or embedding // first
-        value_len = value_len or embedding // first
-
+        _, state_bytes, kv_heads = hybrid
     # A local layer can have its own head size (gemma4); a global layer is counted at the larger of the two,
     # so an unknown split never lowers the figure.
     key_swa = _whole(get("attention.key_length_swa")) or key_len
     value_swa = _whole(get("attention.value_length_swa")) or value_len
-    window = _whole(get("attention.sliding_window"))
-    pattern = get("attention.sliding_window_pattern")
-    is_local = [False] * layers
-    if window is not None and not isinstance(pattern, list):
-        period = _whole(pattern) or _SWA_PERIOD.get(name)
-        if period:
-            is_local = [(i % period) < period - 1 for i in range(layers)]
-        # A per-layer pattern array is not decoded (which value means "local" was not confirmed): every layer
-        # is counted as global, which over-counts the cache and never under-counts it.
-
-    recurrent = [False] * layers
-    state_bytes = 0
-    if name in _HYBRID:
-        if get("attention.recurrent_layers") is not None:
-            return None  # a per-layer list of recurrent layers: its meaning was not confirmed
-        interval = _whole(get("full_attention_interval")) or _FULL_ATTENTION_INTERVAL
-        recurrent = [(i + 1) % interval != 0 for i in range(layers)]
-        conv_kernel, inner = _whole(get("ssm.conv_kernel")), _whole(get("ssm.inner_size"))
-        d_state, groups = _whole(get("ssm.state_size")), _whole(get("ssm.group_count"))
-        if None in (conv_kernel, inner, d_state, groups):
-            return None
-        # llama.cpp n_embd_r + n_embd_s per recurrent layer, f32. The qwen35 layers were not confirmed to use
-        # exactly this shape; it is a constant per sequence and small next to the weights.
-        per_layer = (conv_kernel - 1) * (inner + 2 * groups * d_state) + d_state * inner  # type: ignore[operator]
-        state_bytes = sum(recurrent) * per_layer * 4
-        # Published blobs may give one KV head count for every layer, recurrent ones included.
-        top = max(kv_heads, default=0)
-        kv_heads = tuple(0 if recurrent[i] else (kv_heads[i] or top) for i in range(layers))
-
+    window, local = _local_layers(name, get, layers)
     return ModelArch(
         architecture=name,
         layers=tuple(
             AttentionLayer(
                 kv_heads=kv_heads[i],
-                key_length=key_swa if is_local[i] else max(key_len, key_swa),
-                value_length=value_swa if is_local[i] else max(value_len, value_swa),
-                window=window if is_local[i] else None,
+                key_length=key_swa if local[i] else max(key_len, key_swa),
+                value_length=value_swa if local[i] else max(value_len, value_swa),
+                window=window if local[i] else None,
             )
             for i in range(layers)
         ),
