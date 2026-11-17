@@ -136,11 +136,11 @@ def _ensure_secrets(d: Path) -> None:
 def _refuse_if_values_need_the_missing_key(d: Path) -> None:
     """No key anywhere but the database already holds encrypted values: a new key would make them
     unreadable. Say so plainly and exit 1 (no traceback, nothing written)."""
-    from anthill.web import key_startup
+    from anthill import stored_values
 
     files = {d / "anthill.db", Path(os.environ.get("ANTHILL_DB", d / "anthill.db"))}
     try:
-        held = any(key_startup.database_holds_values(f) for f in files)
+        held = any(stored_values.holds_values(f) for f in files)
     except keystore.ValuesUnreadable:
         held = True
     if held:

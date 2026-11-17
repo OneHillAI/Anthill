@@ -472,12 +472,14 @@ def _migrate(legacy: _Keys, notes: list[str]) -> _Keys:
 
 
 def _env_files() -> list[Path]:
-    """secrets.env in the data home, and the source install's .env (beside a ``data`` folder, or here)."""
+    """secrets.env in the data home, the source install's .env (beside a ``data`` folder, or here), and the
+    ``*.secrets.env`` copies an older version left beside each snapshot."""
     home = marker_path().parent.resolve()
     found = [
         home / "secrets.env",
         *([home.parent / ".env"] if home.name == "data" else []),
         Path.cwd() / ".env",
+        *sorted((home / "snapshots").glob("*.secrets.env")),
     ]
     return list(dict.fromkeys(found))
 
@@ -518,6 +520,12 @@ def _clean_env_files(keys: _Keys) -> list[str]:
                 notes.append(
                     f"{path.name} is a link, so the key line in it was left for you to remove."
                 )
+            elif (
+                removed
+                and path.name.endswith(".secrets.env")
+                and not any(ln.strip() and not ln.strip().startswith("#") for ln in out)
+            ):
+                path.unlink()  # a snapshot's key copy held nothing else
             elif removed:
                 if _MOVED not in out:
                     out.insert(0, _MOVED)

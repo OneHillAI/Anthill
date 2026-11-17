@@ -34,9 +34,9 @@ from urllib.parse import urlsplit
 from fastapi import Form, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
-from .. import keystore
+from .. import keystore, stored_values
 from ..backup import data_paths
-from . import crypto, key_startup
+from . import crypto
 from . import db as db_mod
 from .db import Organization
 from .install_scope import request_is_local, server_is_shared
@@ -398,7 +398,7 @@ def bring_in(folder: str, *, without_keys: bool) -> bool:
             _copy_tree(source, stage / "tree", old.base)
             staged_trees.append((stage / "tree", paths[key]))
 
-        if "ANTHILL_ENCRYPTION_KEY" in secrets and not key_startup.verify_every_value(
+        if "ANTHILL_ENCRYPTION_KEY" in secrets and not stored_values.all_open(
             base64.b64decode(secrets["ANTHILL_ENCRYPTION_KEY"]), staged_db
         ):
             raise BringInError(

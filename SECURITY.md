@@ -31,7 +31,11 @@ the operator's responsibility:
 - Saved credentials are AES-256-GCM encrypted. On a Mac the key (and the session secret) is kept in the login
   Keychain, with a small non-secret marker (`key-location.json`) in the data folder; elsewhere it stays in
   `secrets.env` or `.env`, which is a plain file and not protected. Losing the key makes the saved credentials
-  unreadable, and a copy of the data folder on another Mac will not open them.
+  unreadable, and a copy of the data folder on another Mac will not open them. A backup made on the
+  Backup page (or with `anthill backup`) is one file encrypted as a whole with a passphrase you choose (at
+  least 12 characters, not recoverable), and carries the key inside it, so it is the way back if the Keychain
+  item is lost. It holds no model files, and what it does not protect is the files on this computer while
+  Anthill runs.
 - Backups and copies of the data folder made before the key moved still open every saved password. Delete older
   backups and old copies of `secrets.env`; to make them useless, change those passwords or API keys at their
   source and enter the new ones. The wiki, chats, files and cache are not encrypted by Anthill: turn on disk

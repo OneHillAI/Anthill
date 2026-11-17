@@ -6,15 +6,15 @@ Status: implemented. Lane: `pillar:privacy`. Depends on `docs/specs/install-owne
 ## Problem
 
 A backup covers the whole install, not one organisation: the database, every organisation's wiki and files, and
-the install's keys. Making one (`GET /backup/export`) and restoring one (`POST /backup/restore`) were open to the
+the install's keys. Making one (`POST /backup/export`) and restoring one (`POST /backup/restore`) were open to the
 admin of any single organisation. They belong with the other install-wide controls.
 
 ## Requirements
 
-- `GET /backup/export` and `POST /backup/restore` follow the install-wide rule (`install_scope_allowed`): the
+- `POST /backup/export` and `POST /backup/restore` follow the install-wide rule (`install_scope_allowed`): the
   install owner always; anyone else only on a server that is local (the desktop app, Remote access off) and
   from the machine itself. Anyone else gets 403 and nothing is built or changed.
-- The Backup page shows the download and restore controls, the data folder, the model list and the snapshot list
+- The Backup page shows the download and restore controls, the data folder and the snapshot list
   only to someone who passes the rule. Others see one line: a backup covers the whole install, not one
   organisation, so the install owner makes and restores them.
 - On a desktop with Remote access off nothing changes for the person at the machine.
