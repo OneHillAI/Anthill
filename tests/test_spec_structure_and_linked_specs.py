@@ -259,6 +259,59 @@ def test_the_spec_lens_is_told_where_linked_specs_appear():
     assert 'under "Linked specs"' in text
 
 
+def _collect_snippet():
+    doc = yaml.safe_load((ROOT / ".github/workflows/pr-review.yml").read_text())
+    run = next(
+        s["run"]
+        for s in doc["jobs"]["review"]["steps"]
+        if "Collect PR content" in s.get("name", "")
+    )
+    lines = run.splitlines()
+    start = next(
+        i
+        for i, ln in enumerate(lines)
+        if ln.strip().startswith("if [ -f .github/asdd/linked-specs.sh")
+    )
+    end = next(i for i in range(start, len(lines)) if lines[i].strip() == "fi")
+    return "\n".join(lines[start : end + 1])
+
+
 def test_the_review_workflow_collects_them_from_the_base_checkout():
     text = (ROOT / ".github/workflows/pr-review.yml").read_text()
     assert "bash .github/asdd/linked-specs.sh .asdd-work/body.md .asdd-work/linked-specs.md" in text
+
+
+def test_the_collection_step_is_inert_when_the_script_is_not_on_the_base_branch_yet(tmp_path):
+    """The PR that ADDS linked-specs.sh runs against a base checkout without it: the step must not fail."""
+    (tmp_path / ".asdd-work").mkdir()
+    (tmp_path / ".asdd-work/body.md").write_text("Spec: docs/specs/a.md\n")
+    r = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", _collect_snippet()],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, (
+        r.stderr
+    )  # no .github/asdd/linked-specs.sh here: nothing to run, nothing fails
+    assert not (tmp_path / ".asdd-work/linked-specs.md").exists()
+
+
+def test_the_collection_step_runs_the_script_once_it_exists(tmp_path):
+    shutil.copytree(
+        ROOT / ".github/asdd",
+        tmp_path / ".github/asdd",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    (tmp_path / "docs/specs").mkdir(parents=True)
+    (tmp_path / "docs/specs/a.md").write_text("SPEC-A\n")
+    (tmp_path / ".asdd-work").mkdir()
+    (tmp_path / ".asdd-work/body.md").write_text("Spec: docs/specs/a.md\n")
+    r = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", _collect_snippet()],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "SPEC-A" in (tmp_path / ".asdd-work/linked-specs.md").read_text()
