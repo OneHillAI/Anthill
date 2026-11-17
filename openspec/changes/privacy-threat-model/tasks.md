@@ -30,4 +30,5 @@
 - The test passes and fails if a cited path is removed.
 - A reviewer who has never seen the repo can say, for each install shape, who the promise holds against and
   who it does not, from the document alone.
-- No product code and no protected path changed.
+- No product code changed. The only protected-path change is the one-line `DOCS_ONLY_CARVE_OUT` entry in
+  `.github/workflows/ci.yml` and `pr-validation.yml`.

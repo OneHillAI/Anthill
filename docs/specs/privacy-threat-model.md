@@ -44,7 +44,9 @@ missing. A pull request that adds an exit, an entry point or an install shape up
 pull request.
 
 **R7. No new promise, no behaviour change.** The change adds documents and one test. It adds one link each to
-`README.md` and `SECURITY.md`. It touches no product code and no protected path.
+`README.md` and `SECURITY.md`. It touches no product code. Its one protected-path change is a single line in
+each of `.github/workflows/ci.yml` and `pr-validation.yml`, listing `docs/THREAT_MODEL.md` in
+`DOCS_ONLY_CARVE_OUT` as `tests/test_ci_docs_only_fast_path.py` requires for any doc a test reads.
 
 ## Out of scope
 
@@ -64,7 +66,8 @@ pull request.
 - A reader new to the repo can say, for each install shape, who the promise holds against and who it does not,
   from the document alone.
 - The README and `SECURITY.md` link to the document and add no new promise.
-- No file under `anthill/` and no protected path changed.
+- No file under `anthill/` changed. The only protected-path change is the `DOCS_ONLY_CARVE_OUT` line in the two
+  workflow files.
 
 ## What was not verified
 

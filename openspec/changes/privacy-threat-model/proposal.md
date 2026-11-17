@@ -60,9 +60,13 @@ One new document and one small test. No product behaviour changes.
   **"intended; not yet verified"** and does not describe the weakness.
 - **Checked means read.** The document states the commit it was checked against and that the code was read, not
   run, unless a test cited in the table was run.
-- **No product code, no protected path** (`anthill/hybrid/**`, `anthill/web/crypto.py`, `anthill/wiki/**`,
-  `anthill/node_agent/**` and the others in `.asdd.yml`) is touched. The change is `docs/`, `tests/`, and one
-  line each in `README.md` and `SECURITY.md`.
+- **No product code, and no protected path except one line.** Nothing under `anthill/` (including
+  `anthill/hybrid/**`, `anthill/web/crypto.py`, `anthill/wiki/**`, `anthill/node_agent/**`) is touched. The
+  change is `docs/`, `tests/`, one line each in `README.md` and `SECURITY.md`, and one line each in
+  `.github/workflows/ci.yml` and `pr-validation.yml` (protected: `.github/**`) that lists
+  `docs/THREAT_MODEL.md` in `DOCS_ONLY_CARVE_OUT`. The repo's own test
+  (`tests/test_ci_docs_only_fast_path.py`) requires that line for any doc a test reads, so a PR that
+  changes only the document still runs the drift test.
 - **No new promise.** A sentence in the document may only say what a cited test or a cited piece of code shows.
 - **One purpose.** It does not fix any gap it finds, and it does not turn invariants into marked tests (that is
   roadmap item 3, issue #178).
