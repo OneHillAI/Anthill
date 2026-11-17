@@ -174,7 +174,8 @@ behind a proxy or tunnel unless Remote access is switched on first (Settings, pr
 `ANTHILL_LOCAL_ONLY=0` is set (this applies to `start.sh`, `make alpha`, the auto-start agent and
 `start.ps1` only; the desktop app always marks itself local). Report
 vulnerabilities privately: email [security@onehill.org](mailto:security@onehill.org), not a public
-issue. See [`SECURITY.md`](SECURITY.md).
+issue. See [`SECURITY.md`](SECURITY.md). Who this is defended against, install by install, and every
+way data can leave a node: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ---
 
