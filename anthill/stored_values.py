@@ -12,6 +12,7 @@ from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .keystore import KeystoreError, ValuesUnreadable
@@ -79,7 +80,7 @@ def opens(key: bytes, token: str) -> bool:
         raw = base64.b64decode(token)
         AESGCM(key).decrypt(raw[:12], raw[12:], None)
         return True
-    except Exception:
+    except (InvalidTag, ValueError, TypeError):  # wrong key, damaged or not base64, not text
         return False
 
 

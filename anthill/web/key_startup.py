@@ -39,7 +39,7 @@ def ensure_or_exit() -> None:
         notes = keystore.ensure_ready()
     except keystore.KeystoreError as exc:
         reason = str(exc)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any unexpected failure is the same plain refusal, never a traceback
         reason = f"Anthill could not read or open its key ({type(exc).__name__})."
     else:
         for note in notes:

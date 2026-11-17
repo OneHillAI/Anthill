@@ -342,63 +342,87 @@ def _safe_dest(staging: Path, name: str) -> Path:
     return dest
 
 
+class _Stager:
+    """Reads an archive stream once into a staging folder, one member at a time (see ``_stage``)."""
+
+    def __init__(self, staging: Path) -> None:
+        self.staging = staging
+        self.budget = int(shutil.disk_usage(staging).free * _FREE_SPACE_SHARE)
+        self.written = 0
+        self.members = 0
+        self.seen: set[str] = set()
+        self.manifest: object = None
+        self.key_export: bytes | None = None
+        self.secrets_env: bytes | None = None
+        self.present: set[str] = set()
+        self.has_db = False
+
+    def read(self, tar: tarfile.TarFile) -> None:
+        for m in tar:
+            self.members += 1
+            if self.members > _MAX_MEMBERS:
+                raise _too_big()
+            self._member(tar, m)
+
+    def _member(self, tar: tarfile.TarFile, m: tarfile.TarInfo) -> None:
+        name = m.name.rstrip("/")
+        if name.startswith("/") or ".." in Path(name).parts:
+            return
+        if name in _SPECIAL:
+            if m.isfile():
+                self._special(tar, m, name)
+            return
+        if not _wanted(name) or not (m.isfile() or m.isdir()):
+            return
+        if any(name == arc for _, arc in _TREES) and not m.isdir():
+            return  # a tree's own root must be a folder
+        dest = _safe_dest(self.staging, name)
+        if m.isdir():
+            dest.mkdir(parents=True, exist_ok=True)
+        else:
+            self._file(tar, m, name, dest)
+        for key, arc in _TREES:
+            if name == arc or name.startswith(arc + "/"):
+                self.present.add(key)
+        self.has_db = self.has_db or name == "data/anthill.db"
+
+    def _once(self, name: str) -> None:
+        if name in self.seen:
+            raise _listed_twice()
+        self.seen.add(name)
+
+    def _special(self, tar: tarfile.TarFile, m: tarfile.TarInfo, name: str) -> None:
+        self._once(name)
+        data = _read_small(tar, m)
+        if name == "manifest.json":
+            self.manifest = json.loads(data)
+        elif name == "data/key-export.json":
+            self.key_export = data
+        else:
+            self.secrets_env = data
+
+    def _file(self, tar: tarfile.TarFile, m: tarfile.TarInfo, name: str, dest: Path) -> None:
+        self._once(name)
+        src = tar.extractfile(m)
+        assert src is not None
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with src, open(dest, "xb") as out:
+            while chunk := src.read(_COPY_CHUNK):
+                self.written += len(chunk)
+                if self.written > self.budget:
+                    raise _too_big()
+                out.write(chunk)
+
+
 def _stage(source: BinaryIO, staging: Path) -> _Staged:
     """Read the archive stream once: files into ``staging``, the manifest and the keys into memory (a key is
     never written to disk here). Entries that are not plain files or folders, or that point outside the
     archive, are skipped. The read stops, failing closed, when the bytes written pass the staging budget
     (a share of the free space) or the entry count passes its cap, and a file listed twice is refused."""
-    manifest = key_export = secrets_env = None
-    present: set[str] = set()
-    has_db = False
-    budget, written, members = int(shutil.disk_usage(staging).free * _FREE_SPACE_SHARE), 0, 0
-    seen: set[str] = set()
+    stager = _Stager(staging)
     try:
         with tarfile.open(fileobj=source, mode="r|gz") as tar:
-            for m in tar:
-                members += 1
-                if members > _MAX_MEMBERS:
-                    raise _too_big()
-                name = m.name.rstrip("/")
-                if name.startswith("/") or ".." in Path(name).parts:
-                    continue
-                if name in _SPECIAL:
-                    if not m.isfile():
-                        continue
-                    if name in seen:
-                        raise _listed_twice()
-                    seen.add(name)
-                    data = _read_small(tar, m)
-                    if name == "manifest.json":
-                        manifest = json.loads(data)
-                    elif name == "data/key-export.json":
-                        key_export = data
-                    else:
-                        secrets_env = data
-                    continue
-                if not _wanted(name) or not (m.isfile() or m.isdir()):
-                    continue
-                if any(name == arc for _, arc in _TREES) and not m.isdir():
-                    continue  # a tree's own root must be a folder
-                dest = _safe_dest(staging, name)
-                if m.isdir():
-                    dest.mkdir(parents=True, exist_ok=True)
-                else:
-                    if name in seen:
-                        raise _listed_twice()
-                    seen.add(name)
-                    src = tar.extractfile(m)
-                    assert src is not None
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    with src, open(dest, "xb") as out:
-                        while chunk := src.read(_COPY_CHUNK):
-                            written += len(chunk)
-                            if written > budget:
-                                raise _too_big()
-                            out.write(chunk)
-                for key, arc in _TREES:
-                    if name == arc or name.startswith(arc + "/"):
-                        present.add(key)
-                has_db = has_db or name == "data/anthill.db"
+            stager.read(tar)
         if isinstance(source, backup_crypto.DecryptingReader):
             source.drain()
     except (tarfile.TarError, EOFError, zlib.error, ValueError):
@@ -409,9 +433,10 @@ def _stage(source: BinaryIO, staging: Path) -> _Staged:
         raise BackupError(
             "The backup could not be unpacked here (is there enough free space?). Nothing was changed."
         ) from None
+    manifest = stager.manifest
     if not isinstance(manifest, dict) or "anthill_backup_format" not in manifest:
         raise BackupError("This is not an Anthill backup (no manifest). Nothing was changed.")
-    return _Staged(manifest, key_export, secrets_env, present, has_db)
+    return _Staged(manifest, stager.key_export, stager.secrets_env, stager.present, stager.has_db)
 
 
 def _keys_from_export(raw: bytes) -> tuple[bytes, str]:
@@ -511,7 +536,7 @@ class _Undo:
             what, step = self._steps.pop()
             try:
                 step()
-            except Exception:
+            except Exception:  # noqa: BLE001 - undo carries on past a failed step, to undo as much as it can
                 failed.append(what)
         return failed
 
@@ -716,6 +741,79 @@ def restore_backup(
     return result
 
 
+def _apply_keys(
+    staged: _Staged,
+    p: dict[str, Path],
+    stamp: str,
+    data_key: bytes | None,
+    jwt: str | None,
+    undo: _Undo,
+    result: RestoreResult,
+) -> Callable[[], None] | None:
+    finish_key = _import_keys(data_key, jwt, p, stamp, undo, result)
+    if staged.extra_env:  # optional API keys that lived in secrets.env: back as main restored them
+        kept = _write_env_keys(p["secrets"], staged.extra_env, stamp, undo)
+        result.key_moved_aside = result.key_moved_aside or kept
+    return finish_key
+
+
+def _apply_db(
+    staging: Path, p: dict[str, Path], stamp: str, undo: _Undo, result: RestoreResult
+) -> None:
+    db = p["db"]
+    for suffix in ("-wal", "-shm", "-journal"):
+        side = db.with_name(db.name + suffix)
+        if side.exists():
+            undo.set_aside(side, stamp)
+    if db.exists():
+        result.db_moved_aside = undo.set_aside(db, stamp)
+    undo.place(staging / "data" / "anthill.db", db)
+    result.restored.append("db")
+
+
+def _apply_trees(
+    staged: _Staged,
+    staging: Path,
+    p: dict[str, Path],
+    stamp: str,
+    undo: _Undo,
+    asides: list[Path],
+    result: RestoreResult,
+) -> None:
+    # Trees: wipe-and-replace so a restore is a true point-in-time, not a merge.
+    for key, arc in _TREES:
+        if key not in staged.present:
+            continue
+        if p[key].exists():
+            asides.append(undo.set_aside(p[key], stamp))
+        undo.place(staging / arc, p[key])
+        result.restored.append(key)
+    # An archive made before the org wiki was stored per organisation has org-wiki but no org-wikis.
+    # The org-wikis already on this machine belong to a later state than the restored org-wiki, so
+    # leave them out of the live path (moved aside, not deleted) rather than mix the two states.
+    if (
+        "org_wiki" in result.restored
+        and "org_wikis" not in result.restored
+        and p["org_wikis"].exists()
+    ):
+        result.moved_aside = undo.set_aside(p["org_wikis"], stamp)
+        result.restored.append("org_wikis_moved_aside")
+
+
+def _apply_models(staging: Path, stamp: str, undo: _Undo, asides: list[Path]) -> None:
+    """Model files from an older plain archive: an existing file is set aside first, and every move is
+    under the undo list like the rest."""
+    models = staging / "ollama"
+    if not models.is_dir():
+        return
+    base = ollama_models_dir()
+    for f in (f for f in models.rglob("*") if f.is_file()):
+        dest = base / f.relative_to(models)
+        if dest.exists():
+            asides.append(undo.set_aside(dest, stamp))
+        undo.place(f, dest)
+
+
 def _apply(
     staged: _Staged,
     staging: Path,
@@ -728,49 +826,10 @@ def _apply(
     undo = _Undo()
     asides: list[Path] = []
     try:
-        finish_key = _import_keys(data_key, jwt, p, stamp, undo, result)
-        if (
-            staged.extra_env
-        ):  # optional API keys that lived in secrets.env: back as main restored them
-            kept = _write_env_keys(p["secrets"], staged.extra_env, stamp, undo)
-            result.key_moved_aside = result.key_moved_aside or kept
-        db = p["db"]
-        for suffix in ("-wal", "-shm", "-journal"):
-            side = db.with_name(db.name + suffix)
-            if side.exists():
-                undo.set_aside(side, stamp)
-        if db.exists():
-            result.db_moved_aside = undo.set_aside(db, stamp)
-        undo.place(staging / "data" / "anthill.db", db)
-        result.restored.append("db")
-        # Trees: wipe-and-replace so a restore is a true point-in-time, not a merge.
-        for key, arc in _TREES:
-            if key not in staged.present:
-                continue
-            if p[key].exists():
-                asides.append(undo.set_aside(p[key], stamp))
-            undo.place(staging / arc, p[key])
-            result.restored.append(key)
-        # An archive made before the org wiki was stored per organisation has org-wiki but no org-wikis.
-        # The org-wikis already on this machine belong to a later state than the restored org-wiki, so
-        # leave them out of the live path (moved aside, not deleted) rather than mix the two states.
-        if (
-            "org_wiki" in result.restored
-            and "org_wikis" not in result.restored
-            and p["org_wikis"].exists()
-        ):
-            result.moved_aside = undo.set_aside(p["org_wikis"], stamp)
-            result.restored.append("org_wikis_moved_aside")
-        # Model files from an older plain archive: an existing file is set aside first, and every move is
-        # under the undo list like the rest.
-        models = staging / "ollama"
-        if models.is_dir():
-            base = ollama_models_dir()
-            for f in (f for f in models.rglob("*") if f.is_file()):
-                dest = base / f.relative_to(models)
-                if dest.exists():
-                    asides.append(undo.set_aside(dest, stamp))
-                undo.place(f, dest)
+        finish_key = _apply_keys(staged, p, stamp, data_key, jwt, undo, result)
+        _apply_db(staging, p, stamp, undo, result)
+        _apply_trees(staged, staging, p, stamp, undo, asides, result)
+        _apply_models(staging, stamp, undo, asides)
     except BaseException as exc:
         stuck = _undo_failed(undo, result.safety_backup)
         if stuck is not None:

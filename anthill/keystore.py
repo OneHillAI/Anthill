@@ -496,6 +496,35 @@ def _key_line(line: str) -> tuple[str, str | None] | None:
     return (name.strip(), None if re.search(r"[\s#'\"]", value) or not value else value)
 
 
+def _clean_env_file(path: Path, same: dict[str, str]) -> list[str]:
+    """Take one env file's key lines that equal the Keychain's values out. Returns notes."""
+    notes: list[str] = []
+    out, removed = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        found = _key_line(line)
+        if found and found[1] == same[found[0]]:
+            removed = True
+            continue
+        if found:
+            notes.append(
+                f"A key line in {path.name} was left alone: it is not the key now in the Keychain."
+            )
+        out.append(line)
+    if not removed:
+        return notes
+    if path.is_symlink():
+        notes.append(f"{path.name} is a link, so the key line in it was left for you to remove.")
+    elif path.name.endswith(".secrets.env") and not any(
+        ln.strip() and not ln.strip().startswith("#") for ln in out
+    ):
+        path.unlink()  # a snapshot's key copy held nothing else
+    else:
+        if _MOVED not in out:
+            out.insert(0, _MOVED)
+        _write_atomic(path, "\n".join(out) + "\n")
+    return notes
+
+
 def _clean_env_files(keys: _Keys) -> list[str]:
     """Remove key lines holding the Keychain's own values from secrets.env and .env (idempotent). Every other
     line stays, with one comment saying the keys moved. A different or fancier key line is left, with a note."""
@@ -503,33 +532,8 @@ def _clean_env_files(keys: _Keys) -> list[str]:
     notes: list[str] = []
     for path in _env_files():
         try:
-            if not path.is_file():
-                continue
-            out, removed = [], False
-            for line in path.read_text(encoding="utf-8").splitlines():
-                found = _key_line(line)
-                if found and found[1] == same[found[0]]:
-                    removed = True
-                    continue
-                if found:
-                    notes.append(
-                        f"A key line in {path.name} was left alone: it is not the key now in the Keychain."
-                    )
-                out.append(line)
-            if removed and path.is_symlink():
-                notes.append(
-                    f"{path.name} is a link, so the key line in it was left for you to remove."
-                )
-            elif (
-                removed
-                and path.name.endswith(".secrets.env")
-                and not any(ln.strip() and not ln.strip().startswith("#") for ln in out)
-            ):
-                path.unlink()  # a snapshot's key copy held nothing else
-            elif removed:
-                if _MOVED not in out:
-                    out.insert(0, _MOVED)
-                _write_atomic(path, "\n".join(out) + "\n")
+            if path.is_file():
+                notes += _clean_env_file(path, same)
         except (OSError, UnicodeDecodeError):
             notes.append(f"Anthill could not clean the old key lines out of {path.name}.")
     return notes
@@ -592,7 +596,7 @@ def _disk_encryption() -> str:
         out = subprocess.run(
             [_FDESETUP, "status"], capture_output=True, timeout=3, check=False
         ).stdout.decode("utf-8", "replace")
-    except Exception:
+    except Exception:  # noqa: BLE001 - describe() never raises: an odd answer from the tool is "unknown"
         return "unknown"
     if "FileVault is On" in out:
         return "on"
@@ -608,7 +612,7 @@ def describe() -> dict:
             where = "keychain"
         else:
             where = "plain file" if os.environ.get(ENV_DATA_KEY) else "temporary"
-    except Exception:
+    except Exception:  # noqa: BLE001 - describe() runs on a page and must never raise
         where = "plain file"
     return {
         "where": where,
