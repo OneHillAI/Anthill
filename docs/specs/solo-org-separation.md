@@ -39,7 +39,9 @@ more capable model and to host his wiki, and that does not make the account an O
      Organisation scope.
 4. A Solo account's own turns are unchanged. `plane_inference("solo", ...)` still runs on the endpoint when
    `solo_compute == "cloud"` (personal wiki, personal context, not ephemeral) and on the local model otherwise. A
-   per-turn escalation to the endpoint (`plane_inference("org", ...)`) still resolves. A project chat of a Solo
+   per-turn escalation ("use the cloud model", `escalate=True`) runs that turn on the endpoint but stays a Solo
+   turn: the account's own wiki, personal context and no shared org cache (an Org account still escalates to the org
+   plane); with no endpoint connected it says so instead of staying local. A project chat of a Solo
    account runs on its own cloud when `solo_compute == "cloud"` (the project wiki, personal context kept, `prefer_local`
    honoured) and on the local model otherwise; it no longer runs on the endpoint reading the org wiki.
 5. Where a template showed an org-only control to a Solo account it is hidden or re-pointed: "Promote to org" on
@@ -53,10 +55,10 @@ more capable model and to host his wiki, and that does not make the account an O
 Every route of `anthill/web/app.py` (256; there are no other routers). Evidence is the template and line where a
 Solo-visible page links to or posts to the route, or the reason there is none. SOLO-OK and SHARED routes are
 unguarded. SHARED routes are reachable from both account types and keep their org branches behind the checks above.
-ORG-ONLY routes are 404 for a Solo account (51 by `_require_org_admin`, 1 refused in its handler, 7 session-less
+ORG-ONLY routes are 404 for a Solo account (43 by `_require_org_admin`, 1 refused in its handler, 7 session-less
 receivers that are not gated). UNDECIDED routes are left unguarded and listed for the maintainer.
 
-Counts: SOLO-OK 64, SHARED 126, ORG-ONLY 59, UNDECIDED 7.
+Counts: SOLO-OK 64, SHARED 134, ORG-ONLY 51, UNDECIDED 7.
 
 | Class | Routes | Evidence |
 |---|---|---|
@@ -82,11 +84,12 @@ Counts: SOLO-OK 64, SHARED 126, ORG-ONLY 59, UNDECIDED 7.
 | SHARED | `GET /tasks`<br>`POST /tasks/settings`<br>`POST /tasks/draft`<br>`POST /tasks/{task_id}/edit`<br>`POST /tasks/{task_id}/review-cadence`<br>`POST /tasks/{task_id}/review-result`<br>`POST /tasks/create`<br>`POST /tasks/{task_id}/cancel`<br>`POST /tasks/{task_id}/reactivate`<br>`POST /tasks/{task_id}/run-now`<br>`POST /tasks/{task_id}/queue`<br>`GET /tasks/{task_id}/result` | _sidebar.html:193; tasks.html:36,327 (is_solo wording); dashboard.html:164 |
 | SHARED | `GET /agents`<br>`POST /agents/settings`<br>`POST /agents/create`<br>`GET /agents/{aid}`<br>`POST /agents/{aid}/edit`<br>`POST /agents/{aid}/run-now`<br>`POST /agents/{aid}/toggle`<br>`POST /agents/{aid}/delete`<br>`POST /agents/{aid}/approvals/{apid}/approve`<br>`POST /agents/{aid}/approvals/{apid}/reject` | _sidebar.html:194; agents.html:18,63 (is_solo wording); dashboard.html:171 |
 | ORG-ONLY | `GET /users`<br>`POST /users/invite`<br>`POST /users/{uid}/role`<br>`POST /users/{uid}/deactivate`<br>`POST /users/{uid}/reset` | org_settings_hub.html:50; users.html:46; personalize.html:433 (org branch only); dashboard.html:282 (`not solo` branch) |
-| ORG-ONLY | `GET /settings/org`<br>`GET /settings/general`<br>`GET /settings/automation`<br>`POST /settings/automation`<br>`GET /settings/slack`<br>`POST /settings/slack`<br>`GET /settings/discord`<br>`POST /settings/discord`<br>`GET /slack/oauth/start`<br>`GET /slack/oauth/callback`<br>`GET /settings/events`<br>`POST /settings/events`<br>`POST /settings/events/imap/test`<br>`GET /settings/remote`<br>`POST /settings/signup`<br>`POST /settings/install-owner`<br>`POST /settings/remote`<br>`POST /settings/remote/stop`<br>`GET /settings/remote/status`<br>`GET /settings/appliance`<br>`GET /settings/appliance/launchagent.plist` | org_settings_hub.html:60-69; _org_tabs.html:5; settings_automation.html:13-35; settings_remote.html:77,100,156-159; personalize.html:442 (org branch only); no Solo page links to any of them |
+| ORG-ONLY | `GET /settings/org`<br>`GET /settings/general`<br>`GET /settings/automation`<br>`POST /settings/automation`<br>`GET /settings/slack`<br>`POST /settings/slack`<br>`GET /settings/discord`<br>`POST /settings/discord`<br>`GET /slack/oauth/start`<br>`GET /slack/oauth/callback`<br>`GET /settings/events`<br>`POST /settings/events`<br>`POST /settings/events/imap/test` | org_settings_hub.html:60-69; _org_tabs.html:5; settings_automation.html:13-35; settings_remote.html:77,100,156-159; personalize.html:442 (org branch only); no Solo page links to any of them |
 | ORG-ONLY | `GET /settings/organization`<br>`POST /settings/organization`<br>`GET /settings/organization/wiki`<br>`POST /settings/organization/wiki`<br>`POST /settings/organization/cluster`<br>`POST /settings/organization/name`<br>`POST /settings/organization/aws`<br>`POST /settings/organization/connect`<br>`POST /settings/organization/discover-models`<br>`POST /settings/organization/provision-key`<br>`POST /settings/organization/hf-token`<br>`POST /settings/organization/provision`<br>`POST /settings/organization/teardown`<br>`POST /settings/organization/council/provision`<br>`POST /settings/organization/council/teardown`<br>`POST /settings/organization/council/review-toggle`<br>`POST /settings/aws/test`<br>`POST /settings/aws/provision-test` | settings_organization.html:26,163,243-273,584-632,735-769,823,913; personalize.html:438 (org branch only). Solo links to it (team_detail.html:126, team_settings.html:26, models.html:21) are re-pointed |
 | ORG-ONLY | `GET /wiki/org`<br>`GET /agent-access`<br>`POST /agent-access/create`<br>`POST /agent-access/{aid}/scopes`<br>`POST /agent-access/{aid}/toggle`<br>`POST /agent-access/{aid}/mcp-token`<br>`POST /memory/{mid}/promote` | org_settings_hub.html:85; agent_access.html:46; memory.html:96 (button now Org only); no Solo page links to /wiki/org |
 | ORG-ONLY | `POST /teams/{team_id}/invite` | team_detail.html:109-120 (Org only); refused in the handler with the existing solo_no_members redirect |
 | ORG-ONLY | `POST /webhooks/{source}`<br>`POST /discord/interactions`<br>`POST /slack/events`<br>`POST /slack/command`<br>`GET /invite/{token}`<br>`POST /invite/{token}`<br>`POST /api/metrics` | no session (signature, token or mesh auth); configured only through the gated pages above, so inert for a Solo account; not gated |
+| SHARED | `GET /settings/remote`<br>`POST /settings/remote`<br>`POST /settings/remote/stop`<br>`GET /settings/remote/status`<br>`POST /settings/signup`<br>`POST /settings/install-owner`<br>`GET /settings/appliance`<br>`GET /settings/appliance/launchagent.plist` | install-level (host) controls: who may join the whole install, who owns it, remote access and the Mac appliance. They decide things for the installation, not for one organisation, and only the install owner may use them, so a Solo install owner keeps them (kept at `_require_admin` plus the existing `is_install_owner` checks). The Solo interface does not link to them. |
 | UNDECIDED | `GET /backend` | training.html:50 links it from a page a Solo reaches; org_settings_hub.html:64 |
 | UNDECIDED | `GET /backup`<br>`GET /backup/export`<br>`POST /backup/restore` | no Solo page links it (settings_general.html:28, org_settings_hub.html:65, _org_tabs.html:7), but it is the only UI to back up a person's own install |
 | UNDECIDED | `GET /wiki/review` | org review queue; dashboard.html:294 links it for any admin with pending org drafts |

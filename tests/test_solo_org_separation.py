@@ -54,14 +54,6 @@ ORG_ONLY = [
     ("GET", "/settings/events"),
     ("POST", "/settings/events"),
     ("POST", "/settings/events/imap/test"),
-    ("GET", "/settings/remote"),
-    ("POST", "/settings/signup"),
-    ("POST", "/settings/install-owner"),
-    ("POST", "/settings/remote"),
-    ("POST", "/settings/remote/stop"),
-    ("GET", "/settings/remote/status"),
-    ("GET", "/settings/appliance"),
-    ("GET", "/settings/appliance/launchagent.plist"),
     ("GET", "/settings/organization/wiki"),
     ("POST", "/settings/organization/wiki"),
     ("GET", "/settings/organization"),
@@ -86,13 +78,18 @@ ORG_ONLY = [
     ("POST", "/agent-access/1/mcp-token"),
     ("POST", "/memory/1/promote"),
 ]
-# Install-wide controls: an Org admin who is not the install owner gets 403 here, as before.
-INSTALL_OWNER_ONLY = {
+# Install-level (host) controls: open sign-up, install-owner transfer, remote access and the Mac appliance.
+# They decide things for the whole install, not for one organisation, so a Solo install owner keeps them.
+INSTALL_LEVEL = [
+    ("GET", "/settings/remote"),
     ("POST", "/settings/remote"),
     ("POST", "/settings/remote/stop"),
+    ("GET", "/settings/remote/status"),
     ("POST", "/settings/signup"),
     ("POST", "/settings/install-owner"),
-}
+    ("GET", "/settings/appliance"),
+    ("GET", "/settings/appliance/launchagent.plist"),
+]
 
 
 @pytest.fixture
@@ -170,9 +167,8 @@ def test_org_admin_still_reaches_org_only_route(make_app, method, path):
     client, _, _ = make_app("org")
     r = _send(client("admin"), method, path)
     assert r.status_code != 404
-    if (method, path) not in INSTALL_OWNER_ONLY:
-        assert r.status_code != 403
-        assert r.headers.get("location") != "/login"
+    assert r.status_code != 403
+    assert r.headers.get("location") != "/login"
 
 
 @pytest.mark.parametrize(("method", "path"), ORG_ONLY)
@@ -187,6 +183,19 @@ def test_anonymous_is_still_sent_to_login(make_app, method, path):
         client, _, _ = make_app(topology)
         r = _send(client(), method, path)
         assert (r.status_code, r.headers["location"]) == (303, "/login")
+
+
+@pytest.mark.parametrize(("method", "path"), INSTALL_LEVEL)
+def test_a_solo_install_owner_keeps_the_install_level_controls(make_app, method, path):
+    client, _, _ = make_app("solo")
+    assert _send(client("admin"), method, path).status_code != 404
+
+
+@pytest.mark.parametrize(("method", "path"), INSTALL_LEVEL)
+def test_install_level_controls_are_still_admin_only(make_app, method, path):
+    for topology in ("solo", "org"):
+        client, _, _ = make_app(topology)
+        assert _send(client("member"), method, path).status_code == 403
 
 
 def test_a_legacy_local_topology_counts_as_solo(make_app):
@@ -447,6 +456,63 @@ def test_a_solo_per_turn_escalation_to_its_endpoint_still_resolves():
     assert (pi.plane, pi.base_url) == ("org", ENDPOINT)
 
 
+def test_a_solo_escalated_turn_runs_on_its_endpoint_but_stays_a_solo_turn():
+    pi = plane_inference("solo", _cfg("solo", compute="local"), decrypt=_decrypt, escalate=True)
+    assert (pi.plane, pi.backend, pi.base_url) == ("solo", "openai", ENDPOINT)
+    # Grounded in the account's own wiki with its personal context, never the org wiki or shared cache.
+    assert (pi.wiki_scope, pi.use_personal_context, pi.ephemeral) == ("personal", True, False)
+
+
+def test_a_solo_escalated_project_turn_keeps_the_project_wiki_and_personal_context():
+    pi = plane_inference("team", _cfg("solo", compute="local"), decrypt=_decrypt, escalate=True)
+    assert (pi.plane, pi.base_url, pi.wiki_scope, pi.use_personal_context) == (
+        "team",
+        ENDPOINT,
+        "team",
+        True,
+    )
+
+
+def test_a_solo_escalation_with_no_endpoint_says_so_instead_of_staying_local():
+    cfg = _cfg("solo", compute="local", status="")
+    with pytest.raises(PlaneUnavailable):
+        plane_inference("solo", cfg, decrypt=_decrypt, escalate=True)
+
+
+def test_a_solo_escalated_chat_turn_asks_for_a_solo_plane_with_escalation(make_app, monkeypatch):
+    seen = []
+
+    def spy(plane, cfg, **kw):
+        seen.append((plane, kw.get("escalate")))
+        raise PlaneUnavailable("stub: no model call in tests")
+
+    monkeypatch.setattr("anthill.web.plane_routing.plane_inference", spy)
+    client, app_mod, ids = make_app("solo", endpoint=True, solo_compute="local")
+    s = app_mod._SessionFactory()
+    conv = Conversation(org_id=ids["org"], user_id=ids["admin"], plane="solo")
+    s.add(conv)
+    s.commit()
+    client("admin").get(f"/chat/{conv.id}/stream", params={"message": "hi", "escalate_org": "true"})
+    assert seen == [("solo", True)]
+
+
+def test_an_org_escalated_chat_turn_still_goes_to_the_org_plane(make_app, monkeypatch):
+    seen = []
+
+    def spy(plane, cfg, **kw):
+        seen.append((plane, kw.get("escalate")))
+        raise PlaneUnavailable("stub: no model call in tests")
+
+    monkeypatch.setattr("anthill.web.plane_routing.plane_inference", spy)
+    client, app_mod, ids = make_app("org", endpoint=True)
+    s = app_mod._SessionFactory()
+    conv = Conversation(org_id=ids["org"], user_id=ids["admin"], plane="solo")
+    s.add(conv)
+    s.commit()
+    client("admin").get(f"/chat/{conv.id}/stream", params={"message": "hi", "escalate_org": "true"})
+    assert seen == [("org", False)]
+
+
 def test_a_stored_org_plane_chat_on_a_solo_streams_as_a_solo_chat(make_app, monkeypatch):
     planes_seen = []
 
@@ -488,3 +554,14 @@ def test_solo_with_endpoint_personal_wiki_still_works(make_app):
     r = c.post("/wiki/principles", data={"scope": "personal", "content": "Be brief."})
     assert r.status_code in (200, 302, 303)
     assert "Be brief." in c.get("/wiki", params={"tab": "principles"}).text
+
+
+def test_a_flagged_upload_banner_links_each_scope_to_its_own_review_queue():
+    from pathlib import Path
+
+    import anthill
+
+    html = (Path(anthill.__file__).parent / "web" / "templates" / "wiki.html").read_text()
+    line = next(row for row in html.splitlines() if "saved=='queued'" in row)
+    assert "scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}" in line
+    assert "{% else %}/wiki/review/personal{% endif %}" in line

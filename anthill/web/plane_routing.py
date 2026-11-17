@@ -127,8 +127,13 @@ def plane_inference(
     *,
     decrypt: Callable[[str], str],
     prefer_local: bool = False,
+    escalate: bool = False,
 ) -> PlaneInference:
     """Resolve how a conversation/task in ``plane`` should run, given the org config (``cfg``).
+
+    ``escalate`` is a per-turn "use the cloud model" for a Solo account that connected its own endpoint but
+    keeps a local default: this turn runs on that endpoint but stays a Solo (or project) turn, grounded in
+    the account's own wiki with its personal context. It never becomes an Org turn.
 
     Org routing needs a validated endpoint; raises ``PlaneUnavailable`` otherwise (never falls back
     to local). ONE MODEL PER ACCOUNT: in an org account a Solo conversation runs on the ORG model too
@@ -159,6 +164,14 @@ def plane_inference(
             use_personal_context=False,
         )
 
+    solo_cloud = escalate or (
+        not prefer_local and str(getattr(cfg, "solo_compute", "") or "local").lower() == "cloud"
+    )
+    if escalate and _org_endpoint(cfg, decrypt) is None:
+        raise PlaneUnavailable(
+            "Your cloud model is not connected. Connect it under Settings -> Model, or use your local model."
+        )
+
     # Team: grounds in the team wiki. In an org install it runs on the org cloud model (needs the
     # backend, like Org; personal context excluded); in Solo it is a project on the account's own model.
     if planes.normalize(plane) == "team":
@@ -179,7 +192,7 @@ def plane_inference(
                 wiki_scope="team",
                 use_personal_context=False,
             )
-        if not prefer_local and str(getattr(cfg, "solo_compute", "") or "local").lower() == "cloud":
+        if solo_cloud:
             own = _org_endpoint(cfg, decrypt)
             if own is not None:  # a Solo project runs on the account's own cloud, like a Solo chat
                 endpoint, model, api_key = own
@@ -222,7 +235,7 @@ def plane_inference(
     # personal-mode borrow (your own cloud beats borrowing a shared org model).
     # ``prefer_local`` (the user's offline "use local now" choice) skips the VPC and drops to the
     # on-device model below - the local wiki is unchanged, so it is a seamless, weaker-model fallback.
-    if not prefer_local and str(getattr(cfg, "solo_compute", "") or "local").lower() == "cloud":
+    if solo_cloud:
         own = _org_endpoint(cfg, decrypt)
         if own is not None:
             endpoint, model, api_key = own

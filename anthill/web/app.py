@@ -10025,7 +10025,7 @@ def _apply_remote_access(cfg, request: Request | None) -> dict:
 
 
 @app.get("/settings/remote", response_class=HTMLResponse)
-def settings_remote_get(request: Request, user: dict = Depends(_require_org_admin)):
+def settings_remote_get(request: Request, user: dict = Depends(_require_admin)):
     db = _db()
     org = _require_org(db, user)
     cfg = _cfg_or_create(db, org)
@@ -10071,7 +10071,7 @@ def settings_remote_get(request: Request, user: dict = Depends(_require_org_admi
 async def settings_signup_post(
     request: Request,
     signup_open: str = Form(""),
-    user: dict = Depends(_require_org_admin),
+    user: dict = Depends(_require_admin),
 ):
     """Let anyone who can reach this server create an account (on) or keep sign-up by invitation (off).
     Only the install owner, because it decides who may join the whole install, not one organisation."""
@@ -10094,7 +10094,7 @@ async def settings_signup_post(
 @app.post("/settings/install-owner")
 async def settings_install_owner_post(
     new_owner: int = Form(...),
-    user: dict = Depends(_require_org_admin),
+    user: dict = Depends(_require_admin),
 ):
     """Hand the install to another active admin. Only the current install owner can."""
     db = _db()
@@ -10119,7 +10119,7 @@ async def settings_remote_post(
     remote_access_provider: str = Form("off"),
     remote_access_token: str = Form(""),
     remote_access_url: str = Form(""),
-    user: dict = Depends(_require_org_admin),
+    user: dict = Depends(_require_admin),
 ):
     from .crypto import encrypt
 
@@ -10160,7 +10160,7 @@ async def settings_remote_post(
 
 
 @app.post("/settings/remote/stop")
-async def settings_remote_stop(user: dict = Depends(_require_org_admin)):
+async def settings_remote_stop(user: dict = Depends(_require_admin)):
     from ..remote import tunnel
 
     if not is_install_owner(_db(), user):
@@ -10174,7 +10174,7 @@ async def settings_remote_stop(user: dict = Depends(_require_org_admin)):
 
 
 @app.get("/settings/remote/status")
-def settings_remote_status(user: dict = Depends(_require_org_admin)):
+def settings_remote_status(user: dict = Depends(_require_admin)):
     from ..remote import tunnel
 
     db = _db()
@@ -10195,7 +10195,7 @@ def _appliance_plist(request: Request) -> str:
 
 
 @app.get("/settings/appliance", response_class=HTMLResponse)
-def settings_appliance_get(request: Request, user: dict = Depends(_require_org_admin)):
+def settings_appliance_get(request: Request, user: dict = Depends(_require_admin)):
     """Run this Mac as a headless, always-on org backend (LaunchAgent + power settings)."""
     from ..hosting import appliance
     from ..remote import tunnel
@@ -10226,7 +10226,7 @@ def settings_appliance_get(request: Request, user: dict = Depends(_require_org_a
 
 
 @app.get("/settings/appliance/launchagent.plist")
-def settings_appliance_plist(request: Request, user: dict = Depends(_require_org_admin)):
+def settings_appliance_plist(request: Request, user: dict = Depends(_require_admin)):
     from ..hosting import appliance
 
     return PlainTextResponse(
@@ -12745,7 +12745,10 @@ async def chat_stream(
             and org_endpoint_connected(cfg, _safe_decrypt)
         ):
             escalate_org = True
-    effective_plane = "org" if escalate_org else conv_plane
+    # An Org account escalates to its org plane. A Solo account escalates onto its OWN endpoint but stays a
+    # Solo turn (its own wiki and personal context, never the org wiki or the shared org cache).
+    solo_escalation = escalate_org and not is_org_account(cfg)
+    effective_plane = "org" if escalate_org and not solo_escalation else conv_plane
     plane_inf = None
     plane_unavailable = ""
     try:
@@ -12754,6 +12757,7 @@ async def chat_stream(
             cfg,
             decrypt=_safe_decrypt,
             prefer_local=use_local,
+            escalate=solo_escalation,
         )
     except PlaneUnavailable as e:
         plane_unavailable = str(e)
