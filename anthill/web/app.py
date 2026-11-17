@@ -2610,9 +2610,51 @@ def local_model_status(user: dict = Depends(_require_user)):
 
 # ── first-run local model picker (Option A: pick before anything downloads) ──────
 
+import atexit  # noqa: E402
+import contextlib  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from typing import Any  # noqa: E402
+
 # Live in-memory progress for an active `ollama pull` per org_id, read by /local-model/status and
 # /models/pull-status so the dashboard, Settings, and /models banners can render a real progress bar.
+# `OrgSettings.local_model_pulling` in SQLite is the persistent store across requests/workers; this
+# companion map holds live Popen handles and stream progress for the host-local Ollama daemon.
 _MODEL_PULL_PROGRESS: dict[int, dict[str, object]] = {}
+_MODEL_PULL_LOCK = threading.Lock()
+_MODEL_PULL_STATE: dict[int, dict[str, Any]] = {}
+_VISION_AUTOPULL_MAX_WAIT_SECONDS = 3600.0
+_VISION_AUTOPULL_POLL_SECONDS = 2.0
+
+
+def _sync_pull_state(org_id: int) -> str:
+    pulls = (_MODEL_PULL_STATE.get(org_id) or {}).get("pulls") or {}
+    if not pulls:
+        _MODEL_PULL_PROGRESS.pop(org_id, None)
+        return ""
+    entries = list(pulls.values())
+    primary = next((e for e in reversed(entries) if e.get("activate")), entries[0])
+    _MODEL_PULL_PROGRESS[org_id] = dict(primary["progress"])
+    return str(primary["tag"])
+
+
+def _stop_pull_proc(proc: Any) -> None:
+    with contextlib.suppress(OSError):
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+
+@atexit.register
+def _cleanup_all_model_pulls() -> None:
+    with _MODEL_PULL_LOCK:
+        procs = [
+            e.get("proc")
+            for st in _MODEL_PULL_STATE.values()
+            for e in (st.get("pulls") or {}).values()
+        ]
+        _MODEL_PULL_STATE.clear()
+    for proc in procs:
+        _stop_pull_proc(proc)
 
 
 def _parse_ollama_pull_line(line: str) -> dict[str, object] | None:
@@ -2650,8 +2692,12 @@ def _set_model_pulling(org_id: int, value: str, *, activate: str = "") -> None:
     """Set ``OrgSettings.local_model_pulling`` (the tag downloading, or "" when done), optionally
     activating ``activate`` as the served ``ollama_model``. Used to flip state at the start and end of
     a background pull; a fresh session so it is safe to call from the pull thread."""
-    if not value:
-        _MODEL_PULL_PROGRESS.pop(org_id, None)
+    with _MODEL_PULL_LOCK:
+        active_tag = _sync_pull_state(org_id)
+        if active_tag:
+            value = active_tag
+        elif not value:
+            _MODEL_PULL_PROGRESS.pop(org_id, None)
     db = _db()
     try:
         cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
@@ -2662,6 +2708,41 @@ def _set_model_pulling(org_id: int, value: str, *, activate: str = "") -> None:
             db.commit()
     finally:
         db.close()
+
+
+def _cancel_model_pull(org_id: int, tag: str = "") -> bool:
+    """Cancel an active download (or all active downloads for ``org_id`` when ``tag`` is empty) and any
+    pending automatic vision download job so a queued waiter cannot immediately start in its place."""
+    from ..inference.ollama import normalize_ollama_tag, tag_matches_installed
+
+    norm_target = normalize_ollama_tag(tag) if tag else ""
+    with _MODEL_PULL_LOCK:
+        st = _MODEL_PULL_STATE.get(org_id) or {}
+        cancelled = st.pop("vision_waiter", None) is not None
+        pulls = st.get("pulls") or {}
+        keys = [norm_target] if norm_target else list(pulls)
+        entries = [pulls.pop(k) for k in keys if k in pulls]
+        for e in entries:
+            e["cancelled"] = True
+        remaining = _sync_pull_state(org_id)
+        if not pulls and "vision_waiter" not in st:
+            _MODEL_PULL_STATE.pop(org_id, None)
+    for e in entries:
+        _stop_pull_proc(e.get("proc"))
+    db = _db()
+    try:
+        cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+        if cfg and (
+            remaining
+            or not norm_target
+            or tag_matches_installed(norm_target, [cfg.local_model_pulling or ""])
+        ):
+            cancelled = cancelled or bool(cfg.local_model_pulling)
+            cfg.local_model_pulling = remaining
+            db.commit()
+    finally:
+        db.close()
+    return cancelled or bool(entries)
 
 
 _VISION_TAG = "granite3.2-vision:2b"  # small (~2.4 GB) licence-clean non-Chinese (IBM Granite,
@@ -2692,13 +2773,14 @@ def _maybe_autopull_vision(org_id: int) -> None:
     works out of the box (approved approach: default-on, opt-out, never bundled). Skipped when the
     toggle is off or a vision model is already installed. Waits for any in-progress text-model pull
     (there is one pull slot), then pulls WITHOUT switching the served text model. Never blocks."""
-    import threading
-    import time
+    from ..inference.ollama import normalize_ollama_tag
 
     db = _db()
     try:
         cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
         if not cfg or not cfg.vision_autopull:
+            with _MODEL_PULL_LOCK:
+                (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
             return  # toggle off: skip without even probing Ollama
         installed = set(_installed_local_models(cfg))
         if not _vision_autopull_wanted(cfg, installed):
@@ -2713,19 +2795,72 @@ def _maybe_autopull_vision(org_id: int) -> None:
     finally:
         db.close()
 
+    with _MODEL_PULL_LOCK:
+        st = _MODEL_PULL_STATE.setdefault(org_id, {})
+        if normalize_ollama_tag(tag) in (st.get("pulls") or {}) or "vision_waiter" in st:
+            return
+        token = object()
+        st["vision_waiter"] = token
+
     def _run() -> None:
-        # One pull slot: let the chosen text model finish first (bounded ~1h). Proceed either way.
+        # One pull slot: let the chosen text model finish first (bounded ~1h).
+        started_at = time.monotonic()
         for _ in range(1800):
+            with _MODEL_PULL_LOCK:
+                st_now = _MODEL_PULL_STATE.get(org_id) or {}
+                if st_now.get("vision_waiter") is not token:
+                    return
+                active_busy = bool(st_now.get("pulls"))
             db2 = _db()
             try:
                 c = db2.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-                busy = bool(c and c.local_model_pulling)
+                if not c or not getattr(c, "vision_autopull", True):
+                    with _MODEL_PULL_LOCK:
+                        (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                    return
+                busy = active_busy or bool(c.local_model_pulling)
             finally:
                 db2.close()
             if not busy:
                 break
-            time.sleep(2)
-        _start_model_pull(org_id, tag, activate_when_done=False)  # don't change the chat model
+            if time.monotonic() - started_at >= _VISION_AUTOPULL_MAX_WAIT_SECONDS:
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                return
+            time.sleep(_VISION_AUTOPULL_POLL_SECONDS)
+        else:
+            with _MODEL_PULL_LOCK:
+                (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+            return
+
+        db3 = _db()
+        try:
+            c = db3.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+            if (
+                not c
+                or not getattr(c, "vision_autopull", True)
+                or c.local_model_pulling
+                or not _vision_autopull_wanted(c, set(_installed_local_models(c)))
+            ):
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+                return
+            final_tag = _vision_autopull_tag(c)
+        except Exception:
+            with _MODEL_PULL_LOCK:
+                (_MODEL_PULL_STATE.get(org_id) or {}).pop("vision_waiter", None)
+            return
+        finally:
+            db3.close()
+
+        with _MODEL_PULL_LOCK:
+            st_now = _MODEL_PULL_STATE.get(org_id) or {}
+            if st_now.get("vision_waiter") is not token or st_now.get("pulls"):
+                return
+            st_now.pop("vision_waiter", None)
+        _start_model_pull(
+            org_id, final_tag, activate_when_done=False
+        )  # don't change the chat model
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -2738,18 +2873,51 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
     show live progress + a 'ready' confirmation; on success ``ollama_model`` is switched to ``tag``
     (the previous model keeps serving until then), and the pulling flag is cleared either way.
     """
-    import threading
+    from ..inference.ollama import normalize_ollama_tag
 
-    _set_model_pulling(org_id, tag)  # mark "downloading <tag>" immediately so the UI reflects it
-    _MODEL_PULL_PROGRESS[org_id] = {
-        "tag": tag,
-        "percent": 0,
-        "downloaded": "",
-        "total": "",
-        "speed": "",
-        "eta": "",
-        "phase": "starting",
-    }
+    tag = (tag or "").strip()
+    norm = normalize_ollama_tag(tag)
+    if not norm:
+        return
+
+    with _MODEL_PULL_LOCK:
+        pulls = _MODEL_PULL_STATE.setdefault(org_id, {}).setdefault("pulls", {})
+        existing = pulls.get(norm)
+        if existing and not existing.get("cancelled"):
+            if activate_when_done:
+                for other in pulls.values():
+                    other["activate"] = False
+                existing["activate"] = True
+                existing["tag"] = tag
+                existing["progress"]["tag"] = tag
+            primary_tag = _sync_pull_state(org_id)
+            reused = True
+        else:
+            if activate_when_done:
+                for other in pulls.values():
+                    other["activate"] = False
+            entry: dict[str, Any] = {
+                "tag": tag,
+                "activate": activate_when_done,
+                "proc": None,
+                "cancelled": False,
+                "progress": {
+                    "tag": tag,
+                    "percent": 0,
+                    "downloaded": "",
+                    "total": "",
+                    "speed": "",
+                    "eta": "",
+                    "phase": "starting",
+                },
+            }
+            pulls[norm] = entry
+            primary_tag = _sync_pull_state(org_id)
+            reused = False
+
+    _set_model_pulling(org_id, primary_tag)
+    if reused:
+        return
 
     def _run() -> None:
         ok = False
@@ -2760,16 +2928,22 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
             from ..inference.ollama import ensure_serving, find_ollama_bin
 
             ollama = find_ollama_bin()
-            if ollama and ensure_serving():
+            if ollama and ensure_serving() and not entry.get("cancelled"):
                 proc = subprocess.Popen(  # nosec B603
                     [ollama, "pull", tag],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     **hidden_window_kwargs(),
                 )
+                with _MODEL_PULL_LOCK:
+                    cur_pulls = (_MODEL_PULL_STATE.get(org_id) or {}).get("pulls") or {}
+                    if cur_pulls.get(norm) is not entry or entry.get("cancelled"):
+                        _stop_pull_proc(proc)
+                        return
+                    entry["proc"] = proc
                 buf = b""
                 if proc.stdout is not None:
-                    while True:
+                    while not entry.get("cancelled"):
                         chunk = proc.stdout.read(256)
                         if not chunk:
                             break
@@ -2779,14 +2953,41 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                         for part in parts[:-1]:
                             parsed = _parse_ollama_pull_line(part.decode("utf-8", "replace"))
                             if parsed:
-                                cur = dict(_MODEL_PULL_PROGRESS.get(org_id) or {"tag": tag})
-                                cur.update(parsed)
-                                _MODEL_PULL_PROGRESS[org_id] = cur
-                ok = proc.wait(timeout=7200) == 0
+                                with _MODEL_PULL_LOCK:
+                                    cur_pulls = (_MODEL_PULL_STATE.get(org_id) or {}).get(
+                                        "pulls"
+                                    ) or {}
+                                    if cur_pulls.get(norm) is entry:
+                                        prog = dict(entry["progress"])
+                                        prog.update(parsed)
+                                        prog["tag"] = entry["tag"]
+                                        entry["progress"] = prog
+                                        _sync_pull_state(org_id)
+                if entry.get("cancelled"):
+                    _stop_pull_proc(proc)
+                else:
+                    ok = proc.wait(timeout=7200) == 0 and not bool(entry.get("cancelled"))
         except Exception:
             ok = False
         # Clear the flag; activate the new model only if the download actually succeeded.
-        _set_model_pulling(org_id, "", activate=tag if (ok and activate_when_done) else "")
+        owned = False
+        next_tag = ""
+        activate_tag = ""
+        with _MODEL_PULL_LOCK:
+            st_now = _MODEL_PULL_STATE.get(org_id)
+            cur_pulls = (st_now or {}).get("pulls") or {}
+            if cur_pulls.get(norm) is entry:
+                owned = True
+                cur_pulls.pop(norm, None)
+                if not ok or entry.get("cancelled"):
+                    (st_now or {}).pop("vision_waiter", None)
+                next_tag = _sync_pull_state(org_id)
+                if not cur_pulls and not (st_now or {}).get("vision_waiter"):
+                    _MODEL_PULL_STATE.pop(org_id, None)
+                if ok and not entry.get("cancelled") and entry.get("activate"):
+                    activate_tag = str(entry["tag"])
+        if owned:
+            _set_model_pulling(org_id, next_tag, activate=activate_tag)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -3519,9 +3720,16 @@ def _apply_solo_compute(
         if enable_vision is not None:
             cfg.vision_autopull = enable_vision == "on"
             cfg.vision_max_accuracy = vision_max_accuracy == "on"
+            if not cfg.vision_autopull:
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org.id) or {}).pop("vision_waiter", None)
         db.commit()
+        from ..inference.ollama import tag_matches_installed
+
+        installed = set(_installed_local_models(cfg))
         for t in council:
-            _start_model_pull(org.id, t, activate_when_done=False)
+            if not tag_matches_installed(t, installed):
+                _start_model_pull(org.id, t, activate_when_done=False)
         _maybe_autopull_vision(org.id)
         return "council"
 
@@ -3631,13 +3839,18 @@ def model_picker_post(
             cfg.org_council_members = json.dumps(members)  # index 0 = lead
             cfg.ollama_model = members[0]["model"]  # the lead, for any single-model code path
             cfg.local_model_chosen = True
+            cfg.vision_autopull = enable_vision == "on"
+            cfg.vision_max_accuracy = vision_max_accuracy == "on"
+            if not cfg.vision_autopull:
+                with _MODEL_PULL_LOCK:
+                    (_MODEL_PULL_STATE.get(org.id) or {}).pop("vision_waiter", None)
             db.commit()
-            # One download-tracking slot exists (local_model_pulling); firing all 3 independently is a
-            # known, deliberate simplification - each downloads correctly, only the in-progress-download
-            # UI may not reflect all three at once. Each with activate_when_done=False since ollama_model
-            # is already set above to the lead specifically, not whichever pull finishes last.
+            from ..inference.ollama import tag_matches_installed
+
+            installed = set(_installed_local_models(cfg))
             for m in members:
-                _start_model_pull(org.id, m["model"], activate_when_done=False)
+                if not tag_matches_installed(m["model"], installed):
+                    _start_model_pull(org.id, m["model"], activate_when_done=False)
             _maybe_autopull_vision(org.id)
             return RedirectResponse("/", status_code=302)
         if (
@@ -3648,6 +3861,9 @@ def model_picker_post(
     cfg.vision_autopull = enable_vision == "on"  # persist the opt-in/out either way
     # Opt-in Qwen3-VL max-accuracy mode; default off keeps the sovereign non-Chinese default in force.
     cfg.vision_max_accuracy = vision_max_accuracy == "on"
+    if not cfg.vision_autopull:
+        with _MODEL_PULL_LOCK:
+            (_MODEL_PULL_STATE.get(org.id) or {}).pop("vision_waiter", None)
     choice = (choice or "").strip()
     if choice and choice != "__skip__":
         # _installed_local_models (not a raw OllamaBackend call) so a malformed response from
@@ -11773,7 +11989,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     otherwise download it in the background and switch only when the download finishes - the previous
     model keeps serving meanwhile, so the UI never shows a 'selected but not installed' model. The
     /models page polls /models/pull-status for live progress and a 'ready' confirmation."""
-    from ..inference.ollama import OllamaBackend, tag_matches_installed
+    from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -11788,11 +12004,20 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     if _model_too_large_for_this_machine(cfg, model_tag):
         return RedirectResponse("/models?error=too_large", status_code=302)
 
+    with _MODEL_PULL_LOCK:
+        already_pulling = normalize_ollama_tag(model_tag) in (
+            (_MODEL_PULL_STATE.get(org.id) or {}).get("pulls") or {}
+        )
+    if already_pulling:
+        _start_model_pull(org.id, model_tag)
+        return RedirectResponse(f"/models?pulling={model_tag}", status_code=302)
+
     installed = set(OllamaBackend(cfg.ollama_url, model_tag).installed_models()) if cfg else set()
     if tag_matches_installed(model_tag, installed):
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately
-            cfg.local_model_pulling = ""
+            with _MODEL_PULL_LOCK:
+                cfg.local_model_pulling = _sync_pull_state(org.id)
             db.commit()
         audit.log(db, "model.selected", f"tag={model_tag}", org_id=org.id, user_id=user["sub"])
         return RedirectResponse("/models?selected=1", status_code=302)
@@ -11801,6 +12026,30 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     audit.log(db, "model.pull_started", f"tag={model_tag}", org_id=org.id, user_id=user["sub"])
     _start_model_pull(org.id, model_tag)
     return RedirectResponse(f"/models?pulling={model_tag}", status_code=302)
+
+
+@app.post("/models/pull/cancel")
+@app.post("/models/cancel-pull")
+async def cancel_model_pull(
+    request: Request,
+    model_tag: str = Form(""),
+    next_url: str = Form(""),
+    user: dict = Depends(_require_admin),
+):
+    """Cancel an active or pending background model download (including any queued vision auto-download)
+    without starting a replacement download."""
+    db = _db()
+    org = _require_org(db, user)
+    tag = (model_tag or "").strip()
+    cancelled = _cancel_model_pull(org.id, tag)
+    audit.log(db, "model.pull_cancelled", f"tag={tag or 'all'}", org_id=org.id, user_id=user["sub"])
+    cfg = _cfg(db, org)
+    pulling = (cfg.local_model_pulling if cfg else "") or ""
+    if "application/json" in (request.headers.get("accept") or "").lower():
+        return JSONResponse({"ok": True, "cancelled": cancelled, "pulling": pulling})
+    if next_url == "personalize" or "/personalize" in (request.headers.get("referer") or ""):
+        return RedirectResponse("/personalize?cancelled=1#model", status_code=302)
+    return RedirectResponse("/models?cancelled=1", status_code=302)
 
 
 # The published catalog is ~20KB; a megabyte is generous. Bounded so a hostile or broken origin cannot
@@ -12000,12 +12249,18 @@ def models_pull_status(user: dict = Depends(_require_admin)):
     pulling = (cfg.local_model_pulling if cfg else "") or ""
     current = (cfg.ollama_model if cfg else "") or ""
     installed = OllamaBackend(cfg.ollama_url, current).installed_models() if cfg else []
+    with _MODEL_PULL_LOCK:
+        active_pulls = [
+            str(e["tag"])
+            for e in ((_MODEL_PULL_STATE.get(org.id) or {}).get("pulls") or {}).values()
+        ]
     return JSONResponse(
         {
             "pulling": pulling,
             "current": current,
             "installed": tag_matches_installed(current, installed),
             "progress": _MODEL_PULL_PROGRESS.get(org.id),
+            "active_pulls": active_pulls,
         }
     )
 
@@ -12024,7 +12279,14 @@ async def delete_model(model_tag: str = Form(...), user: dict = Depends(_require
     model_tag = (model_tag or "").strip()
     if not model_tag or not cfg:
         return RedirectResponse("/models?error=no_tag", status_code=302)
-    if tag_matches_installed(model_tag, (cfg.ollama_model or "", cfg.local_model_pulling or "")):
+    with _MODEL_PULL_LOCK:
+        active_tags = [
+            str(e["tag"])
+            for e in ((_MODEL_PULL_STATE.get(org.id) or {}).get("pulls") or {}).values()
+        ]
+    if tag_matches_installed(
+        model_tag, [cfg.ollama_model or "", cfg.local_model_pulling or "", *active_tags]
+    ):
         # refuse to remove the model we're serving (or still downloading) - it would break local chat
         return RedirectResponse("/models?error=in_use", status_code=302)
 
