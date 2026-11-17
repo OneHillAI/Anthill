@@ -108,6 +108,24 @@ jobs:
             echo "Changelog fragment is valid."
           fi
 
+      # A change to Python product code must also add or change a test (AGENTS.md: tests for new behavior). A floor,
+      # not a judgement: the review lens still decides whether the test is any good. Exempt: the chore lane, a
+      # machine author, and a release cut, as for the changelog above.
+      - name: Product code must come with a test change
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "origin/${BASE_REF}"...HEAD > "$RUNNER_TEMP/changed-tests.txt"
+          printf '%s' "$LABELS_JSON" | jq -r '.[].name' > "$RUNNER_TEMP/labels-tests.txt"
+          git show "origin/${BASE_REF}:.asdd.yml" > "$RUNNER_TEMP/base-asdd-tests.yml" 2>/dev/null || : > "$RUNNER_TEMP/base-asdd-tests.yml"
+          machine="$(bash .github/asdd/machine-author.sh "$PR_AUTHOR" "$RUNNER_TEMP/base-asdd-tests.yml" 2>/dev/null || echo false)"
+          python .github/asdd/test-gate.py --changed "$RUNNER_TEMP/changed-tests.txt" \
+            --labels "$RUNNER_TEMP/labels-tests.txt" --title "$PR_TITLE" --machine "$machine"
+
       - name: Version must be consistent across pyproject.toml and anthill/__init__.py
         run: |
           pyver=$(grep -E '^version[[:space:]]*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
