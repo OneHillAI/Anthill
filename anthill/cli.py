@@ -1179,6 +1179,9 @@ def web(
     os.environ["ANTHILL_HOST"] = (
         host  # the app reads where it listens (sign-up is by invitation beyond loopback)
     )
+    from .web import key_startup
+
+    key_startup.ensure_or_exit()  # a missing or untrusted key: a plain message and exit 1
     uvicorn.run("anthill.web.app:app", host=host, port=port, log_level="warning", reload=False)
 
 

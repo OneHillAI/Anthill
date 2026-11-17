@@ -37,6 +37,9 @@ def configure_container_env() -> Path:
 
 def main() -> None:
     configure_container_env()
+    from .desktop import ensure_key_or_exit
+
+    ensure_key_or_exit()  # a missing or untrusted key is a plain message and exit 1, never a new key
     import uvicorn
 
     host = os.environ.get("ANTHILL_HOST", "0.0.0.0")

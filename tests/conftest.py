@@ -44,7 +44,12 @@ import threading
 import httpx
 import pytest
 
+from anthill import keystore
 from anthill.inference.base import BackendError
+from anthill.web import key_startup
+
+# The suite never has a real key: the key layer hands out a throwaway one, as it did before it refused to.
+os.environ.setdefault("ANTHILL_ALLOW_EPHEMERAL_KEY", "1")
 
 _OLLAMA_PORT = "11434"
 _real_send = httpx.Client.send
@@ -106,6 +111,25 @@ def ollama_spawn_guard():
         "app._maybe_autopull_vision as tests/test_setup_model_council.py does. A leftover thread may "
         "belong to an earlier test than the one named:\n  " + "\n  ".join(_OLLAMA_SPAWN_ATTEMPTS)
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_keystore(monkeypatch):
+    """Key-layer state is per test and no test can reach the real macOS Keychain: the backend is an
+    in-memory one with no Keychain (a test that wants one installs ``FakeBackend()``), and the path of the
+    ``security`` tool points nowhere (a test of the real backend stubs subprocess and sets it)."""
+    monkeypatch.setattr(keystore, "_SECURITY", "/nonexistent/anthill-test-guard/security")
+    keystore.set_backend(keystore.FakeBackend(available=False))
+    yield
+    keystore.set_backend(None)
+
+
+@pytest.fixture(autouse=True)
+def _no_key_startup(monkeypatch):
+    """The entry points resolve the key before serving, which can make a Keychain item and a marker in the
+    data home. A test that runs an entry point must not do that to whatever the data home is, so it is a
+    no-op here; the key tests call ``key_startup.ensure_or_exit`` or ``keystore.ensure_ready`` themselves."""
+    monkeypatch.setattr(key_startup, "ensure_or_exit", lambda: None)
 
 
 @pytest.fixture(autouse=True)

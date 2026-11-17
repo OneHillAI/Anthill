@@ -34,8 +34,9 @@ from urllib.parse import urlsplit
 from fastapi import Form, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
+from .. import keystore
 from ..backup import data_paths
-from . import crypto
+from . import crypto, key_startup
 from . import db as db_mod
 from .db import Organization
 from .install_scope import request_is_local, server_is_shared
@@ -52,6 +53,7 @@ SECRET_NAMES = (
     "MEILI_URL",
     "MEILI_API_KEY",
 )
+_KEY_NAMES = ("ANTHILL_JWT_SECRET", "ANTHILL_ENCRYPTION_KEY")
 _ENV_READ_LIMIT = 64 * 1024
 _STARTUP_STEPS = (
     "_ensure_install_owner",
@@ -324,9 +326,14 @@ def _write_secrets(path: Path, found: dict[str, str], undo: list[Callable[[], No
     undo.append(put_back)
 
 
-def _adopt_secrets(found: dict[str, str]) -> None:
-    """Make the running process use the earlier copy's keys, so its encrypted fields read at once."""
+def _adopt_secrets(found: dict[str, str], *, in_key_store: bool) -> None:
+    """Make the running process use the earlier copy's keys, so its encrypted fields read at once. When the
+    key lives in the key store, ``keystore.adopt`` already did that and the keys stay out of the environment."""
+    if in_key_store:
+        found = {k: v for k, v in found.items() if k not in _KEY_NAMES}
     os.environ.update(found)
+    if in_key_store:
+        return
     if "ANTHILL_ENCRYPTION_KEY" in found:
         crypto._KEY = base64.b64decode(found["ANTHILL_ENCRYPTION_KEY"])
     if "ANTHILL_JWT_SECRET" in found:
@@ -391,16 +398,35 @@ def bring_in(folder: str, *, without_keys: bool) -> bool:
             _copy_tree(source, stage / "tree", old.base)
             staged_trees.append((stage / "tree", paths[key]))
 
+        if "ANTHILL_ENCRYPTION_KEY" in secrets and not key_startup.verify_every_value(
+            base64.b64decode(secrets["ANTHILL_ENCRYPTION_KEY"]), staged_db
+        ):
+            raise BringInError(
+                "The encryption key that came with the earlier copy does not open its saved passwords, "
+                "so nothing was brought in. Check that the folder's secrets.env or .env is the one "
+                "that belongs to that copy."
+            )
+        in_key_store = keystore.marker_exists()
         for staged, dest in staged_trees:
             _merge(staged, dest, undo)
-        if secrets:
-            _write_secrets(paths["secrets"], secrets, undo)
+        file_secrets = {k: v for k, v in secrets.items() if not (in_key_store and k in _KEY_NAMES)}
+        if file_secrets:
+            _write_secrets(paths["secrets"], file_secrets, undo)
+        finish_adoption = None
+        if in_key_store and "ANTHILL_ENCRYPTION_KEY" in secrets:
+            finish_adoption, undo_adoption = keystore.adopt(
+                base64.b64decode(secrets["ANTHILL_ENCRYPTION_KEY"]),
+                secrets.get("ANTHILL_JWT_SECRET") or keystore.jwt_secret(),
+            )
+            undo.append(undo_adoption)
         _swap_database(web_app, staged_db, dest_db)
-        _adopt_secrets(secrets)
-    except (OSError, sqlite3.Error) as exc:
+        _adopt_secrets(secrets, in_key_store=in_key_store)
+        if finish_adoption:
+            finish_adoption()  # the bring-in worked: the previous key item is no longer needed
+    except (OSError, sqlite3.Error, keystore.KeystoreError) as exc:
         log.exception("bring-in failed")
         for step in reversed(undo):
-            with suppress(OSError):
+            with suppress(OSError, keystore.KeystoreError):
                 step()
         raise BringInError(
             f"Could not copy from that folder ({type(exc).__name__}). Nothing in this app was changed."

@@ -60,7 +60,7 @@ The previous draft of this architecture led with mechanism 3. That is backwards 
 3. **Cache before compute.** Every prompt is a semantic-cache lookup (and a wiki lookup) before it is an inference call.
 4. **Adapters move, not data** *(when federation is enabled)*. Federated improvements travel as LoRA weight deltas and aggregated embeddings - never raw text.
 5. **The base model is replaceable.** Everything is tied to a base-model fingerprint; when a new open-weight release lands, we re-base rather than lock in.
-6. **Encrypted in transit, encrypted at rest, attested when it matters.** mTLS + libsodium for transport; AES-GCM at rest; optional TEE attestation for sensitive aggregation.
+6. **Encrypted in transit, encrypted at rest, attested when it matters.** mTLS + libsodium for transport; AES-GCM at rest for saved credentials (the rest of the data folder is not encrypted yet); optional TEE attestation for sensitive aggregation.
 7. **Heterogeneous fleet is the norm.** A Mac mini, a workstation with one GPU, and a small GPU server must coexist.
 8. **Fork-friendly.** Single-binary node agent, `docker compose up` for the demo, no vendor lock-in.
 

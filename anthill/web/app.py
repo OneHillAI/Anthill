@@ -32,11 +32,11 @@ from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .. import __version__
+from .. import __version__, keystore
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import audit, bring_in, metrics
+from . import audit, bring_in, key_startup, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -482,6 +482,7 @@ def _require_install_scope(request: Request, user: dict) -> None:
 @app.on_event("startup")
 def _startup():
     global _scheduler_started
+    key_startup.ensure_or_exit()  # any other way of starting the app stops here, not in a traceback
     if not _scheduler_started:
         # Restore inference/tunnel services before the scheduler releases interrupted runs. Otherwise
         # a recovered one-shot task can hit a stale endpoint, fail terminally, and never retry.
@@ -10085,9 +10086,7 @@ def _slack_oauth_serializer():
     server-side storage. Keyed on the app JWT secret."""
     from itsdangerous import URLSafeTimedSerializer
 
-    return URLSafeTimedSerializer(
-        os.environ.get("ANTHILL_JWT_SECRET", "anthill-dev"), salt="slack-oauth"
-    )
+    return URLSafeTimedSerializer(keystore.signing_key("slack-oauth"), salt="slack-oauth")
 
 
 @app.get("/slack/oauth/start")
@@ -11706,6 +11705,7 @@ def backup_page(request: Request, user: dict = Depends(_require_admin)):
             "user": user,
             "org": org,
             "can_backup": can_backup,
+            "key_status": keystore.describe() if can_backup else {},
             "data_home": str(p["home"]) if can_backup else "",
             "models": _org_model_names(db) if can_backup else [],
             "snapshots": [
@@ -16828,9 +16828,9 @@ def _task_review_serializer():
     OAuth state: a timed signature over the acting user and the exact result, no server-side store."""
     from itsdangerous import URLSafeTimedSerializer
 
-    from .crypto import _JWT_SECRET
-
-    return URLSafeTimedSerializer(_JWT_SECRET, salt="task-result-review")
+    return URLSafeTimedSerializer(
+        keystore.signing_key("task-result-review"), salt="task-result-review"
+    )
 
 
 def _task_review_token(user_id: int, task_id: int, run_id: int) -> str:

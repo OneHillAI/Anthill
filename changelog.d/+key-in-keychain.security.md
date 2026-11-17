@@ -1,0 +1,1 @@
+**On a Mac the encryption key now lives in the Keychain, not beside your data.** A copy of the data folder on its own no longer opens the saved passwords. Backups and copies made before this still open them, so delete older ones; the wiki, chats and cache are not encrypted yet.

@@ -25,10 +25,17 @@
     <b>encryption keys</b>. Keep it somewhere safe - it can be reloaded on this or a new machine.
     Data lives in <code>{{ data_home }}</code>.
   </p>
+  {% if key_status.where == 'keychain' %}
+  <div class="alert alert-warn" style="margin-bottom:14px">
+    🔒 The archive does not contain the encryption key: it is in this Mac's Keychain. The saved passwords
+    in it can only be read with this Mac's Keychain item.
+  </div>
+  {% else %}
   <div class="alert alert-warn" style="margin-bottom:14px">
     🔒 The archive includes <code>secrets.env</code> (JWT + AES keys). Anyone with it can decrypt your
     stored provider keys - store it like a password.
   </div>
+  {% endif %}
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <a class="btn btn-primary" href="/backup/export?model=1"><i data-lucide="download">⬇️</i> Download full backup{% if models %} (with model){% endif %}</a>
     <a class="btn btn-outline" href="/backup/export?model=0">Data only (smaller, no model)</a>
@@ -41,6 +48,21 @@
   {% else %}
   <p class="text-sm text-muted" style="margin-top:10px">No fine-tuned org model yet - the backup is data only (the model is retrained from gold when you enable training).</p>
   {% endif %}
+</div>
+
+<div class="card" style="grid-column:1 / -1" id="key-status">
+  <h3 style="margin-bottom:6px">Where the key is</h3>
+  <p class="text-sm" style="margin-bottom:8px">{{ key_status.plain_words }}</p>
+  <p class="text-sm text-muted" style="margin-bottom:8px">
+    Backups and copies of the data folder made before the key moved still open every saved password.
+    Delete older backups and old copies of <code>secrets.env</code>. To make them useless, change those
+    passwords or API keys at their source and enter the new ones here (Anthill does not change the key itself yet).
+  </p>
+  <p class="text-sm text-muted" style="margin:0">
+    {% if key_status.disk_encryption == 'on' %}Disk encryption (FileVault) is on for this Mac. Keep it on.
+    {% elif key_status.disk_encryption == 'off' %}Disk encryption (FileVault) is off. Turn it on in System Settings so a lost or stolen Mac cannot be read.
+    {% else %}Anthill could not tell whether disk encryption is on. Turn on FileVault (on a Mac) or your system's disk encryption so a lost or stolen computer cannot be read.{% endif %}
+  </p>
 </div>
 
 <div class="card" style="grid-column:1 / -1">
