@@ -60,7 +60,7 @@ def test_a_tampered_or_garbage_token_is_rejected():
 def test_an_expired_token_is_rejected():
     past = datetime.now(timezone.utc) - timedelta(hours=2)
     token = jwt.encode(
-        _claims(iat=past, exp=past + timedelta(hours=1)), crypto._JWT_SECRET, algorithm="HS256"
+        _claims(iat=past, exp=past + timedelta(hours=1)), crypto._jwt_secret(), algorithm="HS256"
     )
     with pytest.raises(jwt.ExpiredSignatureError):
         crypto.decode_token(token)
@@ -82,7 +82,7 @@ def _forge(alg, key=b""):
 def test_only_hs256_is_accepted():
     # The advisory is about callers that do not restrict algorithms: none, another HMAC size, or an asymmetric
     # header with a symmetric signature.
-    secret = crypto._JWT_SECRET.encode()
+    secret = crypto._jwt_secret().encode()
     for forged in (_forge("none"), _forge("RS256", secret), _forge("HS512", secret)):
         with pytest.raises(jwt.PyJWTError):
             crypto.decode_token(forged)
@@ -99,9 +99,9 @@ def test_a_token_signed_with_another_secret_is_rejected():
 
 def test_a_few_seconds_of_clock_drift_is_tolerated_but_not_minutes():
     soon = datetime.now(timezone.utc) + timedelta(seconds=5)
-    ok = jwt.encode(_claims(iat=soon), crypto._JWT_SECRET, algorithm="HS256")
+    ok = jwt.encode(_claims(iat=soon), crypto._jwt_secret(), algorithm="HS256")
     assert crypto.decode_token(ok)["sub"] == "7"
     later = datetime.fromtimestamp(time.time() + 600, timezone.utc)
-    bad = jwt.encode(_claims(iat=later), crypto._JWT_SECRET, algorithm="HS256")
+    bad = jwt.encode(_claims(iat=later), crypto._jwt_secret(), algorithm="HS256")
     with pytest.raises(jwt.ImmatureSignatureError):
         crypto.decode_token(bad)

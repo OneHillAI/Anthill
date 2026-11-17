@@ -67,7 +67,7 @@ def _expiring_token(uid, org_id, *, legacy):
     }
     if not legacy:
         claims.update(iat=now - timedelta(hours=2), sid="aged-session", ver=0)
-    return jwt.encode(claims, crypto._JWT_SECRET, algorithm=crypto._ALGORITHM)
+    return jwt.encode(claims, crypto._jwt_secret(), algorithm=crypto._ALGORITHM)
 
 
 def test_active_user_token_authenticates(tmp_path):
@@ -723,7 +723,7 @@ def _aged_ordered_session(app_mod, uid, org_id, *, order=5, device="test-device-
         "iat": now - timedelta(hours=2),
         "exp": now + timedelta(hours=1),
     }
-    return jwt.encode(claims, crypto._JWT_SECRET, algorithm=crypto._ALGORITHM), device
+    return jwt.encode(claims, crypto._jwt_secret(), algorithm=crypto._ALGORITHM), device
 
 
 def _set_cookie_names(response):

@@ -341,3 +341,91 @@ def test_without_any_tool_to_find_it_the_script_warns_and_carries_on(linux, old_
     assert r.returncode == 0, r.stdout
     assert "Can't check for an old dashboard on :8000" in r.stdout
     assert old_dashboard.poll() is None
+
+
+# ── the security secrets in .env (key layer) ───────────────────────────────────────
+
+
+def _python_stub(box: Sandbox, probe_rc: int) -> None:
+    """A fake `.venv/bin/python`: the has-values probe answers `probe_rc`, any `-c` prints a value."""
+    py = box.root / ".venv" / "bin" / "python"
+    py.write_text(
+        "#!/bin/bash\n"
+        + RECORD
+        + f'case "$*" in *has-values*) exit {probe_rc} ;; esac\necho generated-value\n'
+    )
+    py.chmod(0o755)
+    (box.root / "data").mkdir(exist_ok=True)
+
+
+def _env(box: Sandbox, text: str | None) -> Path:
+    path = box.root / ".env"
+    path.unlink(missing_ok=True)
+    if text is not None:
+        path.write_text(text)
+    return path
+
+
+def test_a_marker_in_the_data_folder_means_no_key_is_generated_and_no_probe_runs(linux):
+    _python_stub(linux, 0)
+    _env(linux, None)
+    (linux.root / "data" / "key-location.json").write_text("{}")
+    linux.stub("ollama", OLLAMA_BODY)
+    r = linux.run("--setup-only")
+    assert r.returncode == 0, r.stdout
+    assert not (linux.root / ".env").exists()
+    assert not any(c.startswith("python") for c in linux.calls_made())
+
+
+def test_a_database_with_encrypted_values_and_no_key_stops_instead_of_making_one(linux):
+    _python_stub(linux, 1)
+    env = _env(linux, "ANTHILL_JWT_SECRET=j\n")
+    linux.stub("ollama", OLLAMA_BODY)
+    r = linux.run("--setup-only")
+    assert r.returncode == 1
+    assert "A new key would make them unreadable" in r.stdout and "none was made" in r.stdout
+    assert env.read_text() == "ANTHILL_JWT_SECRET=j\n"
+    assert any("has-values data/anthill.db" in c for c in linux.calls_made())
+    assert not any(" -c " in c for c in linux.calls_made())
+    _python_stub(linux, 2)  # a database that cannot be read is not "no values" either
+    assert linux.run("--setup-only").returncode == 1
+
+
+def test_a_missing_key_line_is_added_alone_not_as_a_second_pair(linux):
+    _python_stub(linux, 0)
+    env = _env(linux, "ANTHILL_JWT_SECRET=keep-me\n# note\n")
+    linux.stub("ollama", OLLAMA_BODY)
+    r = linux.run("--setup-only")
+    assert r.returncode == 0, r.stdout
+    text = env.read_text()
+    assert text.count("ANTHILL_JWT_SECRET=") == 1 and "ANTHILL_JWT_SECRET=keep-me" in text
+    assert text.count("ANTHILL_ENCRYPTION_KEY=generated-value") == 1 and "# note" in text
+
+
+def test_a_missing_jwt_line_is_added_without_asking_the_database(linux):
+    _python_stub(linux, 1)  # would refuse if it were asked
+    env = _env(linux, "export ANTHILL_ENCRYPTION_KEY='abc'\n")
+    linux.stub("ollama", OLLAMA_BODY)
+    r = linux.run("--setup-only")
+    assert r.returncode == 0, r.stdout
+    assert env.read_text().count("ANTHILL_ENCRYPTION_KEY") == 1
+    assert "ANTHILL_JWT_SECRET=generated-value" in env.read_text()
+    assert not any("has-values" in c for c in linux.calls_made())
+
+
+def test_a_fresh_project_gets_both_secrets_once_when_the_database_is_empty(linux):
+    _python_stub(linux, 0)
+    env = _env(linux, None)
+    linux.stub("ollama", OLLAMA_BODY)
+    r = linux.run("--setup-only")
+    assert r.returncode == 0, r.stdout
+    text = env.read_text()
+    assert text.count("ANTHILL_ENCRYPTION_KEY=") == 1 and text.count("ANTHILL_JWT_SECRET=") == 1
+    assert "# GOOGLE_SEARCH_API_KEY=" in text and (env.stat().st_mode & 0o777) == 0o600
+    before = text
+    linux.run("--setup-only")
+    assert env.read_text() == before
+
+
+def test_start_sh_still_marks_the_server_local_only():
+    assert 'ANTHILL_LOCAL_ONLY="${ANTHILL_LOCAL_ONLY-1}"' in (ROOT / "start.sh").read_text()
