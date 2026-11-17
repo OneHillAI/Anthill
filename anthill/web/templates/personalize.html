@@ -141,6 +141,7 @@
 <form id="solo-cloud-form" method="post" action="/personalize/cloud"></form>
 <form id="compute-form" method="post" action="/personalize/compute"></form>
 <form id="org-setup-form" method="post" action="/personalize/organization/setup"></form>
+<form id="pull-cancel-form" method="post" action="/models/pull/cancel"><input type="hidden" name="next_url" value="personalize"></form>
 
 <form method="post" action="/personalize">
 
@@ -153,6 +154,7 @@
       <div class="pbar" style="margin:4px 0 6px"><i id="pull-progress-bar" style="width:0%;transition:width .3s"></i></div>
       <div id="pull-progress-meta" class="text-sm text-muted" style="font-variant-numeric:tabular-nums">Starting download...</div>
     </div>
+    <button type="submit" form="pull-cancel-form" class="btn btn-outline btn-sm" style="margin-top:8px">Cancel download</button>
   </div>
   <div id="ready-banner" class="alert alert-ok mb-2" style="display:none">
     ✅ <b id="ready-tag"></b> finished downloading and is now ready.
@@ -372,7 +374,7 @@
       {% if solo_cloud %}Your model lives in <b>your own cloud</b> - yours, not shared. Your wiki and data stay on this device; nothing else leaves.{% else %}Your model, wiki and data stay <b>on this device</b>. Nothing leaves unless you connect a cloud.{% endif %}
       {% if web_access_on %}<b>Web search is on</b>: when a question needs live information, its text is sent to a search provider. Turn it off under Privacy, or for a single chat in the chat box.{% endif %}
     </p>
-    {% if org_available %}
+    {% if org_shares_model %}
     <div class="core-item" style="margin-top:10px">In an org, your Solo chats run on the org model but stay private: grounded in your own wiki, never shared, never retained org-side.</div>
     {% endif %}
   </div>

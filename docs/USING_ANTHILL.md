@@ -23,6 +23,8 @@ you've set one up, there's no path back to a plain Solo account.
 - **Solo** is your private space, with your own wiki and your own model. Choose **Your machine**
   (runs locally, works offline) or **Your cloud** (your own connected server, for a bigger model)
   under **Settings**, on the **Model** tab, in the **Where your AI runs** card.
+  Connecting your own cloud does not make you an organisation: a Solo account stays Solo, with no Org
+  chat, org wiki, people or invites, until you create an organisation.
 - **Projects** group a set of chats, tasks, and agents around their own wiki. Use one to keep a
   topic or client separate from everything else. On a Solo account a project is yours alone. Inside
   an organisation, the same kind of project becomes a shared space you invite members into. It's

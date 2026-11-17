@@ -303,10 +303,11 @@ def _run_task(task: ScheduledTask, db) -> str:
     from ..inference.base import build_backend
     from . import audit
     from .crypto import decrypt
-    from .plane_routing import plane_inference
+    from .plane_routing import account_plane, plane_inference
 
     cfg_row = db.query(OrgSettings).filter(OrgSettings.org_id == task.org_id).first()
-    plane_inf = plane_inference(getattr(task, "plane", "solo"), cfg_row, decrypt=decrypt)
+    task_plane = account_plane(getattr(task, "plane", "solo"), cfg_row)
+    plane_inf = plane_inference(task_plane, cfg_row, decrypt=decrypt)
     audit.log_inference_call(
         db, plane_inf, org_id=task.org_id, user_id=task.created_by, surface="task"
     )
@@ -342,16 +343,16 @@ def _run_task(task: ScheduledTask, db) -> str:
     from .agents import audit_hook, get_or_create_identity, principal_for
 
     ident = get_or_create_identity(db, task.org_id, "scheduler", agent_type="scheduler")
-    from .. import planes
     from .agent_context import agent_context_for
+    from .plane_routing import shares_org_model
 
     principles, skills = agent_context_for(
         db,
         user_id=task.created_by,
         org_id=task.org_id,
-        plane=getattr(task, "plane", "solo"),
+        plane=task_plane,
         team_id=getattr(task, "team_id", None),
-        is_org=planes.is_org_mode(cfg_row),
+        is_org=shares_org_model(cfg_row),
     )
     executor = AgentExecutor(
         backend,
@@ -1455,21 +1456,20 @@ def _distil_skill_from_agent(agent, result: str, db) -> None:
     OrgSettings.skill_autolearn; deduped against the owner's pending proposals. Best-effort, never
     raises - a distillation hiccup must not affect the run it came from."""
     try:
-        from .. import planes
         from ..agent.skills import conform_name, distil_skill
         from ..config import Config
         from ..inference.base import build_backend
         from . import audit
         from .crypto import decrypt
         from .db import OrgSettings, ProposedSkill
-        from .plane_routing import plane_inference
+        from .plane_routing import account_plane, plane_inference
 
         if not (result and agent.created_by):
             return
         cfg = db.query(OrgSettings).filter(OrgSettings.org_id == agent.org_id).first()
         if not getattr(cfg, "skill_autolearn", True):
             return  # an admin paused skill auto-learning
-        plane_inf = plane_inference(planes.normalize(agent.plane), cfg, decrypt=decrypt)
+        plane_inf = plane_inference(account_plane(agent.plane, cfg), cfg, decrypt=decrypt)
         audit.log_inference_call(
             db,
             plane_inf,
