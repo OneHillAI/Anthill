@@ -13,6 +13,8 @@ import pytest
 
 from anthill.hybrid.scrub import restore, scrub
 
+pytestmark = pytest.mark.privacy_invariant
+
 # The `anthill.hybrid` package exports a `scrub` *function* that shadows the submodule name, so grab the
 # module object explicitly for monkeypatching its internals.
 scrub_mod = importlib.import_module("anthill.hybrid.scrub")

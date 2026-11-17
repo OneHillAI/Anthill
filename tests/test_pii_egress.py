@@ -12,6 +12,8 @@ from anthill.hybrid import escalate as esc
 from anthill.hybrid.escalate import HybridPolicy, maybe_escalate
 from anthill.hybrid.providers import CloudResult
 
+pytestmark = pytest.mark.privacy_invariant
+
 PII = {
     "EMAIL": "jane.doe@acme-internal.example",
     "CARD": "4111 1111 1111 1111",

@@ -5,8 +5,12 @@ train/eval split produced. When more held-out examples are available than `sampl
 reproducible pseudo-random subset instead, so the gate isn't biased by ordering.
 """
 
+import pytest
+
 import anthill.cache.embedder as emb
 from anthill.lifecycle.evaluate import evaluate_models
+
+pytestmark = pytest.mark.model_invariant
 
 
 class _RecordingBackend:

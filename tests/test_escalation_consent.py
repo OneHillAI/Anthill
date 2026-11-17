@@ -5,9 +5,13 @@ performs the outbound call ONLY when a consent callback approves it, and `ask()`
 through. With no consent callback, the local answer stands and nothing leaves the machine.
 """
 
+import pytest
+
 from anthill.hybrid import escalate as esc
 from anthill.hybrid.escalate import HybridPolicy, maybe_escalate, propose_escalation
 from anthill.hybrid.providers import CloudResult
+
+pytestmark = pytest.mark.privacy_invariant
 
 WEAK = "I don't know."  # a weak local answer -> the quality gate proposes escalation
 
