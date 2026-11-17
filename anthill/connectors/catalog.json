@@ -23,17 +23,17 @@
     "id": "google-drive",
     "name": "Google Drive",
     "category": "documents",
-    "summary": "Search and read your organisation's Google Drive files.",
-    "tier": "verified",
+    "summary": "Lets agents search Google Drive by file name. It cannot read or import documents yet.",
+    "tier": "community",
     "upstream": "io.modelcontextprotocol/gdrive",
     "transport": "stdio",
     "command": "npx -y @modelcontextprotocol/server-gdrive",
     "auth": {"type": "oauth", "fields": []},
-    "scopes": ["search Drive", "read a Drive file"],
-    "provides_files": true,
+    "scopes": ["search Drive by file name"],
+    "provides_files": false,
     "guided": false,
-    "setup_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive",
-    "note": "Needs Google Cloud OAuth credentials. Follow the setup guide to authorise, then Test."
+    "setup_url": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive",
+    "note": "Not verified. This server is archived upstream and needs Google Cloud OAuth credentials set up outside Anthill. It can search file names but cannot read a document, so importing from Drive does not work yet."
   },
   {
     "id": "microsoft-365",
