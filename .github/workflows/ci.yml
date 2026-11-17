@@ -67,6 +67,21 @@ jobs:
         run: ruff check anthill tests
       - name: Ruff format
         run: ruff format --check anthill tests
+      # New code is held to a stricter bar than the legacy tree: ruff's blind-except, commented-out-code and
+      # complexity rules, but only on the lines this PR ADDED (a change inside an old complex function is not
+      # flagged, a new one is). Complexity and commented-out code block; a blind `except Exception` is a
+      # warning on the line, because broad excepts are a deliberate graceful-degradation pattern here (annotate
+      # one with `# noqa: BLE001 - why`). To make blind excepts block too, drop `--warn BLE001`.
+      - name: Diff-scoped de-slop and complexity gate (new code only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff -U0 "$BASE_SHA" HEAD -- 'anthill/*.py' > "$RUNNER_TEMP/change.diff"
+          ruff check anthill --select BLE001,ERA001,C901,PLR0912,PLR0915 --output-format json --exit-zero --no-cache > "$RUNNER_TEMP/ruff.json"
+          python .github/asdd/diff-lint.py "$RUNNER_TEMP/ruff.json" "$RUNNER_TEMP/change.diff" --warn BLE001
       - name: Mypy (blocking on clean modules; pre-existing debt grandfathered in pyproject)
         run: mypy anthill
       - name: Slop gates (de-slop rubric, CODE_AND_DOCS_STANDARDS.md 1.4)

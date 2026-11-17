@@ -83,6 +83,6 @@ The changed-file list reaches `intake-check.sh` through `meta.env`/a workdir fil
 ## 5. Out of scope / next
 
 - **Including the linked spec's text in the review data** so the `spec` lens can check conformance
-  against an *existing* (not in-diff) spec. Today the lens sees an included spec (it is in the diff) but
-  not a linked one; it flags the latter as unverifiable. Fetching referenced `docs/specs/*.md` into the
-  review workdir is a focused follow-up on the live review path.
+  against an *existing* (not in-diff) spec: done (#176). `.github/asdd/linked-specs.sh` copies each existing
+  `docs/specs/*.md` the description names, from the base checkout, into the review workdir, and `generic.sh`
+  puts it inside the fenced data block under "Linked specs". See `docs/specs/176-diff-gates-and-spec-structure.md`.

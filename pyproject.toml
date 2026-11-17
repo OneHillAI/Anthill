@@ -132,6 +132,9 @@ line-length = 100
 # E/F=pyflakes+pycodestyle, I=isort, UP=pyupgrade, B=bugbear, SIM=simplify,
 # C4=comprehensions, PERF=perf, RUF=ruff-specific.
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PERF", "RUF"]
+# Rules the diff-scoped gate in ci.yml (.github/asdd/diff-lint.py) enforces on NEW code only. Listed here so a
+# deliberate `# noqa: BLE001 - why` is not reported by RUF100 as an unused directive in the main ruff run.
+external = ["BLE001", "ERA001", "C901", "PLR0912", "PLR0915"]
 # Intentional patterns / high-churn style not enforced as a hard gate:
 #   E501 line length; E701/E702 compound one-liners (an idiom here); SIM105
 #   contextlib.suppress; PERF203 try/except in a loop. Broad `except` (BLE) is a

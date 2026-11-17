@@ -70,6 +70,16 @@ jobs:
           # DELETED one, so a PR that deletes a docs/specs/*.md while changing code can't pass the gate.
           git diff --name-status "$BASE_SHA".."$HEAD_SHA" > .asdd-work/changed.txt
           { echo "pr_number=$PR_NUMBER"; echo "head_sha=$HEAD_SHA"; } > .asdd-work/meta.env
+          # The text of each spec this PR ADDS (status A, a direct child of docs/specs with a plain name), as
+          # data files, so intake-check.sh can check its structure. Capped; a legacy spec edited in place is
+          # not checked, only a new one.
+          mkdir -p .asdd-work/specs
+          awk -F'\t' '$1 ~ /^A/ {print $NF}' .asdd-work/changed.txt | while IFS= read -r spec_path; do
+            spec_name="${spec_path#docs/specs/}"
+            [ "$spec_name" != "$spec_path" ] || continue
+            [[ "$spec_name" =~ ^[A-Za-z0-9._-]+\.md$ ]] || continue
+            git show "${HEAD_SHA}:${spec_path}" 2>/dev/null | head -c 200000 > ".asdd-work/specs/${spec_name}" || true
+          done
           # Spec-gate toggle from the BASE .asdd.yml (trusted). intake-check.sh does the pattern match.
           REQ_SPEC="$(grep -E '^[[:space:]]*require_spec:' .asdd.yml 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*([a-z]+).*/\1/' || true)"
           echo "require_spec=${REQ_SPEC:-false}" >> .asdd-work/meta.env
