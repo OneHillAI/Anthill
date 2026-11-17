@@ -55,6 +55,10 @@ jobs:
           git fetch --no-tags --depth=200 origin "+refs/pull/${PR_NUMBER}/head:refs/anthill-pr-head" "$BASE_SHA"
           HEAD_SHA="$(git rev-parse refs/anthill-pr-head)"
           git diff "$BASE_SHA".."$HEAD_SHA" > .asdd-work/changes.diff
+          # The existing specs the description links, from this BASE checkout (never the PR), so the spec lens
+          # can check the change against them instead of calling them unverifiable. Capped; a plain path that
+          # does not exist here is ignored.
+          bash .github/asdd/linked-specs.sh .asdd-work/body.md .asdd-work/linked-specs.md
           {
             echo "pr_number=$PR_NUMBER"
             echo "base_sha=$BASE_SHA"
