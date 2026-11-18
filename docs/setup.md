@@ -1,10 +1,10 @@
 # Get started
 
-<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On a Mac the window fills the screen the first time; after that it opens at the size and place you left it. On first launch, enter an org name, your email, and a password, then choose how you'll use it:</p>
+<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On a Mac the window fills the screen the first time; after that it opens at the size and place you left it. On first launch, enter your email, your name if you like, and a password of at least 12 characters, then choose how you'll use it:</p>
 
 <ul>
-  <li><strong>Just for yourself.</strong> Pick <strong>Just evaluating (solo)</strong>. You're in, with your own private space, nothing else to set up. Skip to <a href="/USING_ANTHILL">Using Anthill</a> whenever you're ready. Everything past this point is for standing up a shared team or organisation.</li>
-  <li><strong>For a team.</strong> Pick <strong>Set up my organisation</strong> and continue below. You can switch from solo to an org later too, at any time, from <strong>Settings</strong>.</li>
+  <li><strong>Just for yourself.</strong> Pick <strong>Just me</strong>. You're in, with your own private space, nothing else to set up. Skip to <a href="/USING_ANTHILL">Using Anthill</a> whenever you're ready. Everything past this point is for standing up a shared team or organisation.</li>
+  <li><strong>For a team.</strong> Pick <strong>Set up an organisation</strong> and continue below. You can give it a name now or later. You can also switch from solo to an organisation later, from <strong>Settings</strong>, on the <strong>Organisation</strong> tab. That step can't be undone.</li>
 </ul>
 
 <p>The steps below are for admins setting up an organisation. Work top to bottom, or skip any and come back to it later in <strong>Settings</strong>.</p>
@@ -24,7 +24,7 @@
 <p>As the team works, good answers become training data. Mark a snippet, or approve a page. Once you have enough, turn on <strong>Train your model here</strong> under <strong>Cloud &amp; model &rarr; Training</strong> and start a run on your own GPU. A new model is promoted only if it beats the current one. You keep the weights either way.</p>
 
 ## 5. Connect your tools
-<p>Slack, Notion, Jira, Google Drive, Microsoft 365, and others connect under <strong>Connectors</strong>. Add a server, approve who can use it. Each connection gets its own scoped, revocable access, and everything is logged.</p>
+<p>Slack, Notion, Jira, Microsoft 365, and others connect under <strong>Connectors</strong>. Add a server, approve who can use it. Each connection gets its own scoped, revocable access, and everything is logged.</p>
 
 ## 6. Invite your team
 <p>Under <strong>Users</strong>, invite people by email and choose their role. Create <strong>Teams</strong> to give a group its own working wiki scope, while it still draws on the shared org wiki when needed.</p>

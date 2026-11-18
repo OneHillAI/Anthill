@@ -1,0 +1,317 @@
+{
+ "schema": 1,
+ "anthill_release": "1.1.1",
+ "recorded_at": "2026-11-17T23:05:06+00:00",
+ "machine": {
+  "id": "apple-m4-16gb",
+  "chip": "Apple M4",
+  "gpu_cores": 10,
+  "memory_gb": 16.0,
+  "system": "Darwin 25.5.0 arm64",
+  "bandwidth_gbps": 120.0,
+  "power": "ac"
+ },
+ "engine": {
+  "name": "ollama",
+  "version": "0.40.7"
+ },
+ "protocol": {
+  "cooldown_s": 20.0,
+  "repeats": 3,
+  "warmups": 1,
+  "max_spread": 0.1,
+  "ms_noise_floor": 5.0,
+  "token_noise_floor": 8.0
+ },
+ "models": {
+  "qwen2.5:3b": {
+   "digest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+   "scenarios": {
+    "depth_0": {
+     "params": {
+      "target_tokens": 0,
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "decode_tok_s": {
+       "median": 46.54545454545455,
+       "spread": 0.0022,
+       "samples": [
+        46.51162790697675,
+        46.54545454545455,
+        46.613255644573925
+       ],
+       "status": "ok"
+      },
+      "first_word_ms": {
+       "median": 157.0,
+       "spread": 0.0318,
+       "samples": [
+        157.0,
+        152.0,
+        157.0
+       ],
+       "status": "ok"
+      },
+      "prefill_tok_s": {
+       "median": 269.5035460992908,
+       "spread": 0.053,
+       "samples": [
+        264.2857142857143,
+        278.57142857142856,
+        269.5035460992908
+       ],
+       "status": "ok"
+      },
+      "prompt_tokens": {
+       "median": 42.0,
+       "spread": 0.0476,
+       "samples": [
+        41.0,
+        43.0,
+        42.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    },
+    "depth_4k": {
+     "params": {
+      "target_tokens": 4000,
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "decode_tok_s": {
+       "median": 42.8236868517899,
+       "spread": 0.0235,
+       "samples": [
+        41.830065359477125,
+        42.8380187416332,
+        42.8236868517899
+       ],
+       "status": "ok"
+      },
+      "first_word_ms": {
+       "median": 8321.0,
+       "spread": 0.0042,
+       "samples": [
+        8309.0,
+        8344.0,
+        8321.0
+       ],
+       "status": "ok"
+      },
+      "prefill_tok_s": {
+       "median": 490.54545454545456,
+       "spread": 0.0009,
+       "samples": [
+        490.84293511218925,
+        490.42424242424244,
+        490.54545454545456
+       ],
+       "status": "ok"
+      },
+      "prompt_tokens": {
+       "median": 4051.0,
+       "spread": 0.0002,
+       "samples": [
+        4051.0,
+        4050.0,
+        4051.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    },
+    "wiki_cold": {
+     "params": {
+      "prompt": "scoreboard_wiki_prompt.json",
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "cached_tokens": {
+       "median": 4.0,
+       "spread": 0.25,
+       "samples": [
+        4.0,
+        4.0,
+        3.0
+       ],
+       "status": "ok"
+      },
+      "first_word_ms": {
+       "median": 5052.0,
+       "spread": 0.004,
+       "samples": [
+        5060.0,
+        5040.0,
+        5052.0
+       ],
+       "status": "ok"
+      },
+      "prefill_ms": {
+       "median": 4983.0,
+       "spread": 0.0044,
+       "samples": [
+        4983.0,
+        4978.0,
+        5000.0
+       ],
+       "status": "ok"
+      },
+      "prefill_tok_s": {
+       "median": 509.5324101946619,
+       "spread": 0.0044,
+       "samples": [
+        509.5324101946619,
+        509.8433105664926,
+        507.6
+       ],
+       "status": "ok"
+      },
+      "prompt_tokens": {
+       "median": 2542.0,
+       "spread": 0.0008,
+       "samples": [
+        2543.0,
+        2542.0,
+        2541.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    },
+    "wiki_warm": {
+     "params": {
+      "prompt": "scoreboard_wiki_prompt.json",
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "cached_tokens": {
+       "median": 2539.0,
+       "spread": 0.0004,
+       "samples": [
+        2540.0,
+        2539.0,
+        2539.0
+       ],
+       "status": "ok"
+      },
+      "first_word_ms": {
+       "median": 45.0,
+       "spread": 0.1111,
+       "samples": [
+        48.0,
+        43.0,
+        45.0
+       ],
+       "status": "ok"
+      },
+      "prefill_ms": {
+       "median": 24.0,
+       "spread": 0.0417,
+       "samples": [
+        24.0,
+        25.0,
+        24.0
+       ],
+       "status": "ok"
+      },
+      "prefill_tok_s": {
+       "median": 41.666666666666664,
+       "spread": 0.04,
+       "samples": [
+        41.666666666666664,
+        40.0,
+        41.666666666666664
+       ],
+       "status": "ok"
+      },
+      "prompt_tokens": {
+       "median": 2540.0,
+       "spread": 0.0004,
+       "samples": [
+        2541.0,
+        2540.0,
+        2540.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    },
+    "cold_load": {
+     "params": {
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "first_word_ms": {
+       "median": 720.0,
+       "spread": 0.0042,
+       "samples": [
+        720.0,
+        718.0,
+        721.0
+       ],
+       "status": "ok"
+      },
+      "load_ms": {
+       "median": 579.0,
+       "spread": 0.0017,
+       "samples": [
+        578.0,
+        579.0,
+        579.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    },
+    "memory_swap": {
+     "params": {
+      "num_ctx": 8192
+     },
+     "metrics": {
+      "allocated_gb": {
+       "median": 2.412,
+       "spread": null,
+       "samples": [
+        2.412
+       ],
+       "status": "ok"
+      },
+      "in_gpu_memory_gb": {
+       "median": 2.412,
+       "spread": null,
+       "samples": [
+        2.412
+       ],
+       "status": "ok"
+      },
+      "swap_outs": {
+       "median": 0.0,
+       "spread": null,
+       "samples": [
+        0.0
+       ],
+       "status": "ok"
+      },
+      "turns": {
+       "median": 20.0,
+       "spread": null,
+       "samples": [
+        20.0
+       ],
+       "status": "ok"
+      }
+     },
+     "notes": []
+    }
+   }
+  }
+ }
+}

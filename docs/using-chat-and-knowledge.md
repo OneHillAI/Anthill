@@ -36,7 +36,10 @@ members of the project do not see it.
 ## Your knowledge base (the wiki)
 
 Upload a document or paste text and Anthill turns it into a structured page: a title, a summary,
-key facts, and links to related pages. Anthill keeps the wiki itself tidy in the background,
+key facts, and links to related pages. A short plain-text note is the exception. A `.md` or `.txt` file
+of up to 1,500 characters is filed exactly as written, under its own first heading, with nothing
+summarised. A longer one is still summarised, but the page keeps the note's own first heading as its
+title and its quoted passages word for word. Anthill keeps the wiki itself tidy in the background,
 fixing broken links and flagging duplicates. Under **Add a document**, **Recent uploads** lists your
 latest ten uploads to that wiki with what happened to each one (reading, added, waiting for your
 review, held, timed out or could not be read, and what to do next). Only you see your own list. The wiki

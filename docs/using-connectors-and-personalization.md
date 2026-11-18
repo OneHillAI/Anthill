@@ -2,10 +2,13 @@
 
 ## Connecting your tools
 
-Slack, GitHub, Google Drive, Notion, and other tools connect to Anthill as **MCP servers**. MCP is
+Slack, GitHub, Notion, and other tools connect to Anthill as **MCP servers**. MCP is
 the standard way agents reach external tools and data. An admin picks one from a curated catalog,
 or adds a custom server by URL or command. Every new connection starts **pending**. An admin tests
 it, then approves it, before any agent can use its tools. Every call is logged.
+
+Google Drive is in the catalog as a community connector. It can only search file names. It cannot
+read or import documents yet.
 
 If you're not an admin, the **Integrations** page shows what's already approved, and lets you
 request a new one. It connects only once an admin reviews it.
