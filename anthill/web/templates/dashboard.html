@@ -54,7 +54,7 @@
 
   /* Stat tiles: a colored icon chip per metric instead of a plain number on a bare bordered box. */
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
-  @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr}}
+  @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr} .dash-next{grid-template-columns:1fr !important}}
   .tile{border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:9px}
   .tile-n{display:block;font-size:var(--fs-5,23px);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
   .tile-l{font-size:var(--fs-1);color:var(--muted);font-weight:600}
@@ -199,6 +199,7 @@
 </div>
 {% endif %}
 
+{% if stats.answers or stats.training or stats.wiki or stats.memory %}
 <div class="tiles">
   <div class="tile">
     <span class="ic-chip ic-accent"><i data-lucide="message-square"></i></span>
@@ -217,6 +218,25 @@
     <span class="tile-n">{{ stats.memory }}</span><span class="tile-l">Memory items</span>
   </div>
 </div>
+{% else %}
+{# A new account has nothing to count yet, so four zeros say nothing. Offer the first three things to do; the
+   counters appear as soon as any of them is above zero. #}
+<h2 class="dash-next-h" style="font-size:15px;margin:0 0 8px">Try this next</h2>
+<div class="tiles dash-next" style="grid-template-columns:repeat(3,1fr)">
+  <a class="tile" href="/wiki" style="text-decoration:none;color:inherit">
+    <span class="ic-chip ic-warn"><i data-lucide="book-open"></i></span>
+    <span class="tile-n" style="font-size:15px">Add a document</span><span class="tile-l">Your AI reads it and answers from it.</span>
+  </a>
+  <a class="tile" href="/chat" style="text-decoration:none;color:inherit">
+    <span class="ic-chip ic-accent"><i data-lucide="message-square"></i></span>
+    <span class="tile-n" style="font-size:15px">Ask a question</span><span class="tile-l">See an answer and where it ran.</span>
+  </a>
+  <a class="tile" href="/tasks" style="text-decoration:none;color:inherit">
+    <span class="ic-chip ic-clay"><i data-lucide="sparkles"></i></span>
+    <span class="tile-n" style="font-size:15px">Create a task</span><span class="tile-l">Run something on a schedule.</span>
+  </a>
+</div>
+{% endif %}
 
 <div class="cores">
   <div class="card core accent">

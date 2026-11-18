@@ -1,0 +1,1 @@
+**A new account's dashboard now suggests what to do instead of showing four zeros.** Until there is something to count, "Try this next" offers three cards: add a document, ask a question, create a task. The four counters (answers, training examples, wiki entries, memory items) appear as soon as any of them is above zero.

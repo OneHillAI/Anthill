@@ -53,18 +53,44 @@ def _client(
 
 
 def test_dashboard_shows_vitals_tiles_and_cores(tmp_path, monkeypatch):
-    # The dashboard leads with a greeting + model-status pill, four real stat tiles (answers / training /
-    # wiki / memory), and the two "cores" (model council + living wiki). Counts come from the route (real
-    # data), never mocked - a fresh install honestly reads 0.
+    # Once there is anything to count, the dashboard shows four real stat tiles (answers / training /
+    # wiki / memory) and the two "cores" (model council + living wiki). Counts come from the route (real
+    # data), never mocked. A fresh account has nothing to count, so it shows next steps instead (below).
+    from anthill.web.db import MemoryItem, User
+
     client = _client(tmp_path, monkeypatch, topology="solo", role="admin", local_model_chosen=True)
+    import anthill.web.app as app_mod
+
+    s = app_mod._SessionFactory()
+    me = s.query(User).first()
+    s.add(
+        MemoryItem(org_id=me.org_id, user_id=me.id, scope="personal", text="prefers short answers")
+    )
+    s.commit()
+    s.close()
     page = client.get("/").text
     assert "model-pill" in page  # the model-status pill
     for label in ("Answers given", "Training examples", "Wiki entries", "Memory items"):
         assert label in page, label  # the four stat tiles
+    assert "Try this next" not in page
     # A single model is not a "council" (founder report, 2026-09-30: "There is no council with 16 GB
     # of memory") - the heading only says "Model council" once 2+ models are actually configured.
     assert ">Model<" in page and ">Living wiki<" in page  # the two cores
-    assert ">0<" in page  # a fresh install reads real zeros, not placeholder numbers
+
+
+def test_a_fresh_account_sees_next_steps_instead_of_four_zeros(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch, topology="solo", role="admin", local_model_chosen=True)
+    page = client.get("/").text
+    assert "Try this next" in page
+    for label, href in (
+        ("Add a document", "/wiki"),
+        ("Ask a question", "/chat"),
+        ("Create a task", "/tasks"),
+    ):
+        assert f'href="{href}"' in page and label in page, label
+    for label in ("Answers given", "Training examples", "Wiki entries", "Memory items"):
+        assert label not in page, label  # no counters until there is something to count
+    assert ">Model<" in page and ">Living wiki<" in page  # the two cores are still there
 
 
 def test_org_setup_step_shown_first_until_activated(tmp_path, monkeypatch):
