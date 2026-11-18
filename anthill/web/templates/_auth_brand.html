@@ -1,0 +1,14 @@
+{# The mark and the name, at the top of every page that comes before the app (setup, sign in, forgot, reset,
+   invite, confirm email). One partial so a page cannot forget it. The hill matches the desktop splash and the
+   error pages; it takes its colours from style.css. #}
+<div class="auth-brand">
+  <svg class="auth-hill" viewBox="0 0 200 130" aria-hidden="true" focusable="false">
+    <ellipse cx="100" cy="114" rx="76" ry="10" fill="var(--text)" opacity=".12"/>
+    <path d="M20,106 A80,78 0 0 1 180,106 Z" fill="var(--accent)"/>
+    <path d="M55,86 Q100,64 145,86" fill="none" stroke="var(--accent-dk)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M62,98 Q100,80 138,98" fill="none" stroke="var(--accent-dk)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M90,106 Q90,66 100,66 Q110,66 110,106 Z" fill="#0E2117"/>
+    <rect x="16" y="103" width="168" height="8" rx="4" fill="var(--accent-dk)"/>
+  </svg>
+  <span class="auth-wordmark">Ant<span>hill</span></span>
+</div>

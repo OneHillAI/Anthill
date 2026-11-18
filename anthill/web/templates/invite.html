@@ -8,18 +8,19 @@
 <body>
 <div class="auth-wrap">
   <div class="auth-box">
+    {% include "_auth_brand.html" %}
     <h1>You're invited</h1>
     <p class="subtitle">Set a password to activate your account for <b>{{ email }}</b>.</p>
     {% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
     <form method="post">
       <div class="form-group">
-        <label>Your name</label>
-        <input type="text" name="display_name" placeholder="Jane Smith" autocomplete="name">
+        <label for="invite-name">Your name</label>
+        <input type="text" name="display_name" id="invite-name" placeholder="Jane Smith" autocomplete="name">
       </div>
       <div class="form-group">
-        <label>Choose a password</label>
-        <input type="password" name="password" required minlength="12" autocomplete="new-password"
-               placeholder="min 12 characters" autofocus>
+        <label for="invite-password">Choose a password</label>
+        <input type="password" name="password" id="invite-password" required minlength="12" autocomplete="new-password"
+               placeholder="At least 12 characters" autofocus>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%">Activate account</button>
     </form>

@@ -8,6 +8,7 @@
 <body>
 <div class="auth-wrap">
   <div class="auth-box">
+    {% include "_auth_brand.html" %}
     <h1>Choose a new password</h1>
     <p class="subtitle">Set a new password for <b>{{ email }}</b>.</p>
     {% if exposed %}<div class="alert alert-err">For your security, your previous password must be changed:
@@ -15,9 +16,9 @@
     {% if error %}<div class="alert alert-err">{{ error }}</div>{% endif %}
     <form method="post">
       <div class="form-group">
-        <label>New password</label>
-        <input type="password" name="password" required minlength="12" autocomplete="new-password" autofocus
-               placeholder="min 12 characters">
+        <label for="reset-password">New password</label>
+        <input type="password" name="password" id="reset-password" required minlength="12" autocomplete="new-password" autofocus
+               placeholder="At least 12 characters">
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%">Set new password</button>
     </form>
