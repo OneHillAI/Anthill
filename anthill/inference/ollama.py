@@ -18,8 +18,17 @@ from time import monotonic
 import httpx
 from platformdirs import user_data_dir
 
+from ..hybrid.scrub import restore
 from ..platform_layer import detached_process_kwargs
-from .base import BackendError, ChatResult, Message, ToolsUnsupported, _mean_logprob
+from .base import (
+    BackendError,
+    ChatResult,
+    Message,
+    ToolsUnsupported,
+    _mean_logprob,
+    stays_local,
+)
+from .egress import restore_stream, scrub_messages
 from .stats import TurnStats, from_ollama
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -126,6 +135,9 @@ class OllamaBackend:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        # An Ollama on another machine is a network endpoint like any other: its text is redacted and its
+        # images are dropped before they leave, and the reply is restored (anthill/inference/egress.py).
+        self._scrub_egress = not stays_local("ollama", self.base_url)
         # Keep the model resident between turns so a follow-up doesn't pay the cold-start *reload*
         # (the biggest single local latency spike). Ollama's default is 5m; a longer window means a
         # user who pauses mid-conversation still hits a warm model. ``keep_alive`` is a duration
@@ -195,6 +207,22 @@ class OllamaBackend:
         )
         return ChatResult(text=content, confidence=_confidence_from_ollama_response(data))
 
+    def _outgoing(self, messages: Sequence[Message]) -> tuple[Sequence[Message], dict[str, str]]:
+        """The messages to send and the map that restores the reply: scrubbed for another machine, as they are
+        (and an empty map) for this one."""
+        if self._scrub_egress:
+            return scrub_messages(messages)
+        return messages, {}
+
+    @staticmethod
+    def _restore_reply(data: dict, replacements: dict[str, str]) -> dict:
+        """Put the redacted values back into the reply's text. Tool-call arguments are not restored: the model
+        only ever saw placeholders, and restoring inside arbitrary JSON risks corrupting a real value."""
+        message = data.get("message")
+        if replacements and isinstance(message, dict) and isinstance(message.get("content"), str):
+            message["content"] = restore(message["content"], replacements)
+        return data
+
     def _chat_raw(
         self,
         messages: Sequence[Message],
@@ -207,6 +235,7 @@ class OllamaBackend:
         trust_env: bool,
         logprobs: bool,
     ) -> tuple[str, dict]:
+        messages, replacements = self._outgoing(messages)
         payload = self._payload(
             messages,
             temperature=temperature,
@@ -265,7 +294,7 @@ class OllamaBackend:
             num_ctx=payload["options"]["num_ctx"],
             wall_ms=round((monotonic() - started) * 1000),
         )
-        return content, data
+        return restore(content, replacements), data
 
     def chat_with_tools(
         self,
@@ -279,6 +308,7 @@ class OllamaBackend:
         """Call ``/api/chat`` with tool specs and return the raw Ollama response dict
         (``{"message": {"content", "tool_calls"}}``). Connect/HTTP failures raise ``BackendError``
         with a human-readable message (the agent loop surfaces it instead of a raw errno)."""
+        messages, replacements = self._outgoing(messages)
         options: dict = {"temperature": temperature, "num_ctx": self._request_num_ctx(model)}
         if num_predict is not None:
             options["num_predict"] = num_predict
@@ -315,7 +345,7 @@ class OllamaBackend:
             num_ctx=options["num_ctx"],
             wall_ms=round((monotonic() - started) * 1000),
         )
-        return data
+        return self._restore_reply(data, replacements)
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -333,7 +363,24 @@ class OllamaBackend:
         Usage:
             for token in backend.chat_stream(messages):
                 print(token, end="", flush=True)
-        """
+
+        For an Ollama on another machine the text is redacted before it is sent and the tokens are restored as
+        they arrive, never emitting a half-restored placeholder."""
+        messages, replacements = self._outgoing(messages)
+        tokens = self._stream_tokens(
+            messages, temperature=temperature, model=model, num_predict=num_predict, think=think
+        )
+        return restore_stream(tokens, replacements)
+
+    def _stream_tokens(
+        self,
+        messages: Sequence[Message],
+        *,
+        temperature: float,
+        model: str | None,
+        num_predict: int | None,
+        think: bool | None,
+    ) -> Iterator[str]:
         payload = self._payload(
             messages,
             temperature=temperature,
@@ -353,25 +400,9 @@ class OllamaBackend:
                 json=payload,
                 timeout=self.timeout,
             ) as resp:
-                if not resp.is_success:
-                    body = bytearray()
-                    for chunk in resp.iter_bytes(chunk_size=300):
-                        body.extend(chunk[: 300 - len(body)])
-                        if len(body) >= 300:
-                            break
-                    detail = body.decode("utf-8", errors="replace")
-                    raise BackendError(f"Ollama returned {resp.status_code}: {detail}")
-                completed = False
+                self._check_stream_response(resp)
                 emitted_text = False
-                for line in resp.iter_lines():
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if chunk.get("error"):
-                        raise BackendError(f"Ollama stream error: {str(chunk['error'])[:300]}")
+                for chunk in self._stream_chunks(resp):
                     token = chunk.get("message", {}).get("content", "")
                     if token:
                         if first_token_ms is None:
@@ -379,13 +410,9 @@ class OllamaBackend:
                         emitted_text = emitted_text or bool(token.strip())
                         yield token
                     if chunk.get("done"):
-                        completed = True
                         final = chunk
                         break
-                if not completed:
-                    raise BackendError("The Ollama stream ended before completion.")
-                if not emitted_text:
-                    raise BackendError("Ollama returned an empty response.")
+                self._check_stream_finished(final, emitted_text)
                 self.last_turn = from_ollama(
                     final,
                     model=str(payload["model"]),
@@ -404,6 +431,41 @@ class OllamaBackend:
                 "The connection to Ollama failed while streaming. Check that Ollama is running and "
                 "try again."
             ) from e
+
+    @staticmethod
+    def _check_stream_response(resp) -> None:
+        """Raise a readable error (with the start of Ollama's reply) when the stream request was refused."""
+        if resp.is_success:
+            return
+        body = bytearray()
+        for chunk in resp.iter_bytes(chunk_size=300):
+            body.extend(chunk[: 300 - len(body)])
+            if len(body) >= 300:
+                break
+        detail = body.decode("utf-8", errors="replace")
+        raise BackendError(f"Ollama returned {resp.status_code}: {detail}")
+
+    @staticmethod
+    def _stream_chunks(resp) -> Iterator[dict]:
+        """The stream's JSON objects, skipping blank lines and lines that are not JSON, and raising on an
+        error object."""
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("error"):
+                raise BackendError(f"Ollama stream error: {str(chunk['error'])[:300]}")
+            yield chunk
+
+    @staticmethod
+    def _check_stream_finished(final: dict, emitted_text: bool) -> None:
+        if not final:
+            raise BackendError("The Ollama stream ended before completion.")
+        if not emitted_text:
+            raise BackendError("Ollama returned an empty response.")
 
     # ── health ────────────────────────────────────────────────────────────────
 
