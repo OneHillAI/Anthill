@@ -26,10 +26,10 @@
 ## Knowledge that compounds
 <p>Four layers turn everyday use into a durable asset, checked fastest-first on every question:</p>
 <ol>
-  <li><strong>Semantic cache.</strong> Each question becomes a numerical fingerprint and is matched against past questions on your machine. A close-enough match returns the previous answer instantly, with no model run. A correctness guard prevents a near-miss, like "EU refund policy" versus "US refund policy", from returning the wrong answer.</li>
+  <li><strong>Semantic cache.</strong> Each question becomes a numerical fingerprint and is matched against past questions on your machine. A close-enough match returns the previous answer instantly, with no model run. A correctness guard prevents a near-miss, like "EU refund policy" versus "US refund policy", from returning the wrong answer. A saved answer is dropped when a page it cited changes or goes missing, or when a page about the question is added or changed later, so an old answer never hides newer knowledge.</li>
   <li><strong>Org index.</strong> If another machine in your org already answered it, the answer comes back from the shared index, without that machine being involved. Only fingerprints live in the index, never prompt text.</li>
   <li><strong>Memory.</strong> Durable facts, decisions, and preferences are distilled automatically from chats and finished tasks, then recalled into future answers. Personal by default; an admin can promote a fact to the whole org.</li>
-  <li><strong>The wiki.</strong> When you ingest a document, the model reads it and writes a structured page: a title, a one-line summary, the key facts, and links to related topics. Good answers can be filed back as pages too. The model maintains the wiki itself, and every page enters the shared org wiki only after a human approves it in <strong>Wiki review</strong>.</li>
+  <li><strong>The wiki.</strong> When you ingest a document, the model reads it and writes a structured page: a title, a one-line summary, the key facts, and links to related topics. A short plain-text note, up to 1,500 characters, is the exception: it is filed exactly as written, with no model call. Good answers can be filed back as pages too. The model maintains the wiki itself, and every page enters the shared org wiki only after a human approves it in <strong>Wiki review</strong>.</li>
 </ol>
 <p>If none of those answer it, the best-routed local model generates a fresh answer on your hardware and caches it for next time. Starting from an empty wiki, an admin can use <strong>Research topics into wiki pages</strong> to have Anthill research topics on the web and file cited, verified drafts into the review queue.</p>
 
@@ -65,7 +65,7 @@
   <li>Stand up a knowledge base from scratch by researching topics into reviewed, cited pages.</li>
   <li>Automate recurring work: inbox digests, research roundups, reports filed to the wiki.</li>
   <li>Draft documents, spreadsheets, and decks in the format you ask for, grounded in your knowledge.</li>
-  <li>Connect your existing tools, Slack, Notion, Jira, Drive, and more, through governed MCP connectors.</li>
+  <li>Connect your existing tools, Slack, Notion, Jira, Microsoft 365, and more, through governed MCP connectors.</li>
   <li>Train and keep your own model that gets better as your team works, without your data or weights ever leaving.</li>
 </ul>
 

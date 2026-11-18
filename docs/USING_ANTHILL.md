@@ -16,9 +16,10 @@ it day to day:
 ## Solo, Projects, and Organisations
 
 Everyone starts with a **Solo** space. It's just you, nothing to set up. You can create an
-**Organisation** later, from the dashboard, when you want to share work with a team. Nothing about
-Solo asks you to think about that until you do. Converting to an organisation is one-way. Once
-you've set one up, there's no path back to a plain Solo account.
+**Organisation** later, when you want to share work with a team: open **Settings**, go to the
+**Organisation** tab and choose **Set up an organisation**. Nothing about Solo asks you to think
+about that until you do. Converting to an organisation is one-way. Once you've set one up, there's
+no path back to a plain Solo account.
 
 - **Solo** is your private space, with your own wiki and your own model. Choose **Your machine**
   (runs locally, works offline) or **Your cloud** (your own connected server, for a bigger model)
