@@ -1,8 +1,9 @@
-{# First-run wizard progress. Guided setup is three steps: create your account, choose Solo or
-   organization (both get identical model/council access - only team invitation differs), then choose
-   the local AI. Backend/team-invite setup is NOT a setup step - it lives in Settings after sign-up
-   (docs/specs/setup-wizard.md). `setup_step` (1, 2, or 3) is the current step; earlier steps render as
-   done. Self-contained styles so it drops into the standalone auth pages (which load only style.css). #}
+{# First-run wizard progress. Guided setup is four steps: create your account, choose Solo or
+   organization (both get identical model/council access - only team invitation differs), choose the
+   local AI, then optionally connect an inference provider. Backend/team-invite setup is NOT a setup step -
+   it lives in Settings after sign-up (docs/specs/setup-wizard.md). `setup_step` (1 to 4) is the current
+   step; earlier steps render as done. The model page shows step 4 without a page load, through
+   `wizSetStep(n)` below. Self-contained styles so it drops into the standalone auth pages (which load only style.css). #}
 <style>
   .wiz-steps { display:flex; align-items:center; justify-content:center; gap:10px; margin:2px 0 22px; }
   .wiz-step { display:flex; align-items:center; gap:8px; }
@@ -28,8 +29,23 @@
     <span class="wiz-label">Solo or organisation</span>
   </div>
   <span class="wiz-sep"></span>
-  <div class="wiz-step {% if setup_step == 3 %}is-current{% endif %}" role="listitem">
-    <span class="wiz-badge">3</span>
+  <div class="wiz-step {% if setup_step == 3 %}is-current{% elif setup_step and setup_step > 3 %}is-done{% endif %}" role="listitem" id="wiz-step-3">
+    <span class="wiz-badge">{% if setup_step and setup_step > 3 %}&check;{% else %}3{% endif %}</span>
     <span class="wiz-label">Choose your AI</span>
   </div>
+  <span class="wiz-sep"></span>
+  <div class="wiz-step {% if setup_step == 4 %}is-current{% endif %}" role="listitem" id="wiz-step-4">
+    <span class="wiz-badge">4</span>
+    <span class="wiz-label">Connect a provider</span>
+  </div>
 </div>
+<script>
+  // Move the progress marker between steps 3 and 4 on the model page, where both are panes of one form.
+  window.wizSetStep = function (n) {
+    var s3 = document.getElementById('wiz-step-3'), s4 = document.getElementById('wiz-step-4');
+    if (!s3 || !s4) return;
+    s3.className = 'wiz-step ' + (n === 3 ? 'is-current' : 'is-done');
+    s4.className = 'wiz-step ' + (n === 4 ? 'is-current' : '');
+    s3.querySelector('.wiz-badge').innerHTML = n === 3 ? '3' : '&check;';
+  };
+</script>

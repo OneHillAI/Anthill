@@ -38,10 +38,10 @@ def _client(tmp_path, *, topology="solo", chosen=False):
 def test_picker_lists_all_four_families(tmp_path):
     c, _ = _client(tmp_path)
     body = c.get("/setup/model").text
-    assert "Pick your artificial intelligence" in body
+    assert "Choose your AI" in body
     for fam in ("Llama", "Gemma", "Mistral", "Qwen"):
         assert fam in body
-    assert "Your machine" in body  # the 3-tier ownership chooser
+    assert "Your model runs on this computer." in body  # where it runs, as a statement
     assert 'name="choice"' in body  # radio choices present, inside the Advanced/manual section
 
 

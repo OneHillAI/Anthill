@@ -39,7 +39,7 @@
   .fit.no{color:var(--muted)}
 </style>
 <div class="card">
-    <h1>Pick your artificial intelligence.</h1>
+    <h1>Choose your AI</h1>
     {% include "_setup_steps.html" %}
     {% if request.query_params.get('error') == 'too_large' %}
     <div class="alert alert-err">That model is too large for {{ hw_label }} - pick one marked "fits" below.</div>
@@ -67,29 +67,46 @@
 
     {% if is_solo %}
 
-    <form method="post" action="/setup/model">
-      {# Steps 1 and 2: the 2-tier ownership chooser (provides name="compute" + cloud_provider +
-         provider_api_key) with the model selection (council / specific model) in its panel, then step 3,
-         the optional inference provider, and a collapsed Advanced. One form, one submit. #}
+    <form method="post" action="/setup/model" id="setup-form">
+      {# Step 3, the model: where it runs (a statement, cloud comes later in Settings), then the model list with
+         the best fit for this machine already chosen. Step 4, the optional inference provider, is the second
+         pane of the same form, so one submit still saves everything. #}
       {% set in_setup = true %}
-      {% include "_compute_chooser.html" %}
-
-      {% include "_inference_provider.html" %}
-
-      <button type="submit" id="mp-continue" class="btn btn-primary" disabled style="width:100%;margin-top:var(--sp-4);padding:12px;font-size:var(--fs-2);font-weight:600">Continue with this council</button>
-    </form>
-
-    {% if frontier_models %}
-    <details class="adv" style="margin-top:14px">
-      <summary class="text-sm text-muted" style="cursor:pointer">Frontier models (bring your own infrastructure)</summary>
-      <div style="margin-top:10px">
-        {% for m in frontier_models %}
-        <div class="advrow"><div class="advrow-main"><span class="advrow-name">{{ m.name }}</span><span class="advrow-d">{{ m.origin }} &middot; {{ m.params_b|round|int }}B params</span></div></div>
-        {% endfor %}
-        <div class="adv-contact">Want help running one of these? Email <a href="mailto:dev@anthill.run">dev@anthill.run</a>.</div>
+      <div id="setup-pane-model">
+        {% include "_compute_chooser.html" %}
+        <button type="button" id="mp-continue" class="btn btn-primary" disabled onclick="setupShowProvider(true)" style="width:100%;margin-top:var(--sp-4);padding:12px;font-size:var(--fs-2);font-weight:600">Choose a model to continue</button>
       </div>
-    </details>
-    {% endif %}
+
+      <div id="setup-pane-provider" hidden>
+        <h2 style="font-size:20px;margin:0 0 6px">Want faster, stronger answers on hard questions?</h2>
+        <p class="text-muted" style="margin:0 0 14px">Your model runs on this computer, and big tasks can be slow. An inference provider runs a much larger open model for those questions only.</p>
+        <div class="alert" style="border:1px solid var(--border);background:var(--surface,#fff);margin:0 0 6px">
+          <b>What stays private</b>
+          <ul style="margin:6px 0 0;padding-left:18px">
+            <li>Your wiki, files and memory stay on this computer.</li>
+            <li>Before a question leaves, you see what is sent and which provider gets it. You can allow it each time or always.</li>
+            <li>You can disconnect at any time in Settings.</li>
+          </ul>
+        </div>
+        {% include "_inference_provider.html" %}
+        <p class="text-sm text-muted" style="margin:4px 0 0">Without a provider, hard questions run slower on this computer.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:var(--sp-4)">
+          <button type="submit" class="btn btn-primary" style="flex:1;padding:12px;font-weight:600">Connect and finish</button>
+          <button type="submit" class="btn" onclick="ccClearEscalation()" style="flex:1;padding:12px;font-weight:600">Not now</button>
+        </div>
+        <p style="margin:10px 0 0;text-align:center"><button type="button" class="btn btn-link" onclick="setupShowProvider(false)" style="background:none;border:none;color:var(--muted);cursor:pointer">Back to your model</button></p>
+      </div>
+    </form>
+    <script>
+      // Step 3 and step 4 are two panes of one form. Showing the provider pane moves the progress marker and
+      // scrolls to the top; "Back to your model" undoes it. Nothing is saved until the form is submitted.
+      function setupShowProvider(show) {
+        document.getElementById('setup-pane-model').hidden = show;
+        document.getElementById('setup-pane-provider').hidden = !show;
+        if (window.wizSetStep) window.wizSetStep(show ? 4 : 3);
+        window.scrollTo(0, 0);
+      }
+    </script>
 
     <form method="post" action="/setup/model" style="margin-top:10px;text-align:center">
       <input type="hidden" name="compute" value="local">
