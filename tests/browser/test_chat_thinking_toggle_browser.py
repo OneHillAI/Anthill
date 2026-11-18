@@ -147,13 +147,10 @@ def test_a_new_account_starts_with_thinking_and_web_search_off(live):
             assert button.get_attribute("aria-pressed") == "true"
 
             page.locator(
-                "#fu-web"
-            ).check()  # switching web search on in the notice saves the default
-            for _ in range(100):
-                if live["saved"]()[1] is True:
-                    break
-                page.wait_for_timeout(50)
-            assert live["saved"]() == (False, True, True)  # saved, and the notice counts as seen
+                "#opt-web-btn"
+            ).click()  # the Web search button changes this chat only, not the saved default
+            assert page.locator("#opt-web").is_checked() is True
+            assert live["saved"]() == (False, False, False)  # nothing saved, hint still pending
         finally:
             browser.close()
 
@@ -236,41 +233,39 @@ def test_web_search_is_per_chat_too(live):
             browser.close()
 
 
-def test_first_use_notice_saves_defaults_and_chats_follow_them(live):
+def test_first_use_hint_states_the_defaults_and_shows_once(live):
     live["reset"](thinking_on=True, web_access_on=True, seen=False)
     base, c1, c2 = live["base"], live["c1"], live["c2"]
     with sync_api.sync_playwright() as p:
         browser, context = _open(p, live, c1)
         try:
             page = context.new_page()
-            page.goto(
-                f"{base}/tasks", wait_until="domcontentloaded"
-            )  # whichever of chat/agents/tasks is first
-            notice = page.locator("#first-use-notice")
-            assert notice.is_visible()
+            page.goto(f"{base}/tasks", wait_until="domcontentloaded")
+            assert page.locator("#first-use-notice").count() == 0  # agents and tasks have no hint
+
+            page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
+            assert page.locator("#first-use-notice").is_visible()
             assert page.locator("#fu-think-state").inner_text() == "on"
             assert page.locator("#fu-web-state").inner_text() == "on"
+            assert page.locator("#fu-think").count() == 0  # no switches in the hint
 
-            page.locator(
-                "#fu-think"
-            ).uncheck()  # turn thinking off as the default, right in the notice
+            page.wait_for_function("typeof fuSave === 'function'")
+            page.click("#fu-ok")
             for _ in range(100):
-                if live["saved"]()[0] is False:
+                if live["saved"]()[2] is True:
                     break
                 page.wait_for_timeout(50)
-            assert live["saved"]() == (False, True, True)  # saved, and the notice counts as seen
+            assert live["saved"]() == (
+                True,
+                True,
+                True,
+            )  # the defaults are untouched, the hint is seen
 
             page.goto(f"{base}/chat/{c2}", wait_until="domcontentloaded")
             assert page.locator("#first-use-notice").count() == 0  # shown once
             assert (
-                page.locator("#opt-think").inner_text().strip().endswith("Thinking off")
+                page.locator("#opt-think").inner_text().strip().endswith("Thinking on")
             )  # follows the default
-
-            page.locator("#opt-think").click()  # this chat opts back in
-            page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
-            assert (
-                page.locator("#opt-think").inner_text().strip().endswith("Thinking off")
-            )  # c1 still follows
         finally:
             browser.close()
 
@@ -304,7 +299,7 @@ def test_opening_settings_from_the_notice_still_saves_that_it_was_seen(live):
         browser, context = _open(p, live, c1)
         try:
             page = context.new_page()
-            page.goto(f"{base}/tasks", wait_until="domcontentloaded")
+            page.goto(f"{base}/chat/{c1}", wait_until="domcontentloaded")
             page.wait_for_function("typeof fuSave === 'function'")
             page.click("#first-use-notice a[href='/personalize#privacy']")  # navigates at once
             page.wait_for_url("**/personalize*")
@@ -379,9 +374,6 @@ def test_importing_an_old_off_updates_the_notice_on_the_same_page(live):
             )  # the old saved choice: off
             page.reload(wait_until="domcontentloaded")
             page.wait_for_function("document.getElementById('fu-web-state').textContent === 'off'")
-            assert (
-                page.locator("#fu-web").is_checked() is False
-            )  # the notice no longer states the old default
         finally:
             browser.close()
 

@@ -1,7 +1,7 @@
 """Chat defaults and the first-use notice (docs/specs/chat-thinking-toggle.md).
 
 Settings holds the default for Thinking and Web search; each chat can change its own. The first time a user
-opens chat, agents or tasks a one-time notice says what the defaults are and where to change them.
+opens chat a one-time hint under the chat box says what the defaults are and where to change them.
 Model-free: pages are rendered with a TestClient.
 """
 
@@ -62,25 +62,25 @@ def test_new_user_defaults(tmp_path, monkeypatch):
     )  # thinking off, web off, notice not yet seen
 
 
-def test_notice_shows_on_chat_agents_and_tasks_until_acknowledged(tmp_path, monkeypatch):
+def test_hint_shows_on_chat_only_until_acknowledged(tmp_path, monkeypatch):
     client, _app_mod, cid, _uid = _app(tmp_path, monkeypatch)
-    for path in (f"/chat/{cid}", "/agents", "/tasks"):
+    r = client.get(f"/chat/{cid}")
+    assert r.status_code == 200
+    assert 'id="first-use-notice"' in r.text
+    assert (
+        'Thinking is <b id="fu-think-state">off</b>' in r.text
+    )  # new accounts: answers start fast
+    assert '<b id="fu-web-state">off</b>' in r.text  # new accounts: web search off too
+    assert "clearly needs live information" not in r.text  # no automatic search to disclose
+    assert 'href="/personalize#privacy"' in r.text  # opens the Settings tab that holds the defaults
+    for path in ("/agents", "/tasks"):
         r = client.get(path)
         assert r.status_code == 200, path
-        assert 'id="first-use-notice"' in r.text, path
-        assert 'Thinking is <b id="fu-think-state">off</b>' in r.text, (
+        assert 'id="first-use-notice"' not in r.text, (
             path
-        )  # new accounts: answers start fast
-        assert '<b id="fu-web-state">off</b>' in r.text, path  # new accounts: web search off too
-        assert "clearly needs live information" not in r.text, (
-            path
-        )  # no automatic search to disclose
-        assert 'href="/personalize#privacy"' in r.text, (
-            path
-        )  # opens the Settings tab that holds the defaults
+        )  # agents and tasks keep their own settings
     assert client.post("/settings/chat-defaults", json={"seen": True}).json()["seen"] is True
-    for path in (f"/chat/{cid}", "/agents", "/tasks"):
-        assert 'id="first-use-notice"' not in client.get(path).text, path
+    assert 'id="first-use-notice"' not in client.get(f"/chat/{cid}").text
 
 
 def test_defaults_endpoint_saves_and_ignores_non_booleans(tmp_path, monkeypatch):
@@ -141,13 +141,15 @@ def test_settings_page_has_the_thinking_default_and_saves_it(tmp_path, monkeypat
     assert _user(app_mod, uid)[0] is True
 
 
-def test_notice_says_what_applies_on_each_page(tmp_path, monkeypatch):
+def test_hint_sits_under_the_chat_box_and_has_no_switches_of_its_own(tmp_path, monkeypatch):
     client, _app_mod, cid, _uid = _app(tmp_path, monkeypatch)
-    keeps = "Agents and scheduled tasks keep their own settings."
-    assert keeps not in client.get(f"/chat/{cid}").text  # chats are what the defaults govern
-    for path in ("/agents", "/tasks"):
-        assert keeps in client.get(path).text, path
-    page = client.get("/tasks").text
+    page = client.get(f"/chat/{cid}").text
+    # it comes after the buttons it points to, so it never pushes the conversation down
+    assert page.index('class="input-options-bar"') < page.index('id="first-use-notice"')
+    assert page.index('id="messages"') < page.index('id="first-use-notice"')
+    assert (
+        'id="fu-think"' not in page and 'id="fu-web"' not in page
+    )  # the buttons above are the switches
     assert 'href="/personalize#model"' in page and 'href="/personalize#privacy"' in page
 
 
@@ -231,26 +233,24 @@ def test_upgrading_an_existing_database_keeps_choices_and_fills_the_new_columns(
         assert row.thinking_on is True and row.chat_defaults_notice_seen is False
 
 
-def test_notice_in_an_organisation_account_talks_about_personal_chats(tmp_path, monkeypatch):
-    client, app_mod, _cid, uid = _app(tmp_path, monkeypatch)
+def test_hint_in_an_organisation_account_talks_about_personal_chats(tmp_path, monkeypatch):
+    client, app_mod, cid, uid = _app(tmp_path, monkeypatch)
     s = app_mod._SessionFactory()
     me = s.query(db_mod.User).filter(db_mod.User.id == uid).first()
     s.add(db_mod.OrgSettings(org_id=me.org_id))
     s.commit()
     s.close()
-    page = client.get("/tasks").text
-    assert "in your chats." in page and "Organisation chats always search the web." not in page
+    page = client.get(f"/chat/{cid}").text
+    assert "organisation chats always search the web" not in page
     monkeypatch.setattr("anthill.planes.is_org_mode", lambda cfg: True)
-    page = client.get("/tasks").text
-    assert "in your personal chats." in page
-    assert "Organisation chats always search the web." in page
+    page = client.get(f"/chat/{cid}").text
+    assert "in your personal chats; organisation chats always search the web." in page
 
 
 def test_thinking_is_described_as_local_only_everywhere_it_is_offered(tmp_path, monkeypatch):
     client, _app_mod, cid, _uid = _app(tmp_path, monkeypatch)
     for page in (
         client.get(f"/chat/{cid}").text,
-        client.get("/tasks").text,
         client.get("/personalize").text,
     ):
         assert "Only " in page and "models running on this machine" in page

@@ -1,0 +1,1 @@
+**Web search and Thinking under the chat box now look like switches, and an answer says where it ran in words.** The two buttons keep their labels ("Web search off", "Thinking on") and gain a small switch that shows the state at a glance. The laptop and cloud emoji under an answer are replaced by "On this device" or "Sent over the network".
