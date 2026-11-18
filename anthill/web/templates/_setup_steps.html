@@ -17,6 +17,13 @@
   .wiz-step.is-done .wiz-label { color:var(--text); }
   .wiz-sep { width:26px; height:1.5px; background:var(--border); flex:none; }
   @media (max-width:420px) { .wiz-label { display:none; } .wiz-sep { width:16px; } }
+  /* In a narrow card (the sign-up and solo-or-organisation pages) four labels do not fit: show the label of the
+     current step only. The numbered markers still show where you are. Wider cards keep every label. */
+  .wiz-steps { container-type:inline-size; }
+  @container (max-width:430px) {
+    .wiz-step:not(.is-current) .wiz-label { display:none; }
+    .wiz-sep { width:18px; }
+  }
 </style>
 <div class="wiz-steps" role="list" aria-label="Setup progress">
   <div class="wiz-step {% if setup_step == 1 %}is-current{% elif setup_step and setup_step > 1 %}is-done{% endif %}" role="listitem">
