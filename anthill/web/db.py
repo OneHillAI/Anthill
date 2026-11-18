@@ -1080,6 +1080,8 @@ class ChatMessage(Base):
     generation_failed = Column(Boolean, nullable=False, default=False)
     cache_hit = Column(Boolean, nullable=False, default=False)
     wiki_slugs = Column(String(500), nullable=False, default="")  # comma-separated
+    # The user's own documents an answer was given passages of, one per line: "report.pdf (page 2)".
+    doc_sources = Column(String(500), nullable=False, default="")
     thumbs_up: Mapped[bool | None] = mapped_column(Boolean)  # None=unrated, True/False
     # Content provenance: a deterministic hash over (conversation, role, content) so any knowledge that
     # flows from this turn into the wiki can be traced back to the exact input it came from. Content-

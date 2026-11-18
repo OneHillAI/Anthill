@@ -18,8 +18,9 @@ from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
 from . import prompts
 from .cache_freshness import judge_for
+from .doc_context import document_passages, format_block, source_tags, summary_labels
 from .page_index import embed_text
-from .passages import build_reference
+from .passages import PAGE_SEPARATOR, build_reference
 from .workspace import Workspace
 
 # Minimum cosine similarity for a wiki page to ground an answer. Below this, the "closest" page is
@@ -413,7 +414,8 @@ def ask(
     cited = _cited_slugs(pages, scores)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
-    context = build_reference(pages, question) if pages else ""
+    context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
+    cited = cited + source_tags(doc_hits)
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -436,7 +438,7 @@ def ask(
             web = answer_from_web(
                 question,
                 backend=_backend_with_model(backend, model_override, think=think),
-                wiki_context=context_no_mem if (pages or profile or principles) else "",
+                wiki_context=context_no_mem if (pages or doc_hits or profile or principles) else "",
                 memory_context=memory_context,
                 history=prepared_history,
                 search_query=search_query,  # search the clean question, not a redo's augmented blob
@@ -629,7 +631,9 @@ def ask(
     returned_answer = answer
     if web_failed:
         # Added after the cache, publish and file steps above, so it is never stored, published or filed.
-        returned_answer = web_failed_note(web_failed, have_wiki=bool(pages)) + returned_answer
+        returned_answer = (
+            web_failed_note(web_failed, have_wiki=bool(pages or doc_hits)) + returned_answer
+        )
     if council is None and not fixed and _should_suggest_deeper(answer):
         returned_answer += _go_deeper_suggestion(provider_available)
     if web is not None and answer == web.text:
@@ -753,7 +757,8 @@ def ask_stream(
     scores: dict[Path, float] = {}
     pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
     cited = _cited_slugs(pages, scores)
-    context = build_reference(pages, question) if pages else ""
+    context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
+    cited = cited + source_tags(doc_hits)
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -847,7 +852,9 @@ def ask_stream(
                     results,
                     # the routed model's window, as ask() uses, so the engine never drops the reference silently
                     backend=_backend_with_model(backend, model_override, think=think),
-                    wiki_context=context_no_mem if (pages or profile or principles) else "",
+                    wiki_context=context_no_mem
+                    if (pages or doc_hits or profile or principles)
+                    else "",
                     memory_context=memory_context,
                     history=prepared_history,
                     question_for_rules=asked,
@@ -907,13 +914,13 @@ def ask_stream(
         if note_due:
             # The note comes with the first words, so the member knows what this answer is. It is not sent before
             # the answer starts: a fallback that fails leaves a failed turn, not "note + failure".
-            yield web_failed_note(note_due, have_wiki=bool(pages))
+            yield web_failed_note(note_due, have_wiki=bool(pages or doc_hits))
             note_due = ""
         chunks.append(chunk)
         yield chunk
     if note_due:
         yield web_failed_note(
-            note_due, have_wiki=bool(pages)
+            note_due, have_wiki=bool(pages or doc_hits)
         )  # the fallback said nothing: the note still shows
 
     answer = "".join(chunks)
@@ -1019,6 +1026,19 @@ def _window_for(backend, model_override: str | None) -> int:
     from ..inference.context import known_window
 
     return known_window(backend, model_override)
+
+
+def _reference(spaces, pages: list[Path], question: str, *, small_talk: bool = False):
+    """The wiki part of an answer's context: passages of the user's own documents that match the question
+    (first, labelled as the original), then the retrieved pages, where the page that is the summary of one of
+    those documents carries a note saying so. Returns the text and the passages used. Shared by ``ask()`` and
+    ``ask_stream()``; costs one index query per workspace and no model call, and adds nothing when no passage
+    qualifies."""
+    doc_hits = [] if small_talk else document_passages(spaces, question)
+    context = build_reference(pages, question, summary_labels(pages, doc_hits)) if pages else ""
+    if doc_hits:
+        context = format_block(doc_hits) + (PAGE_SEPARATOR + context if context else "")
+    return context, doc_hits
 
 
 def _decorate_context(context: str, *, profile: str = "", principles: str = "") -> str:

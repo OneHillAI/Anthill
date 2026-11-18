@@ -29,6 +29,7 @@ import queue
 import re
 import sqlite3
 import threading
+import unicodedata
 import zlib
 from contextlib import closing
 from pathlib import Path
@@ -44,6 +45,11 @@ PASSAGES_TABLE = "passages_v1"
 WORDS_TABLE = "words_v1"
 PASSAGE_CHARS = 800  # the size a passage is packed up to (about 200 tokens), as in wiki/passages.py
 MAX_QUERY_TERMS = 12
+# A query word is "rare" when it is in at most this share of the indexed passages (but at least one passage,
+# and at most RARE_CAP passages). Rare words are what tell a passage about the question from one that only shares
+# common words with it, and unlike a BM25 score the count means the same in a small wiki and a large one.
+RARE_FRACTION = 0.25
+RARE_CAP = 50
 BUSY_TIMEOUT_S = 2.0
 
 _PAGE_BREAK = "\n\n---\n\n"  # what the reader writes between the pages of a PDF
@@ -89,6 +95,9 @@ class Hit(NamedTuple):
     heading: str
     text: str  # read back from the text file by the passage's byte offsets
     score: float  # BM25: lower is a better match
+    rare: int = (
+        0  # how many rare words of the query the passage contains (see ``search``'s ``min_rare``)
+    )
 
 
 # ── splitting ─────────────────────────────────────────────────────────────────
@@ -188,6 +197,13 @@ def text_hash(text: str) -> str:
 
 
 # ── the index ─────────────────────────────────────────────────────────────────
+
+
+def _fold(text: str) -> str:
+    """Lowercase without accents, the way the index's tokenizer compares words."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c)
+    )
 
 
 def _fts_text(passage: str) -> str:
@@ -301,14 +317,46 @@ class DocIndex:
 
         self._run(work, None)
 
-    def search(self, query: str, limit: int = 5) -> list[Hit]:
+    def exists(self) -> bool:
+        """True when this workspace has an index file. Searching one that has none would create it."""
+        return self.path.is_file()
+
+    def _rare_terms(self, terms: list[str]) -> set[str]:
+        """The words of ``terms`` that are rare in this index (see ``RARE_FRACTION``)."""
+
+        def work(con: sqlite3.Connection) -> set[str]:
+            total = con.execute(f"SELECT count(*) FROM {PASSAGES_TABLE}").fetchone()[0]  # nosec B608
+            limit = max(1, min(int(RARE_FRACTION * total), RARE_CAP))
+            rare = set()
+            for t in terms:
+                n = con.execute(  # nosec B608
+                    f"SELECT count(*) FROM {WORDS_TABLE} WHERE {WORDS_TABLE} MATCH ?", (f'"{t}"',)
+                ).fetchone()[0]
+                if 0 < n <= limit:
+                    rare.add(t)
+            return rare
+
+        return self._run(work, set())
+
+    def search(self, query: str, limit: int = 5, *, min_rare: int = 0) -> list[Hit]:
         """The best passages for ``query``, best first, by BM25 over the words of the query (any of them). The
         text of each is read from its text file; a hit whose file is gone or no longer matches what was
-        indexed (the CRC differs) is left out, which is a stale entry the next sync replaces."""
+        indexed (the CRC differs) is left out, which is a stale entry the next sync replaces.
+
+        With ``min_rare`` a passage must also contain at least that many distinct rare words of the query
+        (``Hit.rare`` says how many), and the hits are ordered by that count, then by BM25. A passage that only
+        shares common words with the question ("the", "what", "is") is then not a hit."""
         terms = list(dict.fromkeys(_WORD.findall((query or "").lower())))[:MAX_QUERY_TERMS]
         if not terms or limit < 1:
             return []
         match = " OR ".join(f'"{t}"' for t in terms)
+        if min_rare > 0:
+            rare = self._rare_terms(terms)
+            if len(rare) < min_rare:
+                return []
+            candidates = max(limit * 4, 8)
+        else:
+            rare, candidates = set(), limit
 
         def work(con: sqlite3.Connection) -> list[tuple]:
             return con.execute(  # nosec B608
@@ -316,15 +364,21 @@ class DocIndex:
                 f"bm25({WORDS_TABLE}) AS score FROM {WORDS_TABLE} "
                 f"JOIN {PASSAGES_TABLE} p ON p.id = {WORDS_TABLE}.rowid "
                 f"WHERE {WORDS_TABLE} MATCH ? ORDER BY score LIMIT ?",
-                (match, limit),
+                (match, candidates),
             ).fetchall()
 
+        folded_rare = {_fold(t) for t in rare}
         hits = []
         for doc, n, start, stop, bstart, bstop, crc, page, heading, score in self._run(work, []):
             text = self._read(doc, bstart, bstop, crc)
-            if text is not None:
-                hits.append(Hit(doc, n, start, stop, page, heading, text, score))
-        return hits
+            if text is None:
+                continue
+            found = len(folded_rare & set(_WORD.findall(_fold(text)))) if rare else 0
+            if found >= min_rare:
+                hits.append(Hit(doc, n, start, stop, page, heading, text, score, found))
+        if min_rare > 0:
+            hits.sort(key=lambda h: (-h.rare, h.score))
+        return hits[:limit]
 
     def _read(self, doc: str, bstart: int, bstop: int, crc: int) -> str | None:
         """The passage at these byte offsets of the text file of ``doc``, or None when the file is gone or its
@@ -338,6 +392,44 @@ class DocIndex:
         if len(raw) != bstop - bstart or zlib.crc32(raw) != crc:
             return None
         return raw.decode(_ENCODING, "replace")
+
+
+# ── whether this SQLite can run it ────────────────────────────────────────────
+
+_support: tuple[bool, str] | None = None
+
+
+def support() -> tuple[bool, str]:
+    """(True, "") when this SQLite can run the index, else (False, why). It tries the one statement the index
+    needs, a contentless full-text table with ``contentless_delete`` (SQLite 3.43 with FTS5), in a memory
+    database, so the answer is for the SQLite this process really uses, a packaged app's included."""
+    global _support
+    if _support is None:
+        try:
+            with closing(sqlite3.connect(":memory:")) as con:
+                con.execute(
+                    "CREATE VIRTUAL TABLE probe USING fts5(text, content='', contentless_delete=1)"
+                )
+            _support = (True, "")
+        except sqlite3.Error as e:
+            _support = (
+                False,
+                f"this SQLite ({sqlite3.sqlite_version}) cannot build it; it needs 3.43 with FTS5 ({e})",
+            )
+    return _support
+
+
+def off_notice() -> str:
+    """What to tell a person when document search is off, or "" when it is on. The raw reason is for the log."""
+    ok, _why = support()
+    if ok:
+        return ""
+    return (
+        "Document search is off on this install, so answers use the AI's summary pages only. The database engine "
+        f"built into this copy of Anthill (SQLite {sqlite3.sqlite_version}) is too old, or built without a feature "
+        "it needs: document search needs SQLite 3.43 or newer with full-text search. Updating Anthill fixes it; "
+        "if you run from source, use a Python with a newer SQLite."
+    )
 
 
 # ── keeping it up to date ─────────────────────────────────────────────────────
@@ -383,6 +475,10 @@ def sync_all() -> int:
     texts kept before the index existed. Returns the passages written in total. Never raises."""
     if not ENABLED:
         return 0
+    ok, why = support()
+    if not ok:
+        log.warning("document search is off: %s", why)  # a warning: nothing else says so
+        return 0
     from .page_index import workspace_roots
 
     try:
@@ -418,7 +514,7 @@ def _ensure_worker() -> None:
 
 def index_soon(root: Path, path: Path) -> None:
     """Queue a just-kept text for the background worker. Returns at once and never raises."""
-    if not ENABLED:
+    if not ENABLED or not support()[0]:
         return
     try:
         _pending.put_nowait((root, path))

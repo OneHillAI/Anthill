@@ -173,9 +173,16 @@ def best_passages(body: str, question: str, keep: int = KEEP) -> str:
     return text
 
 
-def build_reference(pages: Iterable[Path], question: str) -> str:
+def build_reference(
+    pages: Iterable[Path], question: str, notes: dict[Path, str] | None = None
+) -> str:
     """The wiki reference text for a prompt: each page (front matter removed) cut to its best passages when it
-    is long, joined with the usual page separator. One helper for the blocking and the streaming answer."""
+    is long, joined with the usual page separator. ``notes`` puts a line above a page (used to mark the summary
+    of a document whose own text is also in the reference). One helper for the blocking and the streaming
+    answer."""
+    notes = notes or {}
     return PAGE_SEPARATOR.join(
-        best_passages(strip_frontmatter(p.read_text()), question) for p in pages
+        (f"{notes[p]}\n" if p in notes else "")
+        + best_passages(strip_frontmatter(p.read_text()), question)
+        for p in pages
     )

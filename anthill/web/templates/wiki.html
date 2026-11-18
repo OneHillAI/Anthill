@@ -50,6 +50,7 @@
 <div class="card">
   <h2 style="font-size:15px;margin:0 0 4px">Files</h2>
   <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them. For most file types the text Anthill read out of the document is kept too: open it to see what your AI was given.</p>
+  {% if doc_search_off %}<p class="alert alert-warn text-sm" id="doc-search-off">{{ doc_search_off }}</p>{% endif %}
   {% if raw_files %}
   <table class="text-sm" style="width:100%;border-collapse:collapse">
     {% for f in raw_files %}
