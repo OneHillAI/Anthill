@@ -223,7 +223,7 @@ def test_connect_error_points_at_the_endpoint(monkeypatch):
 
 
 def test_stays_local_true_for_ollama_and_loopback():
-    assert stays_local("ollama", "http://anything:11434") is True
+    assert stays_local("ollama", "http://localhost:11434") is True
     assert stays_local("openai", "http://127.0.0.1:8091/v1") is True
     assert stays_local("openai", "http://localhost:8091/v1") is True
 

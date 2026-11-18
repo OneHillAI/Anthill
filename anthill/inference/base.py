@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -84,21 +85,41 @@ class InferenceBackend(Protocol):
         ...
 
 
-def stays_local(backend: str, base_url: str) -> bool:
-    """True when a turn answered by this backend/base_url never left this machine: the local Ollama
-    backend, or an OpenAI-compatible endpoint bound to loopback (the on-device mlx-lm fine-tune
-    server). False for any real network endpoint - an org's own cloud/RunPod/onprem server, or a
-    third-party inference provider - used both to gate outbound PII scrubbing and to tell the user,
-    per turn, whether their message left the machine."""
-    if backend == "ollama":
+# Names a program on this machine uses for this machine. The last two are the host as seen from inside a Docker
+# or Podman container, which is how the repo's compose file reaches an Ollama running on the host.
+_THIS_MACHINE = ("localhost", "host.docker.internal", "host.containers.internal")
+
+
+def _is_this_machine(base_url: str) -> bool:
+    """True only when the URL's host is this machine: loopback (127.0.0.0/8, ::1), the unspecified address, a
+    ``localhost`` name, or the container-to-host names above. Any other name or address, including a LAN
+    address, is another machine. An unreadable URL is not this machine."""
+    import httpx
+
+    try:
+        host = httpx.URL(base_url).host.lower().rstrip(".")
+    except (httpx.InvalidURL, TypeError, ValueError):
+        return False
+    if host in _THIS_MACHINE or host.endswith(".localhost"):
         return True
     try:
-        import httpx
-
-        host = httpx.URL(base_url).host
-    except Exception:
+        address = ipaddress.ip_address(host)
+    except ValueError:
         return False
-    return host in ("localhost", "127.0.0.1", "::1")
+    return address.is_loopback or address.is_unspecified
+
+
+def stays_local(backend: str, base_url: str) -> bool:
+    """True when a turn answered by this backend/base_url never left this machine: an Ollama or an
+    OpenAI-compatible server (the on-device mlx-lm fine-tune server) at an address on this machine. The
+    address decides, not the backend: an Ollama pointed at another machine, whatever its name, is remote.
+    False for any real network endpoint - an org's own cloud/RunPod/onprem server, a LAN box, or a
+    third-party inference provider - used both to gate outbound PII scrubbing and to tell the user,
+    per turn, whether their message left the machine. An Ollama with no address set is the default
+    one on this machine."""
+    if backend == "ollama" and not (base_url or "").strip():
+        return True
+    return _is_this_machine(base_url)
 
 
 def build_backend(config: Config) -> InferenceBackend:
