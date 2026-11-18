@@ -1263,3 +1263,19 @@ def test_the_generated_setup_token_is_stable_and_does_not_reveal_the_secret(app,
     assert first == install_scope.setup_token()  # every call, worker and restart agrees
     assert len(first) >= 16 and keystore.jwt_secret() not in first
     assert not hasattr(install_scope, "_generated_setup_token")  # nothing is held in process memory
+
+
+def test_start_up_prints_the_setup_token_only_on_a_reachable_server_with_no_account(
+    app, monkeypatch, capsys
+):
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    app_mod._announce_setup_token()
+    assert install_scope.setup_token() in capsys.readouterr().out
+    monkeypatch.setenv("ANTHILL_HOST", "127.0.0.1")  # a loopback server prints nothing
+    app_mod._announce_setup_token()
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")  # nor once an account exists
+    _signup("owner@example.com", NETWORK)
+    capsys.readouterr()
+    app_mod._announce_setup_token()
+    assert capsys.readouterr().out == ""

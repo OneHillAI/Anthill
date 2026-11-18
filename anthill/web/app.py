@@ -485,7 +485,12 @@ def _require_install_scope(request: Request, user: dict) -> None:
 
 def _announce_setup_token() -> None:
     """On a server others can reach, with no account yet, say where the first-account token is."""
-    if first_account_needs_token(_db()):
+    db = _new_session()
+    try:
+        needed = first_account_needs_token(db)
+    finally:
+        db.close()
+    if needed:
         print(
             "\n[anthill] This server can be reached from the network and has no account yet.\n"
             f"[anthill] Setup token for the first account: {setup_token()}\n"

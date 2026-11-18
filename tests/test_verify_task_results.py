@@ -673,6 +673,7 @@ def test_startup_restores_inference_before_starting_scheduler(monkeypatch):
     calls = []
     monkeypatch.setattr(app_mod, "_scheduler_started", False)
     monkeypatch.setattr(app_mod, "_engine", object())
+    monkeypatch.setattr(app_mod, "_announce_setup_token", lambda: None)  # needs a real database
     for name, label in (
         ("_reap_aws_orphans", "reap"),
         ("_autostart_remote_access", "remote"),
