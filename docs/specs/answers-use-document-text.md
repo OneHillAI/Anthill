@@ -24,7 +24,8 @@ The document's own text was kept (#225) and indexed (#231) and not used.
    (`MAX_PASSAGES`).
 2. A passage qualifies only if it contains at least two distinct rare words of the question (`MIN_RARE`). A word is
    rare when it is in at most a quarter of the indexed passages, at least one and at most 50 (`doc_index.RARE_*`).
-   Counting rare words, unlike a BM25 score, means the same in a wiki of one document and a wiki of a hundred. A
+   Counting rare words moves less with the size of the wiki than a BM25 score did, but it is not size-proof (see
+   the measurements and the known limits). A
    question with fewer than two rare words, such as a greeting, a general-knowledge question or a one-word query,
    gets no passage. Passages are ordered by the number of rare words they contain, then by BM25.
 3. The passages go first in the wiki part of the reference, under a header that says they are the user's original
@@ -84,11 +85,26 @@ On a Mac with `qwen2.5:3b` and no network, documents ingested through the real u
   (`tests/test_document_passage_gate.py`): the passage with the answer is among the two chosen for 16 of 16 (with
   plain keyword order it was first for 15 of 16, and second for the other one); none of the 10 gets a passage. Plain
   keyword ranking returns a passage for some of the 10.
+- **A bigger wiki.** The four documents among 46, 196 and 496 generated ones, with English function words and some of
+  the unrelated questions' own words scattered through them (three draws each, the same result every time): the answer
+  is among the two chosen for 16 of 16 questions at 50 documents and 15 of 16 at 200 and 500; 2 of the 10 unrelated
+  questions got a passage at 50 documents and none at 200 and 500; a search takes 0.7 to 2.2 ms. An earlier set of
+  generated documents with no English function words gave 2 of 10 at every size, because "is" and "at" looked rare in
+  it, which English text does not do. A BM25 floor did not survive the change of size (the same question scored 2.4
+  in a one-document wiki and 6.9 in a four-document one). These wikis are generated, not real: how the gate behaves on
+  real wikis is not measured.
+- **The cache check.** For one cached answer older than 504 kept texts, the worst case, ruling on it takes 2.6 ms, and a
+  lookup rules on at most the few candidate rows it found, not on every cached answer.
 
 ## Known limits
 
-- The gate and the choice of two passages were measured on a small set written for this, not on real wikis. The
-  rare-word thresholds are starting points.
+- The gate and the choice of two passages were measured on a small set written for this and on generated wikis of up
+  to 500 documents, not on real wikis. What counts as rare (a quarter of the passages, at most 50) and the two words
+  are starting points. A stray passage costs about half a second and can distract a small model.
+- With many near-duplicate documents (50 and 200 copies of the same four with every name and number changed) the 16
+  questions still found their passage for 12 and then 10: a question made of words that every copy contains cannot be
+  told apart, so it gets no passage and is answered as before. No wrong passage was returned for the ten unrelated
+  questions in that case. The gate fails towards today's behaviour, not towards a wrong passage.
 - Keyword matching: a question that shares fewer than two rare words with the passage, or says the same thing in
   other words, gets none and is answered as before. Scripts written without spaces (Chinese, Japanese, Thai) match
   poorly (see the index spec).
