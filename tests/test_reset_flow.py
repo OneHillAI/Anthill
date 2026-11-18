@@ -83,8 +83,10 @@ def test_smtp_send_failure_shows_error_not_link(tmp_path, monkeypatch):
 
 def test_no_smtp_solo_still_offers_link_as_lifeline(tmp_path, monkeypatch):
     _smtp(monkeypatch, False)
-    client = _client(tmp_path, monkeypatch)
+    _client(tmp_path, monkeypatch)
     _seed()  # single user -> solo, no email server
+    # The lifeline is for the person at the machine: a request from this machine itself.
+    client = TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
     r = client.post("/forgot", data={"email": "u@x.com"})
     assert r.status_code == 200
     assert "/reset/" in r.text  # lifeline preserved: no other way to reset

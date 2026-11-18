@@ -44,9 +44,16 @@ def _client(kind=LOCAL, **headers):
 
 
 def _signup(email, kind=LOCAL, **headers):
-    return _client(kind, **headers).post(
+    return _client(
+        kind, **headers
+    ).post(
         "/setup",
-        data={"admin_email": email, "admin_password": "longenoughpw1", "topology": "org"},
+        data={
+            "admin_email": email,
+            "admin_password": "longenoughpw1",
+            "topology": "org",
+            "setup_token": install_scope.setup_token(),  # needed only on a reachable server's first account
+        },
         follow_redirects=False,
     )
 
@@ -156,10 +163,64 @@ def test_on_a_local_server_a_request_through_a_forwarder_cannot_create_a_second_
     assert "Sign-up is by invitation" in page.text and 'name="admin_email"' not in page.text
 
 
-def test_the_first_account_is_open_even_through_the_network(app, monkeypatch):
+def test_the_first_account_through_the_network_needs_the_console_token(app, monkeypatch):
     monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    page = _client(NETWORK).get("/setup")
+    assert page.status_code == 200 and 'name="setup_token"' in page.text
+    no_token = _client(NETWORK).post(
+        "/setup",
+        data={"admin_email": "owner@example.com", "admin_password": "longenoughpw1"},
+        follow_redirects=False,
+    )
+    wrong = _client(NETWORK).post(
+        "/setup",
+        data={
+            "admin_email": "owner@example.com",
+            "admin_password": "longenoughpw1",
+            "setup_token": "not-the-token",
+        },
+        follow_redirects=False,
+    )
+    assert no_token.status_code == 403 and wrong.status_code == 403
+    assert "setup token" in no_token.text.lower()
+    assert _count(User) == 0
     assert _signup("owner@example.com", NETWORK).status_code in (302, 303)
     assert _count(User) == 1
+
+
+def test_an_operator_chosen_token_replaces_the_generated_one(app, monkeypatch):
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    monkeypatch.setenv("ANTHILL_SETUP_TOKEN", "chosen-by-the-operator")
+    assert install_scope.setup_token() == "chosen-by-the-operator"
+    assert _signup("owner@example.com", NETWORK).status_code in (302, 303)
+
+
+def test_a_loopback_server_needs_no_setup_token(app):
+    page = _client().get("/setup")
+    assert 'name="setup_token"' not in page.text
+    plain = _client().post(
+        "/setup",
+        data={"admin_email": "owner@example.com", "admin_password": "longenoughpw1"},
+        follow_redirects=False,
+    )
+    assert plain.status_code in (302, 303)
+
+
+def test_the_token_is_only_asked_for_the_first_account(app, monkeypatch):
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    _signup("owner@example.com", NETWORK)
+    page = _client(NETWORK).get("/setup")
+    assert 'name="setup_token"' not in page.text
+
+
+def test_first_run_single_sign_on_needs_the_token_on_a_reachable_server(app, monkeypatch):
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    s = app_mod._SessionFactory()
+    try:
+        user, error = app_mod.oauth_login_outcome(s, "owner@example.com", "sub-1", "Owner")
+    finally:
+        s.close()
+    assert user is None and error == "not_invited"
 
 
 def test_on_a_shared_server_later_accounts_need_an_invitation(app, monkeypatch):
@@ -266,6 +327,7 @@ def test_an_unverified_first_admin_is_recorded_and_does_not_lock_the_operator_ou
             "admin_email": "op@example.com",
             "admin_password": "longenoughpw1",
             "topology": "org",
+            "setup_token": install_scope.setup_token(),
         },
         follow_redirects=False,
     )
@@ -704,6 +766,7 @@ def test_an_account_waiting_for_its_verification_link_becomes_the_owner_when_it_
             "admin_email": "op@example.com",
             "admin_password": "longenoughpw1",
             "topology": "org",
+            "setup_token": install_scope.setup_token(),
         },
         follow_redirects=False,
     )
@@ -1190,3 +1253,29 @@ def test_the_powershell_launcher_puts_the_variables_back(app):
 
     text = (Path(app_mod.__file__).resolve().parents[2] / "scripts" / "start.ps1").read_text()
     assert "finally" in text and "$previousLocal" in text and "$previousHost" in text
+
+
+def test_the_generated_setup_token_is_stable_and_does_not_reveal_the_secret(app, monkeypatch):
+    from anthill import keystore
+
+    monkeypatch.delenv("ANTHILL_SETUP_TOKEN", raising=False)
+    first = install_scope.setup_token()
+    assert first == install_scope.setup_token()  # every call, worker and restart agrees
+    assert len(first) >= 16 and keystore.jwt_secret() not in first
+    assert not hasattr(install_scope, "_generated_setup_token")  # nothing is held in process memory
+
+
+def test_start_up_prints_the_setup_token_only_on_a_reachable_server_with_no_account(
+    app, monkeypatch, capsys
+):
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    app_mod._announce_setup_token()
+    assert install_scope.setup_token() in capsys.readouterr().out
+    monkeypatch.setenv("ANTHILL_HOST", "127.0.0.1")  # a loopback server prints nothing
+    app_mod._announce_setup_token()
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")  # nor once an account exists
+    _signup("owner@example.com", NETWORK)
+    capsys.readouterr()
+    app_mod._announce_setup_token()
+    assert capsys.readouterr().out == ""

@@ -29,10 +29,13 @@ a shared server trusts only the install owner.
 
 from __future__ import annotations
 
+import base64
+import hmac
 import os
 
 from sqlalchemy.orm import Session
 
+from .. import keystore
 from .db import InstallSettings, OrgSettings, User
 
 _LOOPBACK = {"127.0.0.1", "::1", "localhost", "[::1]"}
@@ -238,6 +241,33 @@ def install_scope_allowed(db: Session, request, user: dict) -> bool:
     if is_install_owner(db, user):
         return True
     return not server_is_shared(db) and request_is_local(request)
+
+
+# ── the first account on a server others can reach ──────────────────────────────
+
+
+def setup_token() -> str:
+    """The token that proves whoever creates the first account can read this server's console.
+    ``ANTHILL_SETUP_TOKEN`` if the operator set one, otherwise a value derived from the server's own secret,
+    so every worker process and every restart agrees on it and nothing is held in memory. The derived key is
+    one purpose-specific key, so the printed value does not reveal the secret it came from."""
+    chosen = os.environ.get("ANTHILL_SETUP_TOKEN", "").strip()
+    if chosen:
+        return chosen
+    return (
+        base64.urlsafe_b64encode(keystore.signing_key("first-run-setup")[:12]).decode().rstrip("=")
+    )
+
+
+def first_account_needs_token(db: Session) -> bool:
+    """True while no account exists and the server is not known to listen on loopback only. Whoever reaches
+    ``/setup`` first on such a server would become its admin and install owner, so the first account must
+    present the token printed in the server console. A desktop or launcher run (loopback) is unchanged."""
+    return db.query(User.id).first() is None and not bind_is_loopback()
+
+
+def setup_token_ok(presented: str) -> bool:
+    return hmac.compare_digest((presented or "").strip().encode(), setup_token().encode())
 
 
 # ── sign-up ─────────────────────────────────────────────────────────────────────

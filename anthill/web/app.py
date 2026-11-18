@@ -87,15 +87,19 @@ from .db import (
 )
 from .install_scope import (
     backfill_install_owner,
+    first_account_needs_token,
     install_owner_id,
     install_scope_allowed,
     is_install_owner,
     owner_org_id,
     record_first_install_owner,
     recorded_owner_id,
+    request_is_local,
     server_is_shared,
     set_install_owner_by_email,
     settings_row,
+    setup_token,
+    setup_token_ok,
     signup_is_open,
     transfer_install_owner,
 )
@@ -481,10 +485,27 @@ def _require_install_scope(request: Request, user: dict) -> None:
     raise HTTPException(status_code=403, detail="Only the install owner can do this")
 
 
+def _announce_setup_token() -> None:
+    """On a server others can reach, with no account yet, say where the first-account token is."""
+    db = _new_session()
+    try:
+        needed = first_account_needs_token(db)
+    finally:
+        db.close()
+    if needed:
+        print(
+            "\n[anthill] This server can be reached from the network and has no account yet.\n"
+            f"[anthill] Setup token for the first account: {setup_token()}\n"
+            "[anthill] Open /setup and enter it. Set ANTHILL_SETUP_TOKEN to choose your own.\n",
+            flush=True,
+        )
+
+
 @app.on_event("startup")
 def _startup():
     global _scheduler_started
     key_startup.ensure_or_exit()  # any other way of starting the app stops here, not in a traceback
+    _announce_setup_token()
     try:
         from .. import backup as _bk
 
@@ -1648,6 +1669,10 @@ def oauth_login_outcome(
         return u, ""
 
     if db.query(Organization).count() == 0:  # first run: register this person as the solo admin
+        if first_account_needs_token(
+            db
+        ):  # a reachable server: the first account needs the console token
+            return None, "not_invited"
         return _oauth_register_first_user(db, email, subject, name, provider), ""
 
     return None, "not_invited"
@@ -2384,6 +2409,7 @@ def setup_get(request: Request, user=Depends(_current_user)):
             "setup_step": 1,
             "is_first_run": is_first_run,
             "signup_closed": not signup_is_open(db, request),
+            "needs_setup_token": first_account_needs_token(db),
             **bring_in.page_context(request, is_first_run),
             **ctx,
         },
@@ -2409,8 +2435,25 @@ async def setup_post(
     # org creation to a dedicated dashboard flow. This PR only removes org setup from the sign-up surface.
     topology: str = Form("solo"),  # solo (default) | org
     gpu_backend: str = Form("vpc"),  # vpc (own cloud, AWS default) | onprem | endpoint (neocloud)
+    setup_token_value: str = Form("", alias="setup_token"),
 ):
     db = _db()
+    if first_account_needs_token(db) and not setup_token_ok(setup_token_value):
+        # A server others can reach: the first account must show it can read the server console.
+        return templates.TemplateResponse(
+            request,
+            "setup.html",
+            {
+                "request": request,
+                "error": "The setup token is missing or wrong. It is printed in the console where Anthill is running.",
+                "setup_step": 1,
+                "is_first_run": True,
+                "signup_closed": False,
+                "needs_setup_token": True,
+                **_sso_ctx(),
+            },
+            status_code=403,
+        )
     if not signup_is_open(db, request):
         # A server other people can reach: accounts after the first are created by invitation.
         return templates.TemplateResponse(
@@ -4237,6 +4280,9 @@ async def forgot_post(request: Request, email: str = Form(...)):
     # member (enumeration-safe).
     smtp = smtp_configured()
     solo = _is_solo_install(db)
+    # The in-page link is a lifeline for the person at the machine, so only a request from the machine itself on
+    # a server nobody else can reach may see it. On a server others can reach it goes to the console only.
+    link_ok = solo and not server_is_shared(db) and request_is_local(request)
 
     # Only issue for an active account. OAuth-only users can still set a password this way; pending
     # invitees use their invite link.
@@ -4269,7 +4315,7 @@ async def forgot_post(request: Request, email: str = Form(...)):
             # in-page link is their only lifeline. Print it to the console too. A multi-user org must
             # NOT show it (it would leak registered emails) - it gets the contact-admin message below.
             print(f"\n[anthill] PASSWORD RESET LINK for {email}:\n  {reset_url}\n")
-            if solo:
+            if link_ok:
                 reset_link = reset_url
     else:
         # No reset issued: the email is unknown, or the account exists but is inactive. Attribute to
@@ -4287,6 +4333,7 @@ async def forgot_post(request: Request, email: str = Form(...)):
     # Multi-user org with no email server: self-service can't deliver, so direct the user to an
     # admin, who issues a reset from the Users page. Shown for matched + unmatched alike -> no leak.
     contact_admin = (not smtp) and (not solo)
+    console_only = (not smtp) and solo and (not link_ok)
     return templates.TemplateResponse(
         request,
         "forgot.html",
@@ -4295,6 +4342,7 @@ async def forgot_post(request: Request, email: str = Form(...)):
             "sent": True,
             "reset_link": reset_link,
             "contact_admin": contact_admin,
+            "console_only": console_only,
             "send_failed": send_failed,
         },
     )

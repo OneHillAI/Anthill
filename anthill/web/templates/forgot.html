@@ -20,6 +20,9 @@
        style="width:100%;display:block;text-align:center;box-sizing:border-box;text-decoration:none">
       Choose a new password
     </a>
+    {% elif console_only %}
+    <p class="subtitle">Email isn't set up on this install, and this server can be reached by others, so the
+      reset link was not shown here. It was written to the console where Anthill is running. Open it from there.</p>
     {% elif contact_admin %}
     <p class="subtitle">Password reset by email isn't set up for this organisation.
       Ask your administrator to reset your password from the Users list in the dashboard.</p>
