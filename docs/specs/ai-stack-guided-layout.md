@@ -2,6 +2,9 @@
 
 Lane: `pillar:platform`
 
+> First run has since changed: see `docs/specs/first-run-choose-your-ai.md` (statement instead of tier cards, best fit
+> preselected, provider on its own step). This spec still describes Settings.
+
 ## Problem
 
 The first-run "Choose your AI" step and Settings' "Change where it runs" ask three things: where the AI runs
