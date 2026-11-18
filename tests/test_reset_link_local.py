@@ -46,7 +46,7 @@ def _app(tmp_path, monkeypatch, *, users, topology="org"):
             )
         )
     s.commit()
-    return TestClient(app_mod.app)
+    return TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
 
 
 def test_single_user_install_shows_link_in_browser(tmp_path, monkeypatch):
@@ -86,3 +86,31 @@ def test_unknown_email_shows_no_link(tmp_path, monkeypatch):
     r = client.post("/forgot", data={"email": "nobody@acme.com"})
     assert "Choose a new password" not in r.text and "/reset/" not in r.text
     assert "on its way" in r.text
+
+
+def test_a_reachable_single_user_install_never_shows_the_link_in_the_page(tmp_path, monkeypatch):
+    # The in-page link is for the person at the machine. A request from the network, or one that came through
+    # a proxy or tunnel, must not get it, matched or not: the page is identical so it cannot be probed.
+    client = _app(tmp_path, monkeypatch, users=["solo@acme.com"], topology="org")
+    network = TestClient(
+        app_mod.app, base_url="http://anthill.example.com", client=("203.0.113.5", 50000)
+    )
+    tunnel = TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
+    tunnel.headers.update({"x-forwarded-for": "203.0.113.5"})
+    for c in (network, tunnel):
+        matched = c.post("/forgot", data={"email": "solo@acme.com"})
+        unmatched = c.post("/forgot", data={"email": "ghost@acme.com"})
+        for r in (matched, unmatched):
+            assert r.status_code == 200
+            assert "Choose a new password" not in r.text and "/reset/" not in r.text
+            assert "written to the console" in r.text
+        assert matched.text == unmatched.text
+    assert client.post("/forgot", data={"email": "solo@acme.com"}).text.count("/reset/") >= 1
+
+
+def test_a_server_that_listens_beyond_loopback_never_shows_the_link(tmp_path, monkeypatch):
+    client = _app(tmp_path, monkeypatch, users=["solo@acme.com"], topology="org")
+    monkeypatch.setenv("ANTHILL_HOST", "0.0.0.0")
+    monkeypatch.delenv("ANTHILL_LOCAL_ONLY", raising=False)
+    r = client.post("/forgot", data={"email": "solo@acme.com"})
+    assert "Choose a new password" not in r.text and "/reset/" not in r.text

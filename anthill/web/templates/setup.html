@@ -50,6 +50,15 @@
     {% endif %}
 
     <form method="post" action="/setup">
+      {% if needs_setup_token %}
+      <div class="form-group">
+        <label>Setup token</label>
+        <input type="text" name="setup_token" required autocomplete="off" autocapitalize="off"
+               placeholder="printed in the console where Anthill is running">
+        <p class="text-sm text-muted" style="margin-top:6px">This server can be reached from the network, so the
+          first account needs the token Anthill printed when it started.</p>
+      </div>
+      {% endif %}
       <div class="form-group">
         <label>Your email</label>
         <input type="email" name="admin_email" required placeholder="you@example.com" autocomplete="username" autofocus>

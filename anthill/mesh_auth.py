@@ -24,7 +24,7 @@ import hmac
 import logging
 import os
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 log = logging.getLogger("anthill.mesh")
 _warned = False
@@ -71,6 +71,55 @@ def require_mesh(authorization: str = Header(default="")) -> None:
         presented = presented[7:]
     if not hmac.compare_digest(presented.strip(), token):
         raise HTTPException(status_code=401, detail="invalid or missing mesh token")
+
+
+# A caller on this machine itself (a local tool such as Cursor or Continue pointed at the node agent) needs no
+# token. Anything else does. A request that carries a proxy or tunnel header did not come from the machine
+# itself, even when the proxy runs on it. Same rule as ``anthill.web.install_scope.request_is_local``; kept
+# here so the node agent does not import the web app's database layer.
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+_FORWARDING_HEADERS = (
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-real-ip",
+    "x-client-ip",
+    "true-client-ip",
+    "cf-connecting-ip",
+    "via",
+)
+
+
+def _client_is_this_machine(request: Request) -> bool:
+    client = getattr(request, "client", None)
+    host = (client.host if client else "").strip().lower().strip("[]")
+    if host not in _LOOPBACK:
+        return False
+    return not any(h in request.headers for h in _FORWARDING_HEADERS)
+
+
+def require_mesh_unless_local(request: Request, authorization: str = Header(default="")) -> None:
+    """Guard for a node-agent route that a local tool uses (the OpenAI-compatible chat API). A request from
+    this machine passes with no token; every other caller must present the mesh token, so a node reachable
+    from the network does not answer strangers. With no token set and no insecure opt-in, a non-local
+    caller is refused (the gate is closed by default)."""
+    if _client_is_this_machine(request):
+        return
+    require_mesh(authorization)
+
+
+def exposure_refusal(host: str) -> str:
+    """Why a node agent must not listen on ``host``, or "" when it may. A non-loopback address with no mesh
+    token (and no explicit insecure opt-in) would answer anyone who can reach it."""
+    h = (host or "").strip().lower().strip("[]")
+    if h in _LOOPBACK or _token() or _allow_insecure():
+        return ""
+    return (
+        f"refusing to listen on {host}: set ANTHILL_MESH_TOKEN (the same value on every node), "
+        "or keep the node agent on 127.0.0.1"
+    )
 
 
 def mesh_headers() -> dict[str, str]:

@@ -17,8 +17,8 @@ version: "3.9"
 #   # promote a page
 #   docker compose exec node-1 anthill -w /data/wiki promote architecture-decisions --org-url http://orchestrator:8080 --node-id node-1
 #   # check the org index
-#   curl http://localhost:8080/cache/stats
-#   curl http://localhost:8080/wiki/pages
+#   curl -H "Authorization: Bearer $ANTHILL_MESH_TOKEN" http://localhost:8080/cache/stats
+#   curl -H "Authorization: Bearer $ANTHILL_MESH_TOKEN" http://localhost:8080/wiki/pages
 #
 # Requires: Ollama running on the host at host.docker.internal:11434
 

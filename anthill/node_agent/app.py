@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from ..cache.store import CacheStore
 from ..config import Config
 from ..inference.base import BackendError, build_backend
-from ..mesh_auth import mesh_headers, require_mesh
+from ..mesh_auth import mesh_headers, require_mesh, require_mesh_unless_local
 from ..wiki.ask import ask
 from ..wiki.workspace import Workspace
 
@@ -93,7 +93,7 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/v1/chat/completions")
-def chat_completions(req: ChatRequest):
+def chat_completions(req: ChatRequest, _: None = Depends(require_mesh_unless_local)):
     """OpenAI-compatible endpoint.
 
     The last user message is treated as the question. Wiki context and the
@@ -139,7 +139,7 @@ def chat_completions(req: ChatRequest):
 
 
 @app.get("/v1/models")
-def list_models():
+def list_models(_: None = Depends(require_mesh_unless_local)):
     model = os.environ.get("ANTHILL_MODEL", "qwen2.5:3b")
     return {
         "object": "list",
