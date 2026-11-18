@@ -11,8 +11,8 @@ page for a caller who is not at the machine.
 ## What changes
 
 - A setup token for the first account on a server not known to listen on loopback only.
-- The orchestrator's read routes and the node agent's chat API use the mesh token; this machine still needs
-  none for the node agent.
+- The orchestrator's read routes use the mesh token. The node agent's chat API uses it from every caller when the
+  node listens beyond loopback; a loopback-only node is unchanged.
 - The reset link is on the page only for the machine itself on a one-account local server.
 - `anthill serve` refuses an unprotected non-loopback bind. Docs, a changelog fragment and tests.
 

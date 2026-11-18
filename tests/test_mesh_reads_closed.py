@@ -14,7 +14,6 @@ from anthill.orchestrator import app as orch_mod
 
 TOKEN = "t0ken-for-the-mesh-tests"
 READS = ["/nodes", "/cache/stats", "/wiki/pages", "/wiki/pages/anything", "/wiki/lint"]
-REMOTE = {"base_url": "http://node.example.com", "client": ("203.0.113.5", 50000)}
 LOCAL = {"base_url": "http://127.0.0.1:9001", "client": ("127.0.0.1", 50000)}
 CHAT = {"messages": [{"role": "user", "content": "hello"}]}
 
@@ -68,37 +67,46 @@ def test_the_route_list_has_no_unguarded_read_but_health():
     assert open_gets == []
 
 
-def test_node_chat_answers_its_own_machine_without_a_token(token, monkeypatch):
+def _node(monkeypatch, host):
+    """A node agent that listens on ``host`` (what ``anthill serve`` reads from ANTHILL_NODE_HOST)."""
+    monkeypatch.setenv("ANTHILL_NODE_HOST", host)
     monkeypatch.setattr(node_mod, "ask", lambda *a, **k: ("hi", [], False))
     monkeypatch.setattr(node_mod, "build_backend", lambda cfg: object())
-    c = TestClient(node_mod.app, **LOCAL)
+    return TestClient(node_mod.app)
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+def test_a_node_that_listens_on_loopback_answers_local_tools_without_a_token(
+    token, monkeypatch, host
+):
+    c = _node(monkeypatch, host)
     assert c.get("/v1/models").status_code == 200
     assert c.post("/v1/chat/completions", json=CHAT).status_code == 200
 
 
-def test_node_chat_refuses_other_machines_without_the_token(token, monkeypatch):
-    monkeypatch.setattr(node_mod, "ask", lambda *a, **k: ("hi", [], False))
-    monkeypatch.setattr(node_mod, "build_backend", lambda cfg: object())
-    c = TestClient(node_mod.app, **REMOTE)
+def test_a_node_with_no_listen_address_set_is_loopback_only(token, monkeypatch):
+    c = _node(monkeypatch, "127.0.0.1")
+    monkeypatch.delenv("ANTHILL_NODE_HOST", raising=False)
+    assert c.get("/v1/models").status_code == 200
+
+
+def test_a_node_that_listens_beyond_loopback_needs_the_token_from_everyone(token, monkeypatch):
+    c = _node(monkeypatch, "0.0.0.0")
     assert c.get("/v1/models").status_code == 401
     assert c.post("/v1/chat/completions", json=CHAT).status_code == 401
+    # even a caller that looks like this machine: the rule is the bind address, not the caller
+    local = TestClient(node_mod.app, **LOCAL)
+    assert local.get("/v1/models").status_code == 401
     good = {"Authorization": f"Bearer {TOKEN}"}
     assert c.get("/v1/models", headers=good).status_code == 200
     assert c.post("/v1/chat/completions", json=CHAT, headers=good).status_code == 200
 
 
-def test_a_forwarded_loopback_request_is_not_this_machine(token, monkeypatch):
-    c = TestClient(node_mod.app, **LOCAL)
-    assert c.get("/v1/models", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 401
-
-
-def test_node_chat_is_closed_to_others_when_no_token_is_set(monkeypatch):
+def test_an_exposed_node_is_closed_when_no_token_is_set(monkeypatch):
     monkeypatch.delenv("ANTHILL_MESH_TOKEN", raising=False)
     monkeypatch.delenv("ANTHILL_MESH_ALLOW_INSECURE", raising=False)
-    assert (
-        TestClient(node_mod.app, **REMOTE).post("/v1/chat/completions", json=CHAT).status_code
-        == 401
-    )
+    c = _node(monkeypatch, "0.0.0.0")
+    assert c.post("/v1/chat/completions", json=CHAT).status_code == 401
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])

@@ -24,7 +24,7 @@ import hmac
 import logging
 import os
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Header, HTTPException
 
 log = logging.getLogger("anthill.mesh")
 _warned = False
@@ -73,39 +73,24 @@ def require_mesh(authorization: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="invalid or missing mesh token")
 
 
-# A caller on this machine itself (a local tool such as Cursor or Continue pointed at the node agent) needs no
-# token. Anything else does. A request that carries a proxy or tunnel header did not come from the machine
-# itself, even when the proxy runs on it. Same rule as ``anthill.web.install_scope.request_is_local``; kept
-# here so the node agent does not import the web app's database layer.
+# Where the node agent listens decides who may call it without a token. ``anthill serve`` reads the address from
+# ``ANTHILL_NODE_HOST`` (default 127.0.0.1). A node that listens on loopback only is reachable from this machine
+# alone (a local tool such as Cursor or Continue pointed at it), so it needs no token. A node that listens
+# anywhere else needs the mesh token from every caller. This is a rule about the bind address, not a guess about
+# each request, so it does not depend on which headers a proxy adds.
 _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
-_FORWARDING_HEADERS = (
-    "forwarded",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
-    "x-forwarded-port",
-    "x-real-ip",
-    "x-client-ip",
-    "true-client-ip",
-    "cf-connecting-ip",
-    "via",
-)
 
 
-def _client_is_this_machine(request: Request) -> bool:
-    client = getattr(request, "client", None)
-    host = (client.host if client else "").strip().lower().strip("[]")
-    if host not in _LOOPBACK:
-        return False
-    return not any(h in request.headers for h in _FORWARDING_HEADERS)
+def node_bind_is_loopback() -> bool:
+    host = os.environ.get("ANTHILL_NODE_HOST", "127.0.0.1").strip().lower().strip("[]")
+    return host in _LOOPBACK
 
 
-def require_mesh_unless_local(request: Request, authorization: str = Header(default="")) -> None:
-    """Guard for a node-agent route that a local tool uses (the OpenAI-compatible chat API). A request from
-    this machine passes with no token; every other caller must present the mesh token, so a node reachable
-    from the network does not answer strangers. With no token set and no insecure opt-in, a non-local
-    caller is refused (the gate is closed by default)."""
-    if _client_is_this_machine(request):
+def require_mesh_unless_local(authorization: str = Header(default="")) -> None:
+    """Guard for a node-agent route that a local tool uses (the OpenAI-compatible chat API). A node that
+    listens on loopback only answers with no token; a node that listens beyond it requires the mesh token
+    from every caller. With no token set and no insecure opt-in, an exposed node refuses everyone."""
+    if node_bind_is_loopback():
         return
     require_mesh(authorization)
 

@@ -29,9 +29,10 @@ address.
 **R3. Orchestrator.** Every orchestrator route except `/health` requires the mesh token. The wiki agent sends
 it.
 
-**R4. Node agent.** The OpenAI-compatible routes answer a request from this machine with no token. Every other
-caller needs the mesh token. `anthill serve` refuses to listen on a non-loopback address with no
-`ANTHILL_MESH_TOKEN` and no `ANTHILL_MESH_ALLOW_INSECURE`.
+**R4. Node agent.** The rule is the address the node listens on (`ANTHILL_NODE_HOST`, default 127.0.0.1). A node
+that listens on loopback only answers its OpenAI-compatible routes with no token, because only this machine
+can reach it. A node that listens anywhere else needs the mesh token from every caller. `anthill serve` refuses
+to listen on a non-loopback address with no `ANTHILL_MESH_TOKEN` and no `ANTHILL_MESH_ALLOW_INSECURE`.
 
 **R5. No other behaviour change.** Desktop, loopback-only servers and signed-in flows are unchanged.
 
@@ -43,12 +44,14 @@ caller needs the mesh token. `anthill serve` refuses to listen on a non-loopback
   in the page for the machine itself on a one-account local server.
 - Every orchestrator GET route except `/health` fails without the token (a test lists the routes, so a new
   unguarded one fails).
-- The node agent chat routes answer loopback with no token, refuse other callers without it, treat a
-  forwarded loopback request as another caller, and `anthill serve` refuses an unprotected non-loopback bind.
+- A node listening on loopback answers the chat routes with no token. A node listening beyond loopback refuses
+  every caller without the mesh token, including one that looks local, and `anthill serve` refuses an
+  unprotected non-loopback bind.
 - The full test suite, `ruff` and `mypy` pass.
 
 ## What was not verified
 
 - The changes were exercised with the test client only, not with a real container, a second machine or a real
   proxy or tunnel.
-- The demo compose file still sets no mesh token, so its nodes still cannot reach the orchestrator.
+- The demo compose file now requires `ANTHILL_MESH_TOKEN` from the operator's shell, but its nodes still listen on
+  loopback inside their containers, so peers still cannot reach them; that was already so and is not changed here.
