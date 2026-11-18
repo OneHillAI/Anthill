@@ -214,19 +214,8 @@
       {# Settings: the single settings entry. Your personal setup (Model / Knowledge / Personality /
          Privacy / This device / Integrations) lives on /personalize, one workflow per tab; the shared
          Organisation settings are reached from there. Active on any settings/model/org-config sub-page.
-         When on /personalize, its sub-sections show as sub-items. #}
+         The sections are tabs on the page itself, not a second list in the rail. #}
       <a href="/personalize" class="{% if _sp.startswith('/personalize') or _sp.startswith('/settings') or _sp.startswith('/models') or _sp.startswith('/training') or _sp.startswith('/backend') or _sp.startswith('/backup') or _sp.startswith('/agent-access') %}active{% endif %}"><i data-lucide="settings">⚙️</i>Settings</a>
-      {% if _sp.startswith('/personalize') %}
-      <div class="settings-subrail">
-        <a href="/personalize#model">Model</a>
-        <a href="/personalize#knowledge">Knowledge</a>
-        <a href="/personalize#personality">Personality</a>
-        <a href="/personalize#privacy">Privacy</a>
-        <a href="/personalize#device">This device</a>
-        {% if user and user.role == 'admin' %}<a href="/personalize#integrations">Integrations</a>{% endif %}
-        {% if user and user.role == 'admin' %}<a href="/personalize#org">Organisation</a>{% endif %}
-      </div>
-      {% endif %}
     </div>
 
     {# Metrics & Audit are org-level insights, not rail items: they live on the Dashboard (admin view)

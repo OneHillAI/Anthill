@@ -93,7 +93,7 @@ def _ids_inside(body: str, root_id: str) -> set[str]:
 
 def _panel(body: str) -> str:
     """The text of the tier panel: from its opening tag to the hidden compute input that follows it."""
-    start = re.search(r'<div class="cc-attach" id="cc-attach"[^>]*>', body).start()
+    start = re.search(r'<div class="cc-attach[^"]*" id="cc-attach"[^>]*>', body).start()
     return body[start : body.index('<input type="hidden" name="compute"', start)]
 
 
@@ -101,7 +101,7 @@ def test_setup_puts_the_models_and_the_cloud_provider_inside_the_tier_panel(tmp_
     body = _client(tmp_path).get("/setup/model").text
     panel = _panel(body)
     # the panel follows the two cards (the tabs) directly, and holds the cloud provider and both model lists
-    tabs_end = re.search(r'<div class="cc-attach" id="cc-attach"[^>]*>', body).start()
+    tabs_end = re.search(r'<div class="cc-attach[^"]*" id="cc-attach"[^>]*>', body).start()
     assert 'id="cc-tierseg"' in body[:tabs_end]
     assert body[:tabs_end].rstrip().endswith("</div>")
     inside = _ids_inside(body, "cc-attach")
@@ -151,19 +151,15 @@ def test_an_account_saved_on_your_cloud_renders_the_cloud_card_selected_before_a
     assert not re.search(r'id="council-cloud"[^>]*hidden', body)
 
 
-def test_setup_numbers_the_three_steps_and_settings_does_not(tmp_path):
+def test_setup_has_no_numbered_sections_and_settings_has_none_either(tmp_path):
     c = _client(tmp_path)
     setup = c.get("/setup/model").text
-    assert setup.count('class="cc-num"') == 3
-    for n, title in (
-        (1, "Where does your model run?"),
-        (2, "Which model do you run?"),
-        (3, "Which inference provider to connect?"),
-    ):
-        assert f'<span class="cc-num">{n}</span>{title}' in setup
-    # the model title is inside the panel; the provider title is after it
-    assert "Which model do you run?" in _panel(setup)
-    assert "Which inference provider to connect?" not in _panel(setup)
+    # the wizard's own progress bar carries the steps; the page itself has plain headings
+    assert 'class="cc-num"' not in setup
+    assert "Which inference provider to connect?" not in setup
+    assert "Which model do you run?" not in setup
+    assert "Choose your model" in _panel(setup)
+    assert "Your model runs on this computer." in setup
     settings = c.get("/personalize").text
     assert '<span class="cc-num">' not in settings
 

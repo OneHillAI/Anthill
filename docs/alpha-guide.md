@@ -47,18 +47,19 @@ size for a moment first).
 
 ## 2. First-run setup
 
-On first launch you land on a short **setup wizard** (three steps).
+On first launch you land on a short **setup wizard** (four steps).
 
 1. **Create your account** - your email, an optional name, and a password (12+ characters; remember it).
    Click **Get started**. (Setting up for a team? Create your personal account first - you can create an
    organisation later from the dashboard. There is no separate admin invite needed to begin.)
 2. **Solo or organisation** - choose **Solo** to try it as one person on this Mac, or **Organisation**
    if you want a shared backend and to invite others later. Solo is the quickest way to test.
-3. **Choose your AI** - leave **Your machine** selected; the models that fit your Mac are listed in the
-   panel right under it. Tick the one marked **recommended** (Anthill sizes it to your Mac). The
-   inference provider below is **Optional**; leave **Don't use one** selected. Image understanding is
-   under **Advanced** and is on unless you turn it off. The first model downloads once (roughly 2 GB);
-   you will see progress. When it finishes, setup is complete.
+3. **Choose your AI** - Anthill says your model runs on this computer, and the model that fits your Mac best is
+   already chosen and marked **Best fit for this machine**. Pick another from the list if you prefer (filter by
+   origin: US, EU, China, Other), then click **Continue with ...**. Image understanding is on unless you turn it off.
+4. **Connect a provider** - optional. A provider runs a larger model for hard questions only, and you see what is
+   sent before it leaves. Click **Not now** to skip, or pick one and **Connect and finish**. The first model
+   downloads once (roughly 2 GB or more, by model); you will see progress. When it finishes, setup is complete.
 
 **You should see** the **Dashboard**, signed in. The system is live and running entirely on your machine.
 
