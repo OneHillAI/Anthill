@@ -103,3 +103,21 @@ def test_status_engine_down(tmp_path, monkeypatch):
 def test_status_requires_login(tmp_path, monkeypatch):
     client, _m, _ids = _app(tmp_path, monkeypatch)
     assert client.get("/local-model/status", follow_redirects=False).status_code == 303
+
+
+# ── the first-run page points to where an organisation is really set up ──────────
+
+
+def test_setup_page_points_to_settings_for_an_organisation(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    client, app_mod, _ = _app(tmp_path, monkeypatch, seed_org=False)  # empty DB = first run
+    html = client.get("/setup").text
+    assert "later in Settings, under Organisation" in html
+    assert "from the dashboard" not in html  # the Solo dashboard has no such control
+    # the place the sentence names exists: the Organisation tab of Settings carries the set-up card
+    settings = (Path(app_mod.__file__).parent / "templates" / "personalize.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-st="org"' in settings and ">Organisation</a>" in settings
+    assert "Set up an organisation" in settings
