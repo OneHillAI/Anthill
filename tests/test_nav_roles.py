@@ -378,25 +378,30 @@ def test_projects_is_in_the_lower_group_with_settings(tmp_path, monkeypatch):
     )  # ...grouped before Settings
 
 
-def test_settings_shows_sub_items_in_the_rail(tmp_path, monkeypatch):
-    # When on the Settings page, its sub-sections show as rail sub-items (Model / Knowledge /
-    # Personality / This device / Privacy / Organisation), linking to the corresponding tab; they don't
-    # show off the Settings page.
+def test_settings_sections_are_tabs_on_the_page_not_a_second_list_in_the_rail(
+    tmp_path, monkeypatch
+):
+    # One navigation for one list: the sections (Model / Knowledge / Personality / Privacy / This device /
+    # Integrations / Organisation) are the tabs across the top of the Settings page. The rail has only the
+    # one Settings entry, on every page.
     client, ids = _app(tmp_path, monkeypatch)
     _auth(client, ids["admin"], ids["org"], "admin")
-    on = client.get("/personalize").text.split("<nav", 1)[1].split("</nav>", 1)[0]
-    assert 'class="settings-subrail"' in on
-    for href in (
-        "/personalize#model",
-        "/personalize#knowledge",
-        "/personalize#personality",
-        "/personalize#device",
-        "/personalize#privacy",
-        "/personalize#org",
+    page = client.get("/personalize").text
+    rail = page.split("<nav", 1)[1].split("</nav>", 1)[0]
+    assert "settings-subrail" not in rail
+    tabs = page.split('id="set-tabs"', 1)[1].split("</div>", 1)[0]
+    for section in (
+        "model",
+        "knowledge",
+        "personality",
+        "privacy",
+        "device",
+        "integrations",
+        "org",
     ):
-        assert f'href="{href}"' in on, href
+        assert f'data-st="{section}"' in tabs, section
     off = client.get("/integrations").text.split("<nav", 1)[1].split("</nav>", 1)[0]
-    assert 'class="settings-subrail"' not in off  # only on the Settings page itself
+    assert "settings-subrail" not in off
 
 
 def test_footer_is_a_chip_plus_help_overflow(tmp_path, monkeypatch):

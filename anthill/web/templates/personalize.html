@@ -143,7 +143,7 @@
 <form id="org-setup-form" method="post" action="/personalize/organization/setup"></form>
 <form id="pull-cancel-form" method="post" action="/models/pull/cancel"><input type="hidden" name="next_url" value="personalize"></form>
 
-<form method="post" action="/personalize">
+<form method="post" action="/personalize" id="settings-form">
 
 <!-- ── Model (where it runs, the council, self-tuning - one workflow) ─────────── -->
 <div class="st-panel active" data-st="model">
@@ -244,7 +244,7 @@
     <div class="set-cardh"><h3>How it answers</h3></div>
     <div class="setlist">
       <div class="setrow">
-        <div class="setrow-main"><span class="setrow-name">Thinking</span><span class="setrow-d">Some models think before they answer: better on hard questions, slower to start. Off by default for a new account, so answers start sooner; you can change it for each chat with the Thinking button. Only affects models running on this machine. Web search has its own default under Privacy.</span></div>
+        <div class="setrow-main"><span class="setrow-name">Thinking</span><span class="setrow-d">Some models think before they answer: better on hard questions, slower to start. Off by default for a new account. Only affects models running on this machine.</span></div>
         <label class="tog"><input type="checkbox" name="thinking_on" {% if thinking_on %}checked{% endif %}><span class="track"></span><span class="knob"></span></label>
       </div>
     </div>
@@ -460,12 +460,38 @@
 </div>
 {% endif %}
 
-<div class="flex gap-2 mt-2" id="set-savebar" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+<div class="flex gap-2 mt-2" id="set-savebar" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;align-items:center">
   <button type="submit" class="btn btn-primary">Save</button>
+  {# Nothing on this page saves until Save is pressed, so say when something is waiting. #}
+  <span id="set-dirty" class="text-sm text-muted" role="status" aria-live="polite">No unsaved changes</span>
 </div>
 </form>
 
 <script>
+// Unsaved changes: the switches and fields on this page are saved by the Save button, so show when one has
+// been changed, and ask before leaving the page with a change waiting.
+(function () {
+  var form = document.getElementById('settings-form'), note = document.getElementById('set-dirty');
+  if (!form || !note) return;
+  function snapshot() {
+    var parts = [];
+    new FormData(form).forEach(function (v, k) { parts.push(k + '=' + (typeof v === 'string' ? v : '')); });
+    return parts.join('&');
+  }
+  var initial = snapshot(), dirty = false, submitting = false;
+  function refresh() {
+    dirty = snapshot() !== initial;
+    note.textContent = dirty ? 'You have unsaved changes' : 'No unsaved changes';
+    note.style.color = dirty ? 'var(--warn,#b45309)' : '';
+    note.style.fontWeight = dirty ? '600' : '';
+  }
+  form.addEventListener('input', refresh);
+  form.addEventListener('change', refresh);
+  form.addEventListener('submit', function () { submitting = true; });
+  window.addEventListener('beforeunload', function (e) {
+    if (dirty && !submitting) { e.preventDefault(); e.returnValue = ''; }
+  });
+})();
 const FIELD_LABELS = {{ fields|tojson }};
 function toggleChangeRuns(forceOpen) {
   var el = document.getElementById('change-runs');

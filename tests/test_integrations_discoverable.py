@@ -58,10 +58,12 @@ def test_solo_account_can_actually_load_the_connectors_page(tmp_path, monkeypatc
     assert "Slack" in r.text and "Google Drive" in r.text and "GitHub" in r.text
 
 
-def test_integrations_tab_shows_in_the_settings_sidebar_subrail(tmp_path, monkeypatch):
+def test_integrations_tab_shows_in_the_settings_tabs(tmp_path, monkeypatch):
     c, _app, _org_id = _client(tmp_path, monkeypatch)
     body = c.get("/personalize").text
-    assert '<a href="/personalize#integrations">Integrations</a>' in body
+    tabs = body.split('id="set-tabs"', 1)[1].split("</div>", 1)[0]
+    assert 'data-st="integrations"' in tabs  # the page's own tabs; the rail has no second list
+    assert "settings-subrail" not in body
 
 
 def test_connectors_page_back_link_points_to_settings_not_manage_organisation(
