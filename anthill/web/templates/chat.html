@@ -321,6 +321,7 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 {# Full-merge chat nav: the conversation list lives inside the global rail under Workspace and the
    other nav groups fold, so there is no separate conversations column here. #}
 {% set chat_mode = true %}
@@ -328,7 +329,7 @@
 <div class="chat-layout">
 
   <!-- main -->
-  <div class="chat-main">
+  <div class="chat-main" role="main" id="main-content">
     <div class="chat-header">
       <h1 id="chat-title">{{ active_conv.title if active_conv else 'Anthill Chat' }}</h1>
       {% if not active_conv or active_conv.plane == 'solo' %}
@@ -497,9 +498,9 @@
         <button type="button" onclick="clearAttachedImage()" title="Remove image"
                 style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>
       </div>
-      <input type="file" id="image-file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="attachImage(this)">
+      <input type="file" id="image-file" aria-label="Attach an image" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="attachImage(this)">
       <div class="chat-input-row">
-        <textarea id="msg-input" rows="1" placeholder="Ask your own intelligence…"
+        <textarea id="msg-input" rows="1" aria-label="Message" placeholder="Ask your own intelligence…"
                   onkeydown="handleKey(event)"></textarea>
         <button type="button" class="mic-btn" id="attach-btn" onclick="document.getElementById('image-file').click()"
                 title="Attach an image (analyze a screenshot or photo)">
@@ -737,7 +738,7 @@
     <pre id="snip-preview" class="wiki-content" style="max-height:160px;margin-bottom:12px"></pre>
     <div class="form-group">
       <label>Tags <span class="text-muted">(comma-separated)</span></label>
-      <input type="text" id="snip-tags" placeholder="e.g. pricing, onboarding, sql">
+      <input type="text" id="snip-tags" aria-label="Snippet tags, separated by commas" placeholder="e.g. pricing, onboarding, sql">
     </div>
     <p id="snip-status" class="text-sm text-muted" style="min-height:18px"></p>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
@@ -756,7 +757,7 @@
   </div>
   <div id="canvas-preview" class="canvas-body"></div>
   <div class="canvas-foot">
-    <textarea id="canvas-req" rows="2"
+    <textarea id="canvas-req" aria-label="Request a change" rows="2"
       placeholder="Request a change (e.g. add a summary section, make the chart taller)…"></textarea>
     <button class="btn btn-primary" onclick="canvasRevise()">Request change</button>
   </div>
@@ -1576,7 +1577,7 @@ function scheduleCardAfter(metaEl, opts) {
     `<b>📅 Run this on a schedule</b>` +
     (goal ? `<div class="text-muted" style="font-size:13px;margin:4px 0 8px">${escapeHtml(goal)}</div>` : '') +
     `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">` +
-      `<select class="sched-when" style="font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">` +
+      `<select class="sched-when" aria-label="When to run" style="font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">` +
         `<option value="daily">Every day</option><option value="weekly">Every week</option>` +
         `<option value="hourly">Every hour</option><option value="once">Once</option>` +
       `</select>` +
