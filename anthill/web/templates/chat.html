@@ -219,6 +219,21 @@
     .opt-toggle { color:var(--clay-text,#8B5E3C); }
     /* The knowledge control is a transparent select over a label: show the focus ring on the label. */
     .opt-scope-btn:focus-within { outline:2px solid var(--accent); outline-offset:1px; }
+    /* The two on/off buttons (Web search, Thinking) look like the switches used in Settings: a small track and
+       knob before the label, with the state spelled out in the label itself. The knowledge button is a
+       picker, not an on/off control, so it has no switch. */
+    .opt-toggle[aria-pressed] { position:relative; padding-left:38px; }
+    .opt-toggle[aria-pressed]::before { content:""; position:absolute; left:9px; top:50%; width:21px; height:12px;
+      margin-top:-6px; border-radius:999px; background:var(--border-strong,#b5beb8); }
+    .opt-toggle[aria-pressed]::after { content:""; position:absolute; left:11px; top:50%; width:8px; height:8px;
+      margin-top:-4px; border-radius:50%; background:var(--surface,#fff); transition:left .12s; }
+    .opt-toggle[aria-pressed="true"]::before { background:var(--accent); }
+    .opt-toggle[aria-pressed="true"]::after { left:22px; }
+    @media (prefers-reduced-motion:reduce) { .opt-toggle[aria-pressed]::after { transition:none; } }
+    /* Where an answer ran: a quiet chip under it. */
+    .src-chip { font-size:12px; border-radius:999px; padding:1px 8px; border:1px solid var(--border);
+      color:var(--muted); white-space:nowrap; }
+    .src-chip.local { background:var(--accent-soft); border-color:transparent; color:var(--accent); }
     .opt-toggle.unavailable { opacity:.55; cursor:default; }
     .opt-toggle.unavailable:hover { background:none; }
 
@@ -434,9 +449,9 @@
                 {% if msg.escalated %}
                   <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>
                 {% elif msg.answered_locally %}
-                  <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>
+                  <span class="src-chip local" title="Answered on this device - nothing left it">On this device</span>
                 {% else %}
-                  <span style="font-size:12px;color:var(--muted)" title="Answered by {{ msg.model }} over the network">☁️ remote</span>
+                  <span class="src-chip" title="Answered by {{ msg.model }} over the network">Sent over the network</span>
                 {% endif %}
               {% endif %}
               {% if msg.doc_sources %}
@@ -1725,8 +1740,8 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
         bubble.closest('.msg')?.classList.add('escalated');
         setBuildStatus(escalatingLabel ? `Answered via ${escalatingLabel}` : 'Answered via your inference provider', rowEl(bubble));
-      } else if (d.meta?.answered_locally === true)  metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>';
-      else if (d.meta?.answered_locally === false) metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered over the network">☁️ remote</span>';
+      } else if (d.meta?.answered_locally === true)  metaHtml += ' <span class="src-chip local" title="Answered on this device - nothing left it">On this device</span>';
+      else if (d.meta?.answered_locally === false) metaHtml += ' <span class="src-chip" title="Answered over the network">Sent over the network</span>';
       if (d.escalation_offer) pendingEscalationOffer = d.escalation_offer;   // rendered once [DONE] arrives
       if (d.error) {
         buffer += `${buffer ? '\n\n' : ''}⚠️ ${d.error}`;
