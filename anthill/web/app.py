@@ -1628,7 +1628,7 @@ def oauth_login_outcome(
       invite (the double-opt-in confirmation), so a not-yet-activated invitee is activated.
     - **Unknown email, fresh install (no org yet):** open registration - create the first admin
       and a **solo** org, the OAuth equivalent of the solo-first /setup signup (no password; the
-      provider is the credential). Turn it into a team org later from the dashboard.
+      provider is the credential). Turn it into a team org later in Settings, on the Organisation tab.
     - **Unknown email, existing org:** rejected with 'not_invited' - an org stays invite-only, so
       OAuth never lets a stranger join someone else's organization. Caller commits.
     """
@@ -2383,7 +2383,7 @@ async def setup_post(
     admin_password: str = Form(...),
     admin_name: str = Form(""),
     # Sign-up is a PERSONAL (Solo) account: no organization is set up here (one model per account -
-    # an organization is a separate profile you create later from the dashboard). topology + gpu_backend
+    # an organization is a separate profile you create later in Settings, on the Organisation tab). topology + gpu_backend
     # are still accepted so the deferred/legacy "set up an org" path keeps working, but the sign-up form
     # no longer sends them, so a normal sign-up always defaults to solo.
     # HAND-OFF (docs/specs/signup-no-org.md): a compatibility Organization row is STILL created below
