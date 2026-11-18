@@ -17,8 +17,8 @@ trust a caller more than they should:
 
 **R1. First account.** While no account exists and the server is not known to listen on loopback only, the
 first account (password sign-up and first-run single sign-on) needs a setup token. The token is
-`ANTHILL_SETUP_TOKEN` when set, otherwise a random value made once per process, printed in the server console
-at start. A server that listens on loopback only (desktop, `start.sh`, `anthill web` on its default address)
+`ANTHILL_SETUP_TOKEN` when set, otherwise a value derived from the server's own secret (the same in every worker process and after a restart,
+never stored), printed in the server console at start. A server that listens on loopback only (desktop, `start.sh`, `anthill web` on its default address)
 is unchanged.
 
 **R2. Reset link.** With no mail server, the reset link is shown on the page only to a request from this
@@ -33,6 +33,10 @@ it.
 that listens on loopback only answers its OpenAI-compatible routes with no token, because only this machine
 can reach it. A node that listens anywhere else needs the mesh token from every caller. `anthill serve` refuses
 to listen on a non-loopback address with no `ANTHILL_MESH_TOKEN` and no `ANTHILL_MESH_ALLOW_INSECURE`.
+
+**R4a. Containers.** A node agent that listens on `0.0.0.0` inside a container needs the mesh token from
+every caller, even when the container is only published on the host's loopback. That is intended: the node
+does not know how the port is published, so the rule is the address it listens on.
 
 **R5. No other behaviour change.** Desktop, loopback-only servers and signed-in flows are unchanged.
 

@@ -1253,3 +1253,13 @@ def test_the_powershell_launcher_puts_the_variables_back(app):
 
     text = (Path(app_mod.__file__).resolve().parents[2] / "scripts" / "start.ps1").read_text()
     assert "finally" in text and "$previousLocal" in text and "$previousHost" in text
+
+
+def test_the_generated_setup_token_is_stable_and_does_not_reveal_the_secret(app, monkeypatch):
+    from anthill import keystore
+
+    monkeypatch.delenv("ANTHILL_SETUP_TOKEN", raising=False)
+    first = install_scope.setup_token()
+    assert first == install_scope.setup_token()  # every call, worker and restart agrees
+    assert len(first) >= 16 and keystore.jwt_secret() not in first
+    assert not hasattr(install_scope, "_generated_setup_token")  # nothing is held in process memory

@@ -29,12 +29,13 @@ a shared server trusts only the install owner.
 
 from __future__ import annotations
 
+import base64
 import hmac
 import os
-import secrets
 
 from sqlalchemy.orm import Session
 
+from .. import keystore
 from .db import InstallSettings, OrgSettings, User
 
 _LOOPBACK = {"127.0.0.1", "::1", "localhost", "[::1]"}
@@ -245,19 +246,17 @@ def install_scope_allowed(db: Session, request, user: dict) -> bool:
 # ── the first account on a server others can reach ──────────────────────────────
 
 
-_generated_setup_token = ""
-
-
 def setup_token() -> str:
-    """The one-time token that proves whoever creates the first account can read this server's console.
-    ``ANTHILL_SETUP_TOKEN`` if the operator set one, otherwise a random value made once per process."""
-    global _generated_setup_token
+    """The token that proves whoever creates the first account can read this server's console.
+    ``ANTHILL_SETUP_TOKEN`` if the operator set one, otherwise a value derived from the server's own secret,
+    so every worker process and every restart agrees on it and nothing is held in memory. The derived key is
+    one purpose-specific key, so the printed value does not reveal the secret it came from."""
     chosen = os.environ.get("ANTHILL_SETUP_TOKEN", "").strip()
     if chosen:
         return chosen
-    if not _generated_setup_token:
-        _generated_setup_token = secrets.token_urlsafe(12)
-    return _generated_setup_token
+    return (
+        base64.urlsafe_b64encode(keystore.signing_key("first-run-setup")[:12]).decode().rstrip("=")
+    )
 
 
 def first_account_needs_token(db: Session) -> bool:

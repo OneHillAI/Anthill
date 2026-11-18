@@ -485,16 +485,13 @@ def _require_install_scope(request: Request, user: dict) -> None:
 
 def _announce_setup_token() -> None:
     """On a server others can reach, with no account yet, say where the first-account token is."""
-    try:
-        if first_account_needs_token(_db()):
-            print(
-                "\n[anthill] This server can be reached from the network and has no account yet.\n"
-                f"[anthill] Setup token for the first account: {setup_token()}\n"
-                "[anthill] Open /setup and enter it. Set ANTHILL_SETUP_TOKEN to choose your own.\n",
-                flush=True,
-            )
-    except Exception:  # noqa: BLE001 - a console hint must never stop start-up
-        logger.exception("could not announce the setup token")
+    if first_account_needs_token(_db()):
+        print(
+            "\n[anthill] This server can be reached from the network and has no account yet.\n"
+            f"[anthill] Setup token for the first account: {setup_token()}\n"
+            "[anthill] Open /setup and enter it. Set ANTHILL_SETUP_TOKEN to choose your own.\n",
+            flush=True,
+        )
 
 
 @app.on_event("startup")
