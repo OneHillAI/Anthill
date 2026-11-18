@@ -2,6 +2,9 @@ version: "3.9"
 
 # anthill Phase 3 demo: 1 orchestrator + 2 node agents.
 #
+# Set a shared secret for the mesh first (the same value goes to every service, never into this file):
+#   export ANTHILL_MESH_TOKEN="$(openssl rand -hex 16)"
+#
 # Start everything:
 #   docker compose up --build
 #
@@ -17,8 +20,8 @@ version: "3.9"
 #   # promote a page
 #   docker compose exec node-1 anthill -w /data/wiki promote architecture-decisions --org-url http://orchestrator:8080 --node-id node-1
 #   # check the org index
-#   curl http://localhost:8080/cache/stats
-#   curl http://localhost:8080/wiki/pages
+#   curl -H "Authorization: Bearer $ANTHILL_MESH_TOKEN" http://localhost:8080/cache/stats
+#   curl -H "Authorization: Bearer $ANTHILL_MESH_TOKEN" http://localhost:8080/wiki/pages
 #
 # Requires: Ollama running on the host at host.docker.internal:11434
 
@@ -27,6 +30,7 @@ x-node-env: &node-env
   ANTHILL_MODEL: qwen2.5:3b
   ANTHILL_BASE_URL: http://host.docker.internal:11434
   ANTHILL_ORG_URL: http://orchestrator:8080
+  ANTHILL_MESH_TOKEN: ${ANTHILL_MESH_TOKEN:?set ANTHILL_MESH_TOKEN to any shared secret, the same for every service}
 
 x-node-base: &node-base
   build: .
@@ -48,6 +52,7 @@ services:
     environment:
       ANTHILL_ORG_WIKI: /data/org-wiki
       ANTHILL_CENTRAL_INDEX: /data/central-index
+      ANTHILL_MESH_TOKEN: ${ANTHILL_MESH_TOKEN:?set ANTHILL_MESH_TOKEN to any shared secret, the same for every service}
     volumes:
       - org-wiki:/data/org-wiki
       - central-index:/data/central-index

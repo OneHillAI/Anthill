@@ -173,7 +173,8 @@ def test_forgot_on_a_single_user_install_still_shows_the_link(tmp_path, monkeypa
     o = _org(s, "Acme", "org")
     _user(s, o, "only@acme.com", "admin")
     s.commit()
-    r = TestClient(app_mod.app).post("/forgot", data={"email": "only@acme.com"})
+    local = TestClient(app_mod.app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
+    r = local.post("/forgot", data={"email": "only@acme.com"})
     assert "Choose a new password" in r.text and "/reset/" in r.text
 
 

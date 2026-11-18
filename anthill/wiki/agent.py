@@ -7,6 +7,7 @@ import httpx
 from ..cache import embedder as emb
 from ..common.text import strip_frontmatter
 from ..inference.base import InferenceBackend
+from ..mesh_auth import mesh_headers
 from .ingest import PdfConfirmationRequired, PdfProcessingLimitExceeded, ingest
 from .lint import lint
 from .workspace import Workspace
@@ -88,7 +89,7 @@ def _propose_and_flag(ws: Workspace, org_url: str, report: AgentReport) -> None:
       reuse (so the user doesn't do work the org already did).
     """
     try:
-        resp = httpx.get(f"{org_url.rstrip('/')}/wiki/pages", timeout=10)
+        resp = httpx.get(f"{org_url.rstrip('/')}/wiki/pages", headers=mesh_headers(), timeout=10)
         resp.raise_for_status()
         org_pages = {p["slug"] for p in resp.json()}
     except httpx.HTTPError:

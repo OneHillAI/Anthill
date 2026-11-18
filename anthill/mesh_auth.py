@@ -73,6 +73,40 @@ def require_mesh(authorization: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="invalid or missing mesh token")
 
 
+# Where the node agent listens decides who may call it without a token. ``anthill serve`` reads the address from
+# ``ANTHILL_NODE_HOST`` (default 127.0.0.1). A node that listens on loopback only is reachable from this machine
+# alone (a local tool such as Cursor or Continue pointed at it), so it needs no token. A node that listens
+# anywhere else needs the mesh token from every caller. This is a rule about the bind address, not a guess about
+# each request, so it does not depend on which headers a proxy adds.
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+def node_bind_is_loopback() -> bool:
+    host = os.environ.get("ANTHILL_NODE_HOST", "127.0.0.1").strip().lower().strip("[]")
+    return host in _LOOPBACK
+
+
+def require_mesh_unless_local(authorization: str = Header(default="")) -> None:
+    """Guard for a node-agent route that a local tool uses (the OpenAI-compatible chat API). A node that
+    listens on loopback only answers with no token; a node that listens beyond it requires the mesh token
+    from every caller. With no token set and no insecure opt-in, an exposed node refuses everyone."""
+    if node_bind_is_loopback():
+        return
+    require_mesh(authorization)
+
+
+def exposure_refusal(host: str) -> str:
+    """Why a node agent must not listen on ``host``, or "" when it may. A non-loopback address with no mesh
+    token (and no explicit insecure opt-in) would answer anyone who can reach it."""
+    h = (host or "").strip().lower().strip("[]")
+    if h in _LOOPBACK or _token() or _allow_insecure():
+        return ""
+    return (
+        f"refusing to listen on {host}: set ANTHILL_MESH_TOKEN (the same value on every node), "
+        "or keep the node agent on 127.0.0.1"
+    )
+
+
 def mesh_headers() -> dict[str, str]:
     """Auth header for a client call to a mesh peer. Empty when no token is configured (so an
     unauthenticated single-node run keeps working unchanged)."""

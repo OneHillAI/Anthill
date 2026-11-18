@@ -77,7 +77,7 @@ def heartbeat(req: HeartbeatRequest, _: None = Depends(require_mesh)):
 
 
 @app.get("/nodes")
-def list_nodes():
+def list_nodes(_: None = Depends(require_mesh)):
     return [
         {
             "node_id": n.node_id,
@@ -145,7 +145,7 @@ def search_index(req: SearchRequest, _: None = Depends(require_mesh)):
 
 
 @app.get("/cache/stats")
-def cache_stats():
+def cache_stats(_: None = Depends(require_mesh)):
     return {"total_entries": _index().count(), "nodes": len(registry.live_nodes())}
 
 
@@ -153,13 +153,13 @@ def cache_stats():
 
 
 @app.get("/wiki/pages")
-def list_pages():
+def list_pages(_: None = Depends(require_mesh)):
     ws = _wiki()
     return [{"slug": p.stem, "url": f"/wiki/pages/{p.stem}"} for p in ws.pages()]
 
 
 @app.get("/wiki/pages/{slug}")
-def get_page(slug: str):
+def get_page(slug: str, _: None = Depends(require_mesh)):
     ws = _wiki()
     path = ws.wiki / f"{slug}.md"
     if not path.exists():
@@ -195,6 +195,6 @@ def promote_page(req: PromoteRequest, _: None = Depends(require_mesh)):
 
 
 @app.get("/wiki/lint")
-def lint_wiki():
+def lint_wiki(_: None = Depends(require_mesh)):
     findings = wiki_lint(_wiki())
     return [{"kind": f.kind, "page": f.page, "detail": f.detail} for f in findings]

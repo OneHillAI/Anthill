@@ -1228,6 +1228,12 @@ def serve(
     # A real mesh, where peers must reach this node, sets ANTHILL_NODE_HOST=0.0.0.0 - together with
     # ANTHILL_MESH_TOKEN so the now-exposed endpoints are authenticated.
     host = os.environ.get("ANTHILL_NODE_HOST", "127.0.0.1")
+    from .mesh_auth import exposure_refusal
+
+    refusal = exposure_refusal(host)
+    if refusal:
+        console.print(f"[red]{refusal}[/]")
+        raise typer.Exit(1)
     console.print(f"[green]node agent[/] {node_id} at {base_url}, org: {org_url or '(standalone)'}")
     uvicorn.run(node_app, host=host, port=port, log_level="warning")
 

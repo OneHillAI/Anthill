@@ -41,4 +41,6 @@
 
 <p><strong>Don't put the desktop app or a personal install behind a proxy or tunnel by accident.</strong> Those trust requests from the machine itself, so a plain proxy or tunnel on that machine can make a remote request look local. If you need to share one, turn on <strong>Remote access</strong> in Settings first, which is built for exactly that. To run a server for other people from the start, use <code>anthill web</code> or the container image, which are shared by default.</p>
 
+<p><strong>The first account on a server others can reach needs a setup token.</strong> When Anthill listens beyond this machine (the container image, the appliance, or <code>--host 0.0.0.0</code>) and no account exists yet, it prints a setup token in its console at start, and the first sign-up asks for it. Set <code>ANTHILL_SETUP_TOKEN</code> to choose your own. The desktop app and a server listening on this machine only are unchanged. A node agent listening beyond this machine (<code>ANTHILL_NODE_HOST</code>) and the orchestrator need <code>ANTHILL_MESH_TOKEN</code>, set to the same value on every node; a node agent that listens on this machine only needs none.</p>
+
 <p>To check which version you are running, open <strong>Settings</strong> and go to the <strong>This device</strong> tab. The <strong>Version</strong> line is there.</p>
