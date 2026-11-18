@@ -35,6 +35,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import __version__, keystore
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
+from ..wiki import doc_index
+from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
 from . import audit, bring_in, key_startup, metrics
 from . import upload_status as ups
@@ -2037,6 +2039,21 @@ def _slugs_for_storage(slugs) -> str:
         size += len(slug) + (1 if out else 0)
         out.append(slug)
     return ",".join(out)
+
+
+def _docs_for_storage(docs) -> str:
+    """The documents an answer was given passages of, as the newline-separated string
+    ``ChatMessage.doc_sources`` holds (a file name may contain a comma). Whole entries only, within the
+    column's 500 characters."""
+    out: list[str] = []
+    size = 0
+    for doc in docs or []:
+        doc = " ".join(str(doc).split())
+        if not doc or size + len(doc) + (1 if out else 0) > 500:
+            continue
+        size += len(doc) + (1 if out else 0)
+        out.append(doc)
+    return "\n".join(out)
 
 
 def _compute_where_label(cfg) -> str:
@@ -8359,6 +8376,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "upload_retries": _timed_out_uploads(db, user, org, scope, team_id),
         "upload_problem": ups.UPLOAD_PROBLEMS.get(request.query_params.get("error", "")),
         "upload_types_text": _upload_types_text(),
+        "doc_search_off": doc_index.off_notice(),
         "saved_how": (
             ups.how_it_was_read(
                 db,
@@ -8602,11 +8620,7 @@ def wiki_page_view(
     )
 
 
-def _original_name(raw_name: str) -> str:
-    """The name the person uploaded, from the name the original is kept under (``<name>-<12 hex>.<ext>``)."""
-    import re
-
-    return re.sub(r"-[0-9a-f]{12}(?=\.[^./\\]*$|$)", "", raw_name or "")
+_original_name = original_name  # the same helper the answer context uses
 
 
 def _raw_link(ws, raw_name: str, query: str) -> str:
@@ -13979,8 +13993,11 @@ async def chat_stream(
                         yield f"data: {json.dumps({'meta': {'speed': speed}})}\n\n"
                 if cache_hit:
                     yield f"data: {json.dumps({'meta': {'cache_hit': True}})}\n\n"
-                if slugs:
-                    yield f"data: {json.dumps({'meta': {'wiki_slugs': slugs}})}\n\n"
+                page_slugs, doc_labels = split_sources(slugs)
+                if page_slugs:
+                    yield f"data: {json.dumps({'meta': {'wiki_slugs': page_slugs}})}\n\n"
+                if doc_labels:
+                    yield f"data: {json.dumps({'meta': {'documents': doc_labels}})}\n\n"
                 if auto_web:  # tell the UI the web was added automatically (P4)
                     yield f"data: {json.dumps({'meta': {'auto_web': True}})}\n\n"
                 # Tell the user, live, whether this turn left the device - not just logged for later
@@ -14147,7 +14164,8 @@ async def chat_stream(
             # What the answer was given, kept with it so the page shows the same after a reload. Not
             # kept for a turn that failed, and a fixed answer made by code has no slugs.
             cache_hit=cache_hit and not generation_failed,
-            wiki_slugs="" if generation_failed else _slugs_for_storage(slugs),
+            wiki_slugs="" if generation_failed else _slugs_for_storage(split_sources(slugs)[0]),
+            doc_sources="" if generation_failed else _docs_for_storage(split_sources(slugs)[1]),
         )
         db.add(assistant_msg)
         db.commit()

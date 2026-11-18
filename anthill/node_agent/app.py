@@ -16,6 +16,7 @@ from ..config import Config
 from ..inference.base import BackendError, build_backend
 from ..mesh_auth import mesh_headers, require_mesh, require_mesh_unless_local
 from ..wiki.ask import ask
+from ..wiki.doc_context import split_sources
 from ..wiki.workspace import Workspace
 
 # Configured via environment, same as the CLI.
@@ -121,6 +122,9 @@ def chat_completions(req: ChatRequest, _: None = Depends(require_mesh_unless_loc
         with _load_lock:
             _load = max(0, _load - 1)
 
+    pages, documents = split_sources(
+        slugs
+    )  # wiki_slugs stays what it says: pages. Documents are their own list
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     return {
         "id": completion_id,
@@ -134,7 +138,12 @@ def chat_completions(req: ChatRequest, _: None = Depends(require_mesh_unless_loc
             }
         ],
         "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
-        "anthill": {"cache_hit": cache_hit, "wiki_slugs": slugs, "node_id": NODE_ID},
+        "anthill": {
+            "cache_hit": cache_hit,
+            "wiki_slugs": pages,
+            "documents": documents,
+            "node_id": NODE_ID,
+        },
     }
 
 

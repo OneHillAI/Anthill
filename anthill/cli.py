@@ -283,7 +283,20 @@ def ask(
     if cache_hit:
         console.print("\n[dim]cache hit[/]")
     elif used:
-        console.print(f"\n[dim]context: {', '.join(used)}[/]")
+        console.print(f"\n[dim]context: {_context_text(used)}[/]")
+
+
+def _context_text(used) -> str:
+    """The pages and documents an answer was given, for the terminal: ``a, b; documents: report.pdf (page 2)``.
+    The sources list carries both (see ``doc_context.split_sources``); a document is shown under the name the
+    person uploaded, never as ``doc:`` plus the name it is kept by."""
+    from .wiki.doc_context import split_sources
+
+    pages, docs = split_sources(used)
+    text = ", ".join(pages)
+    if docs:
+        text += ("; " if text else "") + "documents: " + ", ".join(docs)
+    return text
 
 
 _CHAT_HELP = """[bold]Commands[/]
@@ -384,7 +397,7 @@ def chat(
             console.print(f"[dim]web fallback {'on' if web else 'off'}[/]")
             continue
         if line == "/context":
-            console.print(f"[dim]last context: {', '.join(last_used) or '(none)'}[/]")
+            console.print(f"[dim]last context: {_context_text(last_used) or '(none)'}[/]")
             continue
         if line == "/save":
             if not last_answer:
@@ -437,7 +450,7 @@ def chat(
             continue
 
         if used:
-            console.print(f"[dim]context: {', '.join(used)}[/]")
+            console.print(f"[dim]context: {_context_text(used)}[/]")
         # The failure note and the list of pages are for the screen, not for the model's next turn.
         history.extend([("user", line), ("assistant", ask_mod.strip_web_note(answer))])
         last_q, last_answer, last_used = line, answer, used
