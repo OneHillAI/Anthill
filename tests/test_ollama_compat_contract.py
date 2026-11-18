@@ -67,7 +67,9 @@ def _response(payload, status=200, url="http://x/api"):
 
 
 def _backend() -> OllamaBackend:
-    return OllamaBackend("http://x", "m", num_ctx=4096)
+    return OllamaBackend(
+        "http://localhost:11434", "m", num_ctx=4096
+    )  # a local engine: this is its contract
 
 
 MSGS = [Message("user", "hi")]
