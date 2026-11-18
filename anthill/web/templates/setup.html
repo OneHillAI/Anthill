@@ -7,8 +7,9 @@
 </head>
 <body>
 <div class="auth-wrap">
-  <div class="auth-box" style="max-width:480px">
-    <h1>Welcome to <b>Ant<span style="color:var(--accent)">hill</span></b></h1>
+  <div class="auth-box">
+    {% include "_auth_brand.html" %}
+    <h1>Welcome</h1>
     <p class="subtitle">A few quick steps and your private AI is ready - nothing else to install.</p>
     {% include "_setup_steps.html" %}
     {% if bring_in_available %}
@@ -22,6 +23,7 @@
     <div class="alert alert-err">Sign-up is by invitation on this server. Ask an administrator to invite you.</div>
     <p class="text-sm text-muted" style="margin-top:14px;text-align:center">
       Already have an account? <a href="/login" style="color:var(--muted)">Sign in</a>
+      &middot; <a href="/forgot" style="color:var(--muted)">Forgot your password?</a>
     </p>
     {% else %}
 
@@ -52,24 +54,24 @@
     <form method="post" action="/setup">
       {% if needs_setup_token %}
       <div class="form-group">
-        <label>Setup token</label>
-        <input type="text" name="setup_token" required autocomplete="off" autocapitalize="off"
+        <label for="setup-token">Setup token</label>
+        <input type="text" name="setup_token" id="setup-token" required autocomplete="off" autocapitalize="off"
                placeholder="printed in the console where Anthill is running">
         <p class="text-sm text-muted" style="margin-top:6px">This server can be reached from the network, so the
           first account needs the token Anthill printed when it started.</p>
       </div>
       {% endif %}
       <div class="form-group">
-        <label>Your email</label>
-        <input type="email" name="admin_email" required placeholder="you@example.com" autocomplete="username" autofocus>
+        <label for="setup-email">Your email</label>
+        <input type="email" name="admin_email" id="setup-email" required placeholder="you@example.com" autocomplete="username" autofocus>
       </div>
       <div class="form-group">
-        <label>Your name <span class="text-sm text-muted">(optional)</span></label>
-        <input type="text" name="admin_name" placeholder="Jane Smith" autocomplete="name">
+        <label for="setup-name">Your name <span class="text-sm text-muted">(optional)</span></label>
+        <input type="text" name="admin_name" id="setup-name" placeholder="Jane Smith" autocomplete="name">
       </div>
       <div class="form-group">
-        <label>Password</label>
-        <input type="password" name="admin_password" required placeholder="min 12 characters"
+        <label for="setup-password">Password</label>
+        <input type="password" name="admin_password" id="setup-password" required placeholder="At least 12 characters"
                minlength="12" autocomplete="new-password">
       </div>
 
@@ -79,11 +81,11 @@
       Setting up for a team? Create your personal account first - you can set up an
       <b>organisation</b> later in Settings, under Organisation.
     </p>
-    {% if not is_first_run %}
+    {# Always offered, so someone who already has an account is never stuck on "Get started". #}
     <p class="text-sm text-muted" style="margin-top:14px;text-align:center">
       Already have an account? <a href="/login" style="color:var(--muted)">Sign in</a>
+      &middot; <a href="/forgot" style="color:var(--muted)">Forgot your password?</a>
     </p>
-    {% endif %}
 
     {% if bring_in_available %}
     <div id="bring-in" style="margin-top:26px;padding-top:18px;border-top:1px solid var(--border)">
@@ -103,8 +105,8 @@
       {% endif %}
       <form method="post" action="/setup/bring-in">
         <div class="form-group">
-          <label>Folder of the earlier copy</label>
-          <input type="text" name="folder" required value="{{ bring_in_folder }}"
+          <label for="bring-in-folder">Folder of the earlier copy</label>
+          <input type="text" name="folder" id="bring-in-folder" required value="{{ bring_in_folder }}"
                  placeholder="/Users/you/Anthill" autocomplete="off" spellcheck="false">
         </div>
         {% if bring_in_confirm_keys %}<input type="hidden" name="without_keys" value="1">{% endif %}

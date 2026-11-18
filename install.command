@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 
 clear
 echo "════════════════════════════════════════════"
-echo "   🤖  Installing anthill (admin)"
+echo "   Installing Anthill"
 echo "   Everything runs on this Mac. Nothing leaves it."
 echo "════════════════════════════════════════════"
 echo ""
@@ -26,7 +26,7 @@ echo ""
 # Do the full first-time setup without launching yet (venv, Ollama, model, keys).
 if ! bash start.sh --setup-only; then
   echo ""
-  echo "   ⚠️  Setup didn't finish. Check the messages above (usually no internet"
+  echo "   Setup didn't finish. Check the messages above (usually no internet"
   echo "       on the first run). Fix that, then double-click this file again."
   echo ""
   read -r -p "   Press Return to close." _ || true
@@ -34,7 +34,7 @@ if ! bash start.sh --setup-only; then
 fi
 
 echo ""
-echo "   ✓ anthill is installed."
+echo "   ✓ Anthill is installed."
 echo ""
 
 # Build a no-Terminal launcher so you can start Anthill like any app, without the Rust/Tauri

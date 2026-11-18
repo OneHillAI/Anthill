@@ -4052,6 +4052,7 @@ def login_get(request: Request, user=Depends(_current_user)):
             "request": request,
             "error": _ERRORS.get(request.query_params.get("error", ""), ""),
             "notice": bring_in.login_notice(request),
+            "signup_open": signup_is_open(_db(), request),
             **ctx,
         },
     )
@@ -4075,6 +4076,7 @@ async def login_post(
             {
                 "request": request,
                 "error": "Too many failed attempts. Please wait a few minutes and try again.",
+                "signup_open": signup_is_open(db, request),
                 **_sso_ctx(),
             },
             status_code=429,
@@ -4098,7 +4100,12 @@ async def login_post(
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"request": request, "error": "Invalid email or password.", **_sso_ctx()},
+            {
+                "request": request,
+                "error": "Invalid email or password.",
+                "signup_open": signup_is_open(db, request),
+                **_sso_ctx(),
+            },
             status_code=401,
         )
 
@@ -4109,6 +4116,7 @@ async def login_post(
             {
                 "request": request,
                 "error": "Account not yet activated. Check your email for the confirmation link.",
+                "signup_open": signup_is_open(db, request),
                 **_sso_ctx(),
             },
             status_code=401,
@@ -4149,6 +4157,7 @@ async def login_post(
             {
                 "request": request,
                 "error": "Authentication changed. Please sign in again.",
+                "signup_open": signup_is_open(db, request),
                 **_sso_ctx(),
             },
             status_code=401,

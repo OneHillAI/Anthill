@@ -33,19 +33,21 @@ def test_login_redirects_to_setup_on_fresh_install(tmp_path, monkeypatch):
     r = client.get("/login", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/setup"
-    assert 'href="/login"' not in client.get("/login").text
+    assert 'href="/login"' in client.get("/login").text  # the single welcome still offers "Sign in"
 
 
 def test_setup_is_the_single_first_run_welcome_personal_no_org(tmp_path, monkeypatch):
     # The one first-run screen creates a PERSONAL account with no organization setup required
-    # (docs/specs/signup-no-org.md). It must not offer sign-in when this install has no account.
+    # (docs/specs/signup-no-org.md). It always offers "Sign in" and "Forgot your password?", so nobody is stuck on "Get started".
     client = _client(tmp_path, monkeypatch)
     r = client.get("/setup")
     assert r.status_code == 200
     assert (
         'name="admin_email"' in r.text and 'name="topology"' not in r.text
     )  # personal, no org chooser
-    assert 'href="/login"' not in r.text
+    assert (
+        'href="/login"' in r.text and 'href="/forgot"' in r.text
+    )  # sign in and reset: always offered
 
 
 def test_setup_offers_signin_after_account_creation(tmp_path, monkeypatch):

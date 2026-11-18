@@ -8,6 +8,7 @@
 <body>
 <div class="auth-wrap">
   <div class="auth-box">
+    {% include "_auth_brand.html" %}
     <h1>Reset your password</h1>
     {% if sent %}
     {% if send_failed %}
@@ -37,8 +38,8 @@
     <p class="subtitle">Enter your email and we'll send you a link to choose a new password.</p>
     <form method="post" action="/forgot">
       <div class="form-group">
-        <label>Email</label>
-        <input type="email" name="email" required placeholder="you@company.com" autofocus>
+        <label for="forgot-email">Email</label>
+        <input type="email" name="email" id="forgot-email" required placeholder="you@example.com" autocomplete="username" autofocus>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%">Send reset link</button>
     </form>
