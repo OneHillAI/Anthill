@@ -9916,9 +9916,9 @@ def settings_automation_get(request: Request, user: dict = Depends(_require_org_
     )
 
 
-def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
-    """Template context for the one-time first-use notice (chat, agents or tasks, whichever the user opens
-    first): ``first_use_notice`` is None once acknowledged, else the current Thinking and Web-search defaults."""
+def _first_use_notice_ctx(db, user_id: int) -> dict:
+    """Template context for the one-time hint under the chat box: ``first_use_notice`` is None once
+    acknowledged, else the current Thinking and Web-search defaults."""
     me = db.query(User).filter(User.id == user_id).first()
     if me is None or bool(getattr(me, "chat_defaults_notice_seen", False)):
         return {"first_use_notice": None}
@@ -9933,7 +9933,6 @@ def _first_use_notice_ctx(db, user_id: int, page: str = "chat") -> dict:
             "thinking_on": bool(getattr(me, "thinking_on", False)),
             "web_on": bool(getattr(me, "web_access_on", False)),
             "org_mode": org_mode,
-            "page": page,
         }
     }
 
@@ -16715,7 +16714,6 @@ def tasks_page(
             "request": request,
             "user": user,
             "org": org,
-            **_first_use_notice_ctx(db, int(user["sub"]), "tasks"),
             "tasks": tasks,
             "can_write": can_write,
             "can_operate": can_operate,
@@ -17642,7 +17640,6 @@ def agents_home(request: Request, user: dict = Depends(_require_user)):
             "request": request,
             "user": user,
             "org": org,
-            **_first_use_notice_ctx(db, uid, "agents"),
             "agents": agents,
             "schedules": _AGENT_SCHEDULES,
             "governance_opts": _AGENT_GOV,

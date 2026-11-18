@@ -388,10 +388,6 @@
     </div>
     {% endif %}
 
-    {% if first_use_notice %}
-    <div style="padding:10px 14px 0">{% include "_first_use_notice.html" %}</div>
-    {% endif %}
-
     <div class="chat-messages" id="messages">
       {% if not active_conv %}
         <div style="text-align:center;margin-top:80px;color:var(--muted)">
@@ -538,6 +534,7 @@
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>
+      {% include "_first_use_notice.html" %}
     </div>
     <script>
       // Knowledge button: show the chosen scope on the button face.
@@ -655,7 +652,7 @@
           syncTrustBanner();
         });
       }
-      // Called by the first-use notice (and the one-time import below) after a new default is saved: apply it
+      // Called after a new default is saved (by the one-time import below and the Settings page): apply it
       // to this chat unless the chat already has a choice of its own.
       window.applyChatDefaults = function (d) {
         if (typeof d.thinking_on === 'boolean') {
@@ -666,14 +663,11 @@
           _defaults.web = d.web_access;
           if (_chatOpt('web') === null && _webBox) { _webBox.checked = d.web_access; syncTrustBanner(); }
         }
-        // Keep the first-use notice (when it is on this page) in step, so it never states an old default.
-        var ft = document.getElementById('fu-think'), fw = document.getElementById('fu-web');
-        if (typeof d.thinking_on === 'boolean' && ft) {
-          ft.checked = d.thinking_on;
+        // Keep the first-use hint (when it is on this page) in step, so it never states an old default.
+        if (typeof d.thinking_on === 'boolean') {
           var st = document.getElementById('fu-think-state'); if (st) st.textContent = d.thinking_on ? 'on' : 'off';
         }
-        if (typeof d.web_access === 'boolean' && fw) {
-          fw.checked = d.web_access;
+        if (typeof d.web_access === 'boolean') {
           var sw = document.getElementById('fu-web-state'); if (sw) sw.textContent = d.web_access ? 'on' : 'off';
         }
       };
