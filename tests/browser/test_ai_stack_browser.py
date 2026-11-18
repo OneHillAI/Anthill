@@ -392,8 +392,10 @@ def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
                 page.click(f'.cc-tier[data-tier="{tier}"]')
                 now_m = _box(page, '.cc-tier[data-tier="local"]')
                 now_c = _box(page, '.cc-tier[data-tier="cloud"]')
-                assert abs(now_m["l"] - machine["l"]) <= 1 and abs(now_c["l"] - cloud["l"]) <= 1
-                assert abs(now_m["t"] - machine["t"]) <= 1 and abs(now_c["t"] - cloud["t"]) <= 1
+                # "stay put" with a few pixels of slack: the same page lays out 1 to 2 px differently on the
+                # CI runner (fonts, sub-pixel rounding) after a card is clicked
+                assert abs(now_m["l"] - machine["l"]) <= 3 and abs(now_c["l"] - cloud["l"]) <= 3
+                assert abs(now_m["t"] - machine["t"]) <= 3 and abs(now_c["t"] - cloud["t"]) <= 3
                 _wait_for_seam(page)
                 assert _seam(*_boxes(page)), tier
                 r = _seam_is_really_open(page)
