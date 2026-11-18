@@ -12865,6 +12865,12 @@ def chat_conv(
             "web_follows_default": web_follows_default,
             "web_default": web_default,
             "thinking_on_default": bool(getattr(_me, "thinking_on", False)),
+            # The line under the empty-chat heading: what this chat runs on and where.
+            "empty_model_line": (
+                "Runs on your organisation's model"
+                if on_org_model
+                else f"{served_local} \u00b7 runs on this computer"
+            ),
             **_first_use_notice_ctx(db, int(user["sub"])),
             # An attached inference-provider label (empty when none configured) lets chat.html offer
             # "Ask {Provider} instead" while the local model is still generating (#1 UX follow-up to

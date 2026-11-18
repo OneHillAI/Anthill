@@ -55,8 +55,18 @@
     .chat-header h1 { font-size:16px; font-weight:600; flex:1; margin:0; }
     .chat-messages { flex:1; overflow-y:auto; padding:24px; display:flex;
       flex-direction:column; gap:20px; }
-    .chat-messages:empty::after { content:"Start a conversation below.";
-      color:var(--muted); font-size:15px; text-align:center; margin-top:60px; }
+    /* Empty state: says what this chat runs on and offers a few ways to start. It goes away as soon as the
+       first message is on the page, whether the page was loaded with it or the script added it. */
+    .chat-empty { margin:auto; max-width:460px; text-align:center; display:flex; flex-direction:column;
+      align-items:center; gap:8px; padding:24px 0; }
+    .chat-messages:has(.msg) .chat-empty { display:none; }
+    .chat-empty h2 { font-size:20px; margin:0; }
+    .chat-empty-sub { margin:0; font-size:13px; color:var(--muted); }
+    .chat-starters { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; margin-top:14px; }
+    .chat-starter { text-align:left; font:inherit; font-size:13px; color:var(--text); background:var(--surface);
+      border:1px solid var(--border); border-radius:10px; padding:10px 12px; cursor:pointer; text-decoration:none; }
+    .chat-starter:hover, .chat-starter:focus-visible { border-color:var(--accent); outline:none; }
+    @media (max-width:560px) { .chat-starters { grid-template-columns:1fr; } }
 
     /* messages - long messages use most of the width (the input row is full-width too) instead of a
        narrow ~60% column; short messages still size to their content. */
@@ -267,7 +277,6 @@
     @media (prefers-color-scheme: dark) {
       body { background: var(--bg); }
       .chat-header { background: var(--surface); border-bottom-color: var(--border); }
-      .chat-messages:empty::after { color: var(--muted); }
       .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
       .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
       .msg .bubble th, .msg .bubble td { border-color: var(--border); }
@@ -291,7 +300,6 @@
     }
     :root[data-theme="dark"] body { background: var(--bg); }
     :root[data-theme="dark"] .chat-header { background: var(--surface); border-bottom-color: var(--border); }
-    :root[data-theme="dark"] .chat-messages:empty::after { color: var(--muted); }
     :root[data-theme="dark"] .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
     :root[data-theme="dark"] .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
     :root[data-theme="dark"] .msg .bubble th, :root[data-theme="dark"] .msg .bubble td { border-color: var(--border); }
@@ -401,6 +409,18 @@
           </form>
         </div>
       {% else %}
+        {% if not messages %}
+        <div class="chat-empty" id="chat-empty">
+          <h2>Ask your own intelligence</h2>
+          <p class="chat-empty-sub">{{ empty_model_line }}</p>
+          <div class="chat-starters">
+            <a class="chat-starter" href="/wiki">Add a document and ask about it</a>
+            <button type="button" class="chat-starter" onclick="fillStarter('What can you do?')">What can you do?</button>
+            <button type="button" class="chat-starter" onclick="fillStarter('Explain this simply: ')">Explain something simply</button>
+            <button type="button" class="chat-starter" onclick="fillStarter('Help me draft a message to ')">Draft a message with me</button>
+          </div>
+        </div>
+        {% endif %}
         {% for msg in messages %}
         <div class="msg {{ msg.role }}{% if msg.escalated %} escalated{% endif %}" data-id="{{ msg.id }}">
           <div class="avatar">{% if msg.role == 'user' %}<i data-lucide="user">👤</i>{% else %}<svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg>{% endif %}</div>
@@ -537,6 +557,14 @@
       {% include "_first_use_notice.html" %}
     </div>
     <script>
+      // Empty-state starters: put the text in the box and focus it. Nothing is sent until the user does.
+      function fillStarter(text) {
+        var box = document.getElementById('msg-input');
+        if (!box) return;
+        box.value = text;
+        box.focus();
+        box.setSelectionRange(text.length, text.length);
+      }
       // Knowledge button: show the chosen scope on the button face.
       function paintScope() {
         var sel = document.getElementById('opt-scope'), l = document.getElementById('opt-scope-label');
