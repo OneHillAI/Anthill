@@ -328,7 +328,10 @@ def test_chat_shows_fallback_banner_only_for_a_small_model(tmp_path, monkeypatch
     body = c.get(f"/chat/{conv_id}").text
     # banner shown for a small model - generic wording, no model name leaked
     assert "too small" in body and "action-style search" in body
-    assert "qwen2.5:3b" not in body
+    banner = body[body.index("too small") - 200 : body.index("action-style search") + 40]
+    assert (
+        "qwen2.5:3b" not in banner
+    )  # (the empty chat names its model on purpose, in its own line)
 
     s = app_mod._SessionFactory()
     s.query(OrgSettings).first().ollama_model = "mistral-nemo:12b"  # a capable model

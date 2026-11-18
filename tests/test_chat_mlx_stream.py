@@ -270,8 +270,8 @@ def test_memory_distillation_and_badges_use_explicit_failure_state(tmp_path, mon
         '<button class="thumbs"', 1
     )[0]
     failed_meta = page.split(f'id="bubble-{failed.id}"', 1)[1].split('<button class="thumbs"', 1)[0]
-    assert "💻 local" in successful_meta
-    assert "💻 local" not in failed_meta
+    assert "On this device" in successful_meta
+    assert "On this device" not in failed_meta
 
 
 def test_create_tables_adds_generation_failure_state_to_existing_chat_table(tmp_path):

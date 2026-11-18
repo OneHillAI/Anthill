@@ -55,8 +55,18 @@
     .chat-header h1 { font-size:16px; font-weight:600; flex:1; margin:0; }
     .chat-messages { flex:1; overflow-y:auto; padding:24px; display:flex;
       flex-direction:column; gap:20px; }
-    .chat-messages:empty::after { content:"Start a conversation below.";
-      color:var(--muted); font-size:15px; text-align:center; margin-top:60px; }
+    /* Empty state: says what this chat runs on and offers a few ways to start. It goes away as soon as the
+       first message is on the page, whether the page was loaded with it or the script added it. */
+    .chat-empty { margin:auto; max-width:460px; text-align:center; display:flex; flex-direction:column;
+      align-items:center; gap:8px; padding:24px 0; }
+    .chat-messages:has(.msg) .chat-empty { display:none; }
+    .chat-empty h2 { font-size:20px; margin:0; }
+    .chat-empty-sub { margin:0; font-size:13px; color:var(--muted); }
+    .chat-starters { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; margin-top:14px; }
+    .chat-starter { text-align:left; font:inherit; font-size:13px; color:var(--text); background:var(--surface);
+      border:1px solid var(--border); border-radius:10px; padding:10px 12px; cursor:pointer; text-decoration:none; }
+    .chat-starter:hover, .chat-starter:focus-visible { border-color:var(--accent); outline:none; }
+    @media (max-width:560px) { .chat-starters { grid-template-columns:1fr; } }
 
     /* messages - long messages use most of the width (the input row is full-width too) instead of a
        narrow ~60% column; short messages still size to their content. */
@@ -209,6 +219,21 @@
     .opt-toggle { color:var(--clay-text,#8B5E3C); }
     /* The knowledge control is a transparent select over a label: show the focus ring on the label. */
     .opt-scope-btn:focus-within { outline:2px solid var(--accent); outline-offset:1px; }
+    /* The two on/off buttons (Web search, Thinking) look like the switches used in Settings: a small track and
+       knob before the label, with the state spelled out in the label itself. The knowledge button is a
+       picker, not an on/off control, so it has no switch. */
+    .opt-toggle[aria-pressed] { position:relative; padding-left:38px; }
+    .opt-toggle[aria-pressed]::before { content:""; position:absolute; left:9px; top:50%; width:21px; height:12px;
+      margin-top:-6px; border-radius:999px; background:var(--border-strong,#b5beb8); }
+    .opt-toggle[aria-pressed]::after { content:""; position:absolute; left:11px; top:50%; width:8px; height:8px;
+      margin-top:-4px; border-radius:50%; background:var(--surface,#fff); transition:left .12s; }
+    .opt-toggle[aria-pressed="true"]::before { background:var(--accent); }
+    .opt-toggle[aria-pressed="true"]::after { left:22px; }
+    @media (prefers-reduced-motion:reduce) { .opt-toggle[aria-pressed]::after { transition:none; } }
+    /* Where an answer ran: a quiet chip under it. */
+    .src-chip { font-size:12px; border-radius:999px; padding:1px 8px; border:1px solid var(--border);
+      color:var(--muted); white-space:nowrap; }
+    .src-chip.local { background:var(--accent-soft); border-color:transparent; color:var(--accent); }
     .opt-toggle.unavailable { opacity:.55; cursor:default; }
     .opt-toggle.unavailable:hover { background:none; }
 
@@ -267,7 +292,6 @@
     @media (prefers-color-scheme: dark) {
       body { background: var(--bg); }
       .chat-header { background: var(--surface); border-bottom-color: var(--border); }
-      .chat-messages:empty::after { color: var(--muted); }
       .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
       .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
       .msg .bubble th, .msg .bubble td { border-color: var(--border); }
@@ -291,7 +315,6 @@
     }
     :root[data-theme="dark"] body { background: var(--bg); }
     :root[data-theme="dark"] .chat-header { background: var(--surface); border-bottom-color: var(--border); }
-    :root[data-theme="dark"] .chat-messages:empty::after { color: var(--muted); }
     :root[data-theme="dark"] .msg .bubble { background: var(--surface); border-color: var(--border); color: var(--text); }
     :root[data-theme="dark"] .msg .bubble code { background: var(--bg-subtle); color: var(--text); }
     :root[data-theme="dark"] .msg .bubble th, :root[data-theme="dark"] .msg .bubble td { border-color: var(--border); }
@@ -313,6 +336,7 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 {# Full-merge chat nav: the conversation list lives inside the global rail under Workspace and the
    other nav groups fold, so there is no separate conversations column here. #}
 {% set chat_mode = true %}
@@ -320,7 +344,7 @@
 <div class="chat-layout">
 
   <!-- main -->
-  <div class="chat-main">
+  <div class="chat-main" role="main" id="main-content">
     <div class="chat-header">
       <h1 id="chat-title">{{ active_conv.title if active_conv else 'Anthill Chat' }}</h1>
       {% if not active_conv or active_conv.plane == 'solo' %}
@@ -388,10 +412,6 @@
     </div>
     {% endif %}
 
-    {% if first_use_notice %}
-    <div style="padding:10px 14px 0">{% include "_first_use_notice.html" %}</div>
-    {% endif %}
-
     <div class="chat-messages" id="messages">
       {% if not active_conv %}
         <div style="text-align:center;margin-top:80px;color:var(--muted)">
@@ -405,6 +425,18 @@
           </form>
         </div>
       {% else %}
+        {% if not messages %}
+        <div class="chat-empty" id="chat-empty">
+          <h2>Ask your own intelligence</h2>
+          <p class="chat-empty-sub">{{ empty_model_line }}</p>
+          <div class="chat-starters">
+            <a class="chat-starter" href="/wiki">Add a document and ask about it</a>
+            <button type="button" class="chat-starter" onclick="fillStarter('What can you do?')">What can you do?</button>
+            <button type="button" class="chat-starter" onclick="fillStarter('Explain this simply: ')">Explain something simply</button>
+            <button type="button" class="chat-starter" onclick="fillStarter('Help me draft a message to ')">Draft a message with me</button>
+          </div>
+        </div>
+        {% endif %}
         {% for msg in messages %}
         <div class="msg {{ msg.role }}{% if msg.escalated %} escalated{% endif %}" data-id="{{ msg.id }}">
           <div class="avatar">{% if msg.role == 'user' %}<i data-lucide="user">👤</i>{% else %}<svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg>{% endif %}</div>
@@ -417,9 +449,9 @@
                 {% if msg.escalated %}
                   <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>
                 {% elif msg.answered_locally %}
-                  <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>
+                  <span class="src-chip local" title="Answered on this device - nothing left it">On this device</span>
                 {% else %}
-                  <span style="font-size:12px;color:var(--muted)" title="Answered by {{ msg.model }} over the network">☁️ remote</span>
+                  <span class="src-chip" title="Answered by {{ msg.model }} over the network">Sent over the network</span>
                 {% endif %}
               {% endif %}
               {% if msg.doc_sources %}
@@ -481,9 +513,9 @@
         <button type="button" onclick="clearAttachedImage()" title="Remove image"
                 style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>
       </div>
-      <input type="file" id="image-file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="attachImage(this)">
+      <input type="file" id="image-file" aria-label="Attach an image" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="attachImage(this)">
       <div class="chat-input-row">
-        <textarea id="msg-input" rows="1" placeholder="Ask your own intelligence…"
+        <textarea id="msg-input" rows="1" aria-label="Message" placeholder="Ask your own intelligence…"
                   onkeydown="handleKey(event)"></textarea>
         <button type="button" class="mic-btn" id="attach-btn" onclick="document.getElementById('image-file').click()"
                 title="Attach an image (analyze a screenshot or photo)">
@@ -538,8 +570,17 @@
         </button>
         <span class="text-muted">Shift+Enter for a new line</span>
       </div>
+      {% include "_first_use_notice.html" %}
     </div>
     <script>
+      // Empty-state starters: put the text in the box and focus it. Nothing is sent until the user does.
+      function fillStarter(text) {
+        var box = document.getElementById('msg-input');
+        if (!box) return;
+        box.value = text;
+        box.focus();
+        box.setSelectionRange(text.length, text.length);
+      }
       // Knowledge button: show the chosen scope on the button face.
       function paintScope() {
         var sel = document.getElementById('opt-scope'), l = document.getElementById('opt-scope-label');
@@ -655,7 +696,7 @@
           syncTrustBanner();
         });
       }
-      // Called by the first-use notice (and the one-time import below) after a new default is saved: apply it
+      // Called after a new default is saved (by the one-time import below and the Settings page): apply it
       // to this chat unless the chat already has a choice of its own.
       window.applyChatDefaults = function (d) {
         if (typeof d.thinking_on === 'boolean') {
@@ -666,14 +707,11 @@
           _defaults.web = d.web_access;
           if (_chatOpt('web') === null && _webBox) { _webBox.checked = d.web_access; syncTrustBanner(); }
         }
-        // Keep the first-use notice (when it is on this page) in step, so it never states an old default.
-        var ft = document.getElementById('fu-think'), fw = document.getElementById('fu-web');
-        if (typeof d.thinking_on === 'boolean' && ft) {
-          ft.checked = d.thinking_on;
+        // Keep the first-use hint (when it is on this page) in step, so it never states an old default.
+        if (typeof d.thinking_on === 'boolean') {
           var st = document.getElementById('fu-think-state'); if (st) st.textContent = d.thinking_on ? 'on' : 'off';
         }
-        if (typeof d.web_access === 'boolean' && fw) {
-          fw.checked = d.web_access;
+        if (typeof d.web_access === 'boolean') {
           var sw = document.getElementById('fu-web-state'); if (sw) sw.textContent = d.web_access ? 'on' : 'off';
         }
       };
@@ -715,7 +753,7 @@
     <pre id="snip-preview" class="wiki-content" style="max-height:160px;margin-bottom:12px"></pre>
     <div class="form-group">
       <label>Tags <span class="text-muted">(comma-separated)</span></label>
-      <input type="text" id="snip-tags" placeholder="e.g. pricing, onboarding, sql">
+      <input type="text" id="snip-tags" aria-label="Snippet tags, separated by commas" placeholder="e.g. pricing, onboarding, sql">
     </div>
     <p id="snip-status" class="text-sm text-muted" style="min-height:18px"></p>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
@@ -734,7 +772,7 @@
   </div>
   <div id="canvas-preview" class="canvas-body"></div>
   <div class="canvas-foot">
-    <textarea id="canvas-req" rows="2"
+    <textarea id="canvas-req" aria-label="Request a change" rows="2"
       placeholder="Request a change (e.g. add a summary section, make the chart taller)…"></textarea>
     <button class="btn btn-primary" onclick="canvasRevise()">Request change</button>
   </div>
@@ -1554,7 +1592,7 @@ function scheduleCardAfter(metaEl, opts) {
     `<b>📅 Run this on a schedule</b>` +
     (goal ? `<div class="text-muted" style="font-size:13px;margin:4px 0 8px">${escapeHtml(goal)}</div>` : '') +
     `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">` +
-      `<select class="sched-when" style="font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">` +
+      `<select class="sched-when" aria-label="When to run" style="font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">` +
         `<option value="daily">Every day</option><option value="weekly">Every week</option>` +
         `<option value="hourly">Every hour</option><option value="once">Once</option>` +
       `</select>` +
@@ -1702,8 +1740,8 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
         bubble.closest('.msg')?.classList.add('escalated');
         setBuildStatus(escalatingLabel ? `Answered via ${escalatingLabel}` : 'Answered via your inference provider', rowEl(bubble));
-      } else if (d.meta?.answered_locally === true)  metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered on this device - nothing left it">💻 local</span>';
-      else if (d.meta?.answered_locally === false) metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="Answered over the network">☁️ remote</span>';
+      } else if (d.meta?.answered_locally === true)  metaHtml += ' <span class="src-chip local" title="Answered on this device - nothing left it">On this device</span>';
+      else if (d.meta?.answered_locally === false) metaHtml += ' <span class="src-chip" title="Answered over the network">Sent over the network</span>';
       if (d.escalation_offer) pendingEscalationOffer = d.escalation_offer;   // rendered once [DONE] arrives
       if (d.error) {
         buffer += `${buffer ? '\n\n' : ''}⚠️ ${d.error}`;
