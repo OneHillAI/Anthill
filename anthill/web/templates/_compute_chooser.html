@@ -184,9 +184,20 @@
    redundant "LLM-typical" filler. The heading and its explanatory tooltip only render in setup, where
    there's no summary above yet; personalize.html carries the same tooltip on its own heading instead. #}
 {% if in_setup %}
-<div class="cc-step-title"><span class="cc-num">1</span>Where does your model run?
-  <button type="button" class="help" aria-label="What these mean">?<span class="help-pop">Both run open models you fully own - nothing sent to us. Your machine keeps everything on this device; Your cloud runs it on a private GPU in your own cloud account.</span></button>
+{# First run: where the model runs is a statement, not a choice. Cloud is set up later in Settings, so the two
+   tier cards stay in the page (hidden) only because the script below addresses them. #}
+<style>
+  .cc-local-note{margin:0 0 16px;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--surface,#fff)}
+  .cc-local-note b{display:block;margin-bottom:2px}
+  .cc-local-note span{color:var(--muted);font-size:13px}
+  #cc-attach.cc-setup{border:1px solid var(--border);margin:0 0 var(--sp-4);padding:20px}
+  #cc-attach.cc-setup .mp-list{max-height:none}
+</style>
+<div class="cc-local-note">
+  <b>Your model runs on this computer.</b>
+  <span>{% if hw_label %}{{ hw_label }}. {% endif %}Private, and it works offline. Want bigger models in your own cloud? You can set that up later in Settings.</span>
 </div>
+<div hidden>
 {% endif %}
 
 {# One click selects a tier - both cards are always visible (not a segmented switch hiding one), matching
@@ -238,10 +249,12 @@
   </button>
 </div>
 
+{% if in_setup %}</div>{% endif %}
+
 {# The panel under the tabs: the selected tier's own body. Your cloud's own required provider (RunPod/Lambda,
    unrelated to the optional escalation attachment further down) comes first, then the model list for the
    tier (_council_builder.html swaps its local / cloud list on the tier, ccCouncilTier). #}
-<div class="cc-attach" id="cc-attach" role="region" aria-labelledby="cc-name-{{ 'cloud' if cur_compute == 'cloud' else 'local' }}">
+<div class="cc-attach{% if in_setup %} cc-setup{% endif %}" id="cc-attach" role="region" aria-labelledby="cc-name-{{ 'cloud' if cur_compute == 'cloud' else 'local' }}">
 {# the cloud tier's own REQUIRED provider (RunPod/Lambda) - unrelated to the optional escalation
    attachment in _inference_provider.html. Only relevant once "Your cloud" is selected. #}
 <div class="cc-connect" id="cc-connect-cloud"{% if cur_compute != 'cloud' %} hidden{% endif %}>

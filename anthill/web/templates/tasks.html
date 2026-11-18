@@ -3,8 +3,6 @@
 {% block page_title %}Tasks{% endblock %}
 {% block content %}
 <div class="tasks-page">
-{% include "_first_use_notice.html" %}
-
 {% if notice_text %}
 <div class="alert alert-warn mb-2" role="alert">{{ notice_text }}</div>
 {% endif %}

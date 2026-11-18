@@ -110,6 +110,21 @@ def _open(playwright, live, path, width=1180, javascript=True):
     return browser, page
 
 
+def _open_settings_chooser(playwright, live, width=1180):
+    """The shared chooser (tier cards, panel, provider card) as Settings shows it, opened. First run no longer
+    shows the tier cards (docs/specs/first-run-choose-your-ai.md), so the widget's own behaviour is tested here."""
+    browser, page = _open(playwright, live, "/personalize", width=width)
+    page.evaluate("toggleChangeRuns(true)")
+    page.wait_for_selector("#change-runs", state="visible")
+    return browser, page
+
+
+def _to_provider_step(page):
+    """First run: Continue opens step 4, the second pane of the same form."""
+    page.click("#mp-continue")
+    page.wait_for_selector("#setup-pane-provider", state="visible")
+
+
 def _box(page, selector):
     return page.evaluate(
         "(s) => { const r = document.querySelector(s).getBoundingClientRect();"
@@ -176,7 +191,7 @@ def _inside_panel(page, selector):
 
 def test_machine_models_sit_inside_the_panel_that_the_selected_card_opens_into(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
             assert page.locator("#council-local").is_visible()
             assert not page.locator("#council-cloud").is_visible()
@@ -197,7 +212,7 @@ def test_machine_models_sit_inside_the_panel_that_the_selected_card_opens_into(l
 
 def test_cloud_opens_its_own_provider_key_and_models_inside_the_panel(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
             page.click('.cc-tier[data-tier="cloud"]')
             assert page.locator("#cc-connect-cloud").is_visible()
@@ -222,7 +237,7 @@ def test_cloud_opens_its_own_provider_key_and_models_inside_the_panel(live):
 
 def test_the_inference_provider_is_not_attached_to_the_tier_and_defaults_to_none(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
             assert not _inside_panel(page, ".cc-infer-card")
             assert _box(page, ".cc-infer-card")["t"] > _box(page, "#cc-attach")["b"]
@@ -243,21 +258,62 @@ def test_the_inference_provider_is_not_attached_to_the_tier_and_defaults_to_none
             browser.close()
 
 
-def test_continue_waits_for_a_model_and_posts_the_same_values(live):
+def test_first_run_says_where_it_runs_and_chooses_the_best_fit(live):
     with sync_api.sync_playwright() as p:
         browser, page = _open(p, live, "/setup/model")
         try:
-            assert page.locator("#mp-continue").is_disabled()
-            first = page.locator("#council-local input[name='council_models']").first
-            first.check()
+            assert page.locator(".cc-local-note").is_visible()
+            assert (
+                "Your model runs on this computer." in page.locator(".cc-local-note").inner_text()
+            )
+            assert not page.locator(".cc-tier").first.is_visible()  # the tier cards are not offered
+            ticked = page.locator("#council-local input[name='council_models']:checked")
+            assert ticked.count() == 1
+            assert (
+                page.locator(
+                    "#council-local .mp-badge", has_text="Best fit for this machine"
+                ).count()
+                == 1
+            )
             assert page.locator("#mp-continue").is_enabled()
-            ticked = first.input_value()
+            assert page.locator("#mp-continue").inner_text().startswith("Continue with ")
+            # the best fit is drawn first in the list, and no "Lead" chip shows for a single model
+            best_row = page.locator("#council-local .council-row:has(input:checked)")
+            assert "order:-1" in best_row.get_attribute("style").replace(" ", "")
+            assert not page.locator("#council-local .lead-badge:visible").count()
+            assert not page.locator("#setup-pane-provider").is_visible()
+        finally:
+            browser.close()
+
+
+def test_continue_names_the_model_waits_for_a_choice_and_posts_the_same_values(live):
+    with sync_api.sync_playwright() as p:
+        browser, page = _open(p, live, "/setup/model")
+        try:
+            checked = "#council-local input[name='council_models']:checked"
+            page.locator(checked).uncheck()  # the preselected best fit
+            assert page.locator("#mp-continue").is_disabled()
+            assert page.locator("#mp-continue").inner_text() == "Choose a model to continue"
+            # pick a model by its value, so the locator cannot slide to another box once this one is ticked
+            value = page.locator(
+                "#council-local input[name='council_models']:not(:checked)"
+            ).first.input_value()
+            other = page.locator(f"#council-local input[name='council_models'][value='{value}']")
+            other.check()
+            assert page.locator("#mp-continue").is_enabled()
+            ticked = other.input_value()
+            assert page.locator("#mp-continue").inner_text().startswith("Continue with ")
             posted = page.evaluate(
                 "() => Object.fromEntries(new FormData("
                 "document.querySelector('form[action=\"/setup/model\"]')).entries())"
             )
             assert posted["compute"] == "local"
-            assert posted["council_models"] == ticked and posted["council_lead"] == ticked
+            sent = page.evaluate(
+                "() => new FormData("
+                "document.querySelector('form[action=\"/setup/model\"]')).getAll('council_models')"
+            )
+            # the picked model is sent and leads (a machine that can run a council may keep others ticked)
+            assert ticked in sent and posted["council_lead"] == ticked
             assert posted["enable_vision"] == "on" and "vision_max_accuracy" not in posted
             assert (
                 posted["escalation_provider"] == ""
@@ -266,10 +322,39 @@ def test_continue_waits_for_a_model_and_posts_the_same_values(live):
             browser.close()
 
 
+def test_continue_opens_the_provider_step_and_back_returns_to_the_model(live):
+    with sync_api.sync_playwright() as p:
+        browser, page = _open(p, live, "/setup/model")
+        try:
+            assert page.locator("#wiz-step-3").get_attribute("class").split() == [
+                "wiz-step",
+                "is-current",
+            ]
+            _to_provider_step(page)
+            assert not page.locator("#setup-pane-model").is_visible()
+            assert page.locator("#wiz-step-4").get_attribute("class").split() == [
+                "wiz-step",
+                "is-current",
+            ]
+            assert "is-done" in page.locator("#wiz-step-3").get_attribute("class")
+            assert page.locator(".cc-infer-card").is_visible()
+            assert page.get_by_role("button", name="Not now").is_visible()
+            assert page.get_by_role("button", name="Connect and finish").is_visible()
+            page.get_by_role("button", name="Back to your model").click()
+            assert page.locator("#setup-pane-model").is_visible()
+            assert page.locator("#wiz-step-3").get_attribute("class").split() == [
+                "wiz-step",
+                "is-current",
+            ]
+        finally:
+            browser.close()
+
+
 def test_advanced_is_collapsed_and_holds_the_vision_choices(live):
     with sync_api.sync_playwright() as p:
         browser, page = _open(p, live, "/setup/model")
         try:
+            _to_provider_step(page)
             assert not page.locator("details.cc-adv").evaluate("d => d.open")
             assert not page.locator("input[name='enable_vision']").is_visible()
             page.click("details.cc-adv summary")
@@ -284,6 +369,7 @@ def test_the_vision_summary_follows_the_checkbox(live):
     with sync_api.sync_playwright() as p:
         browser, page = _open(p, live, "/setup/model")
         try:
+            _to_provider_step(page)
             assert page.locator("#cc-vision-state").inner_text() == "Image understanding on"
             page.click("details.cc-adv summary")
             page.uncheck("input[name='enable_vision']")
@@ -296,7 +382,7 @@ def test_the_vision_summary_follows_the_checkbox(live):
 
 def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model", width=620)
+        browser, page = _open_settings_chooser(p, live, width=620)
         try:
             machine = _box(page, '.cc-tier[data-tier="local"]')
             cloud = _box(page, '.cc-tier[data-tier="cloud"]')
@@ -322,7 +408,7 @@ def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
 
 def test_the_selected_card_is_announced_and_a_focused_card_is_drawn_above_the_panel(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
 
             def pressed():
@@ -414,7 +500,7 @@ def test_settings_opens_the_same_panel(live):
 
 def test_cloud_tier_posts_the_cloud_values(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
             page.click('.cc-tier[data-tier="cloud"]')
             page.click('#cc-provs .cc-prov[data-key="runpod"]')
@@ -424,7 +510,7 @@ def test_cloud_tier_posts_the_cloud_values(live):
             ticked = first.input_value()
             posted = page.evaluate(
                 "() => Object.fromEntries(new FormData("
-                "document.querySelector('form[action=\"/setup/model\"]')).entries())"
+                "document.getElementById('compute-form')).entries())"
             )
             assert posted["compute"] == "cloud" and posted["cloud_provider"] == "runpod"
             assert posted["provider_api_key"] == "not-a-real-key"
@@ -439,7 +525,7 @@ def test_cloud_tier_posts_the_cloud_values(live):
 
 def test_a_card_is_chosen_with_enter_and_with_space(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model")
+        browser, page = _open_settings_chooser(p, live)
         try:
             for key in ("Enter", " "):
                 page.focus('.cc-tier[data-tier="cloud"]')
@@ -469,7 +555,7 @@ def test_the_vision_summary_matches_a_restored_checkbox(live):
 
 def test_the_compact_cards_still_say_what_stays_and_what_is_sent(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model", width=620)
+        browser, page = _open_settings_chooser(p, live, width=620)
         try:
             machine = page.locator('.cc-tier[data-tier="local"]').inner_text()
             cloud = page.locator('.cc-tier[data-tier="cloud"]').inner_text()
@@ -500,7 +586,7 @@ def test_an_account_saved_on_your_cloud_with_no_provider_yet_gets_the_provider_c
 
 def test_the_full_cards_show_the_box_and_the_fit_sentence_and_no_subject_labels(live):
     with sync_api.sync_playwright() as p:
-        browser, page = _open(p, live, "/setup/model", width=1180)
+        browser, page = _open_settings_chooser(p, live, width=1180)
         try:
             for selector in (".cc-fit", ".cc-boundary-items"):
                 items = page.locator(selector)

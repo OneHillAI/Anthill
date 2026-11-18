@@ -76,10 +76,6 @@
 <input type="hidden" name="escalation_provider" id="cc-escalation-provider" value="{{ cur_escalation_provider }}"{% if cf %} form="{{ cf }}"{% endif %}>
 <input type="hidden" name="escalation_mode" id="cc-escalation-mode" value="{{ cur_escalation_mode }}"{% if cf %} form="{{ cf }}"{% endif %}>
 
-{% if in_setup %}
-<div class="cc-step-title" style="margin-top:28px"><span class="cc-num">3</span>Which inference provider to connect?</div>
-{% endif %}
-
 {# Clicking a provider card both selects AND attaches it (no separate checkbox); the "Don't use one"
    card clears it again - a real, always-visible fourth choice, not grayed-out text tucked inside the
    card (founder ask, 2026-09-29). Continuing without a key is fine - see the file header. #}
@@ -209,7 +205,7 @@ function ccRenderEscalationProvs(){
   var list=ccSort(CC_INFER, ccPref);
   var html=list.map(function(p){
     var links='<a href="'+p.signup+'" target="_blank" rel="noopener">Sign up &rarr;</a>'
-      + (p.aoi?' <a href="'+p.aoi+'" target="_blank" rel="noopener">Ownership grade</a>':'');
+      + (p.aoi?' <a href="'+p.aoi+'" target="_blank" rel="noopener">How open is it?</a>':'');
     return '<div class="cc-prov" data-key="'+p.key+'" data-name="'+p.name+'" onclick="ccPickEscalationProv(this)">'
       +'<div class="cc-prov-n">'+p.name
       +(p.recommended?' <span class="mp-badge rec">recommended</span>':'')

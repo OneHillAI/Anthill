@@ -70,7 +70,7 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
      the local Ollama answer and the answer composed from web results both get `think=False`;
    - On sends nothing and the model decides, exactly as before.
    Only Ollama receives the flag, so it changes nothing for chats that run on a cloud or organisation model or on an
-   OpenAI-compatible endpoint (the button, the notice and the Settings row say "only affects models running on this
+   OpenAI-compatible endpoint (the button and the Settings row say "only affects models running on this
    machine"). Models that cannot think ignore it (verified against Ollama 0.24; the desktop app bundles Ollama
    0.30.10, which was not checked). Models that always think ignore `think: false` too: gpt-oss, for one, takes only
    thinking levels in Ollama and cannot turn thinking fully off.
@@ -80,14 +80,13 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
 7. A turn that searches the web shows its steps and streams its answer (issue #108,
    `docs/specs/108-web-turn-stream.md`). Before #108 it was answered in one piece. Thinking off still shortens
    the wait for the first word, because a model that thinks does so before the first word.
-8. The first time a user opens chat, agents or tasks (whichever comes first) a one-time notice states the current
-   Thinking and Web search defaults, lets the user change either right there (saved at once as the default), says
-   how to change them for one chat (the Thinking and Web search buttons) or for every chat (Settings, with a link to each
-   tab), and notes that Anthill may still search the web by itself for a question that clearly needs live
-   information. In an organisation account the web part says "in your personal chats", because organisation chats
-   always search the web. On the Agents and Tasks pages it also says that agents and scheduled tasks keep their own settings.
-   It stays until the user clicks "Got it", changes a switch in it, or opens Settings from it, and that last save
-   survives the navigation. Existing users see it once after the update.
+8. The first time a user opens a chat, a one-line hint under the chat box states the current Thinking and Web search
+   defaults and says how to change them: for one chat with the Thinking and Web search buttons just above it, or for
+   every chat in Settings (a link to each tab). In an organisation account it says "in your personal chats; organisation
+   chats always search the web". The hint has no switches of its own and takes no room from the conversation. It stays
+   until the user clicks "Got it" or opens Settings from it, and that last save survives the navigation. Agents and
+   Tasks show no hint, because agents and scheduled tasks keep their own settings. Existing users see it once after
+   the update.
 9. `POST /settings/chat-defaults` (signed-in users only) accepts JSON with `thinking_on` and `web_access`
    booleans and `seen: true`, ignores anything that is not a real boolean, and returns the saved values.
 10. Honest wording, and the box decides. Where web search is on, the Solo header says "Web search is on for this
@@ -137,15 +136,14 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
   never rewritten.
 - `ask(...)` passes `think=False` to the web-composed answer and to the local answer, and sends nothing when
   `think` is unset.
-- A new user has Thinking off, Web access off and has not seen the notice. The notice renders on chat, agents and
-  tasks until acknowledged, then never again, and the Agents and Tasks versions say that agents and tasks keep
-  their own settings.
+- A new user has Thinking off, Web access off and has not seen the hint. The hint renders under the chat box until
+  acknowledged, then never again, and it is not on the Agents or Tasks pages.
 - `POST /settings/chat-defaults` saves booleans, ignores other types, rejects bad JSON, and needs a session.
 - The chat page seeds the Thinking button and the Web search checkbox from the saved defaults; an organisation chat
   stays on for web search and follows the Thinking default.
 - An existing database gains the two new columns with their defaults and keeps its web value.
 - A new account has Thinking off and web search off; an old database keeps Thinking on and its web value; the chat
-  page, its Thinking button, its Web search checkbox, the Solo header and the first-use notice all show both off for
+  page, its Thinking button, its Web search checkbox, the Solo header and the first-use hint all show both off for
   a new account, and on once they are turned on.
 - `GET /chat/{id}/thinking-support` returns what Ollama reports for the model of the chat (`gemma3:4b` no,
   `qwen3.5:9b` yes, checked against a real Ollama), `{"known": false}` when it cannot be read, for a cloud or
@@ -158,7 +156,7 @@ Status: implemented; revised 2026-10-09 (Thinking and web search are both off by
   change).
 - In a real browser: a chat remembers its own Thinking and Web choices across reloads, another chat is
   unaffected, a chat without a choice follows the default, and the next message is requested with `think=false`
-  when Thinking is off. The notice appears once, saves the default it changes, hides on "Got it", and still saves
-  when Settings is opened from it. An old browser-wide "off" becomes the account default once, an old "on" is only
+  when Thinking is off. The hint appears once on the chat page only, leaves the saved defaults alone, hides on "Got it", and still saves
+  that it was seen when Settings is opened from it. An old browser-wide "off" becomes the account default once, an old "on" is only
   removed. A changed web default is applied to a personal chat without its own choice and never to an
   organisation chat.

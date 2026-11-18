@@ -60,10 +60,11 @@ independently gate re-entry to steps 2/3, so nothing is lost by leaving mid-flow
 
 ## Acceptance criteria
 
-- `GET /setup` renders step 1 of a three-step indicator for a logged-out visitor; sign-up availability
+- `GET /setup` renders step 1 of a four-step indicator for a logged-out visitor; sign-up availability
   and first-run sign-in navigation follow `docs/specs/signup-no-org.md`.
 - The step indicator marks step 1 current on `/setup`, step 2 current on `/setup/account-type`, and step 3
-  current on `/setup/model`; each renders earlier steps as done.
+  current on `/setup/model`; the model page moves the marker to step 4 (connect a provider) without a page load. Each
+  renders earlier steps as done.
 - `/setup` collects only account fields; it never asks for an org name, topology, or backend on the
   sign-up surface (unchanged).
 - `/setup/account-type` offers Solo (prominent/default) and organization (secondary, with an org-name
@@ -79,7 +80,7 @@ independently gate re-entry to steps 2/3, so nothing is lost by leaving mid-flow
 
 ## Build mapping
 
-- `anthill/web/templates/_setup_steps.html` renders the indicator from a `setup_step` (1, 2, or 3) passed
+- `anthill/web/templates/_setup_steps.html` renders the indicator from a `setup_step` (1 to 4) passed
   by the route; included by `setup.html` (1), `setup_account_type.html` (2), and `model_picker.html` (3).
 - `OrgSettings.account_type_chosen` (new column, defaults to True everywhere - existing accounts, and any
   OrgSettings row constructed without going through sign-up) so nothing is retroactively or accidentally

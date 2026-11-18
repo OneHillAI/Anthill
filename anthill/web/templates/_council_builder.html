@@ -26,9 +26,7 @@
    preserved even if it isn't first in catalog/DOM order. #}
 {% set current_council_tags = current_council_tags|default([]) %}
 {% if in_setup %}
-<div class="cc-step-title in"><span class="cc-num">2</span>Which model do you run?
-  <button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button>
-</div>
+<div class="cc-step-title in">Choose your model</div>
 {% else %}
 <div class="set-cardh" style="margin:0 0 8px"><h3 style="font-size:16px">Choose your council<button type="button" class="help" aria-label="What a council is">?<span class="help-pop">Up to three open models answer in parallel and combine into one stronger result - the first checked is the lead that synthesises the rest.</span></button></h3></div>
 {% endif %}
@@ -52,16 +50,17 @@
      box and having it silently refuse (or being told only after submit) - "super simple and super
      logical" per the founder's ask. Below the floor, the local tier is presented as single-model only;
      ccLocalSingle (below) enforces the same at click-time so it stays true even if mem_gb misreads. #}
-  {% if below_floor %}
+  {% if below_floor and not in_setup %}
   <p class="text-sm" id="local-floor-banner" style="margin:0 0 12px;color:var(--warn,#b45309)">Council needs at least {{ council_floor_gb|round(0)|int }} GB of memory - this machine has about {{ mem_gb|round(0)|int }} GB, so it runs <b>one model</b>. For a multi-model council, pick "Your cloud" above.</p>
   {% endif %}
   <div class="mp-list">
     {% for fam in families %}{% for m in fam.models if m.fits %}
-    <label class="mp-row council-row" data-region="{{ fam.region }}">
-      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+    {% set best = in_setup and m.tag == (default_tag|default('')) %}
+    <label class="mp-row council-row" data-region="{{ fam.region }}"{% if best %} style="order:-1"{% endif %}>
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" data-name="{{ m.name }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags or (best and not current_council_tags) %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name">{{ m.name }} <span class="lead-badge mp-badge rec" hidden>Lead</span>
-          {% if m.recommended %}<span class="mp-badge rec">recommended</span>{% endif %}
+          {% if in_setup %}{% if best %}<span class="mp-badge rec">Best fit for this machine</span>{% endif %}{% elif m.recommended %}<span class="mp-badge rec">recommended</span>{% endif %}
           {% if m.installed %}<span class="mp-badge inst">installed</span>
           {% if m.tag not in current_council_tags and not in_setup %}
           {# Uninstall right where you're already looking at your models - founder ask, 2026-09-30,
@@ -92,9 +91,9 @@
        a new one. "Fits" is shown unconditionally rather than computed: it's already downloaded and
        has already been running on this exact machine, which is stronger evidence than the
        catalog's own params_b-based estimate for everything else in this list. #}
-    {% for m in other_installed %}
+    {% for m in other_installed if not (in_setup and ('embed' in m.tag or m.tag.startswith('bge-'))) %}
     <label class="mp-row council-row">
-      <input type="checkbox" name="council_models" value="{{ m.tag }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
+      <input type="checkbox" name="council_models" value="{{ m.tag }}" data-name="{{ m.tag }}" class="csel csel-local"{% if compute|default('local') == 'cloud' %} disabled{% endif %}{% if cf %} form="{{ cf }}"{% endif %}{% if m.tag in current_council_tags %} checked{% endif %} onchange="ccCouncil(this)">
       <div class="mp-main">
         <div class="mp-name"><code>{{ m.tag }}</code> <span class="lead-badge mp-badge rec" hidden>Lead</span>
           <span class="mp-badge inst">installed</span>
@@ -285,7 +284,8 @@ function ccCouncil(cb) {
   }
   var lead = ccSel[0] || '';
   document.querySelectorAll('.lead-badge').forEach(function (l) { l.hidden = true; });
-  if (lead) boxes.forEach(function (b) {
+  var inSetup = !!document.getElementById('mp-continue');
+  if (lead && !(inSetup && ccSel.length < 2)) boxes.forEach(function (b) {
     if (b.value === lead && !b.disabled) {
       var r = b.closest('.mp-row'); var lb = r && r.querySelector('.lead-badge'); if (lb) lb.hidden = false;
     }
@@ -295,7 +295,14 @@ function ccCouncil(cb) {
   // pre-checked any more (founder correction, 2026-09-28 - "it offers no choice then"), so require an
   // actual pick before Continue is clickable, rather than silently letting an empty submit through.
   var continueBtn = document.getElementById('mp-continue');
-  if (continueBtn) continueBtn.disabled = ccSel.length === 0;
+  if (continueBtn) {
+    continueBtn.disabled = ccSel.length === 0;
+    // The button names what is picked: the model's own name for one, a count for several.
+    var firstBox = boxes.filter(function (b) { return b.value === lead; })[0];
+    continueBtn.textContent = !ccSel.length ? 'Choose a model to continue'
+      : ccSel.length === 1 ? 'Continue with ' + ((firstBox && firstBox.dataset.name) || lead)
+      : 'Continue with these ' + ccSel.length + ' models';
+  }
   var localTier = document.getElementById('council-local');
   var localActive = !!(localTier && !localTier.hidden);
   // Below the memory floor, the orange banner above already says everything there is to say
@@ -304,6 +311,9 @@ function ccCouncil(cb) {
   var el = document.getElementById('council-count');
   if (el) el.textContent = (ccLocalSingle && localActive)
     ? ''
+    : inSetup
+    ? (ccSel.length === 1 ? 'Optional: add a second model so two models check each other.'
+      : ccSel.length >= 2 ? ccSel.length + ' models: the first you pick leads, the others check its answer.' : '')
     : ccSel.length
     ? ccSel.length + ' of 3 chosen - ' + (ccSel.length === 1 ? 'it runs solo (add more for a council).' : 'the first you pick is your lead.')
     : 'Pick 1 to 3 models - more than one runs them in parallel and combines the answers into one stronger result. The first you pick leads.';

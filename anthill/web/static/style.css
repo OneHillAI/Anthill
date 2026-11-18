@@ -196,7 +196,7 @@ h1,h2,h3,h4 { font-family: var(--font-sans); font-weight: 600; letter-spacing: -
   color: var(--sidebar-active); border-left-color: var(--accent); }
 /* Two-plane chat list: an Org (shared cloud model) section in brand amber, and a Solo (local,
    private) section in a distinct cool tone, so the two are never confused at a glance. */
-.sidebar nav.chat-mode .rail-conv-section { padding: 8px 16px 2px; font-size: 10px;
+.sidebar nav.chat-mode .rail-conv-section { padding: 8px 16px 2px; font-size: 12px;
   font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sidebar-text);
   opacity: .55; }
 /* Conversation-rail search / sort / collapse (client-side; see the rail script in _sidebar.html). */
@@ -357,7 +357,7 @@ dialog.modal::backdrop { background: transparent; }
   border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(26, 17, 10, .28);
   padding: 6px; }
 .sidebar .profile-menu.open { display: block; }
-.sidebar .profile-menu-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+.sidebar .profile-menu-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); font-weight: 700; padding: 4px 8px; }
 .sidebar .profile-menu-item { display: flex; align-items: center; gap: 8px; width: 100%;
   background: none; border: 0; border-radius: 6px; padding: 7px 8px; font: inherit; font-size: 13px;
@@ -365,7 +365,7 @@ dialog.modal::backdrop { background: transparent; }
 .sidebar .profile-menu-item:hover { background: var(--bg-subtle); }
 .sidebar .profile-menu-item.is-current { cursor: default; }
 .sidebar .profile-menu-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar .profile-menu-badge { font-size: 10px; color: var(--muted); font-weight: 600; }
+.sidebar .profile-menu-badge { font-size: 12px; color: var(--muted); font-weight: 600; }
 .sidebar .profile-menu-open { font-size: 11px; color: var(--accent); font-weight: 700; }
 .sidebar .profile-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
 .sidebar .profile-menu-link { display: block; padding: 7px 8px; font-size: 13px; border-radius: 6px;
@@ -596,6 +596,12 @@ input:focus, select:focus, textarea:focus {
 .know-intro p { font-size: 13px; line-height: 1.6; color: var(--text); margin: 8px 0 0; }
 .know-intro-foot { color: var(--muted) !important; font-size: 13px !important; }
 .know-intro .btn { margin-top: 12px; }
+
+/* skip link: first thing a keyboard user reaches, hidden until it has focus */
+.skip-link { position: absolute; left: 12px; top: -64px; z-index: 1000; padding: 8px 14px; border-radius: 8px;
+  background: var(--surface); color: var(--text); border: 2px solid var(--accent); font-weight: 600;
+  text-decoration: none; }
+.skip-link:focus { top: 12px; outline: none; }
 
 /* auth pages */
 .auth-wrap { display: flex; align-items: center; justify-content: center;

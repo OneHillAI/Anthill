@@ -113,12 +113,10 @@ def test_setup_shows_the_two_tier_chooser_with_attachment(tmp_path):
     # it - no separate toggle.
     c, _ = _client(tmp_path, topology="solo", chosen=False)
     body = c.get("/setup/model").text
-    assert 'id="cc-tierseg"' in body  # wraps both always-visible tier cards
-    assert "Your machine" in body and "Your cloud" in body
-    assert (
-        "Where does your model run?" in body
-    )  # setup has no prior summary, so it keeps the heading
-    assert "Your inference provider" in body  # the always-visible attachment card
+    assert 'id="cc-tierseg"' in body  # the tier cards stay in the page (hidden) for the script
+    assert "Your model runs on this computer." in body  # first run says where it runs, no choice
+    assert "set that up later in Settings" in body  # the cloud is a side note, not a card
+    assert "Your inference provider" in body  # the attachment card, on the second pane
     assert "ownershipindex.ai" in body  # inference providers link to their AOI grade
     assert 'name="provider_api_key"' in body  # the cloud tier's own required connect flow
     assert 'name="escalation_api_key"' in body  # the optional attachment's own connect flow
@@ -516,17 +514,42 @@ def test_local_council_builder_sets_up_a_multi_model_council(tmp_path, monkeypat
     assert set(pulled) == {"qwen2.5:7b", "llama3.1:8b"}  # both pulled
 
 
-def test_council_builder_renders_with_nothing_preselected(tmp_path):
-    # Founder correction (2026-09-28): "it preselects one model... it offers no choice then" - the
-    # model step is a real, deliberate choice, not something already decided by the time the user gets
-    # there. No checkbox (local or cloud) is checked on load; Continue starts disabled until one is.
+def test_council_builder_preselects_the_best_fit_and_names_it_on_the_button(tmp_path):
+    # First run: the app picks the best fit for this machine and everything else stays a choice
+    # (reverses the 2026-09-28 "nothing preselected" correction, on the owner's 2026-11-18 direction).
     c, _ = _client(tmp_path, topology="solo", chosen=False)
     body = c.get("/setup/model").text
-    assert "Which model do you run?" in body and 'name="council_models"' in body
+    assert "Choose your model" in body and 'name="council_models"' in body
     local_section = body[body.index('id="council-local"') : body.index('id="council-cloud"')]
-    assert local_section.count('class="csel csel-local"') >= 1  # local tier's selectable models
-    assert local_section.count(" checked onchange") == 0  # nothing preselected
-    assert 'id="mp-continue" class="btn btn-primary" disabled' in body
+    assert local_section.count('class="csel csel-local"') >= 2  # the other models are still there
+    assert local_section.count(" checked onchange") == 1  # exactly one is chosen
+    assert (
+        local_section.count("Best fit for this machine") == 1
+    )  # and exactly one carries the label
+    assert "recommended</span>" not in local_section  # no second kind of "recommended"
+    assert 'id="mp-continue" class="btn btn-primary" disabled' in body  # script enables it on load
+    assert "Continue with this council" not in body
+    assert "setupShowProvider(true)" in body  # Continue opens the provider step, it does not submit
+
+
+def test_first_run_on_a_machine_that_can_run_a_council_offers_a_second_model_in_plain_words(
+    tmp_path, monkeypatch
+):
+    # 24 GB or more: a second model is possible, so the page says so in one optional line (and shows the "Lead"
+    # chip only once two are picked). The best fit is still chosen for the user and nothing warns.
+    from anthill.hosting import sizing
+
+    monkeypatch.setattr(sizing, "local_hardware", lambda: (32.0, "gpu"))
+    c, _ = _client(tmp_path, topology="solo", chosen=False)
+    body = c.get("/setup/model").text
+    assert "ccLocalSingle = false" in body  # more than one box may stay ticked
+    assert "Optional: add a second model so two models check each other." in body
+    assert "Council needs" not in body and 'id="local-floor-banner"' not in body
+    local_section = body[body.index('id="council-local"') : body.index('id="council-cloud"')]
+    assert local_section.count(" checked onchange") == 1
+    assert local_section.count("Best fit for this machine") == 1
+    assert "Continue with this council" not in body
+    assert "(inSetup && ccSel.length < 2)" in body  # the Lead chip waits for a second model
 
 
 def test_model_step_is_tier_aware(tmp_path):
@@ -552,9 +575,11 @@ def test_council_builder_below_ram_floor_shows_single_model_ui(tmp_path, monkeyp
     monkeypatch.setattr(sizing, "local_hardware", lambda: (16.0, "apple"))  # under the 24GB floor
     c, _ = _client(tmp_path, topology="solo", chosen=False)
     body = c.get("/setup/model").text
-    assert 'id="local-floor-banner"' in body
-    assert "at least 24 GB" in body and "about 16 GB" in body
-    assert "ccLocalSingle = true" in body
+    assert (
+        'id="local-floor-banner"' not in body
+    )  # first run says nothing about councils on a small machine
+    assert "Council needs" not in body and "For a multi-model council" not in body
+    assert "ccLocalSingle = true" in body  # but picking a second box still snaps back to one
 
 
 def test_council_builder_between_floor_and_recommended_allows_multi_no_banner(
