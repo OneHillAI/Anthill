@@ -462,10 +462,7 @@
                   <span class="src-chip" title="Answered by {{ msg.model }} over the network">Sent over the network</span>
                 {% endif %}
               {% endif %}
-              {% if msg.manifest %}
-                {% set panel = answer_panel(msg.manifest) %}
-                {% include "_answer_record.html" %}
-              {% else %}
+              {% if not msg.manifest %}
               {% if msg.doc_sources %}
                 <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: {{ msg.doc_sources.split('\n') | join(', ') }}</span>
               {% endif %}
@@ -491,6 +488,10 @@
                       onclick="redoWithProviderClicked(this, document.getElementById('bubble-{{ msg.id }}').parentElement, {{ msg.id }})"><i data-lucide="zap">⚡</i></button>
               {% endif %}
             </div>
+            {% if msg.manifest %}
+              {% set panel = answer_panel(msg.manifest) %}
+              {% include "_answer_record.html" %}
+            {% endif %}
             {% else %}
             <div class="meta">
               {% if loop.last %}
@@ -1667,6 +1668,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   _streamRow = rowEl(bubble);
   let buffer = '', metaHtml = '', lastRender = 0;
   const legacyMeta = [];
+  let recordHtml = '';   // the "what this answer was given" panel: its own block under the button row
   let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
 
   // #1 UX follow-up to #820/#824: offer "Ask {Provider} instead" from the moment generation starts,
@@ -1680,6 +1682,15 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   _finalize = (stopped) => {
     bubble.innerHTML = (header || '') + renderMd(buffer || (stopped ? '_(stopped)_' : ''));
     if (metaHtml) metaRowFor(bubble).innerHTML = metaHtml;
+    if (recordHtml) {
+      let slot = bubble.parentElement.querySelector(':scope > .record-slot');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.className = 'record-slot';
+        metaRowFor(bubble).after(slot);
+      }
+      slot.innerHTML = recordHtml;
+    }
     bubble.dataset.md = buffer;   // keep the raw markdown for "Download as doc"
     enhancePreviews(bubble);
     if (buffer.trim()) addAssistantControls(bubble.parentElement, message, buffer, assistantMessageId);
@@ -1755,7 +1766,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
       if (d.meta?.wiki_slugs?.length) { const h = ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${pageLinks(d.meta.wiki_slugs)}</span>`; legacyMeta.push(h); metaHtml += h; }
       if (d.meta?.record_html) {   // the panel replaces the two plain lists above
         legacyMeta.forEach(h => { metaHtml = metaHtml.split(h).join(''); });
-        metaHtml += d.meta.record_html;
+        recordHtml = d.meta.record_html;
       }
       if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
       if (d.meta?.escalated === true) {

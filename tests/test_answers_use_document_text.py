@@ -360,8 +360,12 @@ def chat(tmp_path, monkeypatch, embeds):
 
 
 def _meta(html: str) -> str:
-    node = BeautifulSoup(html, "html.parser").select_one("div.msg.assistant .meta")
-    return " ".join(node.get_text().split()) if node else ""
+    soup = BeautifulSoup(html, "html.parser")
+    parts = [
+        n.get_text()
+        for n in soup.select("div.msg.assistant .meta, div.msg.assistant .answer-record")
+    ]
+    return " ".join(" ".join(parts).split())
 
 
 def test_the_chat_keeps_and_shows_the_document_an_answer_was_given(chat):
