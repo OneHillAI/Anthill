@@ -351,7 +351,9 @@ def ingest(
     if not is_pdf and source.resolve() != raw_copy.resolve() and not raw_copy.exists():
         preserve_raw_source(ws, source)
     keep_extracted_text(ws, raw_copy, fc)
-    ensure_source_record(ws, raw_copy)
+    ensure_source_record(
+        ws, raw_copy, reopen=True
+    )  # a new upload of a rejected file is a new proposal
     _preflight_pdf_work(fc, allow_large_pdf=allow_large_pdf, budget=budget)
     if _is_verbatim_note(source, fc):
         return _file_verbatim_note(ws, source, fc.text, raw_copy, on_write)

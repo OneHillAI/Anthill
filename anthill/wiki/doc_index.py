@@ -45,6 +45,7 @@ PASSAGES_TABLE = "passages_v1"
 WORDS_TABLE = "words_v1"
 PASSAGE_CHARS = 800  # the size a passage is packed up to (about 200 tokens), as in wiki/passages.py
 MAX_QUERY_TERMS = 12
+_MAX_EXCLUDED = 400  # documents named in one query; any more are filtered after it
 # A query word is "rare" when it is in at most this share of the indexed passages (but at least one passage,
 # and at most RARE_CAP passages). Rare words are what tell a passage about the question from one that only shares
 # common words with it, and unlike a BM25 score the count means the same in a small wiki and a large one.
@@ -338,10 +339,20 @@ class DocIndex:
 
         return self._run(work, set())
 
-    def search(self, query: str, limit: int = 5, *, min_rare: int = 0) -> list[Hit]:
+    def search(
+        self,
+        query: str,
+        limit: int = 5,
+        *,
+        min_rare: int = 0,
+        exclude: frozenset[str] = frozenset(),
+    ) -> list[Hit]:
         """The best passages for ``query``, best first, by BM25 over the words of the query (any of them). The
         text of each is read from its text file; a hit whose file is gone or no longer matches what was
         indexed (the CRC differs) is left out, which is a stale entry the next sync replaces.
+
+        ``exclude`` names documents (by stored name) that must not be returned: the ones an answer may not read.
+        They are left out in the query, so a hidden document never takes the place of a visible one.
 
         With ``min_rare`` a passage must also contain at least that many distinct rare words of the query
         (``Hit.rare`` says how many), and the hits are ordered by that count, then by BM25. A passage that only
@@ -358,18 +369,24 @@ class DocIndex:
         else:
             rare, candidates = set(), limit
 
+        skip = sorted(exclude)[:_MAX_EXCLUDED]  # SQLite allows at most 999 variables in one query
+        marks = ",".join("?" * len(skip))
+        where_not = f" AND p.doc NOT IN ({marks})" if skip else ""
+
         def work(con: sqlite3.Connection) -> list[tuple]:
             return con.execute(  # nosec B608
                 "SELECT p.doc, p.n, p.start, p.stop, p.bstart, p.bstop, p.crc, p.page, p.heading, "
                 f"bm25({WORDS_TABLE}) AS score FROM {WORDS_TABLE} "
                 f"JOIN {PASSAGES_TABLE} p ON p.id = {WORDS_TABLE}.rowid "
-                f"WHERE {WORDS_TABLE} MATCH ? ORDER BY score LIMIT ?",
-                (match, candidates),
+                f"WHERE {WORDS_TABLE} MATCH ?{where_not} ORDER BY score LIMIT ?",
+                (match, *skip, candidates),
             ).fetchall()
 
         folded_rare = {_fold(t) for t in rare}
         hits = []
         for doc, n, start, stop, bstart, bstop, crc, page, heading, score in self._run(work, []):
+            if doc in exclude:
+                continue  # more hidden documents than the query could name
             text = self._read(doc, bstart, bstop, crc)
             if text is None:
                 continue

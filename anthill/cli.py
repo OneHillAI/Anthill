@@ -985,57 +985,9 @@ app.add_typer(knowledge_app, name="knowledge")
 
 def _inventory_ws(root: Path) -> Workspace:
     """A wiki folder as a workspace, with the space its place on disk says it holds."""
-    from .wiki import inventory as inv
+    from .wiki.workspace import workspace_at
 
-    return Workspace(root, scope=inv.space_of_root(root)[0])
-
-
-def _review_status_for(db_path: Path | str | None, root: Path) -> dict[str, str] | None:
-    """Stored-original name -> review status, for the pages proposed into this workspace, read from the
-    database. None when there is no database or it cannot be read, or for the legacy personal wiki, whose
-    reviews cannot be attributed to it."""
-    from .wiki import inventory as inv
-
-    space, ref = inv.space_of_root(root)
-    if db_path is None or not Path(db_path).is_file():
-        return None
-    if space == "personal" and not ref:
-        return None
-    try:
-        from sqlalchemy.orm import sessionmaker
-
-        from .web import db as db_mod
-
-        engine = db_mod.get_engine(Path(db_path))
-        session = sessionmaker(bind=engine)()
-        try:
-            q = session.query(db_mod.WikiReview).filter(db_mod.WikiReview.kind == "page")
-            num = int(ref.split("-", 1)[1]) if ref else None
-            if space == "team" and num is not None:
-                q = q.filter(
-                    db_mod.WikiReview.target_scope == "team", db_mod.WikiReview.team_id == num
-                )
-            elif space == "personal" and num is not None:
-                q = q.filter(
-                    db_mod.WikiReview.target_scope == "personal",
-                    db_mod.WikiReview.proposed_by == num,
-                )
-            elif space == "org":
-                q = q.filter(db_mod.WikiReview.target_scope == "org")
-                if num is not None:
-                    q = q.filter(db_mod.WikiReview.org_id == num)
-            else:
-                return None
-            out: dict[str, str] = {}
-            for row in q.order_by(db_mod.WikiReview.id):
-                name = inv.provenance_source(str(row.content or ""))
-                if name:
-                    out[name] = str(row.status)  # a later row for the same original wins
-            return out
-        finally:
-            session.close()
-    except Exception:  # noqa: BLE001 - an unreadable database only means leftovers cannot be matched
-        return None
+    return workspace_at(root)
 
 
 def _knowledge_undo(undo: Path) -> None:
@@ -1090,6 +1042,7 @@ def knowledge_inventory(
 ):
     """Report what each wiki holds and which items have no record. A dry run unless --apply is given. No model is called."""
     from .web import db as db_mod
+    from .web.records_update import review_status_for
     from .wiki import inventory as inv
     from .wiki.page_index import workspace_roots
 
@@ -1103,7 +1056,7 @@ def knowledge_inventory(
             console.print(f"[yellow]skipped[/] {r}: no such folder")
             continue
         ws = _inventory_ws(r)
-        status = _review_status_for(db, r)
+        status = review_status_for(db, r)
         reports.append(inv.inventory(ws, review_status=status))
         if apply:
             _knowledge_apply(r, ws, status)

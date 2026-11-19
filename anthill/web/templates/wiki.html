@@ -6,6 +6,29 @@
 {{ compute_banner(compute_ready, setup_href) }}
 {% include "_knowledge_tabs.html" %}
 {% include "_wiki_tabs.html" %}
+{% if records_done %}
+<div class="alert alert-success" style="max-width:760px" role="status">{{ records_done }}</div>
+{% endif %}
+{% if records_notice %}
+<div class="alert alert-info" style="max-width:760px" role="note" id="records-notice">
+  <p style="margin:0 0 6px"><strong>One step to finish updating your documents.</strong></p>
+  <p style="margin:0 0 6px">
+    Some documents uploaded before this version have no record, so Anthill cannot tell whether an old upload
+    that was waiting for a decision or was rejected should still be used in answers. Nothing is changed until
+    you press the button. It makes a backup first, never changes the text of a page, and can be undone.
+  </p>
+  <form method="post" action="/wiki/records/update" style="display:inline">
+    <button class="btn btn-primary btn-sm" type="submit">Update records</button>
+  </form>
+  <form method="post" action="/wiki/records/dismiss" style="display:inline">
+    <button class="btn btn-sm" type="submit">Not now</button>
+  </form>
+  <p class="text-sm text-muted" style="margin:8px 0 0">
+    To look first without changing anything, run <code>anthill knowledge inventory</code>. To undo, run
+    <code>anthill knowledge inventory --undo</code> with the manifest file it names. This notice does not return.
+  </p>
+</div>
+{% endif %}
 {% if shared_before_upgrade %}
 <div class="alert alert-info" style="max-width:760px" role="note">
   Before this update, every organisation on this install used the same organisation wiki. That wiki stays

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..common.text import slugify
+from ..wiki import items
 
 # ── permission scopes (for per-agent least-privilege, §agent identity) ─────────
 # Every tool belongs to a coarse scope. An agent identity is granted a set of
@@ -114,7 +115,7 @@ def _read_wiki(slug: str, workspace: str = "workspace") -> str:
     # harmless in-dir name. Mirrors workspace.page()'s write-side slugify.
     safe = slugify(slug)
     path = Path(workspace) / "wiki" / f"{safe}.md"
-    if not path.exists():
+    if not path.exists() or not items.page_file_retrievable(path):
         return f"(page '{slug}' not found in wiki)"
     return path.read_text()
 
@@ -126,7 +127,7 @@ def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[d
     ws = Workspace(Path(workspace))
     if not ws.exists():
         return []
-    pages = ws.pages()
+    pages = ws.retrievable_pages()  # not an item that is waiting, rejected or removed
     if not pages:
         return []
     from ..search import meili

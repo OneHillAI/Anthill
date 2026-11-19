@@ -19,6 +19,7 @@ import os
 import re
 from pathlib import Path
 
+from . import items
 from .doc_index import DocIndex, Hit
 
 log = logging.getLogger(__name__)
@@ -54,7 +55,12 @@ def document_passages(spaces, question: str, *, limit: int = MAX_PASSAGES) -> li
                 continue
             idx = DocIndex(w.root / ".cache", w.root / "text")
             if idx.exists():
-                hits.extend(idx.search(question, limit, min_rare=MIN_RARE))
+                # an original that is waiting, rejected or removed is never read, whatever the index holds
+                hits.extend(
+                    idx.search(
+                        question, limit, min_rare=MIN_RARE, exclude=items.hidden_sources(w.root)
+                    )
+                )
     except Exception as e:  # noqa: BLE001 - a problem here must never cost the person their answer
         log.debug("document passages skipped: %s", e)
         return []
