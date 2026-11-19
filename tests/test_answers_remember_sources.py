@@ -109,8 +109,12 @@ def types_namespace(**kw):
 def _sources_text(html: str) -> str:
     from bs4 import BeautifulSoup
 
-    meta = BeautifulSoup(html, "html.parser").select_one("div.msg.assistant .meta")
-    return " ".join(meta.get_text().split()) if meta else ""
+    soup = BeautifulSoup(html, "html.parser")
+    parts = [
+        n.get_text()
+        for n in soup.select("div.msg.assistant .meta, div.msg.assistant .answer-record")
+    ]
+    return " ".join(" ".join(parts).split())
 
 
 def test_an_answer_keeps_the_pages_it_was_given(chat):
@@ -198,7 +202,7 @@ def test_each_page_in_context_is_a_link_that_opens_the_page(chat):
     from bs4 import BeautifulSoup
 
     meta = BeautifulSoup(chat.client.get(f"/chat/{conv_id}").text, "html.parser").select_one(
-        "div.msg.assistant .meta"
+        "div.msg.assistant"
     )
     link = meta.find("a", string="Cabinet")
     assert link is not None and link["href"] == "/wiki/page/cabinet?scope=personal"
