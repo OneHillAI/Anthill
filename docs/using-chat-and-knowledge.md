@@ -77,7 +77,8 @@ looks like a newer version of a page, Anthill writes nothing and holds it in **N
 and new text side by side with the changed words marked, and you choose to replace the old page, keep
 both, or keep the old page and discard the new one. Replacing writes over the old page's text; the
 file you uploaded earlier stays under **Files**. **Needs review** also holds pages the automatic check
-flagged and your AI's proposals, with one count that also shows on **Knowledge** in the sidebar.
+flagged, pages an agent proposed (marked as written by an agent) and your AI's proposals, with one count
+that also shows on **Knowledge** in the sidebar.
 While an upload is waiting there, or after it is rejected or removed, Anthill does not use it in
 answers: not in chat, by agents, in scheduled tasks or in cached answers. An upload made before this
 rule existed may still be read until the install owner runs `anthill knowledge inventory --apply`,
@@ -99,6 +100,16 @@ The wiki has three tabs:
   it** link, which opens the text Anthill extracted, so you can check what your AI actually saw.
   Nothing is kept for a note, which already is the text, or for a scan or picture where no text could
   be read. The page Anthill wrote from it is a summary, not a replacement.
+
+To remove something, choose **Remove** next to a document under **Files**, or **Remove this page** on a
+page. You can remove in the wikis where you can edit. Anthill first shows what goes and what stays.
+Removing a document removes the document and the text Anthill read from it, and also the pages a model
+made only from it that nobody has checked. Pages that have been checked, or may have other sources,
+stay. Removing a page keeps the document it was made from. Answers stop using what you removed at
+once. It waits under **Removed**, below the files, with the days left. **Restore** brings it back,
+**Delete now** deletes it for good, and anything left is deleted after 30 days. A delete takes it out
+of Anthill and its search. It cannot remove copies you already exported, backups, or anything a model
+was already trained on.
 
 Sharing knowledge beyond your own space, into a project or org wiki, always goes through
 **review** first. You see exactly what would be written before it's approved.
