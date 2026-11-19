@@ -1,0 +1,1 @@
+**The pages listed under a chat answer ("Pages in context") are now links.** Click one to open that page in a new tab, whether it is in your own wiki, a project wiki or the organisation's. Before, the names were plain text and you had to find the page in Knowledge yourself. A page that was deleted since the answer says it is not found.

@@ -8597,6 +8597,39 @@ def wiki_team(team_id: int, request: Request, user: dict = Depends(_require_user
     )
 
 
+@app.get("/wiki/open/{slug}")
+def wiki_open_page(slug: str, user: dict = Depends(_require_user)):
+    """Open a wiki page by its slug alone, for a link that does not know which wiki it is in (the pages
+    shown under a chat answer). Looks in your own wiki, then the wikis of the projects you are in, then the
+    organisation's, and sends you to the first page found; 404 when none has it any more."""
+    from ..common.text import slugify
+
+    db = _db()
+    org = _require_org(db, user)
+    uid = int(user["sub"])
+    name = f"{slugify(slug)}.md"
+    where: list[tuple[str, int | None]] = [("personal", None)]
+    where += [
+        ("team", m.team_id)
+        for m in db.query(TeamMembership)
+        .join(Team, Team.id == TeamMembership.team_id)
+        .filter(
+            TeamMembership.user_id == uid,
+            TeamMembership.status == "active",
+            Team.org_id == org.id,
+        )
+        .order_by(Team.name)
+        .all()
+    ]
+    if not _user_is_solo(user):
+        where.append(("org", None))
+    for scope, team_id in where:
+        if (_wiki_ws(user, scope, team_id).wiki / name).is_file():
+            query = f"?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
+            return RedirectResponse(f"/wiki/page/{slugify(slug)}{query}", status_code=302)
+    raise HTTPException(status_code=404, detail="That page is no longer in your wikis")
+
+
 @app.get("/wiki/page/{slug}", response_class=HTMLResponse)
 def wiki_page_view(
     slug: str,

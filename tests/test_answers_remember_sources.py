@@ -151,8 +151,8 @@ def test_the_page_after_a_reload_says_what_the_live_page_says(chat):
     html = chat.client.get(f"/chat/{conv_id}").text
     assert "Pages in context:" in html and "cited" not in _sources_text(html).lower()
     assert (
-        "Pages in context: ${d.meta.wiki_slugs.join(', ')}" in html
-    )  # the live page's own wording
+        "Pages in context: ${pageLinks(d.meta.wiki_slugs)}" in html
+    )  # the live page's own wording, with each page a link
     assert "It does not show which of them the answer relied on." in html
 
 
@@ -191,3 +191,24 @@ def test_storage_stops_at_the_column_width_on_a_whole_slug():
     assert len(out) <= 500
     kept = out.split(",")
     assert kept == slugs[: len(kept)] and all(len(s) == len(slugs[0]) for s in kept)
+
+
+def test_each_page_in_context_is_a_link_that_opens_the_page(chat):
+    conv_id = chat.ask()
+    from bs4 import BeautifulSoup
+
+    meta = BeautifulSoup(chat.client.get(f"/chat/{conv_id}").text, "html.parser").select_one(
+        "div.msg.assistant .meta"
+    )
+    link = meta.find("a", string="cabinet")
+    assert link is not None and link["href"] == "/wiki/open/cabinet"
+    assert link["target"] == "_blank" and "noopener" in link["rel"]
+    # the address finds the page in whichever wiki holds it and shows it
+    r = chat.client.get(link["href"], follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/wiki/page/cabinet?scope=personal"
+    page = chat.client.get(r.headers["location"])
+    assert page.status_code == 200 and "4417-ZEBRA" in page.text
+
+
+def test_a_page_that_is_gone_says_so_instead_of_failing_quietly(chat):
+    assert chat.client.get("/wiki/open/no-such-page", follow_redirects=False).status_code == 404
