@@ -20,6 +20,7 @@ from ..cache import embedder as emb
 from ..cache.cache import FRESH, SKIP, STALE
 from ..cache.page_vectors import PageVectorIndex
 from ..cache.store import CacheRow
+from . import items
 from .doc_context import DOC_PREFIX, MIN_RARE, stored_name
 from .doc_index import DocIndex
 from .page_index import embed_text
@@ -36,7 +37,14 @@ def judge_for(roots: Iterable[Path], relevance_floor: float) -> Callable[[CacheR
             made = datetime.fromisoformat(row.created_at).timestamp()
         except ValueError:
             return STALE  # no usable time: it cannot be shown to be current
-        pages = [(root, p) for root in spaces for p in sorted((root / "wiki").glob("*.md"))]
+        pages = [
+            (root, p)
+            for root in spaces
+            for p in sorted((root / "wiki").glob("*.md"))
+            if items.page_file_retrievable(
+                p
+            )  # a page that may no longer be read is as good as gone
+        ]
         present = {p.stem for _root, p in pages}
         # A cited page that is not in these workspaces: deleted, or outside the scope chosen for this
         # chat. Either way this answer is not served here, and it is kept for a chat where it still holds.
@@ -77,6 +85,7 @@ def _document_verdict(spaces: list[Path], row: CacheRow, made: float) -> str | N
                 r / "text" / f"{stored_name(entry)}.txt"
                 for r in spaces
                 if (r / "text" / f"{stored_name(entry)}.txt").is_file()
+                and stored_name(entry) not in items.hidden_sources(r)
             ),
             None,
         )
@@ -93,6 +102,7 @@ def _document_verdict(spaces: list[Path], row: CacheRow, made: float) -> str | N
                 p.name.removesuffix(".txt")
                 for p in (root / "text").glob("*.txt")
                 if p.stat().st_mtime > made
+                and p.name.removesuffix(".txt") not in items.hidden_sources(root)
             }
         except OSError:
             continue
@@ -101,7 +111,8 @@ def _document_verdict(spaces: list[Path], row: CacheRow, made: float) -> str | N
         index = DocIndex(root / ".cache", root / "text")
         if not index.exists() or not newer <= set(index.docs()):
             return STALE
-        if any(h.doc in newer for h in index.search(row.prompt, 8, min_rare=MIN_RARE)):
+        hits = index.search(row.prompt, 8, min_rare=MIN_RARE, exclude=items.hidden_sources(root))
+        if any(h.doc in newer for h in hits):
             return STALE
     return None
 

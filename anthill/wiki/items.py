@@ -45,6 +45,8 @@ ORIGINS = ("own", "model-written", "person-edited", "imported", "unknown")
 REVIEW_STATES = ("proposed", "unchecked", "checked", "rejected")
 LIFECYCLE_STATES = ("active", "superseded", "archived", "trashed", "purged")
 
+RETRIEVABLE_REVIEW = ("checked", "unchecked")
+
 _SPACE_REF = re.compile(r"^(user|team|org)-\d+$")
 _BOM = chr(0xFEFF)  # written as a number so no invisible character sits in this file
 _FRONT = re.compile(rf"\A({_BOM}?)---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
@@ -261,13 +263,19 @@ def new_source_record(
     )
 
 
-def ensure_source_record(ws: Workspace, raw: Path, *, origin: str = "own") -> ItemRecord | None:
+def ensure_source_record(
+    ws: Workspace, raw: Path, *, origin: str = "own", reopen: bool = False
+) -> ItemRecord | None:
     """The record of a kept original, made if it has none. "proposed" until a page made from it lands (see
-    ``mark_source_checked``). Best effort: returns None when the original is missing, the existing record is
-    damaged (it is never overwritten), or the record cannot be written."""
+    ``mark_source_checked``). With ``reopen`` (a new upload of the same file) a rejected original becomes
+    "proposed" again: it is a new proposal. Best effort: returns None when the original is missing, the
+    existing record is damaged (it is never overwritten), or the record cannot be written."""
     try:
         existing = read_source_record(ws, raw.name)
         if existing is not None:
+            if reopen and existing.review_state == "rejected":
+                existing.review_state = "proposed"
+                write_source_record(ws, existing)
             return existing
         if not raw.is_file():
             return None
@@ -283,11 +291,131 @@ def mark_source_checked(ws: Workspace, name: str) -> None:
     """A page made from this original has landed in the workspace, so the original is approved. Best effort."""
     try:
         rec = read_source_record(ws, name)
-        if rec is not None and rec.review_state == "proposed":
+        if rec is not None and rec.review_state in ("proposed", "rejected"):
             rec.review_state = "checked"
             write_source_record(ws, rec)
     except (OSError, RecordError) as exc:
         log.warning("could not update the record of %s: %s", name, exc)
+
+
+def mark_source_rejected(ws: Workspace, name: str) -> bool:
+    """The upload that proposed this original was rejected. The original is marked rejected only when no page
+    in the workspace was made from it: the same file uploaded twice is one original, and rejecting the second
+    copy must not take away the first one's. Returns True when it was marked. Best effort."""
+    try:
+        for page in ws.pages():
+            if source_name_of(page.read_text(encoding="utf-8")) == name:
+                return False
+        rec = read_source_record(ws, name)
+        if rec is None or rec.review_state == "rejected":
+            return False
+        rec.review_state = "rejected"
+        write_source_record(ws, rec)
+        return True
+    except (OSError, UnicodeDecodeError, RecordError) as exc:
+        log.warning("could not update the record of %s: %s", name, exc)
+        return False
+
+
+# ── the one rule: what an answer may read ─────────────────────────────────────
+
+
+def is_retrievable(rec: ItemRecord | None) -> bool:
+    """May an answer read this item? Only when it is active and approved: lifecycle ``active`` and review
+    state ``checked`` or ``unchecked``. Waiting (``proposed``), rejected, superseded, archived, trashed and
+    purged items are not. An item with no record is retrievable, as it was before records existed."""
+    if rec is None:
+        return True
+    return rec.lifecycle == "active" and rec.review_state in RETRIEVABLE_REVIEW
+
+
+_ITEM_BLOCK = re.compile(r"^x-anthill-item:[ \t]*\r?\n((?:[ \t]+\S.*\r?\n?)+)", re.M)
+_LIFECYCLE = re.compile(r"^[ \t]+lifecycle:[ \t]*(\S+)[ \t]*$", re.M)
+_REVIEW = re.compile(r"^[ \t]+review_state:[ \t]*(\S+)[ \t]*$", re.M)
+_PAGE_HEAD_BYTES = 8192
+
+
+def _plainly_retrievable(front: str) -> bool:
+    """True when the record's two state lines, as this module writes them, say active and approved. A cheap
+    look that spares parsing every page's YAML on the first question; anything else is judged by a full parse."""
+    block = _ITEM_BLOCK.search(front)
+    if block is None:
+        return False
+    life, review = _LIFECYCLE.search(block.group(1)), _REVIEW.search(block.group(1))
+    return bool(
+        life and review and life.group(1) == "active" and review.group(1) in RETRIEVABLE_REVIEW
+    )
+
+
+_page_memo: dict[str, tuple[tuple[int, int], bool]] = {}
+_MEMO_LIMIT = 50_000
+
+
+def _page_head(path: Path) -> str:
+    """The start of a page, enough to hold its front matter; the whole page when the front matter is longer."""
+    with path.open("rb") as fh:
+        head = fh.read(_PAGE_HEAD_BYTES)
+        if len(head) == _PAGE_HEAD_BYTES and not _FRONT.match(head.decode("utf-8", "replace")):
+            head += fh.read()
+    return head.decode("utf-8", "replace")
+
+
+def page_file_retrievable(path: Path) -> bool:
+    """May an answer read this page file? Judged from its record in the front matter, and remembered until the
+    file changes. A damaged record or an unreadable file is not retrievable: it cannot be shown to be approved."""
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    stamp = (st.st_mtime_ns, st.st_size)
+    key = str(path)
+    memo = _page_memo.get(key)
+    if memo is not None and memo[0] == stamp:
+        return memo[1]
+    try:
+        head = _page_head(path)
+        front, _rest = split_front_matter(head)
+        if front is None or FRONT_MATTER_KEY not in front:
+            ok = True  # no record: retrievable
+        else:
+            ok = _plainly_retrievable(front) or is_retrievable(read_page_record(head))
+    except (OSError, RecordError):
+        ok = False
+    if len(_page_memo) >= _MEMO_LIMIT:
+        _page_memo.clear()
+    _page_memo[key] = (stamp, ok)
+    return ok
+
+
+_sources_memo: dict[str, tuple[int, frozenset[str]]] = {}
+
+
+def hidden_sources(root: Path) -> frozenset[str]:
+    """The stored names of the originals in the workspace at ``root`` that an answer may not read: those whose
+    record says waiting, rejected, trashed and so on, or whose record is damaged. An original with no record
+    is not in the set. Remembered until a record in the folder changes."""
+    folder = root / RECORDS_DIR / SOURCES_DIR
+    try:
+        stamp = folder.stat().st_mtime_ns
+    except OSError:
+        return frozenset()
+    key = str(folder)
+    memo = _sources_memo.get(key)
+    if memo is not None and memo[0] == stamp:
+        return memo[1]
+    hidden: set[str] = set()
+    for sidecar in folder.glob("*.json"):
+        name = sidecar.name[: -len(".json")]
+        try:
+            rec = ItemRecord.from_dict(json.loads(sidecar.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            hidden.add(name)
+            continue
+        if not is_retrievable(rec):
+            hidden.add(name)
+    out = frozenset(hidden)
+    _sources_memo[key] = (stamp, out)
+    return out
 
 
 # ── pages ─────────────────────────────────────────────────────────────────────
@@ -436,8 +564,12 @@ __all__ = [
     "body_hash",
     "ensure_source_record",
     "file_hash",
+    "hidden_sources",
+    "is_retrievable",
     "list_items",
     "mark_source_checked",
+    "mark_source_rejected",
+    "page_file_retrievable",
     "read_page_record",
     "read_source_record",
     "record_for_save",

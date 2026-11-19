@@ -1319,7 +1319,10 @@ def _relevant_pages(
     q_vec: np.ndarray | None = None,
     scores: dict[Path, float] | None = None,
 ) -> list[Path]:
-    pages = ws.pages()
+    all_pages = ws.pages()
+    pages = (
+        ws.retrievable_pages()
+    )  # an item that is waiting, rejected or removed is never read here
     if not pages:
         return []
     # Meilisearch (opt-in, self-hosted retrieval over the org's own pages).
@@ -1338,7 +1341,14 @@ def _relevant_pages(
         meili.index_pages(pages, index=ws.meili_index)
     try:
         return _rank_by_embedding(
-            pages, question, k, q_vec, roots=[ws.root], whole_wiki=True, scores=scores
+            pages,
+            question,
+            k,
+            q_vec,
+            roots=[ws.root],
+            whole_wiki=len(pages)
+            == len(all_pages),  # a hidden page is not "gone": keep its vector row
+            scores=scores,
         )
     except Exception:
         return _keyword_fallback(ws, question, k)
@@ -1353,7 +1363,7 @@ def _keyword_fallback(ws: Workspace, question: str, k: int) -> list[Path]:
     terms = {t for t in re.split(r"\W+", question.lower()) if len(t) >= 2}
     scored = [
         (sum(strip_frontmatter(p.read_text()).lower().count(t) for t in terms), p)
-        for p in ws.pages()
+        for p in ws.retrievable_pages()
     ]
     scored = [(s, p) for s, p in scored if s]
     scored.sort(key=lambda x: x[0], reverse=True)
