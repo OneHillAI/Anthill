@@ -26,22 +26,22 @@
   }
 </style>
 <div class="wiz-steps" role="list" aria-label="Setup progress">
-  <div class="wiz-step {% if setup_step == 1 %}is-current{% elif setup_step and setup_step > 1 %}is-done{% endif %}" role="listitem">
+  <div class="wiz-step {% if setup_step == 1 %}is-current{% elif setup_step and setup_step > 1 %}is-done{% endif %}" role="listitem" {% if setup_step == 1 %}aria-current="step"{% endif %}>
     <span class="wiz-badge">{% if setup_step and setup_step > 1 %}&check;{% else %}1{% endif %}</span>
     <span class="wiz-label">Create account</span>
   </div>
   <span class="wiz-sep"></span>
-  <div class="wiz-step {% if setup_step == 2 %}is-current{% elif setup_step and setup_step > 2 %}is-done{% endif %}" role="listitem">
+  <div class="wiz-step {% if setup_step == 2 %}is-current{% elif setup_step and setup_step > 2 %}is-done{% endif %}" role="listitem" {% if setup_step == 2 %}aria-current="step"{% endif %}>
     <span class="wiz-badge">{% if setup_step and setup_step > 2 %}&check;{% else %}2{% endif %}</span>
     <span class="wiz-label">Solo or organisation</span>
   </div>
   <span class="wiz-sep"></span>
-  <div class="wiz-step {% if setup_step == 3 %}is-current{% elif setup_step and setup_step > 3 %}is-done{% endif %}" role="listitem" id="wiz-step-3">
+  <div class="wiz-step {% if setup_step == 3 %}is-current{% elif setup_step and setup_step > 3 %}is-done{% endif %}" role="listitem" id="wiz-step-3" {% if setup_step == 3 %}aria-current="step"{% endif %}>
     <span class="wiz-badge">{% if setup_step and setup_step > 3 %}&check;{% else %}3{% endif %}</span>
     <span class="wiz-label">Choose your AI</span>
   </div>
   <span class="wiz-sep"></span>
-  <div class="wiz-step {% if setup_step == 4 %}is-current{% endif %}" role="listitem" id="wiz-step-4">
+  <div class="wiz-step {% if setup_step == 4 %}is-current{% endif %}" role="listitem" id="wiz-step-4" {% if setup_step == 4 %}aria-current="step"{% endif %}>
     <span class="wiz-badge">4</span>
     <span class="wiz-label">Connect a provider</span>
   </div>
@@ -53,6 +53,8 @@
     if (!s3 || !s4) return;
     s3.className = 'wiz-step ' + (n === 3 ? 'is-current' : 'is-done');
     s4.className = 'wiz-step ' + (n === 4 ? 'is-current' : '');
+    s3.removeAttribute('aria-current'); s4.removeAttribute('aria-current');
+    (n === 4 ? s4 : s3).setAttribute('aria-current', 'step');
     s3.querySelector('.wiz-badge').innerHTML = n === 3 ? '3' : '&check;';
   };
 </script>
