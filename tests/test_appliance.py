@@ -192,8 +192,8 @@ def test_total_memory_gb_reads_sysctl():
 
 
 def test_recommended_ollama_tag_sizes_to_ram():
-    # smartest that fits a 32 GB Mac mini (a 30B-class MoE beats a bigger-but-duller dense model)
-    assert appliance.recommended_ollama_tag(32) == "glm-4.7-flash"
+    # the largest model the catalogue marks "fits" on a 32 GB Mac mini (#311): a 30B-class MoE
+    assert appliance.recommended_ollama_tag(32) == "nemotron-3-nano:30b"
     assert appliance.recommended_ollama_tag(0) == "qwen3.5:0.8b"  # unknown RAM -> safe default
 
 
@@ -235,7 +235,7 @@ def test_install_appliance_writes_loads_pulls_and_reports():
     res = appliance.install_appliance(
         port=8000,
         home="/Users/anthill",
-        mem_gb=32,  # -> sizes to glm-4.7-flash
+        mem_gb=32,  # -> sizes to nemotron-3-nano:30b
         lan_ip="192.168.1.50",
         apple=True,
         session="Aqua",
@@ -243,8 +243,8 @@ def test_install_appliance_writes_loads_pulls_and_reports():
         runner=lambda cmd: launchctl.append(cmd) or "",
         puller=lambda tag: pulled.append(tag) or True,
     )
-    assert res.model == "glm-4.7-flash"
-    assert res.pulled is True and pulled == ["glm-4.7-flash"]
+    assert res.model == "nemotron-3-nano:30b"
+    assert res.pulled is True and pulled == ["nemotron-3-nano:30b"]
     assert res.lan_url == "http://192.168.1.50:8000"
     assert res.gpu.accelerated is True
     # the plist was written to the right path and binds all interfaces

@@ -48,10 +48,9 @@ catalogue, shape gate) and `docs/specs/huggingface-source-pinned.md` (the later 
 
 ## What the user notices
 
-With every score 0 the default pick is the largest model that fits, not a ranked one. On this change: an 8 GB Mac is
-offered Granite 4.2 3B (was Qwen3.5 2B), and a 16 GB Mac Gemma 4 12B (was Qwen3.5 9B). The existing guard against a 14B
-on 16 GB still passes. 24 GB and larger machines keep their picks. Review the 12B-on-16-GB default: the precomputed table
-in this file marks it `tight`.
+Because every score is 0, the picker's default no longer comes from a score. It comes from the `fit` table in each row
+(issue #311, `docs/specs/picker-order-by-fit-table.md`): the largest model marked `fits` for the machine's memory tier. The
+defaults: 8 GB Qwen3.5 4B, 16 GB Qwen3.5 9B, 24 GB gpt-oss 20B, 32 GB Nemotron 3 Nano 30B, 64 GB Qwen3.6 35B-A3B.
 
 ## Licence reading (our reading, not legal advice; full text in the maintainer's notes)
 

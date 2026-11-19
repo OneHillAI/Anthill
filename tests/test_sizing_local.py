@@ -12,8 +12,8 @@ from anthill.hosting import sizing
 # (unified memory GB, params_b of the smartest model that fits). Ranking is intelligence x fit now, so
 # these track the frontier catalog: an MoE with few active params can win at a given memory budget.
 _ANCHORS = [
-    (8, 3),  # smallest safe pick (#304: unscored, so the largest that fits: Granite 4.2 3B)
-    (16, 12),  # Gemma 4 12B (#304: unscored, so the largest that fits)
+    (8, 4),  # the largest model the catalogue marks "fits" at 8 GB (#311)
+    (16, 9),  # Qwen3.5 9B; Gemma 4 12B is "tight" at 16 GB, so never the default
     (24, 20),  # a 20B (gpt-oss) fits here
     (32, 30),  # a 30B-class MoE (GLM-4.7-flash)
     (64, 35),  # Qwen3.6 35B-A3B

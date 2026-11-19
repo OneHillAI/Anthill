@@ -89,6 +89,10 @@ class Model:
     # gpu_count (docs/specs/multi-gpu-tensor-parallel-serving.md); vLLM requires gpu_count to evenly
     # divide this. Not populated for model_catalog.json's current seed/placeholder rows - do not invent
     # a value here without a verified model card; 0 is treated as "not checked", not "one head."
+    fit: tuple[
+        tuple[str, str], ...
+    ] = ()  # the catalogue's precomputed memory verdict per tier, e.g.
+    # (("8", "too_large"), ("16", "fits")); () = the row carries none. See ``fit_verdict`` (docs/specs/picker-order-by-fit-table.md).
 
 
 # The catalog is DATA, not code: a bundled JSON (hosting/model_catalog.json) the picker ranks by
@@ -213,6 +217,47 @@ def is_safe_row(row: object) -> bool:
     return is_safe_hf_id(row.get("hf_id", "")) and is_safe_hf_id(row.get("quant_hf_id", ""))
 
 
+FIT_TIERS_GB: tuple[int, ...] = (8, 16, 24, 32, 64)
+_FIT_VERDICTS = frozenset({"fits", "tight", "too_large"})
+
+
+def _fit_from_row(raw: object) -> tuple[tuple[str, str], ...]:
+    """The row's per-tier memory verdicts, keeping only known tiers and verdicts ("not_computed" and anything
+    else is dropped, so such a tier falls back to the memory-ceiling rule)."""
+    if not isinstance(raw, dict):
+        return ()
+    return tuple(
+        (str(t), v)
+        for t, v in raw.items()
+        if str(t) in map(str, FIT_TIERS_GB) and v in _FIT_VERDICTS
+    )
+
+
+def fit_tier_gb(mem_gb: float) -> int | None:
+    """The largest catalogue tier that is not above this machine's memory; None below the smallest tier."""
+    tiers = [t for t in FIT_TIERS_GB if t <= mem_gb]
+    return tiers[-1] if tiers else None
+
+
+def fit_verdict(model: Model, tier_gb: int | None) -> str | None:
+    """The catalogue's verdict ("fits", "tight" or "too_large") for ``model`` at ``tier_gb``, or None when the
+    row carries none (a gated row, an older catalogue file, or no tier) - the caller then uses the ceiling rule."""
+    if tier_gb is None:
+        return None
+    return dict(model.fit).get(str(tier_gb))
+
+
+def _uses_fit_table(kind: str, context_k: float, concurrency: int) -> bool:
+    """The table was precomputed for one user at an 8k window on unified memory; any other shape of box keeps
+    the memory-ceiling rule."""
+    return kind == "apple" and concurrency <= 1 and context_k <= 8.0
+
+
+def _by_size(m: Model) -> tuple[float, float]:
+    """Order for the fit-table default: the largest model, then the one with more active parameters."""
+    return (m.params_b, m.active_b)
+
+
 def _model_from_row(row: dict) -> Model:
     return Model(
         name=row["name"],
@@ -227,6 +272,7 @@ def _model_from_row(row: dict) -> Model:
         active_b=float(row.get("active_b") or 0),
         license=row.get("license", ""),
         num_attention_heads=int(row.get("num_attention_heads") or 0),
+        fit=_fit_from_row(row.get("fit")),
     )
 
 
@@ -764,6 +810,12 @@ def gpu_count_divides_heads(num_attention_heads: int, gpu_count: int) -> bool:
     return num_attention_heads % gpu_count == 0
 
 
+def _fits_memory(m: Model, ceiling: float, table: int | None) -> bool:
+    """Whether ``m`` can be run at all here: the catalogue verdict when it has one, else the memory ceiling."""
+    verdict = fit_verdict(m, table)
+    return (verdict != "too_large") if verdict is not None else m.params_b <= ceiling
+
+
 def recommend(
     mem_gb: float,
     *,
@@ -782,11 +834,20 @@ def recommend(
     if catalog is None:
         catalog = load_catalog()
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
+    table = fit_tier_gb(mem_gb) if _uses_fit_table(kind, context_k, concurrency) else None
     best: Model | None = None
     for m in catalog:
-        fits_mem = m.params_b <= ceiling
-        if (
-            fits_mem
+        verdict = fit_verdict(m, table)
+        if verdict is not None:
+            # the catalogue's precomputed answer: the default is the largest model that "fits" (never a "tight" one)
+            if (
+                verdict == "fits"
+                and is_usable_speed(m, kind=kind)
+                and (best is None or _by_size(m) > _by_size(best))
+            ):
+                best = m
+        elif (
+            m.params_b <= ceiling
             and is_usable_speed(m, kind=kind)
             and (best is None or (m.intelligence, m.params_b) > (best.intelligence, best.params_b))
         ):
@@ -794,9 +855,9 @@ def recommend(
     fits = [
         ModelFit(
             model=m,
-            fits=(m.params_b <= ceiling),
+            fits=_fits_memory(m, ceiling, table),
             recommended=(best is not None and m.name == best.name),
-            too_slow=(m.params_b <= ceiling and not is_usable_speed(m, kind=kind)),
+            too_slow=(_fits_memory(m, ceiling, table) and not is_usable_speed(m, kind=kind)),
         )
         for m in catalog
     ]
@@ -884,12 +945,21 @@ def recommend_by_family(
     if families is None:
         families = families_by_intelligence(catalog)
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
+    table = fit_tier_gb(mem_gb) if _uses_fit_table(kind, context_k, concurrency) else None
     picks: list[FamilyPick] = []
     for fam in families:
         members = [m for m in catalog if m.family == fam]
         best: Model | None = None
         for m in members:
-            if (
+            verdict = fit_verdict(m, table)
+            if verdict is not None:
+                if (
+                    verdict == "fits"
+                    and is_usable_speed(m, kind=kind)
+                    and (best is None or _by_size(m) > _by_size(best))
+                ):
+                    best = m  # the catalogue's largest "fits" model within the family
+            elif (
                 m.params_b <= ceiling
                 and is_usable_speed(m, kind=kind)
                 and (
