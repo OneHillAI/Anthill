@@ -32,7 +32,9 @@ documents, so turn it off for anything that must stay on your machine.
 
 Under each answer a small label says where it ran: **On this device** when nothing left your machine,
 or **Sent over the network** when a model on another machine answered. The pages listed under **Pages
-in context** are links; click one to open that page in a new tab.
+in context** are links; click one to open that page in a new tab. A small **⏱** line gives the time
+to the first word and the speed of the answer, as measured on the model server. A figure the engine
+does not report is left blank.
 
 ### Group chats with a project
 
@@ -71,6 +73,10 @@ and new text side by side with the changed words marked, and you choose to repla
 both, or keep the old page and discard the new one. Replacing writes over the old page's text; the
 file you uploaded earlier stays under **Files**. **Needs review** also holds pages the automatic check
 flagged and your AI's proposals, with one count that also shows on **Knowledge** in the sidebar.
+While an upload is waiting there, or after it is rejected or removed, Anthill does not use it in
+answers: not in chat, by agents, in scheduled tasks or in cached answers. An upload made before this
+rule existed may still be read until the install owner runs `anthill knowledge inventory --apply`,
+which makes a backup first and can be undone.
 
 The wiki has three tabs:
 
