@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Remove {{ shown_name }}{% endblock %}
+{% block page_title %}Remove {{ 'a document' if kind == 'original' else 'a page' }}{% endblock %}
+{% block content %}
+<p class="text-sm" style="margin:0 0 12px"><a href="{{ back }}">&larr; Back</a></p>
+<div class="card" style="max-width:640px" id="remove-confirm">
+  <p style="margin:0 0 8px">Remove <b>{{ shown_name }}</b>?</p>
+  {% if kind == 'original' %}
+  <p class="text-sm" style="margin:0 0 8px">The document and the text Anthill read from it will be removed.</p>
+  {% if plan.goes %}
+  <p class="text-sm" style="margin:0 0 4px">These pages were made only from it, and nobody has checked them, so they go too:</p>
+  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.goes %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if plan.stays %}
+  <p class="text-sm" style="margin:0 0 4px">These pages were made from it and stay, because they have been checked or may have other sources:</p>
+  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.stays %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% else %}
+  <p class="text-sm" style="margin:0 0 8px">The page will be removed. The document it was made from, if there is one, stays.</p>
+  {% endif %}
+  <p class="text-sm text-muted" style="margin:0 0 12px">
+    Answers stop using it at once. It stays under Removed for {{ days }} days, and you can restore it until then;
+    after that it is deleted for good. A delete cannot remove copies you already exported, backups, or anything a
+    model was already trained on.
+  </p>
+  <form method="post" action="/wiki/remove" style="display:inline">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <button class="btn btn-primary btn-sm" type="submit">Remove</button>
+  </form>
+  <a class="btn btn-sm" href="{{ back }}">Cancel</a>
+</div>
+{% endblock %}

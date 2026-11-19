@@ -58,6 +58,7 @@
       <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name }}</a>{% if f.has_text %} <a class="text-muted" href="/wiki/text/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">text read from it</a>{% endif %}</td>
       <td class="text-muted" style="padding:8px;white-space:nowrap">{{ f.size | filesizeformat }}</td>
       <td class="text-muted" style="padding:8px 0 8px 8px;white-space:nowrap">{{ f.modified }}</td>
+      {% if can_edit %}<td style="padding:8px 0 8px 8px;white-space:nowrap"><a class="text-sm" href="/wiki/remove?kind=original&name={{ f.name | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove</a></td>{% endif %}
     </tr>
     {% endfor %}
   </table>
@@ -65,6 +66,29 @@
   <p class="text-muted text-sm" style="margin-top:8px">No files yet. Files you upload under <b>Pages</b> show up here.</p>
   {% endif %}
 </div>
+{% set rq = request.query_params %}
+{% if rq.get('removed') %}<div class="alert alert-ok" style="max-width:760px" role="status">Removed. It is listed below for {{ retention_days }} days, and you can restore it until then.</div>{% endif %}
+{% if rq.get('restored') %}<div class="alert alert-ok" style="max-width:760px" role="status">Restored.</div>{% endif %}
+{% if rq.get('deleted') %}<div class="alert alert-ok" style="max-width:760px" role="status">Deleted for good.</div>{% endif %}
+{% if rq.get('restore_error') %}<div class="alert alert-warn" style="max-width:760px" role="alert">{{ rq.get('restore_error') }}</div>{% endif %}
+{% if removed_items %}
+<div class="card" id="wiki-removed">
+  <h2 style="font-size:15px;margin:0 0 4px">Removed</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">Not used in answers. Restore one, or delete it for good now; the rest is deleted after the days shown.</p>
+  <table class="text-sm" style="width:100%;border-collapse:collapse">
+    {% for r in removed_items %}
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 8px 8px 0">{{ r.name }}{% if r.pages %} <span class="text-muted">(and {{ r.pages | length }} page{{ '' if r.pages | length == 1 else 's' }})</span>{% endif %}</td>
+      <td class="text-muted" style="padding:8px;white-space:nowrap">{{ r.days_left }} day{{ '' if r.days_left == 1 else 's' }} left</td>
+      {% if can_edit %}<td style="padding:8px 0 8px 8px;white-space:nowrap">
+        <form method="post" action="/wiki/removed/{{ r.id }}/restore" style="display:inline"><input type="hidden" name="scope" value="{{ scope }}">{% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}<button class="btn btn-sm" type="submit">Restore</button></form>
+        <form method="post" action="/wiki/removed/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this for good? This cannot be undone.')"><input type="hidden" name="scope" value="{{ scope }}">{% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}<button class="btn btn-sm" type="submit">Delete now</button></form>
+      </td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
 
 {% else %}
 {# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}

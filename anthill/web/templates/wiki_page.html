@@ -13,5 +13,8 @@
 {% if provenance %}
 <p class="text-sm text-muted" style="margin:10px 0 0">{% if verbatim %}The note as uploaded{% else %}AI summary written by {{ provenance.model }}{% endif %} on {{ provenance.date }}{% if provenance.source %} from {% if source_link %}<a href="{{ source_link }}">{{ source_name }}</a>{% else %}{{ source_name }}{% endif %}{% endif %}.{% if not verbatim %} It is not the text of your document{% if source_link %}; the original is kept under Files{% if text_link %}, and you can <a href="{{ text_link }}">open the text Anthill read from it</a>{% endif %}{% endif %}.{% endif %}</p>
 {% endif %}
+{% if can_remove %}
+<p class="text-sm" style="margin:10px 0 0"><a href="/wiki/remove?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove this page</a></p>
+{% endif %}
 {% include "_markdown_render.html" %}
 {% endblock %}
