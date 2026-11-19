@@ -975,6 +975,137 @@ def restore_snapshot_cmd(
     console.print("[bold]Restart Anthill now.[/]")
 
 
+# ── knowledge items (records and the inventory of existing wikis) ──────────────
+
+knowledge_app = typer.Typer(
+    help="Knowledge base items: records, and an inventory of existing wikis."
+)
+app.add_typer(knowledge_app, name="knowledge")
+
+
+def _inventory_ws(root: Path) -> Workspace:
+    """A wiki folder as a workspace, with the space its place on disk says it holds."""
+    from .wiki import inventory as inv
+
+    return Workspace(root, scope=inv.space_of_root(root)[0])
+
+
+def _review_status_for(db_path: Path | str | None, root: Path) -> dict[str, str] | None:
+    """Stored-original name -> review status, for the pages proposed into this workspace, read from the
+    database. None when there is no database or it cannot be read, or for the legacy personal wiki, whose
+    reviews cannot be attributed to it."""
+    from .wiki import inventory as inv
+
+    space, ref = inv.space_of_root(root)
+    if db_path is None or not Path(db_path).is_file():
+        return None
+    if space == "personal" and not ref:
+        return None
+    try:
+        from sqlalchemy.orm import sessionmaker
+
+        from .web import db as db_mod
+
+        engine = db_mod.get_engine(Path(db_path))
+        session = sessionmaker(bind=engine)()
+        try:
+            q = session.query(db_mod.WikiReview).filter(db_mod.WikiReview.kind == "page")
+            num = int(ref.split("-", 1)[1]) if ref else None
+            if space == "team" and num is not None:
+                q = q.filter(
+                    db_mod.WikiReview.target_scope == "team", db_mod.WikiReview.team_id == num
+                )
+            elif space == "personal" and num is not None:
+                q = q.filter(
+                    db_mod.WikiReview.target_scope == "personal",
+                    db_mod.WikiReview.proposed_by == num,
+                )
+            elif space == "org":
+                q = q.filter(db_mod.WikiReview.target_scope == "org")
+                if num is not None:
+                    q = q.filter(db_mod.WikiReview.org_id == num)
+            else:
+                return None
+            out: dict[str, str] = {}
+            for row in q.order_by(db_mod.WikiReview.id):
+                name = inv.provenance_source(str(row.content or ""))
+                if name:
+                    out[name] = str(row.status)  # a later row for the same original wins
+            return out
+        finally:
+            session.close()
+    except Exception:  # an unreadable database only means leftovers cannot be matched
+        return None
+
+
+@knowledge_app.command("inventory")
+def knowledge_inventory(
+    root: list[Path] = typer.Option(
+        None,
+        "--root",
+        help="A wiki folder to inspect (repeat for several). Default: every wiki on this install.",
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Give every page and kept original without a record one. Backs up first; changes no page body.",
+    ),
+    undo: Path = typer.Option(
+        None, "--undo", help="Undo an --apply: the manifest file it wrote under <wiki>/records/."
+    ),
+    db_path: str = typer.Option(
+        "", "--db", help="The database to read review rows from (default: the install's)."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+):
+    """Report what each wiki holds and which items have no record. A dry run unless --apply is given. No model is called."""
+    from .web import db as db_mod
+    from .wiki import inventory as inv
+    from .wiki.page_index import workspace_roots
+
+    if undo is not None:
+        manifest = undo.resolve()
+        ws = _inventory_ws(manifest.parent.parent)
+        try:
+            res = inv.undo_records(ws, manifest)
+        except (OSError, ValueError, KeyError) as e:
+            console.print(f"[red]error:[/] {e}")
+            raise typer.Exit(code=1) from None
+        console.print(
+            f"restored {res.restored_pages} page(s), removed {res.removed_sources} record(s)"
+        )
+        for line in res.skipped:
+            console.print(f"  [yellow]skipped[/] {line}")
+        return
+    roots = list(root) if root else workspace_roots()
+    db = Path(db_path) if db_path else db_mod.DB_PATH
+    reports = []
+    for r in roots:
+        if not r.is_dir():
+            console.print(f"[yellow]skipped[/] {r}: no such folder")
+            continue
+        ws = _inventory_ws(r)
+        status = _review_status_for(db, r)
+        reports.append(inv.inventory(ws, review_status=status))
+        if apply:
+            res = inv.apply_records(ws, review_status=status)
+            if res.nothing_to_do:
+                console.print(f"[dim]{r}: nothing to add[/]")
+            else:
+                console.print(
+                    f"[green]{r}[/]: added records to {res.changed_pages} page(s) and "
+                    f"{res.changed_sources} original(s). Backup {res.backup}. Undo with --undo {res.manifest}"
+                )
+            for line in res.skipped:
+                console.print(f"  [yellow]skipped[/] {line}")
+    if as_json:
+        console.print_json(inv.render_json(reports))
+    elif not apply:
+        for rep in reports:
+            console.print(rep.to_text())
+        console.print("[dim](dry run: nothing was written)[/]")
+
+
 # ── lifecycle (model upgrades) ─────────────────────────────────────────────────
 
 lifecycle_app = typer.Typer(help="Model lifecycle: eval, renovate, warmup after a model change.")

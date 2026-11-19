@@ -21,6 +21,7 @@ from ..inference.base import InferenceBackend
 from ..multimodal import read_file
 from ..multimodal.reader import PDF_HARD_PROCESSING_SECONDS
 from . import prompts
+from .items import ensure_source_record
 from .workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -350,6 +351,7 @@ def ingest(
     if not is_pdf and source.resolve() != raw_copy.resolve() and not raw_copy.exists():
         preserve_raw_source(ws, source)
     keep_extracted_text(ws, raw_copy, fc)
+    ensure_source_record(ws, raw_copy)
     _preflight_pdf_work(fc, allow_large_pdf=allow_large_pdf, budget=budget)
     if _is_verbatim_note(source, fc):
         return _file_verbatim_note(ws, source, fc.text, raw_copy, on_write)
