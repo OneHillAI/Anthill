@@ -101,15 +101,22 @@ def test_cannot_approve_someone_elses_personal_review(tmp_path, monkeypatch):
     assert r.status_code == 403
 
 
-def test_personal_wiki_shows_review_tab_only_when_pending(tmp_path, monkeypatch):
+def test_needs_review_tab_counts_a_pending_personal_upload(tmp_path, monkeypatch):
     app_mod, client, ids = _app(tmp_path, monkeypatch)
-    # no pending -> no Review tab (keeps the personal wiki uncluttered)
-    tabs = client.get("/wiki").text.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
-    assert "/wiki/review/personal" not in tabs
-    # a flagged upload appears -> the Review tab shows up with a badge, giving a way to approve it
+
+    def needs_review_tab():
+        page = client.get("/wiki").text
+        wiki_tabs = page.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
+        assert "/wiki/review" not in wiki_tabs  # the Wiki sub-tabs never carry a Review tab
+        knowledge_bar = page.split('class="knowledge-tabs"', 1)[1].split("</div>", 1)[0]
+        return knowledge_bar.split('href="/knowledge/suggestions"', 1)[1]
+
+    # nothing waiting -> the Needs review tab is there, without a count
+    assert "nav-badge" not in needs_review_tab().split("</a>", 1)[0]
+    # a flagged upload appears -> the same tab carries the count, and its page leads to the decision
     _pending(app_mod, ids["org"], ids["u"], slug="flagged-doc")
-    tabs = client.get("/wiki").text.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
-    assert "/wiki/review/personal" in tabs and "nav-badge" in tabs
+    assert '<span class="nav-badge">1</span>' in needs_review_tab().split("</a>", 1)[0]
+    assert "/wiki/review/personal#review-" in client.get("/knowledge/suggestions").text
 
 
 def test_dashboard_surfaces_personal_pending(tmp_path, monkeypatch):

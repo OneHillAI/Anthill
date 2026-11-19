@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Wiki review{% endblock %}
-{% block page_title %}{{ "Your wiki" if scope == "personal" else "Organisation wiki" }} <span style="font-size:13px;color:var(--muted);font-weight:normal">- review</span>{% endblock %}
+{% block title %}Needs review{% endblock %}
+{% block page_title %}Knowledge{% endblock %}
 {% block content %}
 {% macro review_text(rev) %}
     <textarea name="content" spellcheck="false"
       style="width:100%;min-height:220px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">{{ rev.content }}</textarea>
 {% endmacro %}
-{% include "_wiki_tabs.html" %}
+{% include "_knowledge_tabs.html" %}
+<p class="text-sm" style="margin:0 0 10px"><a href="/knowledge/suggestions">&larr; All that needs review</a></p>
 
 {% if not reviews %}
 <div class="alert alert-ok">No pending wiki updates - the queue is clear.</div>
@@ -17,7 +18,7 @@
 </p>
 {% for rev in reviews %}
 {% set held = rev.flag_list|select('in', ['same_file', 'new_version', 'title_clash', 'looks_newer'])|list %}
-<div class="card mt-4">
+<div class="card mt-4" id="review-{{ rev.id }}">
   <div class="flex justify-between items-center mb-2">
     <div>
       <b style="font-size:16px">{{ rev.new_title or rev.slug }}</b>
@@ -105,7 +106,7 @@
 {% endif %}
 
 <div class="card mt-4">
-  <h3>What is the wiki review queue?</h3>
+  <h3>What is Needs review?</h3>
   <p class="text-sm" style="margin-top:8px;line-height:1.7">
     Every wiki change is first checked by an agent. Clean changes apply automatically;
     only the ones it flags - a possible contradiction, duplicate, broken link, or

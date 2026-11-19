@@ -115,10 +115,10 @@ _STATUS_MEANINGS = {
     "reading": "Your AI is reading it now. A long document can take a few minutes. Reload this "
     "page to see the result.",
     "added": "It is now a page in this wiki.",
-    "review": "Added as a draft because the automatic check flagged it. Open the review queue to "
+    "review": "Added as a draft because the automatic check flagged it. Open Needs review to "
     "approve it or change it.",
     "held": "This wiki already has the same file, a page with that title, or a page this may be a "
-    "newer version of, so nothing changed. Open the review queue to choose what happens.",
+    "newer version of, so nothing changed. Open Needs review to choose what happens.",
     "waiting_model": "Your AI is still downloading. The file is saved and will be added by itself "
     "when the download finishes, so you do not need to upload it again.",
     "timed_out": 'Your AI did not finish in time, so nothing was added. Use "Try again with a '
@@ -336,7 +336,7 @@ def recent_uploads(db, *, org_id: int, user_id: int, scope: str, team_id: int | 
             item["href_text"] = "View the page"
         elif status in ("review", "held"):
             item["href"] = _review_url(r.scope, r.team_id)
-            item["href_text"] = "Open the review queue"
+            item["href_text"] = "Open Needs review"
         elif status == "timed_out":
             item["href"], item["href_text"] = "#wiki-upload-retries", "Go to the retry button"
         out.append(item)
