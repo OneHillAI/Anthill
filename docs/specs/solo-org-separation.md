@@ -91,7 +91,7 @@ Counts: SOLO-OK 64, SHARED 134, ORG-ONLY 51, UNDECIDED 7.
 | ORG-ONLY | `POST /webhooks/{source}`<br>`POST /discord/interactions`<br>`POST /slack/events`<br>`POST /slack/command`<br>`GET /invite/{token}`<br>`POST /invite/{token}`<br>`POST /api/metrics` | no session (signature, token or mesh auth); configured only through the gated pages above, so inert for a Solo account; not gated |
 | SHARED | `GET /settings/remote`<br>`POST /settings/remote`<br>`POST /settings/remote/stop`<br>`GET /settings/remote/status`<br>`POST /settings/signup`<br>`POST /settings/install-owner`<br>`GET /settings/appliance`<br>`GET /settings/appliance/launchagent.plist` | install-level (host) controls: who may join the whole install, who owns it, remote access and the Mac appliance. They decide things for the installation, not for one organisation, and only the install owner may use them, so a Solo install owner keeps them (kept at `_require_admin` plus the existing `is_install_owner` checks). The Solo interface does not link to them. |
 | UNDECIDED | `GET /backend` | training.html:50 links it from a page a Solo reaches; org_settings_hub.html:64 |
-| UNDECIDED | `GET /backup`<br>`GET /backup/export`<br>`POST /backup/restore` | no Solo page links it (settings_general.html:28, org_settings_hub.html:65, _org_tabs.html:7), but it is the only UI to back up a person's own install |
+| UNDECIDED | `GET /backup`<br>`GET /backup/export`<br>`POST /backup/restore` | no Solo page linked it (settings_general.html:28, org_settings_hub.html:65, _org_tabs.html:7), but it is the only UI to back up a person's own install; since #301 Settings, This device tab, links it for an admin |
 | UNDECIDED | `GET /wiki/review` | org review queue; dashboard.html:294 links it for any admin with pending org drafts |
 | UNDECIDED | `POST /settings/cloud/test`<br>`POST /models/refresh-catalog` | no caller found in templates or scripts |
 
@@ -103,7 +103,7 @@ word them for a Solo account).
 ## Known limits
 
 - The UNDECIDED routes stay open to a Solo owner: `/backend` (linked from the Training page), `/backup*` (no Solo
-  page links it, yet it is the only UI to back up a person's own install), `GET /wiki/review` (the org queue, linked
+  page linked it, yet it is the only UI to back up a person's own install; Settings, This device tab, links it since #301), `GET /wiki/review` (the org queue, linked
   from the dashboard attention list), `POST /settings/cloud/test` and `POST /models/refresh-catalog` (no caller).
 - The session-less receivers (`/webhooks/{source}`, `/discord/interactions`, `/slack/events`, `/slack/command`,
   `/invite/{token}`, `/api/metrics`) cannot be gated by session. They act only on settings that the gated pages
