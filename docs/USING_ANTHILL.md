@@ -37,7 +37,7 @@ no path back to a plain Solo account.
   An admin connects or provisions the org's model and compute once, on your own machine, an
   on-prem box, or a cloud GPU. From then on the org's wiki, its model, and its training all run
   together on that same account. A project's owner approves anything proposed for promotion out of
-  that project's own wiki review queue.
+  that project's own **Needs review** list.
 
 Moving knowledge from a smaller space into a bigger shared one always goes through a review step
 first. Solo into an org wiki, or a project into the org: nothing reaches a wider audience by
