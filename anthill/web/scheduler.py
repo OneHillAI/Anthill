@@ -330,10 +330,19 @@ def _run_task(task: ScheduledTask, db) -> str:
         personal_user_id=task.created_by,
         org_id=task.org_id,
     )
+    from .agent_writes import wiki_proposer
     from .mcp_store import mcp_client_tools
 
     tools = make_tools(
-        workspace=ws_path, owner=files_owner(task.org_id, task.created_by)
+        workspace=ws_path,
+        owner=files_owner(task.org_id, task.created_by),
+        propose_write=wiki_proposer(
+            db,
+            org_id=task.org_id,
+            user_id=task.created_by,
+            ws_path=ws_path,
+            who=f"scheduled task {task.id}",
+        ),
     ) + mcp_client_tools(
         db, task.org_id
     )  # builtin tools + approved MCP; files scoped per-user (org/user)

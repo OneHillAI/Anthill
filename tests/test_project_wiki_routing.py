@@ -159,7 +159,7 @@ def test_solo_task_reads_the_creators_own_personal_wiki_not_the_legacy_workspace
 
     captured = {}
 
-    def _fake_make_tools(*, workspace, owner):
+    def _fake_make_tools(*, workspace, owner, propose_write=None):
         captured["workspace"] = workspace
         return []
 
