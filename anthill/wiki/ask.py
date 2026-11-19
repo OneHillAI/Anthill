@@ -16,7 +16,7 @@ from ..inference.base import BackendError, InferenceBackend, Message
 from ..lifecycle.version import read_provenance
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
-from . import prompts
+from . import answer_record, prompts
 from .cache_freshness import judge_for
 from .doc_context import document_passages, format_block, source_tags, summary_labels
 from .page_index import embed_text
@@ -338,6 +338,7 @@ def ask(
     provider_available: bool = False,  # #278: a connected org/RunPod/inference-provider backend exists
     # and this turn answered locally - names it in the "go deeper" suggestion as a second option.
     think: bool | None = None,  # False = no hidden thinking for the answer (web-composed or local)
+    on_record=None,  # callback(dict) called once with the record of the items this answer was given
 ) -> tuple[str, list[str], bool]:
     """Answer a question.
 
@@ -389,6 +390,12 @@ def ask(
         if hit:
             # Return the answer's original grounding slugs (provenance), not [] - a cache hit on a
             # grounded answer must still report it was grounded, so the meta/grounding signal holds.
+            if on_record is not None:
+                on_record(
+                    answer_record.from_sources(
+                        hit.slugs, [ws] + [w for w in (extra_workspaces or []) if w is not None]
+                    )
+                )
             return hit.answer, hit.slugs, True
 
     # ── 2. org central index ──────────────────────────────────────────────────
@@ -416,6 +423,8 @@ def ask(
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
     context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
     cited = cited + source_tags(doc_hits)
+    if on_record is not None:
+        on_record(answer_record.build(pages, doc_hits, spaces))
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -725,6 +734,7 @@ def ask_stream(
     web_search: bool = False,  # search the web too; yields Stage markers, then the answer streams
     search_query: str = "",  # what to search for (planned by decide_web); defaults to the question
     member_question: str = "",  # what the member typed, when `question` carries more (a redo's earlier answer)
+    on_record=None,  # callback(dict) called once with the record of the items this answer was given
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
@@ -759,6 +769,8 @@ def ask_stream(
     cited = _cited_slugs(pages, scores)
     context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
     cited = cited + source_tags(doc_hits)
+    if on_record is not None:
+        on_record(answer_record.build(pages, doc_hits, spaces))
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:

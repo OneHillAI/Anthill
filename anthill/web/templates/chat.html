@@ -413,6 +413,14 @@
     {% endif %}
 
     <div class="chat-messages" id="messages">
+      {% if used_in_chat %}
+      <details class="used-in-chat" style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        <summary style="cursor:pointer" title="Everything Anthill gave the model across the answers in this chat.">Used in this chat ({{ used_in_chat|length }})</summary>
+        <ul style="margin:4px 0 0 18px;padding:0">
+          {% for r in used_in_chat %}<li><a href="{{ r.href }}" target="_blank" rel="noopener">{{ r.title }}</a> <span>&middot; {{ 'Document' if r.document else 'Page' }}, {{ r.space }} &middot; {{ r.answers }} {{ 'answer' if r.answers == 1 else 'answers' }}</span></li>{% endfor %}
+        </ul>
+      </details>
+      {% endif %}
       {% if not active_conv %}
         <div style="text-align:center;margin-top:80px;color:var(--muted)">
           <div style="font-size:46px;margin-bottom:16px;color:var(--accent)"><svg class="ant-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="11" rx="2.2" ry="2.5" fill="currentColor" stroke="none"/><ellipse cx="12" cy="18" rx="3" ry="3.6" fill="currentColor" stroke="none"/><path d="M10.7 3.4 8.7 1.6M13.3 3.4 15.3 1.6"/><path d="M10 9.6 5.5 7.6M10 11 5 11M10 12.6 5.7 14.8"/><path d="M14 9.6 18.5 7.6M14 11 19 11M14 12.6 18.3 14.8"/></svg></div>
@@ -454,11 +462,16 @@
                   <span class="src-chip" title="Answered by {{ msg.model }} over the network">Sent over the network</span>
                 {% endif %}
               {% endif %}
+              {% if msg.manifest %}
+                {% set panel = answer_panel(msg.manifest) %}
+                {% include "_answer_record.html" %}
+              {% else %}
               {% if msg.doc_sources %}
                 <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: {{ msg.doc_sources.split('\n') | join(', ') }}</span>
               {% endif %}
               {% if msg.wiki_slugs %}
                 <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: {% for s in msg.wiki_slugs.split(',') %}<a href="/wiki/open/{{ s | urlencode }}" target="_blank" rel="noopener">{{ s }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
+              {% endif %}
               {% endif %}
               <button class="thumbs {% if msg.thumbs_up == True %}selected-up{% endif %}"
                       onclick="rate({{ msg.id }}, 1)" title="Good answer"><i data-lucide="thumbs-up">👍</i></button>
@@ -1653,6 +1666,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
   const bubble = appendMsg('assistant', (header || '') + '<div class="stream-text"></div>' + buildRowHTML(false, workingText(think)));
   _streamRow = rowEl(bubble);
   let buffer = '', metaHtml = '', lastRender = 0;
+  const legacyMeta = [];
   let assistantMessageId = null, escalatingLabel = '', pendingEscalationOffer = null, stageShown = false;
 
   // #1 UX follow-up to #820/#824: offer "Ask {Provider} instead" from the moment generation starts,
@@ -1737,8 +1751,12 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
       }
       if (d.meta?.speed)            metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Time to the first word and generation speed of this answer, measured on the model server">⏱ ${d.meta.speed}</span>`;
       if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
-      if (d.meta?.documents?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: ${d.meta.documents.join(', ')}</span>`;
-      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${pageLinks(d.meta.wiki_slugs)}</span>`;
+      if (d.meta?.documents?.length) { const h = ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: ${d.meta.documents.join(', ')}</span>`; legacyMeta.push(h); metaHtml += h; }
+      if (d.meta?.wiki_slugs?.length) { const h = ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${pageLinks(d.meta.wiki_slugs)}</span>`; legacyMeta.push(h); metaHtml += h; }
+      if (d.meta?.record_html) {   // the panel replaces the two plain lists above
+        legacyMeta.forEach(h => { metaHtml = metaHtml.split(h).join(''); });
+        metaHtml += d.meta.record_html;
+      }
       if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
       if (d.meta?.escalated === true) {
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';

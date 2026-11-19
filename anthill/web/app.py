@@ -35,10 +35,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import __version__, keystore
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
-from ..wiki import doc_index
+from ..wiki import answer_record, doc_index
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import audit, bring_in, key_startup, metrics
+from . import answer_panel, audit, bring_in, key_startup, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -414,6 +414,7 @@ def _utc_iso(dt) -> str:
 
 
 templates.env.filters["utc_iso"] = _utc_iso
+templates.env.globals["answer_panel"] = answer_panel.panel
 
 
 def _as_utc(dt):
@@ -2030,6 +2031,11 @@ def _cfg_or_create(db: Session, org: Organization) -> OrgSettings:
         cfg = OrgSettings(org_id=org.id)
         db.add(cfg)
     return cfg
+
+
+def _answer_record_html(stored: str) -> str:
+    """The panel under an answer as html, for the page that is showing the answer as it arrives."""
+    return templates.get_template("_answer_record.html").render(panel=answer_panel.panel(stored))
 
 
 def _slugs_for_storage(slugs) -> str:
@@ -13142,6 +13148,7 @@ def chat_conv(
             "confirm_project": confirm_target,
             "active_conv": conv,
             "messages": conv.messages,
+            "used_in_chat": answer_panel.used_in_chat(conv.messages),
             "org_plane_available": org_plane_ready(cfg),
             "is_org_mode": _org_mode,
             "my_teams": my_teams,
@@ -13676,6 +13683,7 @@ async def chat_stream(
         full_response = []
         generation_failed = False
         fixed_answer = False  # set when the answer is the code-made "no news articles" text
+        record_box: list = []  # the record of the items the answer was given (wiki/answer_record.py)
         cache_hit = False  # set by the normal-chat branch; agent mode stays local
         turn_stats = None  # the answer call's TurnStats (#219); set by the normal-chat branch only
         slugs: list = []  # the wiki pages the normal-chat branch gave the model; saved with the answer
@@ -14181,6 +14189,7 @@ async def chat_stream(
                 cache_hit = False
                 if hit is not None:
                     cache_hit, slugs = True, hit.slugs
+                    record_box.append(answer_record.from_sources(slugs, [ws, *extra_ws]))
                     words = hit.answer.split(" ")
                     for i, word in enumerate(words):
                         token = word + (" " if i < len(words) - 1 else "")
@@ -14201,6 +14210,7 @@ async def chat_stream(
                             shared_cache=org_cache_shared,
                             router=router,
                             on_context=grabbed.extend,
+                            on_record=record_box.append,
                             cfg=cfg,
                             decrypt=_safe_decrypt,
                             provider_available=_provider_available,
@@ -14266,6 +14276,7 @@ async def chat_stream(
                         decrypt=_safe_decrypt,
                         provider_available=_provider_available,
                         think=None if think else False,
+                        on_record=record_box.append,
                     )
                     if escalations and cfg:
                         cfg.cloud_spent_usd = f"{spent + sum(escalations):.6f}"
@@ -14290,6 +14301,7 @@ async def chat_stream(
                 # was used for it, it is not a training example, and nothing is escalated to a provider for it.
                 if fixed_answer:
                     slugs = []
+                    record_box.clear()
                 if not cache_hit and not fixed_answer:
                     turn_stats = getattr(backend, "last_turn", None)
                     if turn_stats is not None and (speed := turn_stats.speed_line()):
@@ -14301,6 +14313,8 @@ async def chat_stream(
                     yield f"data: {json.dumps({'meta': {'wiki_slugs': page_slugs}})}\n\n"
                 if doc_labels:
                     yield f"data: {json.dumps({'meta': {'documents': doc_labels}})}\n\n"
+                if record_box and record_box[-1].get("items"):
+                    yield f"data: {json.dumps({'meta': {'record_html': _answer_record_html(answer_record.dumps(record_box[-1]))}})}\n\n"
                 if auto_web:  # tell the UI the web was added automatically (P4)
                     yield f"data: {json.dumps({'meta': {'auto_web': True}})}\n\n"
                 # Tell the user, live, whether this turn left the device - not just logged for later
@@ -14469,6 +14483,9 @@ async def chat_stream(
             cache_hit=cache_hit and not generation_failed,
             wiki_slugs="" if generation_failed else _slugs_for_storage(split_sources(slugs)[0]),
             doc_sources="" if generation_failed else _docs_for_storage(split_sources(slugs)[1]),
+            manifest=""
+            if generation_failed or not record_box
+            else answer_record.dumps(record_box[-1]),
         )
         db.add(assistant_msg)
         db.commit()

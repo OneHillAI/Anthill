@@ -15,8 +15,13 @@ recurring, like "every morning, summarize my inbox", and it proposes a scheduled
 Anthill also looks in the text it kept from your uploaded documents. If a passage matches your
 question, the model is given up to two passages of your original words, marked as the original,
 before the page's summary, which is marked as a summary that may contain errors. Under an answer,
-**Documents in context** and **Pages in context** list what the model was given. They don't show
-which parts the answer relied on. A question that no document answers is not slowed down.
+**What this answer was given** lists each page and document the model was given, with the wiki it
+came from, the page's version or the document's page numbers, and a link that opens it. A page a
+model wrote that nobody has checked is labelled **AI-written, unchecked**; it still answers. The
+list doesn't show which parts the answer relied on. The chat page also lists everything used across
+the chat under **Used in this chat**. Answers from before this was added show the two plain lines
+**Documents in context** and **Pages in context** instead. A question that no document answers is
+not slowed down.
 
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
 
@@ -31,8 +36,8 @@ wiki and the model alone. Searching sends only your question to a search provide
 documents, so turn it off for anything that must stay on your machine.
 
 Under each answer a small label says where it ran: **On this device** when nothing left your machine,
-or **Sent over the network** when a model on another machine answered. The pages listed under **Pages
-in context** are links; click one to open that page in a new tab.
+or **Sent over the network** when a model on another machine answered. The items listed under **What
+this answer was given** are links; click one to open it in a new tab.
 
 ### Group chats with a project
 
