@@ -416,6 +416,7 @@ def _utc_iso(dt) -> str:
 
 templates.env.filters["utc_iso"] = _utc_iso
 templates.env.globals["answer_panel"] = answer_panel.panel
+templates.env.filters["original_name"] = original_name
 
 
 def _as_utc(dt):
@@ -8393,6 +8394,16 @@ def _team_of_ws(ws) -> int | None:
     return int(name.split("-", 1)[1]) if name.startswith("team-") and name[5:].isdigit() else None
 
 
+def _page_title(ws, slug: str) -> str:
+    """A page's title (its first heading), or its name when it has none or cannot be read."""
+    from ..common.text import first_h1
+
+    try:
+        return first_h1((ws.wiki / f"{slug}.md").read_text()) or slug
+    except OSError:
+        return slug
+
+
 @app.get("/wiki/remove", response_class=HTMLResponse)
 def wiki_remove_confirm(
     request: Request,
@@ -8414,6 +8425,10 @@ def wiki_remove_confirm(
         plan = removal.Plan()
     else:
         raise HTTPException(status_code=404)
+    titles = {
+        s: _page_title(ws, s)
+        for s in [*plan.goes, *plan.stays, *([name] if kind == "page" else [])]
+    }
     return templates.TemplateResponse(
         request,
         "wiki_remove.html",
@@ -8425,7 +8440,8 @@ def wiki_remove_confirm(
             "team_id": team_id,
             "kind": kind,
             "name": name,
-            "shown_name": _original_name(name) if kind == "original" else name,
+            "shown_name": _original_name(name) if kind == "original" else titles.get(name, name),
+            "titles": titles,
             "plan": plan,
             "days": removal.RETENTION_DAYS,
             "back": _wiki_page_url(scope, team_id) + "?tab=files",

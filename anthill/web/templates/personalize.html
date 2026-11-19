@@ -395,6 +395,17 @@
     </div>
   </div>
 
+  {# The Backup page is open to a Solo owner (docs/specs/solo-org-separation.md) but nothing a Solo account
+     sees linked to it, and the desktop app has no address bar to type /backup into (#301). The page itself
+     shows one line to someone who may not use it. #}
+  {% if user and user.role == 'admin' %}
+  <div class="card mb-2">
+    <div class="set-cardh"><h3>Backup</h3></div>
+    <p class="set-note">Back up everything that cannot be made again, and restore it. A backup is one passphrase-protected file that carries your key.</p>
+    <a href="/backup" class="btn btn-outline btn-sm core-cta" style="margin-top:10px"><i data-lucide="download"></i> Back up and restore</a>
+  </div>
+  {% endif %}
+
   <div class="card mb-2">
     <div class="set-cardh"><h3>Version</h3></div>
     <p class="set-note">Anthill {{ app_version }}</p>

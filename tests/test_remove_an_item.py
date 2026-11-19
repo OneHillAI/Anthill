@@ -302,7 +302,7 @@ def test_the_confirmation_says_what_goes_what_stays_and_what_a_delete_cannot_rea
     page = client.get(f"/wiki/remove?kind=original&name={A}&scope=personal")
     assert page.status_code == 200
     text = BeautifulSoup(page.text, "html.parser").get_text(" ", strip=True)
-    assert "ferry" in text and "ferry-checked" in text and "30 days" in text
+    assert "Ferry" in text and "Ferry checked" in text and "30 days" in text  # titles, not slugs
     assert "backups" in text and "trained" in text
     assert (ws.raw / A).is_file()  # asking changed nothing
     assert client.get("/wiki/remove?kind=original&name=nothing-cccccccccccc.pdf").status_code == 404
@@ -328,7 +328,10 @@ def test_removing_restoring_and_deleting_through_the_pages(tmp_path, monkeypatch
     assert not (ws.raw / A).exists()
     listed = _soup(client, "/wiki?tab=files&removed=1")
     box = listed.find(id="wiki-removed")
-    assert box and A in box.get_text() and "30 days left" in box.get_text()
+    assert (
+        box and "ferry.pdf" in box.get_text() and A not in box.get_text()
+    )  # the name it was uploaded under
+    assert "30 days left" in box.get_text()
     assert "Restore" in box.get_text() and "Delete now" in box.get_text()
     rid = removal.list_removed(ws)[0].id
     assert (
