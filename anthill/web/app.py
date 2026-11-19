@@ -38,7 +38,7 @@ from ..platform_layer import hidden_window_kwargs
 from ..wiki import doc_index
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import audit, bring_in, key_startup, metrics, records_update
+from . import audit, bring_in, key_startup, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -8437,8 +8437,6 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "upload_problem": ups.UPLOAD_PROBLEMS.get(request.query_params.get("error", "")),
         "upload_types_text": _upload_types_text(),
         "doc_search_off": doc_index.off_notice(),
-        "records_notice": user.get("role") == "admin" and records_update.notice_due(),
-        "records_done": _records_done_text(request),
         "saved_how": (
             ups.how_it_was_read(
                 db,
@@ -8825,38 +8823,6 @@ def wiki_extracted_text(
         media_type="text/plain; charset=utf-8",
         headers={"X-Content-Type-Options": "nosniff", "Content-Disposition": "inline"},
     )
-
-
-def _records_done_text(request: Request) -> str:
-    """What the "Update records" step did, for the line shown after it (from the redirect's query)."""
-    q = request.query_params
-    if q.get("records") != "updated":
-        return ""
-    return (
-        f"Records added to {q.get('pages', '0')} page(s) and {q.get('originals', '0')} original(s). "
-        "A backup was made first and nothing in your pages was changed. To undo it, run "
-        "anthill knowledge inventory --undo with the manifest file under records/ in each wiki."
-    )
-
-
-@app.post("/wiki/records/update")
-async def wiki_records_update(user: dict = Depends(_require_user)):
-    """The one-time "Update records" step: the same as ``anthill knowledge inventory --apply``, on request."""
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403)
-    summary = records_update.update_records(_engine or get_engine())
-    return RedirectResponse(
-        f"/wiki?records=updated&pages={summary.pages}&originals={summary.originals}",
-        status_code=303,
-    )
-
-
-@app.post("/wiki/records/dismiss")
-async def wiki_records_dismiss(user: dict = Depends(_require_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403)
-    records_update.dismiss_notice()
-    return RedirectResponse("/wiki", status_code=303)
 
 
 def _wiki_dest(scope, team_id):

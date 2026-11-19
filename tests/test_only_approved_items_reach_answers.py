@@ -5,13 +5,11 @@ import os
 from pathlib import Path
 
 import pytest
-from bs4 import BeautifulSoup
 
 import anthill.wiki.ask as ask_mod
 from anthill.agent import tools
 from anthill.cache import embedder as emb
 from anthill.lifecycle.version import tag_page
-from anthill.web import records_update
 from anthill.wiki import doc_context, doc_index, items
 from anthill.wiki.doc_index import DocIndex
 from anthill.wiki.items import ItemRecord
@@ -335,108 +333,3 @@ def test_a_page_that_lands_approves_a_rejected_original(tmp_path):
         tag_page("# W\n\nThe walrus page.\n", "qwen2.5:3b", on="2026-11-01", source=REJECTED),
     )
     assert items.read_source_record(ws, REJECTED).review_state == "checked"
-
-
-# ── the one-time notice and its button ────────────────────────────────────────
-
-
-def _old_install(tmp_path, monkeypatch):
-    """An install whose personal wiki holds an original with no record, as every upload before records did."""
-    _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    uid = ids["admin"][0]
-    ws = Workspace(Path(os.environ["ANTHILL_WIKI_ROOT"]) / f"user-{uid}", scope="personal")
-    ws.init()
-    (ws.raw / HELD).write_bytes(b"%PDF-1.4 held")
-    ws.text.mkdir(exist_ok=True)
-    (ws.text / f"{HELD}.txt").write_text(TEXTS[HELD], encoding="utf-8")
-    return client, ids, ws
-
-
-def _notice(client, extra=""):
-    html = client.get(f"/wiki{extra}").text
-    return BeautifulSoup(html, "html.parser").find(id="records-notice"), html
-
-
-def _tree(root: Path) -> dict:
-    import hashlib
-
-    return {
-        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in sorted(root.rglob("*"))
-        if p.is_file() and ".cache" not in p.parts and ".db" not in p.name
-    }
-
-
-def test_an_old_install_is_told_once_and_nothing_changes_until_the_button(tmp_path, monkeypatch):
-    client, ids, ws = _old_install(tmp_path, monkeypatch)
-    _login(client, ids["admin"])
-    before = _tree(tmp_path)
-    notice, _html = _notice(client)
-    assert notice is not None
-    assert (
-        "Update records" in notice.get_text() and "anthill knowledge inventory" in notice.get_text()
-    )
-    assert _tree(tmp_path) == before  # looking, and starting the app, wrote nothing
-    assert items.list_items(ws).unrecorded_sources == [HELD]
-
-
-def test_the_button_makes_a_backup_adds_the_records_and_the_notice_is_gone(tmp_path, monkeypatch):
-    client, ids, ws = _old_install(tmp_path, monkeypatch)
-    _login(client, ids["admin"])
-    res = client.post("/wiki/records/update", follow_redirects=False)
-    assert res.status_code == 303 and "records=updated" in res.headers["location"]
-    assert items.list_items(ws).unrecorded_sources == []
-    assert any((ws.root.parent / "_backups").glob("user-*.tar.gz"))
-    notice, html = _notice(client, "?records=updated&pages=0&originals=1")
-    assert notice is None and "Records added to 0 page(s) and 1 original(s)" in html
-
-
-def test_the_button_does_what_the_command_does_and_nothing_else(tmp_path, monkeypatch):
-    from anthill.wiki import inventory as inv
-
-    client, ids, ws = _old_install(tmp_path, monkeypatch)
-    twin = Workspace(tmp_path / "twin" / ws.root.name, scope="personal")
-    import shutil
-
-    shutil.copytree(ws.root, twin.root)
-    inv.apply_records(twin, review_status={})  # what the command does to the same wiki
-    _login(client, ids["admin"])
-    client.post("/wiki/records/update")
-    done = {(s.name, s.review_state) for s in items.list_items(ws).sources}
-    assert done == {(s.name, s.review_state) for s in items.list_items(twin).sources}
-    assert done == {
-        (HELD, "proposed")
-    }  # a leftover with no page and no review row stays out of answers
-
-
-def test_not_now_dismisses_the_notice_for_good(tmp_path, monkeypatch):
-    client, ids, ws = _old_install(tmp_path, monkeypatch)
-    _login(client, ids["admin"])
-    assert client.post("/wiki/records/dismiss", follow_redirects=False).status_code == 303
-    assert _notice(client)[0] is None
-    assert items.list_items(ws).unrecorded_sources == [HELD]  # nothing was changed
-    assert records_update.notice_due() is False
-
-
-def test_only_the_person_who_runs_the_install_sees_or_uses_the_notice(tmp_path, monkeypatch):
-    client, ids, ws = _old_install(tmp_path, monkeypatch)
-    _login(client, ids["owner"])  # a member
-    assert _notice(client)[0] is None
-    assert client.post("/wiki/records/update").status_code == 403
-    assert client.post("/wiki/records/dismiss").status_code == 403
-    assert items.list_items(ws).unrecorded_sources == [HELD]
-
-
-def test_an_install_with_nothing_to_update_shows_no_notice(tmp_path, monkeypatch):
-    _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    _login(client, ids["admin"])
-    assert _notice(client)[0] is None
-
-
-def test_an_install_that_never_presses_the_button_still_answers_as_before(tmp_path, monkeypatch):
-    _client, _ids, ws = _old_install(tmp_path, monkeypatch)
-    doc_index.sync_workspace(ws.root)
-    assert items.hidden_sources(ws.root) == frozenset()  # no records: nothing is hidden
-    assert [h.doc for h in doc_context.document_passages([ws], Q[HELD])] == [
-        HELD
-    ]  # as before records

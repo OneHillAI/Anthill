@@ -31,20 +31,18 @@ screen says so.
    from `rejected`). Rejecting a review, or choosing "keep the existing page" for a held duplicate (the same route), marks the original
    `rejected`, unless a page made from the same file already stands: one file uploaded twice is one original. Uploading a rejected
    file again makes it `proposed` again. An upload that failed or timed out stays `proposed`.
-5. **One-time notice and one button** (`web/records_update.py`). An install with kept originals that have no record shows the person who
-   runs it (an admin, or a Solo user) a notice on the Wiki page, once. It says why, offers "Update records" and "Not now", and tells
-   people who prefer the command line how to look first (`anthill knowledge inventory`) and how to undo (`--undo`). "Update records"
-   runs `inventory.apply_records` on every wiki (the same step as `anthill knowledge inventory --apply`: a backup first, no page body
-   changed, a manifest to undo from) and leaves a line saying what it did. "Not now" and finishing both end the notice for good. Starting
-   the app and looking at the notice write nothing. Only an admin can press either button.
-6. **A user who does nothing is unaffected.** On an install with no records every answer reads what it read before, nothing is blocked
+5. **Old installs are not changed on their own.** An original made before records existed has no record and is read as before; the
+   command `anthill knowledge inventory --apply` (#272) gives it one, from the review rows, and is the way to bring an old install
+   up to date. Nothing in this change writes a record or a file at start-up or on a page view.
+6. **A person who does nothing is unaffected.** On an install with no records every answer reads what it read before, nothing is blocked
    and nobody is asked for anything.
 7. No model is called, and the prompt text is built exactly as before for items that are retrievable.
 
 ## Known limits
 
-- An original with no record is read, so on an install that never presses "Update records" an old upload that was waiting or rejected is
-  still read. That is the decision of #277: nothing changes on its own.
+- An original with no record is read, so on an install that never runs `anthill knowledge inventory --apply` an old upload that was
+  waiting or rejected is still read. Uploads made from now on are recorded and covered. Telling people about the command, or running it
+  for them, is left out on purpose: it would add a screen and a manual step for a leftover that may be rare.
 - The read path judges a page from its two state lines. A record that is damaged elsewhere (an impossible `origin`, say) does not make
   a page unreadable to answers; the inventory reports it as quarantined.
 - A record or sidecar edited in place by hand is noticed when the folder next changes or after a restart. Records are written by
@@ -65,9 +63,6 @@ screen says so.
 - A hidden document that would rank first does not take a visible one's place.
 - Rejecting a review marks its original rejected (through the real route); a second copy of a file does not hide the first; a new upload
   of a rejected file is proposed again; a page that lands approves a rejected original.
-- The notice appears for an admin on an old install and writes nothing; the button makes a backup, adds the records and removes the
-  notice; it does what the command does; "Not now" ends it for good; a member sees nothing and gets 403; an install with nothing to
-  update shows none; an install that never presses it answers as before.
 - Measured on one Mac with a generated wiki of 1,000 pages that all have records: the check adds 51 ms to the first question after the
   app starts (4 ms afterwards, against 1.8 ms for listing the pages), and the originals' check 20 ms (0 ms afterwards); a wiki of 1,000
   pages with no record 17 ms.

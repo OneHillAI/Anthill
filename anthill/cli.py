@@ -1042,7 +1042,7 @@ def knowledge_inventory(
 ):
     """Report what each wiki holds and which items have no record. A dry run unless --apply is given. No model is called."""
     from .web import db as db_mod
-    from .web.records_update import review_status_for
+    from .web.review_status import review_status_for
     from .wiki import inventory as inv
     from .wiki.page_index import workspace_roots
 
