@@ -23,7 +23,8 @@ Test only, as recommended in the issue. The alternative, reordering the write in
 A second, real race exists in `_set_model_pulling`: a delayed write from the first of two overlapping downloads to end can
 set the flag back to its tag after the last download has cleared it, leaving a stuck "downloading" state. It is
 reproduced with a scratch delay and is left for its own issue. The issue text called the gap harmless; that holds for the
-read-before-write gap only.
+read-before-write gap only. This test does not detect the stuck flag (checked with a scratch delay: it passes while the
+flag ends up stuck), so the production bug stays undetected by the suite until it has its own fix and test.
 
 ## Guardrails (do NOT touch)
 

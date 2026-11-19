@@ -40,8 +40,10 @@ A different interleaving found while checking this is not harmless and is NOT fi
 downloads to end has its database write delayed until after the last download has written an empty flag, that late write
 sets the flag back to the first download's tag, because `_set_model_pulling` only overrides a non-empty value when
 something is still downloading. The flag then stays set with nothing downloading: `/models/pull-status` keeps reporting
-`pulling`, the delete guard refuses that tag, and the vision auto-download treats the install as busy. The fixed test
-would fail on that outcome rather than hide it, since it waits for the flag to become empty. It is tracked separately.
+`pulling`, the delete guard refuses that tag, and the vision auto-download treats the install as busy. This test does
+NOT catch that outcome. It passes as soon as it sees the flag empty, and the late write lands afterwards: with a scratch
+delay that forces the late write, the fixed test passed while the flag ended up stuck. Catching it needs the app fix and
+a test of its own. It is tracked separately.
 
 ## Acceptance
 
