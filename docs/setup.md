@@ -15,7 +15,7 @@
 <p>When a connection check in <strong>Settings</strong> fails, for example the test of an AWS account, a mailbox, a training backend or your org's model server, it says in a short, plain sentence what to check, such as the key, the address or the connection.</p>
 
 ## 2. Seed the wiki
-<p>The wiki is your org's knowledge. Fill it by uploading documents, dropping files in a watched <code>inbox/</code> folder, or asking Anthill to <strong>research topics into wiki pages</strong>. Research is the fastest way to go from empty to useful. Everything goes through <strong>Wiki &rarr; Review</strong> before it becomes shared knowledge.</p>
+<p>The wiki is your org's knowledge. Fill it by uploading documents, dropping files in a watched <code>inbox/</code> folder, or asking Anthill to <strong>research topics into wiki pages</strong>. Research is the fastest way to go from empty to useful. Everything goes through <strong>Knowledge &rarr; Needs review</strong> before it becomes shared knowledge.</p>
 
 ## 3. Capture how your team works (Skills)
 <p>On the <strong>Skills</strong> page, describe something your org does repeatedly, in plain words. How to triage a ticket, how to format a report. Anthill drafts a reusable skill from it. Scope it to the org, a team, or just yourself. An agent picks the right one automatically when a task matches.</p>
