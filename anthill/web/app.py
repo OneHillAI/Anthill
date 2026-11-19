@@ -2739,6 +2739,10 @@ from typing import Any  # noqa: E402
 # companion map holds live Popen handles and stream progress for the host-local Ollama daemon.
 _MODEL_PULL_PROGRESS: dict[int, dict[str, object]] = {}
 _MODEL_PULL_LOCK = threading.Lock()
+# Serialises "derive the saved flag from the in-memory state, then write it", so the last write to
+# `OrgSettings.local_model_pulling` is always the one derived from the freshest state (#297). Taken
+# BEFORE `_MODEL_PULL_LOCK`, never while holding it.
+_MODEL_PULL_DB_LOCK = threading.Lock()
 _MODEL_PULL_STATE: dict[int, dict[str, Any]] = {}
 _VISION_AUTOPULL_MAX_WAIT_SECONDS = 3600.0
 _VISION_AUTOPULL_POLL_SECONDS = 2.0
@@ -2808,23 +2812,29 @@ def _parse_ollama_pull_line(line: str) -> dict[str, object] | None:
 def _set_model_pulling(org_id: int, value: str, *, activate: str = "") -> None:
     """Set ``OrgSettings.local_model_pulling`` (the tag downloading, or "" when done), optionally
     activating ``activate`` as the served ``ollama_model``. Used to flip state at the start and end of
-    a background pull; a fresh session so it is safe to call from the pull thread."""
-    with _MODEL_PULL_LOCK:
-        active_tag = _sync_pull_state(org_id)
-        if active_tag:
-            value = active_tag
-        elif not value:
-            _MODEL_PULL_PROGRESS.pop(org_id, None)
-    db = _db()
-    try:
-        cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-        if cfg:
-            cfg.local_model_pulling = value
-            if activate:
-                cfg.ollama_model = activate
-            db.commit()
-    finally:
-        db.close()
+    a background pull; a fresh session so it is safe to call from the pull thread.
+
+    The value written is read from the in-memory state at the moment of writing, under
+    ``_MODEL_PULL_DB_LOCK``, so a write that was delayed cannot put back an older value. ``value`` is
+    only used when no download is registered; a caller that has just finished a download passes "" and
+    lets the state decide (#297)."""
+    with _MODEL_PULL_DB_LOCK:
+        with _MODEL_PULL_LOCK:
+            active_tag = _sync_pull_state(org_id)
+            if active_tag:
+                value = active_tag
+            elif not value:
+                _MODEL_PULL_PROGRESS.pop(org_id, None)
+        db = _db()
+        try:
+            cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+            if cfg:
+                cfg.local_model_pulling = value
+                if activate:
+                    cfg.ollama_model = activate
+                db.commit()
+        finally:
+            db.close()
 
 
 def _cancel_model_pull(org_id: int, tag: str = "") -> bool:
@@ -2846,19 +2856,22 @@ def _cancel_model_pull(org_id: int, tag: str = "") -> bool:
             _MODEL_PULL_STATE.pop(org_id, None)
     for e in entries:
         _stop_pull_proc(e.get("proc"))
-    db = _db()
-    try:
-        cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-        if cfg and (
-            remaining
-            or not norm_target
-            or tag_matches_installed(norm_target, [cfg.local_model_pulling or ""])
-        ):
-            cancelled = cancelled or bool(cfg.local_model_pulling)
-            cfg.local_model_pulling = remaining
-            db.commit()
-    finally:
-        db.close()
+    with _MODEL_PULL_DB_LOCK:
+        with _MODEL_PULL_LOCK:
+            remaining = _sync_pull_state(org_id)  # as it is now, not as it was when we cancelled
+        db = _db()
+        try:
+            cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+            if cfg and (
+                remaining
+                or not norm_target
+                or tag_matches_installed(norm_target, [cfg.local_model_pulling or ""])
+            ):
+                cancelled = cancelled or bool(cfg.local_model_pulling)
+                cfg.local_model_pulling = remaining
+                db.commit()
+        finally:
+            db.close()
     return cancelled or bool(entries)
 
 
@@ -3088,7 +3101,6 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
             ok = False
         # Clear the flag; activate the new model only if the download actually succeeded.
         owned = False
-        next_tag = ""
         activate_tag = ""
         with _MODEL_PULL_LOCK:
             st_now = _MODEL_PULL_STATE.get(org_id)
@@ -3098,13 +3110,15 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                 cur_pulls.pop(norm, None)
                 if not ok or entry.get("cancelled"):
                     (st_now or {}).pop("vision_waiter", None)
-                next_tag = _sync_pull_state(org_id)
+                _sync_pull_state(org_id)
                 if not cur_pulls and not (st_now or {}).get("vision_waiter"):
                     _MODEL_PULL_STATE.pop(org_id, None)
                 if ok and not entry.get("cancelled") and entry.get("activate"):
                     activate_tag = str(entry["tag"])
         if owned:
-            _set_model_pulling(org_id, next_tag, activate=activate_tag)
+            # "" on purpose: the state at the moment of writing decides, not one read before the lock was
+            # released (a download that ended meanwhile must not be put back, #297).
+            _set_model_pulling(org_id, "", activate=activate_tag)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -12686,9 +12700,10 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     if tag_matches_installed(model_tag, installed):
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately
-            with _MODEL_PULL_LOCK:
-                cfg.local_model_pulling = _sync_pull_state(org.id)
-            db.commit()
+            with _MODEL_PULL_DB_LOCK:
+                with _MODEL_PULL_LOCK:
+                    cfg.local_model_pulling = _sync_pull_state(org.id)
+                db.commit()
         audit.log(db, "model.selected", f"tag={model_tag}", org_id=org.id, user_id=user["sub"])
         return RedirectResponse("/models?selected=1", status_code=302)
 
