@@ -458,7 +458,7 @@
                 <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: {{ msg.doc_sources.split('\n') | join(', ') }}</span>
               {% endif %}
               {% if msg.wiki_slugs %}
-                <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: {{ msg.wiki_slugs.split(',') | join(', ') }}</span>
+                <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: {% for s in msg.wiki_slugs.split(',') %}<a href="/wiki/open/{{ s | urlencode }}" target="_blank" rel="noopener">{{ s }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
               {% endif %}
               <button class="thumbs {% if msg.thumbs_up == True %}selected-up{% endif %}"
                       onclick="rate({{ msg.id }}, 1)" title="Good answer"><i data-lucide="thumbs-up">👍</i></button>
@@ -1473,6 +1473,10 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// The pages an answer was given, as links that open each page in its own wiki (the server looks it up by slug).
+function pageLinks(slugs) {
+  return slugs.map(s => '<a href="/wiki/open/' + encodeURIComponent(s) + '" target="_blank" rel="noopener">' + escapeHtml(s) + '</a>').join(', ');
+}
 function fmtLabel(f) {
   return ({pdf:'PDF', docx:'Word', xlsx:'Excel', pptx:'PowerPoint', md:'Markdown',
            txt:'text', html:'HTML'})[f] || (f ? f.toUpperCase() : 'file');
@@ -1734,7 +1738,7 @@ function runStream({message, web=false, agent=false, prior='', showUser=true, he
       if (d.meta?.speed)            metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Time to the first word and generation speed of this answer, measured on the model server">⏱ ${d.meta.speed}</span>`;
       if (d.meta?.cache_hit)        metaHtml += ' <span class="badge-cache">cache hit</span>';
       if (d.meta?.documents?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave the model these passages of your original documents. It does not show which of them the answer relied on.">📄 Documents in context: ${d.meta.documents.join(', ')}</span>`;
-      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${d.meta.wiki_slugs.join(', ')}</span>`;
+      if (d.meta?.wiki_slugs?.length) metaHtml += ` <span style="font-size:12px;color:var(--muted)" title="Anthill gave these wiki pages to the model. It does not show which of them the answer relied on.">📖 Pages in context: ${pageLinks(d.meta.wiki_slugs)}</span>`;
       if (d.meta?.auto_web)         metaHtml += ' <span style="font-size:12px;color:var(--muted)" title="A live web search was added automatically because the question needs current info">🌐 web</span>';
       if (d.meta?.escalated === true) {
         metaHtml += ' <span class="badge-escalated" title="Escalated to your connected inference provider">⚡ expert</span>';
