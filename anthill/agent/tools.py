@@ -148,19 +148,15 @@ def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[d
         return [{"slug": p.stem, "preview": ""} for p in pages[:k]]
 
 
-def _write_wiki_draft(slug: str, content: str, workspace: str = "workspace") -> str:
-    """Write a draft wiki page - goes to review queue, not directly live."""
+def _write_wiki_draft(slug: str, content: str, propose=None) -> str:
+    """Propose a wiki page. The page is never written here: ``propose(slug, content)`` hands it to the review
+    queue of the wiki it belongs to, where a person decides. A run that has nobody to review it (no
+    ``propose``) says so and writes nothing."""
     from ..common.text import normalize_wiki_page
-    from ..wiki.workspace import Workspace
 
-    ws = Workspace(Path(workspace))
-    if not ws.exists():
-        return "workspace not initialised"
-    page_md = normalize_wiki_page(content)
-    path = ws.write_page(slug, page_md)
-    ws.rebuild_index()
-    ws.append_log("agent-draft", slug)
-    return f"draft written to {path.relative_to(ws.root)} (pending review)"
+    if propose is None:
+        return "Writing to the wiki is not available in this run, so nothing was written."
+    return propose(slugify(slug), normalize_wiki_page(content))
 
 
 def files_owner(org, user_id=None) -> str:
@@ -345,19 +341,26 @@ WEB_TOOLS = frozenset({"web_search", "fetch_url"})
 
 
 def make_tools(
-    workspace: str = "workspace", owner: str | None = None, *, exclude: set[str] | None = None
+    workspace: str = "workspace",
+    owner: str | None = None,
+    *,
+    exclude: set[str] | None = None,
+    propose_write=None,
 ) -> list[Tool]:
     """Return the full set of built-in tools, bound to a workspace and (optionally)
     an owner. File tools read and write only inside that owner's download dir.
 
     ``exclude`` drops named tools from the returned list (e.g. ``WEB_TOOLS`` when a caller's own
     "Web search" toggle is off) - the model then has no way to reach the internet at all, agent mode
-    included, rather than the toggle only affecting the non-agent chat path's own web augmentation."""
+    included, rather than the toggle only affecting the non-agent chat path's own web augmentation.
+
+    ``propose_write(slug, content) -> str`` is what ``write_wiki_draft`` hands a page to: the review queue of
+    the wiki the run belongs to. Without it the tool writes nothing."""
 
     _fdir = _files_dir(owner)
 
     def _rw(slug, content):
-        return _write_wiki_draft(slug, content, workspace)
+        return _write_wiki_draft(slug, content, propose_write)
 
     def _sw(query, k=3):
         return _search_wiki(query, workspace, k)
@@ -418,7 +421,7 @@ def make_tools(
         ),
         Tool(
             "write_wiki_draft",
-            "Write a new or updated wiki page. Goes to admin review queue.",
+            "Propose a new or updated wiki page. A person reviews it; the wiki does not change until they approve.",
             {
                 "type": "object",
                 "properties": {"slug": {"type": "string"}, "content": {"type": "string"}},
