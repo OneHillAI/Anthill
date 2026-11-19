@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -115,6 +116,13 @@ class Workspace:
 
     def pages(self) -> list[Path]:
         return sorted(self.wiki.glob("*.md"))
+
+    def retrievable_pages(self) -> list[Path]:
+        """The pages an answer may read: those whose record, if they have one, says active and approved (see
+        ``items.is_retrievable``). A page with no record is retrievable, as before records existed."""
+        from . import items
+
+        return [p for p in self.pages() if items.page_file_retrievable(p)]
 
     @property
     def meili_index(self) -> str:
@@ -302,6 +310,32 @@ def org_wiki_root(org_id=None) -> Path:
     if int(org_id) == owner:
         return legacy
     return org_wikis_base() / f"org-{int(org_id)}"
+
+
+def space_of_root(root: Path) -> tuple[str, str]:
+    """(space, space_ref) a workspace folder holds, from where it is: ``team-<id>``, ``user-<id>``, the
+    organisation folders, or the legacy single-node wiki."""
+    name = root.name
+    if re.match(r"^team-\d+$", name):
+        return "team", name
+    if re.match(r"^user-\d+$", name):
+        return "personal", name
+    if re.match(r"^org-\d+$", name):
+        return "org", name
+    try:
+        org = Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki")).resolve()
+        if root.resolve() == org:
+            return "org", ""
+    except OSError:
+        pass
+    return "personal", ""
+
+
+def workspace_at(root: Path) -> Workspace:
+    """A wiki folder found on disk as a workspace, with the space its place says it holds. For code that walks
+    every wiki on the install (the inventory, the records step); anything acting for a person uses
+    ``workspace_for``."""
+    return Workspace(root, scope=space_of_root(root)[0])
 
 
 def legacy_org_wiki_workspace() -> Workspace:

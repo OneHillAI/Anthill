@@ -8182,6 +8182,28 @@ def knowledge_suggestions(request: Request, user: dict = Depends(_require_user))
     )
 
 
+def _reject_source_of(rev) -> None:
+    """A rejected page proposal's original is marked rejected, unless a page already made from the same file
+    stands (a second copy of one file is one original). Best effort: a record that cannot be updated leaves the
+    review rejected all the same."""
+    from ..wiki import items
+
+    name = items.source_name_of(rev.content or "")
+    if not name:
+        return
+    try:
+        ws = workspace_for(
+            rev.target_scope,
+            team_id=rev.team_id,
+            user_id=rev.proposed_by,
+            org_id=rev.org_id,
+        )
+        if ws.exists():
+            items.mark_source_rejected(ws, name)
+    except (ValueError, OSError):
+        return
+
+
 @app.post("/wiki/review/{rid}/reject")
 async def reject_review(
     request: Request,
@@ -8200,6 +8222,8 @@ async def reject_review(
     rev.reviewed_at = datetime.now(timezone.utc)
     db.commit()
     kind = getattr(rev, "kind", "page") or "page"
+    if kind == "page":
+        _reject_source_of(rev)  # the upload that proposed this page is no longer read in answers
     _audit_request(
         request,
         _review_event(kind, "rejected"),

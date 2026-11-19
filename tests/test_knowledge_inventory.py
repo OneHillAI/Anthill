@@ -9,8 +9,8 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from anthill.cli import _review_status_for
 from anthill.lifecycle.version import tag_page
+from anthill.web.review_status import review_status_for as _review_status_for
 from anthill.wiki import inventory as inv
 from anthill.wiki import items
 from anthill.wiki.workspace import Workspace

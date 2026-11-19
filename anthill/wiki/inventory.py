@@ -23,7 +23,7 @@ import yaml
 from ..lifecycle.version import PROVENANCE_RE, read_provenance
 from . import items
 from .items import FRONT_MATTER_KEY, ItemRecord, RecordError
-from .workspace import Workspace
+from .workspace import Workspace, space_of_root
 
 _NAME_HASH = re.compile(r"-([0-9a-f]{12})(\.[^./\\]*)?$")
 MANIFEST_PREFIX = "inventory-"
@@ -92,27 +92,6 @@ class WorkspaceReport:
             f"{len(self.would_add_sources)} original(s)"
         )
         return "\n".join(lines)
-
-
-def space_of_root(root: Path) -> tuple[str, str]:
-    """(space, space_ref) a workspace folder holds, from where it is: ``team-<id>``, ``user-<id>``, the
-    organisation folders, or the legacy single-node wiki."""
-    import os
-
-    name = root.name
-    if re.match(r"^team-\d+$", name):
-        return "team", name
-    if re.match(r"^user-\d+$", name):
-        return "personal", name
-    if re.match(r"^org-\d+$", name):
-        return "org", name
-    try:
-        org = Path(os.environ.get("ANTHILL_ORG_WIKI", "data/org-wiki")).resolve()
-        if root.resolve() == org:
-            return "org", ""
-    except OSError:
-        pass
-    return "personal", ""
 
 
 def provenance_source(text: str) -> str:
