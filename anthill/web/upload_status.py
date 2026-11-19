@@ -117,8 +117,8 @@ _STATUS_MEANINGS = {
     "added": "It is now a page in this wiki.",
     "review": "Added as a draft because the automatic check flagged it. Open the review queue to "
     "approve it or change it.",
-    "held": "This wiki already has the same file or a page with that title, so nothing changed. "
-    "Open the review queue to choose what happens.",
+    "held": "This wiki already has the same file, a page with that title, or a page this may be a "
+    "newer version of, so nothing changed. Open the review queue to choose what happens.",
     "waiting_model": "Your AI is still downloading. The file is saved and will be added by itself "
     "when the download finishes, so you do not need to upload it again.",
     "timed_out": 'Your AI did not finish in time, so nothing was added. Use "Try again with a '

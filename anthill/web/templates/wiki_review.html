@@ -2,6 +2,10 @@
 {% block title %}Wiki review{% endblock %}
 {% block page_title %}{{ "Your wiki" if scope == "personal" else "Organisation wiki" }} <span style="font-size:13px;color:var(--muted);font-weight:normal">- review</span>{% endblock %}
 {% block content %}
+{% macro review_text(rev) %}
+    <textarea name="content" spellcheck="false"
+      style="width:100%;min-height:220px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">{{ rev.content }}</textarea>
+{% endmacro %}
 {% include "_wiki_tabs.html" %}
 
 {% if not reviews %}
@@ -12,15 +16,16 @@
   auto-applied. Edit the text if needed, then approve - or reject to discard.
 </p>
 {% for rev in reviews %}
-{% set held = rev.flag_list|select('in', ['same_file', 'new_version', 'title_clash'])|list %}
+{% set held = rev.flag_list|select('in', ['same_file', 'new_version', 'title_clash', 'looks_newer'])|list %}
 <div class="card mt-4">
   <div class="flex justify-between items-center mb-2">
     <div>
-      <b style="font-size:16px">{{ rev.slug }}</b>
+      <b style="font-size:16px">{{ rev.new_title or rev.slug }}</b>
+      {% if 'looks_newer' in held and rev.compare %}<span class="text-sm text-muted">would replace &ldquo;{{ rev.compare.title }}&rdquo;</span>{% endif %}
       <span class="text-sm text-muted" style="margin-left:10px">submitted {{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
     </div>
     <div class="flex gap-2">
-      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ {'same_file': 'same file', 'new_version': 'new version', 'title_clash': 'same title'}.get(f, f) }}</span>{% endfor %}
+      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ {'same_file': 'same file', 'new_version': 'new version', 'title_clash': 'same title', 'looks_newer': 'newer version?'}.get(f, f) }}</span>{% endfor %}
     </div>
   </div>
 
@@ -42,10 +47,41 @@
   <p class="text-sm text-muted mb-2">{{ rev.diff_summary }}</p>
   {% endif %}
 
+  {% if rev.compare %}
+  <div class="card mb-2" style="background:var(--bg-subtle)">
+    <b class="text-sm">{% if 'looks_newer' in held %}Is this a newer version of &ldquo;{{ rev.compare.title }}&rdquo;?{% else %}Compared with &ldquo;{{ rev.compare.title }}&rdquo;{% endif %}</b>
+    <span class="text-sm text-muted"> (the page you have was added {{ rev.compare.added }})</span>
+    {% if rev.compare.rows %}
+    <table class="text-sm" style="width:100%;margin-top:8px;border-collapse:collapse">
+      <tr><th style="text-align:left;padding:4px 8px;width:50%">Now in your wiki</th><th style="text-align:left;padding:4px 8px">In this upload</th></tr>
+      {% for row in rev.compare.rows %}
+      <tr style="border-top:1px solid var(--border)">
+        <td style="padding:6px 8px;vertical-align:top;color:var(--muted)">{% for changed, text in row.old %}{% if changed %}<mark>{{ text }}</mark>{% else %}{{ text }}{% endif %} {% else %}(nothing){% endfor %}</td>
+        <td style="padding:6px 8px;vertical-align:top">{% for changed, text in row.new %}{% if changed %}<mark>{{ text }}</mark>{% else %}{{ text }}{% endif %} {% else %}(removed){% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if rev.compare.more %}<p class="text-sm text-muted" style="margin:6px 0 0">and {{ rev.compare.more }} more change(s) in the text below.</p>{% endif %}
+    {% else %}
+    <p class="text-sm text-muted" style="margin:6px 0 0">The text is the same.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <form method="post" action="/wiki/review/{{ rev.id }}/approve">
-    <textarea name="content" spellcheck="false"
-      style="width:100%;min-height:220px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">{{ rev.content }}</textarea>
-    {% if held %}
+    {% if not (held and 'looks_newer' in held) %}{{ review_text(rev) }}{% endif %}
+    {% if held and 'looks_newer' in held %}
+    {# Possibly a newer version of a page that has a different title: replace writes over that page. #}
+    <div class="flex gap-2 mt-2" style="flex-wrap:wrap">
+      <button class="btn btn-success btn-sm" title="Write this over the old page. The file you uploaded earlier stays under Files.">Yes, replace &ldquo;{{ rev.compare.title if rev.compare else 'the old page' }}&rdquo;</button>
+      <button class="btn btn-outline btn-sm" formaction="/wiki/review/{{ rev.id }}/keep-both" title="Keep the old page and add this one next to it">No, keep both</button>
+      <button class="btn btn-outline btn-sm" formaction="/wiki/review/{{ rev.id }}/reject" title="Discard this upload and keep the page you already have">Keep the old page, discard this</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('form').reset()">Revert edits</button>
+    </div>
+    <p class="text-sm text-muted" style="margin:6px 0 10px">Replacing overwrites the old page's text. The file you uploaded earlier stays under Files. You can edit the new text below first.</p>
+    {{ review_text(rev) }}
+  </form>
+    {% elif held %}
     {# A held upload: the text above is the NEW page; the existing page is untouched until one of these is chosen. #}
     <div class="flex gap-2 mt-2">
       <button class="btn {{ 'btn-success' if 'same_file' in held else 'btn-outline' }} btn-sm" formaction="/wiki/review/{{ rev.id }}/reject" title="Discard this upload and keep the page you already have">Keep existing{{ ' (recommended)' if 'same_file' in held }}</button>
