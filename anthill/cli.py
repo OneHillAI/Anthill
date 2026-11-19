@@ -1034,8 +1034,38 @@ def _review_status_for(db_path: Path | str | None, root: Path) -> dict[str, str]
             return out
         finally:
             session.close()
-    except Exception:  # an unreadable database only means leftovers cannot be matched
+    except Exception:  # noqa: BLE001 - an unreadable database only means leftovers cannot be matched
         return None
+
+
+def _knowledge_undo(undo: Path) -> None:
+    from .wiki import inventory as inv
+
+    manifest = undo.resolve()
+    ws = _inventory_ws(manifest.parent.parent)
+    try:
+        res = inv.undo_records(ws, manifest)
+    except (OSError, ValueError, KeyError) as e:
+        console.print(f"[red]error:[/] {e}")
+        raise typer.Exit(code=1) from None
+    console.print(f"restored {res.restored_pages} page(s), removed {res.removed_sources} record(s)")
+    for line in res.skipped:
+        console.print(f"  [yellow]skipped[/] {line}")
+
+
+def _knowledge_apply(r: Path, ws: Workspace, status: dict[str, str] | None) -> None:
+    from .wiki import inventory as inv
+
+    res = inv.apply_records(ws, review_status=status)
+    if res.nothing_to_do:
+        console.print(f"[dim]{r}: nothing to add[/]")
+    else:
+        console.print(
+            f"[green]{r}[/]: added records to {res.changed_pages} page(s) and "
+            f"{res.changed_sources} original(s). Backup {res.backup}. Undo with --undo {res.manifest}"
+        )
+    for line in res.skipped:
+        console.print(f"  [yellow]skipped[/] {line}")
 
 
 @knowledge_app.command("inventory")
@@ -1064,23 +1094,11 @@ def knowledge_inventory(
     from .wiki.page_index import workspace_roots
 
     if undo is not None:
-        manifest = undo.resolve()
-        ws = _inventory_ws(manifest.parent.parent)
-        try:
-            res = inv.undo_records(ws, manifest)
-        except (OSError, ValueError, KeyError) as e:
-            console.print(f"[red]error:[/] {e}")
-            raise typer.Exit(code=1) from None
-        console.print(
-            f"restored {res.restored_pages} page(s), removed {res.removed_sources} record(s)"
-        )
-        for line in res.skipped:
-            console.print(f"  [yellow]skipped[/] {line}")
+        _knowledge_undo(undo)
         return
-    roots = list(root) if root else workspace_roots()
     db = Path(db_path) if db_path else db_mod.DB_PATH
     reports = []
-    for r in roots:
+    for r in list(root) if root else workspace_roots():
         if not r.is_dir():
             console.print(f"[yellow]skipped[/] {r}: no such folder")
             continue
@@ -1088,16 +1106,7 @@ def knowledge_inventory(
         status = _review_status_for(db, r)
         reports.append(inv.inventory(ws, review_status=status))
         if apply:
-            res = inv.apply_records(ws, review_status=status)
-            if res.nothing_to_do:
-                console.print(f"[dim]{r}: nothing to add[/]")
-            else:
-                console.print(
-                    f"[green]{r}[/]: added records to {res.changed_pages} page(s) and "
-                    f"{res.changed_sources} original(s). Backup {res.backup}. Undo with --undo {res.manifest}"
-                )
-            for line in res.skipped:
-                console.print(f"  [yellow]skipped[/] {line}")
+            _knowledge_apply(r, ws, status)
     if as_json:
         console.print_json(inv.render_json(reports))
     elif not apply:

@@ -121,6 +121,74 @@ def provenance_source(text: str) -> str:
     return name if name and Path(name).name == name else ""
 
 
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _judge_page(
+    rep: WorkspaceReport,
+    slug: str,
+    text: str,
+    raw_names: set[str],
+    referenced: dict[str, list[str]],
+) -> None:
+    source = provenance_source(text)
+    if source:
+        referenced.setdefault(source, []).append(slug)
+        if source not in raw_names:
+            rep.add("page_source_missing", f"{slug}: its original {source} is not kept")
+    elif "<!-- anthill:" in text:
+        rep.add("provenance_unreadable", f"{slug}: a provenance comment that does not parse")
+    elif not PROVENANCE_RE.search(text):
+        rep.add("page_without_provenance", slug)
+
+
+def _page_findings(
+    ws: Workspace, found: items.WorkspaceItems, rep: WorkspaceReport, raw_names: set[str]
+) -> dict[str, list[str]]:
+    """Judge every readable page and return which original each one names."""
+    referenced: dict[str, list[str]] = {}
+    damaged = {q.path for q in found.quarantined}
+    for page in ws.pages():
+        if f"wiki/{page.name}" in damaged:
+            continue  # reported as quarantined, not judged
+        text = _read_text(page)
+        if text is not None:
+            _judge_page(rep, page.stem, text, raw_names, referenced)
+    return referenced
+
+
+def _judge_original(
+    rep: WorkspaceReport, name: str, review_status: Mapping[str, str] | None
+) -> None:
+    status = (review_status or {}).get(name)
+    if status == "pending":
+        rep.add("original_held_or_pending", f"{name}: its page waits for a review decision")
+    elif status == "rejected":
+        rep.add("original_rejected", f"{name}: its page was rejected")
+    elif review_status is not None:
+        rep.add(
+            "original_no_page_no_review",
+            f"{name}: no page and no review row, possibly a failed or timed-out upload",
+        )
+    else:
+        rep.add("original_no_page", name)
+
+
+def _duplicate_findings(rep: WorkspaceReport, raw_names: set[str]) -> None:
+    by_hash: dict[str, list[str]] = {}
+    for name in sorted(raw_names):
+        m = _NAME_HASH.search(name)
+        if m:
+            by_hash.setdefault(m.group(1), []).append(name)
+    for digest, names in sorted(by_hash.items()):
+        if len(names) > 1:
+            rep.add("duplicate_originals", f"{digest}: {', '.join(names)}")
+
+
 def inventory(ws: Workspace, *, review_status: Mapping[str, str] | None = None) -> WorkspaceReport:
     """What a workspace holds, read only. ``review_status`` maps a stored original's name to the status of the
     review row that proposed its page ("pending", "approved", "rejected"); without it leftovers of held and
@@ -135,63 +203,19 @@ def inventory(ws: Workspace, *, review_status: Mapping[str, str] | None = None) 
     rep.sources_with_record = len(found.sources)
     rep.quarantined = [{"path": q.path, "reason": q.reason} for q in found.quarantined]
     rep.passage_index = (ws.root / ".cache" / "doc_passages.sqlite3").is_file()
-
     raw_names = set(found.raw_names)
     text_names = (
         sorted(p.name[: -len(".txt")] for p in ws.text.glob("*.txt")) if ws.text.is_dir() else []
     )
     rep.texts = len(text_names)
 
-    referenced: dict[str, list[str]] = {}
-    damaged = {q.path for q in found.quarantined}
-    for page in ws.pages():
-        if f"wiki/{page.name}" in damaged:
-            continue  # reported as quarantined, not judged
-        try:
-            text = page.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        source = provenance_source(text)
-        if source:
-            referenced.setdefault(source, []).append(page.stem)
-            if source not in raw_names:
-                rep.add("page_source_missing", f"{page.stem}: its original {source} is not kept")
-        elif "<!-- anthill:" in text:
-            rep.add(
-                "provenance_unreadable", f"{page.stem}: a provenance comment that does not parse"
-            )
-        elif not PROVENANCE_RE.search(text):
-            rep.add("page_without_provenance", page.stem)
-
-    for name in sorted(raw_names):
-        if name in referenced:
-            continue
-        status = (review_status or {}).get(name)
-        if status == "pending":
-            rep.add("original_held_or_pending", f"{name}: its page waits for a review decision")
-        elif status == "rejected":
-            rep.add("original_rejected", f"{name}: its page was rejected")
-        elif review_status is not None:
-            rep.add(
-                "original_no_page_no_review",
-                f"{name}: no page and no review row, possibly a failed or timed-out upload",
-            )
-        else:
-            rep.add("original_no_page", name)
-
+    referenced = _page_findings(ws, found, rep, raw_names)
+    for name in sorted(raw_names - set(referenced)):
+        _judge_original(rep, name, review_status)
     for name in text_names:
         if name not in raw_names:
             rep.add("text_without_original", name)
-
-    by_hash: dict[str, list[str]] = {}
-    for name in sorted(raw_names):
-        m = _NAME_HASH.search(name)
-        if m:
-            by_hash.setdefault(m.group(1), []).append(name)
-    for digest, names in sorted(by_hash.items()):
-        if len(names) > 1:
-            rep.add("duplicate_originals", f"{digest}: {', '.join(names)}")
-
+    _duplicate_findings(rep, raw_names)
     rep.would_add_pages = sorted(found.unrecorded_pages)
     rep.would_add_sources = sorted(found.unrecorded_sources)
     return rep
@@ -269,6 +293,110 @@ def _atomic_write(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
+def _source_state(
+    name: str, page_sources: Mapping[str, str], review_status: Mapping[str, str] | None
+) -> str:
+    """The review state an old original gets: approved when a page names it, else what its review row says."""
+    if name in page_sources:
+        return "checked"
+    status = (review_status or {}).get(name)
+    if status == "rejected":
+        return "rejected"
+    return "checked" if status == "approved" else "proposed"
+
+
+def _page_sources_of(ws: Workspace) -> dict[str, str]:
+    """Which page names each original in its provenance comment."""
+    out: dict[str, str] = {}
+    for page in ws.pages():
+        text = _read_text(page)
+        name = provenance_source(text) if text is not None else ""
+        if name:
+            out[name] = page.stem
+    return out
+
+
+def _apply_sources(
+    ws: Workspace,
+    names: list[str],
+    state_of: Mapping[str, str],
+    manifest: dict,
+    result: ApplyResult,
+) -> dict[str, str]:
+    """Make a record for each original; returns name -> id for the ones made."""
+    space, ref = space_of_root(ws.root)
+    made: dict[str, str] = {}
+    for name in names:
+        try:
+            rec = items.new_source_record(
+                ws, ws.raw / name, origin="unknown", review_state=state_of[name]
+            )
+            rec.space, rec.space_ref = space, ref
+            path = items.write_source_record(ws, rec)
+        except (OSError, RecordError) as exc:
+            result.skipped.append(f"{name}: {exc}")
+            continue
+        made[name] = rec.id
+        manifest["sources"].append({"name": name, "sha256": _sha(path.read_bytes())})
+        result.changed_sources += 1
+    return made
+
+
+def _links_for(source: str, source_ids: Mapping[str, str]) -> list[str]:
+    if not source:
+        return []
+    return [source_ids[source]] if source in source_ids else [f"name:{source}"]
+
+
+def _page_with_record(path: Path, slug: str, source_ids: Mapping[str, str]) -> tuple[bytes, bytes]:
+    """(the page as it was, the page with its record added). Raises on a page that cannot be read or parsed."""
+    space, ref = space_of_root(path.parent.parent)
+    before = path.read_bytes()
+    text = before.decode("utf-8")
+    source = provenance_source(text)
+    origin = items.origin_from_markdown(text)
+    front, _rest = items.split_front_matter(text)
+    fm = yaml.safe_load(front) if front else {}
+    fm = fm if isinstance(fm, dict) else {}
+    review = "approved" if fm.get("x-anthill-review") == "approved" else ""
+    links = _links_for(source, source_ids)
+    learned = (
+        str(fm.get("timestamp") or "")
+        or datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    )
+    rec = ItemRecord(
+        kind="page",
+        space=space,
+        space_ref=ref,
+        name=slug,
+        origin=origin,
+        review_state=items.initial_review_state(origin, review),
+        learned=learned,
+        content_hash=items.body_hash(text),
+        derived_from=links,
+    ).validate()
+    return before, _add_record_to_text(text, rec.to_dict()).encode("utf-8")
+
+
+def _apply_pages(
+    ws: Workspace,
+    slugs: list[str],
+    source_ids: Mapping[str, str],
+    manifest: dict,
+    result: ApplyResult,
+) -> None:
+    for slug in slugs:
+        path = ws.wiki / f"{slug}.md"
+        try:
+            before, after = _page_with_record(path, slug, source_ids)
+            _atomic_write(path, after)
+        except (OSError, UnicodeDecodeError, RecordError, yaml.YAMLError) as exc:
+            result.skipped.append(f"{slug}: {exc.__class__.__name__}")
+            continue
+        manifest["pages"].append({"slug": slug, "before": _sha(before), "after": _sha(after)})
+        result.changed_pages += 1
+
+
 def apply_records(ws: Workspace, *, review_status: Mapping[str, str] | None = None) -> ApplyResult:
     """Give every page and every kept original without a record one. Backs up first; changes no page body;
     writes a manifest so ``undo_records`` can put everything back; does nothing (and writes no backup) when
@@ -282,87 +410,17 @@ def apply_records(ws: Workspace, *, review_status: Mapping[str, str] | None = No
     stamp = _stamp()
     backup = backup_workspace(ws, stamp)
     result.backup = str(backup)
-    space_of, ref = space_of_root(ws.root)
-
-    page_sources: dict[str, str] = {}
-    for page in ws.pages():
-        try:
-            name = provenance_source(page.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError):
-            continue
-        if name:
-            page_sources[name] = page.stem
-
-    source_ids: dict[str, str] = {r.name: r.id for r in found.sources}
     manifest: dict = {
         "created": items.now_iso(),
         "backup": f"{BACKUP_DIR}/{backup.name}",
         "pages": [],
         "sources": [],
     }
-    for name in todo_sources:
-        raw = ws.raw / name
-        try:
-            if name in page_sources:
-                state = "checked"
-            else:
-                status = (review_status or {}).get(name)
-                state = (
-                    "rejected"
-                    if status == "rejected"
-                    else "checked"
-                    if status == "approved"
-                    else "proposed"
-                )
-            rec = items.new_source_record(ws, raw, origin="unknown", review_state=state)
-            rec.space, rec.space_ref = space_of, ref
-            path = items.write_source_record(ws, rec)
-        except (OSError, RecordError) as exc:
-            result.skipped.append(f"{name}: {exc}")
-            continue
-        source_ids[name] = rec.id
-        manifest["sources"].append({"name": name, "sha256": _sha(path.read_bytes())})
-        result.changed_sources += 1
-
-    for slug in todo_pages:
-        path = ws.wiki / f"{slug}.md"
-        try:
-            before = path.read_bytes()
-            text = before.decode("utf-8")
-            source = provenance_source(text)
-            origin = items.origin_from_markdown(text)
-            front, _rest = items.split_front_matter(text)
-            fm = yaml.safe_load(front) if front else {}
-            fm = fm if isinstance(fm, dict) else {}
-            review = "approved" if fm.get("x-anthill-review") == "approved" else ""
-            links = (
-                [source_ids[source]]
-                if source in source_ids
-                else ([f"name:{source}"] if source else [])
-            )
-            learned = (
-                str(fm.get("timestamp") or "")
-                or datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
-            )
-            rec = ItemRecord(
-                kind="page",
-                space=space_of,
-                space_ref=ref,
-                name=slug,
-                origin=origin,
-                review_state=items.initial_review_state(origin, review),
-                learned=learned,
-                content_hash=items.body_hash(text),
-                derived_from=links,
-            ).validate()
-            after = _add_record_to_text(text, rec.to_dict()).encode("utf-8")
-            _atomic_write(path, after)
-        except (OSError, UnicodeDecodeError, RecordError, yaml.YAMLError) as exc:
-            result.skipped.append(f"{slug}: {exc.__class__.__name__}")
-            continue
-        manifest["pages"].append({"slug": slug, "before": _sha(before), "after": _sha(after)})
-        result.changed_pages += 1
-
+    page_sources = _page_sources_of(ws)
+    state_of = {n: _source_state(n, page_sources, review_status) for n in todo_sources}
+    source_ids = {r.name: r.id for r in found.sources}
+    source_ids.update(_apply_sources(ws, todo_sources, state_of, manifest, result))
+    _apply_pages(ws, todo_pages, source_ids, manifest, result)
     mpath = ws.root / items.RECORDS_DIR / f"{MANIFEST_PREFIX}{stamp}.json"
     mpath.parent.mkdir(parents=True, exist_ok=True)
     mpath.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -377,16 +435,9 @@ class UndoResult:
     skipped: list[str] = field(default_factory=list)
 
 
-def undo_records(ws: Workspace, manifest_path: Path) -> UndoResult:
-    """Put back what a manifest says ``apply_records`` changed. A page is restored from the backup only if it
-    is still exactly as apply left it; a page changed since is left alone and reported."""
-    out = UndoResult()
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    backup = ws.root.parent / manifest["backup"]
-    if not backup.is_file():
-        raise OSError(f"the backup {backup} is gone")
+def _undo_pages(ws: Workspace, entries: list[dict], backup: Path, out: UndoResult) -> None:
     with tarfile.open(backup, "r:gz") as tar:
-        for entry in manifest["pages"]:
+        for entry in entries:
             path = ws.wiki / f"{entry['slug']}.md"
             try:
                 if _sha(path.read_bytes()) != entry["after"]:
@@ -401,7 +452,10 @@ def undo_records(ws: Workspace, manifest_path: Path) -> UndoResult:
                 out.restored_pages += 1
             except (OSError, KeyError) as exc:
                 out.skipped.append(f"{entry['slug']}: {exc.__class__.__name__}")
-    for entry in manifest["sources"]:
+
+
+def _undo_sources(ws: Workspace, entries: list[dict], out: UndoResult) -> None:
+    for entry in entries:
         path = items.source_record_path(ws, entry["name"])
         try:
             if path.is_file() and _sha(path.read_bytes()) == entry["sha256"]:
@@ -411,6 +465,18 @@ def undo_records(ws: Workspace, manifest_path: Path) -> UndoResult:
                 out.skipped.append(f"{entry['name']}: its record changed since it was added")
         except OSError as exc:
             out.skipped.append(f"{entry['name']}: {exc.__class__.__name__}")
+
+
+def undo_records(ws: Workspace, manifest_path: Path) -> UndoResult:
+    """Put back what a manifest says ``apply_records`` changed. A page is restored from the backup only if it
+    is still exactly as apply left it; a page changed since is left alone and reported."""
+    out = UndoResult()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    backup = ws.root.parent / manifest["backup"]
+    if not backup.is_file():
+        raise OSError(f"the backup {backup} is gone")
+    _undo_pages(ws, manifest["pages"], backup, out)
+    _undo_sources(ws, manifest["sources"], out)
     sidecars = ws.root / items.RECORDS_DIR / items.SOURCES_DIR
     if sidecars.is_dir() and not any(sidecars.iterdir()):
         sidecars.rmdir()

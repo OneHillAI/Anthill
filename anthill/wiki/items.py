@@ -337,7 +337,7 @@ def record_for_save(ws: Workspace, path: Path, body: str, *, review: str = "") -
                 derived_from=links,
             )
         return rec.validate().to_dict()
-    except Exception as exc:  # a record must never be the reason a page is not saved
+    except Exception as exc:  # noqa: BLE001 - a record must never be the reason a page is not saved
         log.warning("could not make the record of %s: %s", path.name, exc)
         return {}
 
@@ -364,10 +364,7 @@ class WorkspaceItems:
     )  # every kept original, including a quarantined one
 
 
-def list_items(ws: Workspace) -> WorkspaceItems:
-    """Every record in a workspace, read from its files, and what has no record or has a damaged one. Reads
-    only; the database is not involved, which is what lets the records survive losing it."""
-    out = WorkspaceItems()
+def _scan_pages(ws: Workspace, out: WorkspaceItems) -> None:
     out.page_count = len(ws.pages())
     for page in ws.pages():
         try:
@@ -376,43 +373,57 @@ def list_items(ws: Workspace) -> WorkspaceItems:
             out.quarantined.append(
                 Quarantined(f"wiki/{page.name}", f"unreadable: {exc.__class__.__name__}")
             )
-            continue
         except RecordError as exc:
             out.quarantined.append(Quarantined(f"wiki/{page.name}", str(exc)))
-            continue
-        if rec is None:
-            out.unrecorded_pages.append(page.stem)
         else:
-            out.pages.append(rec)
-    raw_names: list[str] = []
+            if rec is None:
+                out.unrecorded_pages.append(page.stem)
+            else:
+                out.pages.append(rec)
+
+
+def _scan_sources(ws: Workspace, out: WorkspaceItems) -> None:
     if ws.raw.is_dir():
-        raw_names = sorted(
+        out.raw_names = sorted(
             p.name for p in ws.raw.iterdir() if p.is_file() and not p.name.startswith(".")
         )
-    out.raw_names = raw_names
-    for name in raw_names:
+    for name in out.raw_names:
         try:
             rec = read_source_record(ws, name)
         except RecordError as exc:
             out.quarantined.append(
                 Quarantined(f"{RECORDS_DIR}/{SOURCES_DIR}/{name}.json", str(exc))
             )
-            continue
-        if rec is None:
-            out.unrecorded_sources.append(name)
         else:
-            out.sources.append(rec)
+            if rec is None:
+                out.unrecorded_sources.append(name)
+            else:
+                out.sources.append(rec)
+
+
+def _scan_sidecars(ws: Workspace, out: WorkspaceItems) -> None:
+    """A sidecar whose original is gone is quarantined, not silently kept."""
     sidecars = ws.root / RECORDS_DIR / SOURCES_DIR
-    if sidecars.is_dir():
-        known = set(raw_names)
-        for sidecar in sorted(sidecars.glob("*.json")):
-            if sidecar.name[: -len(".json")] not in known:
-                out.quarantined.append(
-                    Quarantined(
-                        f"{RECORDS_DIR}/{SOURCES_DIR}/{sidecar.name}",
-                        "record of an original that is gone",
-                    )
+    if not sidecars.is_dir():
+        return
+    known = set(out.raw_names)
+    for sidecar in sorted(sidecars.glob("*.json")):
+        if sidecar.name[: -len(".json")] not in known:
+            out.quarantined.append(
+                Quarantined(
+                    f"{RECORDS_DIR}/{SOURCES_DIR}/{sidecar.name}",
+                    "record of an original that is gone",
                 )
+            )
+
+
+def list_items(ws: Workspace) -> WorkspaceItems:
+    """Every record in a workspace, read from its files, and what has no record or has a damaged one. Reads
+    only; the database is not involved, which is what lets the records survive losing it."""
+    out = WorkspaceItems()
+    _scan_pages(ws, out)
+    _scan_sources(ws, out)
+    _scan_sidecars(ws, out)
     return out
 
 
