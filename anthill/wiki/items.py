@@ -421,11 +421,14 @@ def hidden_sources(root: Path) -> frozenset[str]:
 # ── pages ─────────────────────────────────────────────────────────────────────
 
 
-def record_for_save(ws: Workspace, path: Path, body: str, *, review: str = "") -> dict:
+def record_for_save(
+    ws: Workspace, path: Path, body: str, *, review: str = "", by_person: bool = False
+) -> dict:
     """The ``x-anthill-item`` mapping to write into a page that is being saved at ``path`` with ``body``.
 
     A page that already has a record keeps its id, origin, review state, lifecycle state and links; a body that
-    changed bumps the version and remembers the hash it replaced. A page with no record gets one. Never raises:
+    changed bumps the version and remembers the hash it replaced. A page with no record gets one. ``by_person`` says
+    a person wrote this text: the page's origin becomes ``person-edited`` and it counts as checked. Never raises:
     on any problem it returns an empty mapping and the page is saved without a record."""
     try:
         new_hash = hashlib.sha256(body.strip().encode("utf-8", "replace")).hexdigest()
@@ -448,6 +451,8 @@ def record_for_save(ws: Workspace, path: Path, body: str, *, review: str = "") -
                 rec.version += 1
                 rec.parent_hash = rec.content_hash
                 rec.content_hash = new_hash
+                if by_person:
+                    rec.origin, rec.review_state = "person-edited", "checked"
             if not rec.derived_from:
                 rec.derived_from = links
         else:
@@ -458,8 +463,8 @@ def record_for_save(ws: Workspace, path: Path, body: str, *, review: str = "") -
                 space=space,
                 space_ref=ref,
                 name=path.stem,
-                origin=origin,
-                review_state=initial_review_state(origin, review),
+                origin="person-edited" if by_person else origin,
+                review_state="checked" if by_person else initial_review_state(origin, review),
                 learned=now_iso(),
                 content_hash=new_hash,
                 derived_from=links,
@@ -468,6 +473,15 @@ def record_for_save(ws: Workspace, path: Path, body: str, *, review: str = "") -
     except Exception as exc:  # noqa: BLE001 - a record must never be the reason a page is not saved
         log.warning("could not make the record of %s: %s", path.name, exc)
         return {}
+
+
+def is_person_edited(markdown: str) -> bool:
+    """True for a page whose record says a person wrote its text. A page with no record, or a damaged one, is not."""
+    try:
+        rec = read_page_record(markdown)
+    except RecordError:
+        return False
+    return rec is not None and rec.origin == "person-edited"
 
 
 # ── reading a workspace ───────────────────────────────────────────────────────

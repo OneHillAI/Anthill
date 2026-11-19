@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ title }}{% endblock %}
+{% block page_title %}Edit {{ title }}{% endblock %}
+{% block content %}
+<p class="text-sm" style="margin:0 0 12px"><a href="/wiki/page/{{ slug }}{{ query }}">&larr; Back to the page</a></p>
+<form method="post" action="/wiki/page/{{ slug }}/edit" class="card" style="max-width:780px" id="wiki-edit">
+  <input type="hidden" name="scope" value="{{ scope }}">
+  {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+  {% if error %}<p class="text-sm" role="alert" style="margin:0 0 8px;color:var(--danger, #b3261e)">{{ error }}</p>{% endif %}
+  <label class="text-sm" for="wiki-edit-text" style="display:block;margin:0 0 4px">The page, in Markdown. Your text replaces the page, and the earlier text is not kept.</label>
+  <textarea id="wiki-edit-text" name="content" rows="22" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:13px">{{ text }}</textarea>
+  <p style="margin:10px 0 0"><button class="btn" type="submit">Save</button> <a class="text-sm" href="/wiki/page/{{ slug }}{{ query }}" style="margin-left:8px">Cancel</a></p>
+</form>
+{% endblock %}
