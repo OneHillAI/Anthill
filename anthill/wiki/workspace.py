@@ -140,9 +140,10 @@ class Workspace:
         body keeps Anthill's ``[[slug]]`` authoring shorthand (only the export view in ``okf`` rewrites
         those to OKF links). Any frontmatter already on the input is stripped first, so re-saving a page
         never double-wraps it."""
-        from . import okf
+        from . import items, okf
 
         body = strip_frontmatter(markdown).strip()
+        path = self.wiki / f"{slugify(title_or_slug)}.md"
         page = okf.OkfPage(
             type="Concept",
             title=first_h1(body) or title_or_slug,
@@ -153,8 +154,8 @@ class Workspace:
             review=review,
             tier=tier,
             sources=sources or [],
+            item=items.record_for_save(self, path, body, review=review),  # keeps an existing record
         )
-        path = self.wiki / f"{slugify(title_or_slug)}.md"
         path.write_text(okf.to_okf(page))
         # Embed the saved page in the background so the first question that needs it finds it ready.
         from .page_index import warm_page_soon

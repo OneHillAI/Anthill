@@ -39,6 +39,7 @@ _EXT = {
     "tier": "x-anthill-tier",  # bronze | silver | gold (training quality)
     "sources": "x-anthill-sources",  # provenance: list of source URIs
     "signature": "x-anthill-signature",  # Ed25519 promotion signature (base64)
+    "item": "x-anthill-item",  # the page's item record (anthill/wiki/items.py): id, state, version, links
 }
 _KNOWN_FM = {"type", "title", "description", "timestamp", "tags"} | set(_EXT.values())
 
@@ -64,6 +65,7 @@ class OkfPage:
     tier: str = ""
     sources: list[str] = field(default_factory=list)
     signature: str = ""
+    item: dict = field(default_factory=dict)  # the item record, see anthill/wiki/items.py
     extra: dict = field(
         default_factory=dict
     )  # any other frontmatter, preserved verbatim (OKF rule)
@@ -157,6 +159,7 @@ def from_wiki_page(
         tier=tier or existing.tier,
         sources=sources or existing.sources,
         signature=existing.signature,
+        item=existing.item,
         extra=existing.extra,
     )
     return to_okf(page)
