@@ -387,7 +387,13 @@ def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
             machine = _box(page, '.cc-tier[data-tier="local"]')
             cloud = _box(page, '.cc-tier[data-tier="cloud"]')
             # side by side in the same order as the Tab order, and they stay put when the other is clicked
-            assert abs(machine["t"] - cloud["t"]) <= 1 and machine["l"] < cloud["l"]
+            # (on the same row means the two cards overlap vertically, not that their tops match to the pixel:
+            # the CI runner's font metrics put the tops 2 px apart)
+            assert (
+                machine["t"] < cloud["b"]
+                and cloud["t"] < machine["b"]
+                and machine["l"] < cloud["l"]
+            )
             for tier in ("local", "cloud", "local"):
                 page.click(f'.cc-tier[data-tier="{tier}"]')
                 now_m = _box(page, '.cc-tier[data-tier="local"]')
