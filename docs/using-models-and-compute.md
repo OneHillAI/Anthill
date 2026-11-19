@@ -58,7 +58,7 @@ first. Every escalation is logged. It's off until you attach a provider.
 As you and your team work, approved answers become training data, in three tiers. **Bronze** is
 every answer Anthill generates, collected automatically but untouched. **Silver** is an answer
 someone else reused, a sign it was useful beyond the person who asked. **Gold** is an answer a
-human approved: a thumbs-up in chat, a saved snippet, or an admin approving it in wiki review. Gold
+human approved: a thumbs-up in chat, a saved snippet, or an admin approving it in **Needs review**. Gold
 is the only tier that actually trains a model.
 
 A solo user fine-tunes on their own gold answers, on whatever compute they've connected. An

@@ -12,6 +12,12 @@ Ask it to *make* something, like "draft an onboarding email" or "give me this as
 and it proposes the result for you to confirm before anything is created. Ask for something
 recurring, like "every morning, summarize my inbox", and it proposes a scheduled task instead.
 
+Anthill also looks in the text it kept from your uploaded documents. If a passage matches your
+question, the model is given up to two passages of your original words, marked as the original,
+before the page's summary, which is marked as a summary that may contain errors. Under an answer,
+**Documents in context** and **Pages in context** list what the model was given. They don't show
+which parts the answer relied on. A question that no document answers is not slowed down.
+
 You can attach an image to a message. Anthill reads it with a local vision model. No setup needed.
 
 Under the message box sits a row of three buttons. **Web search** turns web search on or off for
@@ -40,16 +46,40 @@ key facts, and links to related pages. A short plain-text note is the exception.
 of up to 1,500 characters is filed exactly as written, under its own first heading, with nothing
 summarised. A longer one is still summarised, but the page keeps the note's own first heading as its
 title and its quoted passages word for word. Anthill keeps the wiki itself tidy in the background,
-fixing broken links and flagging duplicates. Under **Add a document**, **Recent uploads** lists your
-latest ten uploads to that wiki with what happened to each one (reading, added, waiting for your
-review, held, timed out or could not be read, and what to do next). Only you see your own list. The wiki
-has three tabs:
+fixing broken links and flagging duplicates.
 
-- **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages.
+Under **Add a document**, **Recent uploads** lists your latest ten uploads to that wiki, newest
+first, with what happened to each one: *Reading*, *Added*, *Waiting for your review*, *Held for your
+decision*, *Waiting for the model to finish downloading*, *Timed out*, *Couldn't read* or
+*Interrupted*. Each says what to do next. A document that waited for a model download is added by
+itself when the download finishes. An upload that timed out offers **Try again with a longer limit**,
+which uses the file Anthill already saved, so you don't choose it again. Only you see your own list.
+
+A PDF is read within limits: up to 200 pages, 25 MB and 10 minutes of reading. A PDF over the size
+Anthill reads without asking needs you to tick **Confirm larger PDF processing** and choose it
+again. Beyond the limits nothing is added, and the message suggests splitting the file.
+
+If an upload is the same file as a page already in the wiki, lands on an existing page's title, or
+looks like a newer version of a page, Anthill writes nothing and holds it in **Needs review**, under
+**Knowledge**. For a duplicate or a title clash you choose **Keep existing**, **Replace existing** or
+**Keep both**, and one is marked as recommended. For a possible newer version the card shows the old
+and new text side by side with the changed words marked, and you choose to replace the old page, keep
+both, or keep the old page and discard the new one. Replacing writes over the old page's text; the
+file you uploaded earlier stays under **Files**. **Needs review** also holds pages the automatic check
+flagged and your AI's proposals, with one count that also shows on **Knowledge** in the sidebar.
+
+The wiki has three tabs:
+
+- **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages. Each page
+  says how it was made: "AI summary written by" the model that read the document, or "The note as
+  uploaded" for a note filed as written, with a link to the original file.
 - **Principles**. Your own (or your org's) writing rules and house style. Applied automatically
   whenever Anthill answers or drafts something in that scope.
 - **Files**. Every original document you've uploaded, with its size and date, and a link to
-  download it back. The page Anthill wrote from it is a summary, not a replacement.
+  download it back. For a PDF, Word, PowerPoint, Excel or HTML file there is also a **text read from
+  it** link, which opens the text Anthill extracted, so you can check what your AI actually saw.
+  Nothing is kept for a note, which already is the text, or for a scan or picture where no text could
+  be read. The page Anthill wrote from it is a summary, not a replacement.
 
 Sharing knowledge beyond your own space, into a project or org wiki, always goes through
 **review** first. You see exactly what would be written before it's approved.
@@ -64,7 +94,7 @@ personal training draws on. Saving a snippet guarantees it's kept, rather than h
 gets noticed on its own.
 
 A snippet only trains the *shared* team or org model once it's corroborated. Either another person
-independently saves matching content, or an admin approves it through the wiki review queue. You
+independently saves matching content, or an admin approves it in **Needs review**. You
 can edit, tag, filter, or delete any snippet. You can also push one to the wiki manually at any
 time.
 
