@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import quote, urlparse, urlsplit
 
 import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -619,6 +619,11 @@ def _index_docs_in_background() -> None:
         threading.Thread(
             target=doc_index.sync_all, daemon=True, name="anthill-sync-doc-index"
         ).start()
+    from ..wiki import removal
+
+    threading.Thread(
+        target=removal.expire_all, daemon=True, name="anthill-expire-removed"
+    ).start()  # what was removed more than 30 days ago is deleted for good
 
 
 def _autostart_local_serving() -> None:
@@ -8302,6 +8307,200 @@ def _pending_pdf_confirmation_path(ws, name: str):
     return candidate
 
 
+def removal_retention_days() -> int:
+    from ..wiki import removal
+
+    return removal.RETENTION_DAYS
+
+
+def _removed_items(ws) -> list[dict]:
+    """What was removed from this wiki and can still be restored, for the Files tab. Anything past its 30
+    days is deleted first."""
+    from ..wiki import removal
+
+    removal.expire(ws)
+    return [
+        {"id": r.id, "kind": r.kind, "name": r.name, "days_left": r.days_left(), "pages": r.pages}
+        for r in removal.list_removed(ws)
+    ]
+
+
+def _removal_ws(db, user, scope, team_id):
+    """The workspace a person may remove things from: their own wiki, a team they own, or the organisation
+    wiki as its admin. 404 for a scope that is not theirs to see, 403 for one they may read but not change."""
+    if scope not in ("personal", "team", "org"):
+        raise HTTPException(status_code=404)
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    if not _wiki_can_edit(db, user, scope, team_id):
+        raise HTTPException(status_code=403, detail="You cannot remove things from this wiki")
+    ws = _wiki_ws(user, scope, team_id)
+    if not ws.exists():
+        raise HTTPException(status_code=404)
+    return ws
+
+
+def _registry_forget(db, org, ws, slugs: list[str]) -> None:
+    from .knowledge_registry import remove as registry_remove
+
+    for slug in slugs:
+        try:
+            registry_remove(
+                db,
+                org_id=org.id,
+                scope=ws.scope,
+                team_id=_team_of_ws(ws),
+                kind="page",
+                slug=slug,
+            )
+        except Exception:  # noqa: BLE001 - the registry is only an index; never undo a removal for it
+            db.rollback()
+
+
+def _team_of_ws(ws) -> int | None:
+    name = ws.root.name
+    return int(name.split("-", 1)[1]) if name.startswith("team-") and name[5:].isdigit() else None
+
+
+@app.get("/wiki/remove", response_class=HTMLResponse)
+def wiki_remove_confirm(
+    request: Request,
+    kind: str,
+    name: str,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    """Ask before removing a page or an original: what goes, what stays, and that it can be restored."""
+    from ..wiki import removal
+
+    db = _db()
+    org = _require_org(db, user)
+    ws = _removal_ws(db, user, scope, team_id)
+    if kind == "original" and (ws.raw / name).is_file() and Path(name).name == name:
+        plan = removal.plan_original(ws, name)
+    elif kind == "page" and (ws.wiki / f"{name}.md").is_file() and Path(name).name == name:
+        plan = removal.Plan()
+    else:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "wiki_remove.html",
+        {
+            "request": request,
+            "user": user,
+            "org": org,
+            "scope": scope,
+            "team_id": team_id,
+            "kind": kind,
+            "name": name,
+            "shown_name": _original_name(name) if kind == "original" else name,
+            "plan": plan,
+            "days": removal.RETENTION_DAYS,
+            "back": _wiki_page_url(scope, team_id) + "?tab=files",
+        },
+    )
+
+
+@app.post("/wiki/remove")
+def wiki_remove(
+    request: Request,
+    kind: str = Form(...),
+    name: str = Form(...),
+    scope: str = Form("personal"),
+    team_id: int | None = Form(None),
+    user: dict = Depends(_require_user),
+):
+    from ..wiki import removal
+
+    db = _db()
+    org = _require_org(db, user)
+    ws = _removal_ws(db, user, scope, team_id)
+    try:
+        if kind == "original":
+            rec = removal.remove_original(ws, name)
+        elif kind == "page":
+            rec = removal.remove_page(ws, name)
+        else:
+            raise HTTPException(status_code=404)
+    except removal.RemovalError:
+        raise HTTPException(status_code=404) from None
+    _registry_forget(db, org, ws, rec.pages + ([name] if kind == "page" else []))
+    _audit_request(
+        request,
+        "wiki.remove",
+        f"scope={scope} {kind}={name}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse(
+        f"{_wiki_page_url(scope, team_id)}?tab=files&removed=1", status_code=303
+    )
+
+
+@app.post("/wiki/removed/{rid}/restore")
+def wiki_removed_restore(
+    request: Request,
+    rid: str,
+    scope: str = Form("personal"),
+    team_id: int | None = Form(None),
+    user: dict = Depends(_require_user),
+):
+    from ..wiki import removal
+
+    db = _db()
+    _require_org(db, user)
+    ws = _removal_ws(db, user, scope, team_id)
+    try:
+        rec = removal.restore(ws, rid)
+    except removal.RemovalError as exc:
+        return RedirectResponse(
+            f"{_wiki_page_url(scope, team_id)}?tab=files&restore_error={quote(str(exc))}",
+            status_code=303,
+        )
+    _audit_request(
+        request,
+        "wiki.restore",
+        f"scope={scope} {rec.kind}={rec.name}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse(
+        f"{_wiki_page_url(scope, team_id)}?tab=files&restored=1", status_code=303
+    )
+
+
+@app.post("/wiki/removed/{rid}/delete")
+def wiki_removed_delete(
+    request: Request,
+    rid: str,
+    scope: str = Form("personal"),
+    team_id: int | None = Form(None),
+    user: dict = Depends(_require_user),
+):
+    from ..wiki import removal
+
+    db = _db()
+    _require_org(db, user)
+    ws = _removal_ws(db, user, scope, team_id)
+    try:
+        rec = removal.delete(ws, rid)
+    except removal.RemovalError:
+        raise HTTPException(status_code=404) from None
+    _audit_request(
+        request,
+        "wiki.delete",
+        f"scope={scope} {rec.kind}={rec.name}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse(
+        f"{_wiki_page_url(scope, team_id)}?tab=files&deleted=1", status_code=303
+    )
+
+
 def _wiki_raw_files(ws) -> list[dict]:
     """List the immutable raw source documents preserved under this workspace's raw/ (every
     upload is copied here before ingest - see wiki/ingest.py's preserve_raw_source), newest first,
@@ -8428,6 +8627,8 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "principles_text": read_principles(ws),
         "pages": pages,
         "raw_files": _wiki_raw_files(ws) if tab == "files" else [],
+        "removed_items": _removed_items(ws) if tab == "files" else [],
+        "retention_days": removal_retention_days(),
         "pdf_confirmations": (
             [p.name for p in _pending_pdf_confirmation_paths(ws)]
             if _wiki_can_edit(db, user, scope, team_id)
@@ -8701,6 +8902,7 @@ def wiki_page_view(
             "org": org,
             "scope": scope,
             "team_id": team_id,
+            "slug": path.stem,
             "title": first_h1(md) or slugify(slug),
             "content": body,
             "provenance": read_provenance(md),
@@ -8709,6 +8911,7 @@ def wiki_page_view(
             "source_link": _raw_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "text_link": _text_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "wiki_url": _wiki_page_url(scope, team_id),
+            "can_remove": _wiki_can_edit(db, user, scope, team_id),
         },
     )
 

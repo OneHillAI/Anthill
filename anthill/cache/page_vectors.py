@@ -109,6 +109,11 @@ class PageVectorIndex:
                 self._save(rows, stale)
         return [v for v in out if v is not None]
 
+    def forget(self, keys: Sequence[str]) -> None:
+        """Drop the stored vectors of these pages (their paths relative to the workspace). Best effort."""
+        if keys and self.path.is_file():
+            self._save([], list(keys))
+
     @staticmethod
     def _row(key: str, model: str, digest: str, vec: np.ndarray) -> tuple | None:
         arr = np.asarray(vec, dtype="<f4")
