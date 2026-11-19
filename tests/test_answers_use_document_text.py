@@ -374,8 +374,9 @@ def test_the_chat_keeps_and_shows_the_document_an_answer_was_given(chat):
     assert "Brandt mill" in chat.state["prompts"][-1]
 
     shown = _meta(chat.client.get(f"/chat/{conv}").text)
-    assert "Documents in context: hollis-bakery-handbook.pdf (page 1, 2)" in shown
-    assert "Pages in context: hollis-bakery-operations-handbook" in shown
+    assert "What this answer was given (2)" in shown  # the panel (#281)
+    assert "hollis-bakery-handbook.pdf · Document, Your wiki, page 1, 2" in shown
+    assert "Hollis Bakery: Operations Handbook · Page, Your wiki" in shown
 
 
 def test_a_document_alone_is_shown_when_no_page_matched(chat):
@@ -384,8 +385,9 @@ def test_a_document_alone_is_shown_when_no_page_matched(chat):
     assert saved.wiki_slugs == "" and saved.doc_sources == "hollis-bakery-handbook.pdf (page 2)"
     assert "eight percent" in chat.state["prompts"][-1]
     shown = _meta(chat.client.get(f"/chat/{conv}").text)
-    assert "Documents in context: hollis-bakery-handbook.pdf (page 2)" in shown
-    assert "Pages in context" not in shown
+    assert "What this answer was given (1)" in shown
+    assert "hollis-bakery-handbook.pdf · Document, Your wiki, page 2" in shown
+    assert "Page, Your wiki" not in shown
 
 
 def test_the_live_stream_reports_the_documents(chat):

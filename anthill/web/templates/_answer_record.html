@@ -1,0 +1,15 @@
+{% if panel.rows %}
+<details class="answer-record" style="font-size:12px;color:var(--muted);flex-basis:100%">
+  <summary style="cursor:pointer" title="Anthill gave the model these items for this answer. It does not show which of them the answer relied on.">What this answer was given ({{ panel.rows|length }}{% if panel.more %}+{{ panel.more }}{% endif %})</summary>
+  <ul style="margin:4px 0 0 18px;padding:0">
+    {% for r in panel.rows %}
+    <li>
+      <a href="{{ r.href }}" target="_blank" rel="noopener">{{ r.title }}</a>
+      <span>&middot; {{ 'Document' if r.document else 'Page' }}, {{ r.space }}{% if r.document and r.pages %}, page {{ r.pages }}{% elif r.version %}, version {{ r.version }}{% endif %}</span>
+      {% if r.unchecked %}<span class="src-chip" title="A model wrote this page and nobody has checked it. It still answers.">AI-written, unchecked</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if panel.more %}<div style="margin-left:18px">and {{ panel.more }} more</div>{% endif %}
+</details>
+{% endif %}

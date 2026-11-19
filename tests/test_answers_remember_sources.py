@@ -119,7 +119,7 @@ def test_an_answer_keeps_the_pages_it_was_given(chat):
     assert row.wiki_slugs == "cabinet" and row.cache_hit is False
 
     reloaded = _sources_text(chat.client.get(f"/chat/{conv_id}").text)
-    assert "Pages in context: cabinet" in reloaded
+    assert "What this answer was given (1) Cabinet" in reloaded  # the panel (#281) lists the page
     assert "cache hit" not in reloaded
 
 
@@ -133,7 +133,7 @@ def test_a_cached_answer_keeps_its_cache_badge_and_its_pages(chat):
     assert chat.answer_row(first).cache_hit is False
 
     reloaded = _sources_text(chat.client.get(f"/chat/{second}").text)
-    assert "cache hit" in reloaded and "Pages in context: cabinet" in reloaded
+    assert "cache hit" in reloaded and "What this answer was given (1) Cabinet" in reloaded
 
 
 def test_the_page_after_a_reload_says_what_the_live_page_says(chat):
@@ -200,14 +200,14 @@ def test_each_page_in_context_is_a_link_that_opens_the_page(chat):
     meta = BeautifulSoup(chat.client.get(f"/chat/{conv_id}").text, "html.parser").select_one(
         "div.msg.assistant .meta"
     )
-    link = meta.find("a", string="cabinet")
-    assert link is not None and link["href"] == "/wiki/open/cabinet"
+    link = meta.find("a", string="Cabinet")
+    assert link is not None and link["href"] == "/wiki/page/cabinet?scope=personal"
     assert link["target"] == "_blank" and "noopener" in link["rel"]
-    # the address finds the page in whichever wiki holds it and shows it
-    r = chat.client.get(link["href"], follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "/wiki/page/cabinet?scope=personal"
-    page = chat.client.get(r.headers["location"])
+    page = chat.client.get(link["href"])  # the panel knows which wiki holds the page
     assert page.status_code == 200 and "4417-ZEBRA" in page.text
+    # the link an older answer still uses finds the page in whichever wiki holds it
+    r = chat.client.get("/wiki/open/cabinet", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/wiki/page/cabinet?scope=personal"
 
 
 def test_a_page_that_is_gone_says_so_instead_of_failing_quietly(chat):
