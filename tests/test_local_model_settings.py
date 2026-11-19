@@ -882,3 +882,139 @@ def test_cancelling_or_interrupting_pull_stops_process_and_queued_vision_job(tmp
     assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
     assert _wait_until(lambda: _vision_waiter(app_mod, org_id) is None)
     assert [p.tag for p in procs] == ["qwen3.8:27b", "qwen3.8:27b"]  # no Granite pull started
+
+
+# ── the saved "downloading" flag is never left stale by a late write (#297) ──────────────────────
+
+
+class _SlowPullWrites:
+    """Hold back the first database write a pull thread makes, as a busy machine would.
+
+    ``where="call"`` waits before ``_set_model_pulling`` is called; ``where="write"`` waits after it has
+    read the in-memory state and before it opens its session. Writes from the test's own thread are
+    never held back. ``reached`` is set when the held-back write starts waiting, ``finished`` gets one
+    entry for each pull-thread write that has committed.
+    """
+
+    def __init__(self, monkeypatch, app_mod, *, where: str, seconds: float = 0.5):
+        import threading
+
+        self.reached = threading.Event()
+        self.finished: list[int] = []
+        self._first = True
+        self._seconds = seconds
+        if where == "call":
+            monkeypatch.setattr(app_mod, "_set_model_pulling", self._wrap_call(app_mod))
+        else:
+            monkeypatch.setattr(app_mod, "_db", self._wrap_db(app_mod))
+
+    def _from_pull_thread(self) -> bool:
+        import threading
+
+        return threading.current_thread() is not threading.main_thread()
+
+    def _hold_first(self) -> None:
+        import time
+
+        if self._first:
+            self._first = False
+            self.reached.set()
+            time.sleep(self._seconds)
+
+    def _wrap_call(self, app_mod):
+        real = app_mod._set_model_pulling
+
+        def wrapper(*args, **kwargs):
+            if not self._from_pull_thread():
+                return real(*args, **kwargs)
+            self._hold_first()
+            try:
+                return real(*args, **kwargs)
+            finally:
+                self.finished.append(1)
+
+        return wrapper
+
+    def _wrap_db(self, app_mod):
+        real = app_mod._db
+
+        def wrapper(*args, **kwargs):
+            session = real(*args, **kwargs)
+            if self._from_pull_thread():
+                self._hold_first()
+                commit = session.commit
+
+                def counted_commit():
+                    commit()
+                    self.finished.append(1)
+
+                session.commit = counted_commit
+            return session
+
+        return wrapper
+
+
+def _two_overlapping_pulls(app_mod, org_id, procs):
+    app_mod._start_model_pull(org_id, "qwen3.8:27b", activate_when_done=False)
+    app_mod._start_model_pull(org_id, "gemma3:12b", activate_when_done=False)
+    assert _wait_until(lambda: len(procs) == 2)
+    return (procs[0], procs[1]) if procs[0].tag == "qwen3.8:27b" else (procs[1], procs[0])
+
+
+def test_late_end_write_with_an_old_value_does_not_leave_the_flag_stuck(tmp_path, monkeypatch):
+    # The first download to end is slow to write. By then the last one has ended and written "".
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, _ = _install_controlled_popen(monkeypatch, app_mod)
+    proc_qwen, proc_gemma = _two_overlapping_pulls(app_mod, org_id, procs)
+    slow = _SlowPullWrites(monkeypatch, app_mod, where="call")
+
+    proc_gemma.finish(1)  # the first to end: it will write late
+    assert _wait_until(lambda: list(_active_pulls(app_mod, org_id)) == ["qwen3.8:27b"])
+    proc_qwen.finish(0)
+    assert _wait_until(lambda: len(slow.finished) == 2)  # both pull threads have written
+
+    assert _active_pulls(app_mod, org_id) == {}
+    assert _pulling_flag(app_mod, org_id) == ""
+    assert org_id not in app_mod._MODEL_PULL_PROGRESS
+
+
+def test_end_write_held_back_after_it_read_the_state_does_not_leave_the_flag_stuck(
+    tmp_path, monkeypatch
+):
+    # The first download to end has read "qwen is still downloading" and is slow to write it.
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, _ = _install_controlled_popen(monkeypatch, app_mod)
+    proc_qwen, proc_gemma = _two_overlapping_pulls(app_mod, org_id, procs)
+    slow = _SlowPullWrites(monkeypatch, app_mod, where="write")
+
+    proc_gemma.finish(1)
+    assert slow.reached.wait(3)
+    assert _wait_until(lambda: list(_active_pulls(app_mod, org_id)) == ["qwen3.8:27b"])
+    proc_qwen.finish(0)
+    assert _wait_until(lambda: len(slow.finished) == 2)
+
+    assert _active_pulls(app_mod, org_id) == {}
+    assert _pulling_flag(app_mod, org_id) == ""
+    assert org_id not in app_mod._MODEL_PULL_PROGRESS
+
+
+def test_late_clear_does_not_overwrite_a_download_that_started_meanwhile(tmp_path, monkeypatch):
+    # The last download has read "nothing is downloading" and is slow to write "" when a new one starts.
+    _c, app_mod, org_id = _admin(tmp_path, monkeypatch)
+    procs, _ = _install_controlled_popen(monkeypatch, app_mod)
+    app_mod._start_model_pull(org_id, "qwen3.8:27b", activate_when_done=False)
+    assert _wait_until(lambda: len(procs) == 1)
+    slow = _SlowPullWrites(monkeypatch, app_mod, where="write")
+
+    procs[0].finish(0)
+    assert slow.reached.wait(3)
+    app_mod._start_model_pull(org_id, "gemma3:12b", activate_when_done=False)
+    assert _wait_until(lambda: len(procs) == 2)
+    assert _wait_until(lambda: len(slow.finished) == 1)  # the held-back clear has now written
+
+    assert list(_active_pulls(app_mod, org_id)) == ["gemma3:12b"]
+    assert _pulling_flag(app_mod, org_id) == "gemma3:12b"
+
+    procs[1].finish(0)
+    assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
+    assert _wait_until(lambda: _pulling_flag(app_mod, org_id) == "")
