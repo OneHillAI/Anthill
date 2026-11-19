@@ -7832,6 +7832,26 @@ async def mcp_consumer_revoke(cid: int, user: dict = Depends(_require_admin)):
 # ── wiki review queue ─────────────────────────────────────────────────────────
 
 
+def _attach_comparisons(reviews) -> None:
+    """For each held upload, what differs from the existing page it would replace (``review.compare``), so the
+    person deciding sees the change instead of two similar-looking texts."""
+    from ..common.text import first_h1
+    from .upload_dedup import HELD_FLAGS, compare_with_existing
+
+    for r in reviews:
+        r.compare = None
+        r.new_title = ""
+        if (getattr(r, "kind", "page") or "page") != "page" or not HELD_FLAGS.intersection(
+            r.flag_list
+        ):
+            continue
+        r.new_title = first_h1(r.content) or r.slug
+        ws = workspace_for(
+            r.target_scope, team_id=r.team_id, user_id=r.proposed_by, org_id=r.org_id
+        )
+        r.compare = compare_with_existing(ws, r.slug, r.content)
+
+
 @app.get("/wiki/review", response_class=HTMLResponse)
 def wiki_review(request: Request, user: dict = Depends(_require_admin)):
     db = _db()
@@ -7842,6 +7862,7 @@ def wiki_review(request: Request, user: dict = Depends(_require_admin)):
             r.flag_list = json.loads(r.flags or "[]")
         except Exception:
             r.flag_list = []
+    _attach_comparisons(pending)
     return templates.TemplateResponse(
         request,
         "wiki_review.html",
@@ -7873,6 +7894,7 @@ def wiki_review_personal(request: Request, user: dict = Depends(_require_user)):
             r.flag_list = json.loads(r.flags or "[]")
         except Exception:
             r.flag_list = []
+    _attach_comparisons(pending)
     return templates.TemplateResponse(
         request,
         "wiki_review.html",
@@ -8069,7 +8091,9 @@ async def keep_both_review(
         rev.target_scope, team_id=rev.team_id, user_id=rev.proposed_by, org_id=rev.org_id
     )
     body = content if content is not None and content.strip() else rev.content
-    title = distinct_title(ws, first_h1(body) or rev.slug)
+    title = first_h1(body) or rev.slug
+    if (ws.wiki / f"{slugify(title)}.md").exists():
+        title = distinct_title(ws, title)  # same title as a page already there: add the upload date
     rev.content = retitle(body, title)
     rev.slug = slugify(title)
     db.commit()
@@ -8093,7 +8117,9 @@ def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
             "-", " "
         ).title()
         held = kind == "page" and HELD_FLAGS.intersection(json.loads(r.flags or "[]"))
-        if held:
+        if held and "looks_newer" in held:
+            what = "Held upload - may be a newer version"
+        elif held:
             what = "Held upload - possible duplicate"
         elif kind == "skill":
             what = "Proposed a skill"
