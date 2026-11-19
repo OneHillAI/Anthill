@@ -58,6 +58,12 @@ This slice adds the record and the inventory. It changes no answer, no screen an
 10. **Quarantine.** A page whose front matter does not parse, a record with an impossible value, a sidecar that does not parse, or a
     sidecar whose original is gone is listed as quarantined. It is never used, never overwritten and never repaired.
 11. **The records live in the files.** Reading them (`items.list_items`) touches no database and no cache.
+12. **Apply and undo keep what a page already has** (#306). A page is written with the permissions it had (a 0600 page stays 0600,
+    after undo too). A page that is a symbolic link is never rewritten, by apply or by undo: rewriting would replace the link with
+    a file. It is listed as skipped ("a symbolic link, left as it is") and gets no record until its owner decides.
+13. **A dry run only reads the database.** The review rows are read through a read-only connection, so nothing in the database
+    can change. For a database in WAL mode SQLite may still keep its temporary `-wal` and `-shm` files beside it while it is open
+    and removes them again; the database file itself is not changed.
 
 ## Known limits
 

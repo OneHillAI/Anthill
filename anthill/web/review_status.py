@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from ..wiki import inventory as inv
@@ -28,7 +29,15 @@ def review_status_for(database: Engine | Path | str | None, root: Path) -> dict[
 
         from . import db as db_mod
 
-        engine = database if isinstance(database, Engine) else db_mod.get_engine(Path(database))
+        # read-only: a dry run must not make the database write a journal file or change its folder
+        opened: Engine | None = None
+        if isinstance(database, Engine):
+            engine = database
+        else:
+            opened = engine = create_engine(
+                f"sqlite:///file:{Path(database).resolve()}?mode=ro&uri=true",
+                connect_args={"uri": True},
+            )
         session = sessionmaker(bind=engine)()
         try:
             q = session.query(db_mod.WikiReview).filter(db_mod.WikiReview.kind == "page")
@@ -56,5 +65,7 @@ def review_status_for(database: Engine | Path | str | None, root: Path) -> dict[
             return out
         finally:
             session.close()
+            if opened is not None:
+                opened.dispose()
     except Exception:  # noqa: BLE001 - an unreadable database only means leftovers cannot be matched
         return None
