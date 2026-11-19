@@ -18,11 +18,15 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
+
+from ..inference.ollama import find_ollama_bin
 from ..lifecycle.evaluate import evaluate_models
 
 
@@ -249,6 +253,37 @@ def _train_mlx(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
 # ── Ollama registration (org-side) ────────────────────────────────────────────
 
 
+# Ollama removed `ollama create ... ADAPTER` in 0.34.1 and every release since refuses it (#273).
+ADAPTERS_REFUSED_FROM = (0, 34, 1)
+ADAPTERS_REFUSED_TEXT = "LoRA adapters are no longer supported"  # what Ollama answers
+ADAPTERS_REFUSED_NOTE = (
+    "This Ollama does not accept adapters (Ollama removed that in 0.34.1), so a trained model cannot be "
+    "registered with it. Nothing was wrong with the training. Use an Ollama older than 0.34.1, or serve "
+    "the adapter another way."
+)
+
+
+def _cli_ollama_url() -> str:
+    """The server ``ollama create`` talks to: ``OLLAMA_HOST`` when set, else the default local one."""
+    host = os.environ.get("OLLAMA_HOST", "").strip() or "127.0.0.1:11434"
+    return host if "://" in host else f"http://{host}"
+
+
+def local_ollama_accepts_adapters() -> bool | None:
+    """Whether the Ollama that ``ollama create`` will talk to accepts an ADAPTER line: False from 0.34.1 on,
+    True before, None when its version cannot be read (the caller then tries and reports what happens)."""
+    try:
+        data = httpx.get(f"{_cli_ollama_url()}/api/version", timeout=3).json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    match = re.match(
+        r"(\d+)\.(\d+)\.(\d+)", str(data.get("version", "")) if isinstance(data, dict) else ""
+    )
+    if not match:
+        return None
+    return tuple(int(g) for g in match.groups()) < ADAPTERS_REFUSED_FROM
+
+
 def register_with_ollama(
     model_name: str, base_model: str, adapter_path: str, *, ollama_url: str | None = None
 ) -> None:
@@ -256,12 +291,20 @@ def register_with_ollama(
     ``FROM`` / ``ADAPTER`` Modelfile. Raises ``TrainerError`` on failure."""
     modelfile = Path(adapter_path).parent / f"Modelfile.{model_name}"
     modelfile.write_text(f"FROM {base_model}\nADAPTER {adapter_path}\n")
-    proc = subprocess.run(
-        ["ollama", "create", model_name, "-f", str(modelfile)],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        # The bundled or first-run engine is not on PATH, so find it the way the rest of the app does.
+        proc = subprocess.run(
+            [find_ollama_bin() or "ollama", "create", model_name, "-f", str(modelfile)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as e:
+        raise TrainerError(
+            "Ollama was not found on this machine, so the model cannot be registered."
+        ) from e
     if proc.returncode != 0:
+        if ADAPTERS_REFUSED_TEXT in f"{proc.stderr}{proc.stdout}":
+            raise TrainerError(ADAPTERS_REFUSED_NOTE)
         raise TrainerError(f"`ollama create {model_name}` failed: {proc.stderr[-500:]}")
 
 
