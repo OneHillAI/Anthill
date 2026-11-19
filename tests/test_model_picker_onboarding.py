@@ -271,3 +271,22 @@ def test_choosing_a_model_survives_a_malformed_ollama_response(tmp_path, monkeyp
     monkeypatch.setattr(app_mod.httpx, "get", _fake_get_returning_unparseable_json)
     r = c.post("/setup/model", data={"choice": "qwen3.5:9b"}, follow_redirects=False)
     assert r.status_code == 302  # not a 500
+
+
+def test_step_four_has_one_skip_a_named_current_step_and_moves_focus(tmp_path):
+    c, _ = _client(tmp_path)
+    body = c.get("/setup/model").text
+    # the progress bar names the current step for assistive technology, once
+    assert body.count('aria-current="step"') == 1
+    assert (
+        'id="wiz-step-3"' in body and 'role="listitem" id="wiz-step-3" aria-current="step"' in body
+    )
+    assert (
+        "setAttribute('aria-current', 'step')" in body
+    )  # and the script moves it to step 4 and back
+    # the footer "Skip for now" is its own form, hidden while step 4 shows (it would drop the chosen model)
+    assert 'id="setup-skip"' in body and "skip.hidden = show" in body
+    # focus moves to the new pane's heading, and back to the model pane, so a screen reader announces it
+    assert 'id="setup-provider-heading" tabindex="-1"' in body
+    assert 'id="setup-pane-model" tabindex="-1"' in body
+    assert "target.focus({preventScroll: true})" in body

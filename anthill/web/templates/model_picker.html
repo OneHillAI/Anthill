@@ -72,13 +72,13 @@
          the best fit for this machine already chosen. Step 4, the optional inference provider, is the second
          pane of the same form, so one submit still saves everything. #}
       {% set in_setup = true %}
-      <div id="setup-pane-model">
+      <div id="setup-pane-model" tabindex="-1" role="group" aria-label="Choose your model" style="outline:none">
         {% include "_compute_chooser.html" %}
         <button type="button" id="mp-continue" class="btn btn-primary" disabled onclick="setupShowProvider(true)" style="width:100%;margin-top:var(--sp-4);padding:12px;font-size:var(--fs-2);font-weight:600">Choose a model to continue</button>
       </div>
 
       <div id="setup-pane-provider" hidden>
-        <h2 style="font-size:20px;margin:0 0 6px">Want faster, stronger answers on hard questions?</h2>
+        <h2 id="setup-provider-heading" tabindex="-1" style="font-size:20px;margin:0 0 6px;outline:none">Want faster, stronger answers on hard questions?</h2>
         <p class="text-muted" style="margin:0 0 14px">Your model runs on this computer, and big tasks can be slow. An inference provider runs a much larger open model for those questions only.</p>
         <div class="alert" style="border:1px solid var(--border);background:var(--surface,#fff);margin:0 0 6px">
           <b>What stays private</b>
@@ -98,17 +98,24 @@
       </div>
     </form>
     <script>
-      // Step 3 and step 4 are two panes of one form. Showing the provider pane moves the progress marker and
-      // scrolls to the top; "Back to your model" undoes it. Nothing is saved until the form is submitted.
+      // Step 3 and step 4 are two panes of one form. Showing the provider pane moves the progress marker,
+      // scrolls to the top and moves keyboard focus to the new pane's heading (so a screen reader announces it);
+      // "Back to your model" undoes it. The footer "Skip for now" belongs to step 3 only (it drops the chosen
+      // model), so it is hidden while step 4 shows; step 4 has its own "Not now". Nothing is saved until the form
+      // is submitted.
       function setupShowProvider(show) {
         document.getElementById('setup-pane-model').hidden = show;
         document.getElementById('setup-pane-provider').hidden = !show;
+        var skip = document.getElementById('setup-skip');
+        if (skip) skip.hidden = show;
         if (window.wizSetStep) window.wizSetStep(show ? 4 : 3);
         window.scrollTo(0, 0);
+        var target = document.getElementById(show ? 'setup-provider-heading' : 'setup-pane-model');
+        if (target) target.focus({preventScroll: true});
       }
     </script>
 
-    <form method="post" action="/setup/model" style="margin-top:10px;text-align:center">
+    <form method="post" action="/setup/model" id="setup-skip" style="margin-top:10px;text-align:center">
       <input type="hidden" name="compute" value="local">
       <input type="hidden" name="choice" value="__skip__">
       <button type="submit" class="btn btn-link" style="background:none;border:none;color:var(--muted);cursor:pointer">Skip for now</button>
