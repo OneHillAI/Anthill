@@ -1,50 +1,3026 @@
 {
-  "schema": 1,
-  "note": "Frontier open-weight catalog. Ordered by an intelligence index; the picker re-ranks by intelligence x what fits the target hardware. params_b is TOTAL parameters (the memory driver, incl. all MoE experts); active_b is what computes per token (the speed driver). Ollama tags are verified against the live library; hf_id is best-effort for the newest models and is corrected by Refresh. Refreshable via /models/refresh-catalog.",
-  "generated": "2026-10-28",
-  "models": [
-    {"name": "DeepSeek V4-Pro", "family": "DeepSeek", "origin": "DeepSeek, China", "params_b": 1600, "active_b": 49, "ollama_tag": "deepseek-v4-pro:cloud", "hf_id": "deepseek-ai/DeepSeek-V4-Pro", "context_k": 1000, "license": "MIT", "intelligence": 71, "gated": false},
-    {"name": "MiniMax M3", "family": "MiniMax", "origin": "MiniMax, China", "params_b": 428, "active_b": 23, "ollama_tag": "minimax-m3:cloud", "hf_id": "MiniMaxAI/MiniMax-M3", "context_k": 1000, "license": "Apache-2.0", "intelligence": 70, "gated": false},
-    {"name": "GLM-5.3", "family": "GLM", "origin": "Zhipu / Z.ai, China", "params_b": 744, "active_b": 40, "ollama_tag": "glm-5.3:cloud", "hf_id": "zai-org/GLM-5.3", "context_k": 200, "license": "MIT", "intelligence": 68, "gated": false},
-    {"name": "GLM-5.2", "family": "GLM", "origin": "Zhipu / Z.ai, China", "params_b": 744, "active_b": 40, "ollama_tag": "glm-5.2:cloud", "hf_id": "zai-org/GLM-5.2", "context_k": 1000, "license": "MIT", "intelligence": 66, "gated": false},
-    {"name": "Kimi K2.7 Code", "family": "Kimi", "origin": "Moonshot AI, China", "params_b": 1000, "active_b": 32, "ollama_tag": "kimi-k2.7-code:cloud", "hf_id": "moonshotai/Kimi-K2.7-Code", "context_k": 256, "license": "Modified MIT", "intelligence": 64, "gated": false},
-    {"name": "DeepSeek V4.1-Flash", "family": "DeepSeek", "origin": "DeepSeek, China", "params_b": 552, "active_b": 16, "ollama_tag": "deepseek-v4.1-flash:cloud", "hf_id": "deepseek-ai/DeepSeek-V4.1-Flash", "context_k": 1000, "license": "MIT", "intelligence": 63, "gated": false},
-    {"name": "Nemotron 3 Ultra", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 550, "active_b": 55, "ollama_tag": "nemotron-3-ultra:cloud", "hf_id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16", "context_k": 256, "license": "OpenMDW-1.1", "intelligence": 63, "gated": false},
-    {"name": "Qwen3.5 122B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 122, "active_b": 10, "ollama_tag": "qwen3.5:122b", "hf_id": "Qwen/Qwen3.5-122B-A10B", "context_k": 262, "license": "Apache-2.0", "intelligence": 62, "gated": false},
-    {"name": "DeepSeek V3.1", "family": "DeepSeek", "origin": "DeepSeek, China", "params_b": 671, "active_b": 37, "ollama_tag": "deepseek-v3.1", "hf_id": "deepseek-ai/DeepSeek-V3.1", "context_k": 128, "license": "MIT", "intelligence": 61, "gated": false},
-    {"name": "gpt-oss 120B", "family": "gpt-oss", "origin": "OpenAI, US", "params_b": 120, "active_b": 5.1, "ollama_tag": "gpt-oss:120b", "hf_id": "openai/gpt-oss-120b", "context_k": 128, "license": "Apache-2.0", "intelligence": 60, "gated": false},
-    {"name": "Qwen3.6 35B-A3B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 35, "active_b": 3, "ollama_tag": "qwen3.6", "hf_id": "Qwen/Qwen3.6-35B-A3B", "context_k": 262, "license": "Apache-2.0", "intelligence": 58, "gated": false},
-    {"name": "Kimi K3", "family": "Kimi", "origin": "Moonshot AI, China", "params_b": 2800, "active_b": 104, "ollama_tag": "kimi-k3:cloud", "hf_id": "moonshotai/Kimi-K3", "context_k": 1000, "license": "Modified MIT", "intelligence": 57, "gated": false},
-    {"name": "Nemotron 3.5 Super", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 120, "active_b": 12, "ollama_tag": "nemotron-3.5-super:120b", "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16", "context_k": 256, "license": "NVIDIA Open Model", "intelligence": 57, "gated": false},
-    {"name": "Llama 4 Maverick", "family": "Llama", "origin": "Meta, US", "params_b": 402, "active_b": 17, "ollama_tag": "llama4:maverick", "hf_id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct", "context_k": 1000, "license": "Llama Community", "intelligence": 56, "gated": true},
-    {"name": "Nemotron 3 Super", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 120, "active_b": 12, "ollama_tag": "nemotron-3-super:120b", "hf_id": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", "context_k": 256, "license": "NVIDIA Open Model", "intelligence": 56, "gated": false},
-    {"name": "GLM-4.7-flash", "family": "GLM", "origin": "Zhipu / Z.ai, China", "params_b": 30, "active_b": 3, "ollama_tag": "glm-4.7-flash", "hf_id": "zai-org/GLM-4.7-Flash", "context_k": 200, "license": "MIT", "intelligence": 55, "gated": false},
-    {"name": "Qwen3.8 27B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 27, "active_b": 27, "ollama_tag": "qwen3.8:27b", "hf_id": "Qwen/Qwen3.8-27B", "context_k": 262, "license": "Apache-2.0", "intelligence": 55, "gated": false},
-    {"name": "Qwen3.5 27B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 27, "active_b": 27, "ollama_tag": "qwen3.5:27b", "hf_id": "Qwen/Qwen3.5-27B", "context_k": 262, "license": "Apache-2.0", "intelligence": 54, "gated": false},
-    {"name": "Gemma 4 31B", "family": "Gemma", "origin": "Google, US", "params_b": 31, "active_b": 31, "ollama_tag": "gemma4:31b", "hf_id": "google/gemma-4-31B-it", "context_k": 256, "license": "Apache-2.0", "intelligence": 53, "gated": false},
-    {"name": "Gemma 4 26B-A4B", "family": "Gemma", "origin": "Google, US", "params_b": 26, "active_b": 4, "ollama_tag": "gemma4:26b", "hf_id": "google/gemma-4-26B-A4B-it", "context_k": 256, "license": "Apache-2.0", "intelligence": 52, "gated": false},
-    {"name": "Llama 4 Scout", "family": "Llama", "origin": "Meta, US", "params_b": 109, "active_b": 17, "ollama_tag": "llama4:scout", "hf_id": "meta-llama/Llama-4-Scout-17B-16E-Instruct", "context_k": 1000, "license": "Llama Community", "intelligence": 51, "gated": true},
-    {"name": "DeepSeek-R1 32B", "family": "DeepSeek", "origin": "DeepSeek, China", "params_b": 32, "active_b": 32, "ollama_tag": "deepseek-r1:32b", "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", "context_k": 128, "license": "MIT", "intelligence": 50, "gated": false},
-    {"name": "Nemotron 3.5 Lightning", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 30, "active_b": 3, "ollama_tag": "nemotron-3.5-lightning:30b", "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16", "context_k": 256, "license": "NVIDIA Open Model", "intelligence": 49, "gated": false},
-    {"name": "gpt-oss 20B", "family": "gpt-oss", "origin": "OpenAI, US", "params_b": 20, "active_b": 3.6, "ollama_tag": "gpt-oss:20b", "hf_id": "openai/gpt-oss-20b", "context_k": 128, "license": "Apache-2.0", "intelligence": 48, "gated": false},
-    {"name": "Nemotron 3 Nano", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 30, "active_b": 3.5, "ollama_tag": "nemotron-3-nano:30b", "hf_id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16", "context_k": 256, "license": "NVIDIA Open Model", "intelligence": 47, "gated": false},
-    {"name": "Llama 3.3 70B", "family": "Llama", "origin": "Meta, US", "params_b": 70, "active_b": 70, "ollama_tag": "llama3.3:70b", "hf_id": "meta-llama/Llama-3.3-70B-Instruct", "context_k": 128, "license": "Llama Community", "intelligence": 46, "gated": true, "quant_hf_id": "casperhansen/llama-3.3-70b-instruct-awq"},
-    {"name": "Granite 4.2 30B-A3B", "family": "Granite", "origin": "IBM, US", "params_b": 30, "active_b": 3, "ollama_tag": "granite4.2:30b", "hf_id": "ibm-granite/granite-4.2-30b", "context_k": 128, "license": "Apache-2.0", "intelligence": 46, "gated": false},
-    {"name": "Qwen3.5 9B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 9, "active_b": 9, "ollama_tag": "qwen3.5:9b", "hf_id": "Qwen/Qwen3.5-9B", "context_k": 262, "license": "Apache-2.0", "intelligence": 45, "gated": false},
-    {"name": "Gemma 3 27B", "family": "Gemma", "origin": "Google, US", "params_b": 27, "active_b": 27, "ollama_tag": "gemma3:27b", "hf_id": "google/gemma-3-27b-it", "context_k": 128, "license": "Gemma", "intelligence": 44, "gated": true},
-    {"name": "Gemma 4 12B", "family": "Gemma", "origin": "Google, US", "params_b": 12, "active_b": 12, "ollama_tag": "gemma4:12b", "hf_id": "google/gemma-4-12B-it", "context_k": 256, "license": "Apache-2.0", "intelligence": 43, "gated": false},
-    {"name": "Mistral Small 3.2 24B", "family": "Mistral", "origin": "Mistral AI, France (EU)", "params_b": 24, "active_b": 24, "ollama_tag": "mistral-small3.2:24b", "hf_id": "mistralai/Mistral-Small-3.2-24B-Instruct-2506", "context_k": 128, "license": "Apache-2.0", "intelligence": 42, "gated": false},
-    {"name": "Phi-4 14B", "family": "Phi", "origin": "Microsoft, US", "params_b": 14, "active_b": 14, "ollama_tag": "phi4:14b", "hf_id": "microsoft/phi-4", "context_k": 16, "license": "MIT", "intelligence": 40, "gated": false},
-    {"name": "Granite 4.2 8B", "family": "Granite", "origin": "IBM, US", "params_b": 9, "active_b": 9, "ollama_tag": "granite4.2:8b", "hf_id": "ibm-granite/granite-4.2-8b", "context_k": 128, "license": "Apache-2.0", "intelligence": 36, "gated": false},
-    {"name": "Qwen3.5 4B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 4, "active_b": 4, "ollama_tag": "qwen3.5:4b", "hf_id": "Qwen/Qwen3.5-4B", "context_k": 262, "license": "Apache-2.0", "intelligence": 34, "gated": false},
-    {"name": "Gemma 4 E4B", "family": "Gemma", "origin": "Google, US", "params_b": 8, "active_b": 4, "ollama_tag": "gemma4:e4b", "hf_id": "google/gemma-4-E4B-it", "context_k": 128, "license": "Apache-2.0", "intelligence": 33, "gated": false},
-    {"name": "Nemotron 3.5 Bolt", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 8, "active_b": 4, "ollama_tag": "nemotron-3.5-bolt:e4b", "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16", "context_k": 256, "license": "NVIDIA Open Model", "intelligence": 33, "gated": false},
-    {"name": "Nemotron 3 Nano 4B", "family": "Nemotron", "origin": "NVIDIA, US", "params_b": 4, "active_b": 4, "ollama_tag": "nemotron-3-nano:4b", "hf_id": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16", "context_k": 262, "license": "NVIDIA Open Model", "intelligence": 33, "gated": false},
-    {"name": "Gemma 3 4B", "family": "Gemma", "origin": "Google, US", "params_b": 4, "active_b": 4, "ollama_tag": "gemma3:4b", "hf_id": "google/gemma-3-4b-it", "context_k": 128, "license": "Gemma", "intelligence": 30, "gated": true},
-    {"name": "Gemma 4 E2B", "family": "Gemma", "origin": "Google, US", "params_b": 5, "active_b": 2, "ollama_tag": "gemma4:e2b", "hf_id": "google/gemma-4-E2B-it", "context_k": 128, "license": "Apache-2.0", "intelligence": 26, "gated": false},
-    {"name": "Qwen3.5 2B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 2, "active_b": 2, "ollama_tag": "qwen3.5:2b", "hf_id": "Qwen/Qwen3.5-2B", "context_k": 262, "license": "Apache-2.0", "intelligence": 24, "gated": false},
-    {"name": "Granite 4.2 3B", "family": "Granite", "origin": "IBM, US", "params_b": 3, "active_b": 3, "ollama_tag": "granite4.2:3b", "hf_id": "ibm-granite/granite-4.2-3b", "context_k": 128, "license": "Apache-2.0", "intelligence": 22, "gated": false},
-    {"name": "Gemma 3 1B", "family": "Gemma", "origin": "Google, US", "params_b": 1, "active_b": 1, "ollama_tag": "gemma3:1b", "hf_id": "google/gemma-3-1b-it", "context_k": 32, "license": "Gemma", "intelligence": 18, "gated": true},
-    {"name": "Qwen3.5 0.8B", "family": "Qwen", "origin": "Alibaba, China", "params_b": 0.8, "active_b": 0.8, "ollama_tag": "qwen3.5:0.8b", "hf_id": "Qwen/Qwen3.5-0.8B", "context_k": 262, "license": "Apache-2.0", "intelligence": 14, "gated": false}
-  ]
+ "schema": 1,
+ "note": "Frontier open-weight catalog. Ordered by an intelligence index; the picker re-ranks by intelligence x what fits the target hardware. params_b is TOTAL parameters (the memory driver, incl. all MoE experts); active_b is what computes per token (the speed driver). Ollama tags are verified against the live library; hf_id is best-effort for the newest models and is corrected by Refresh. Refreshable via /models/refresh-catalog. Release 1 of the rebuilt catalogue (issue #304): every intelligence value is 0 (unscored, no sourced index) so the picker offers the largest model that fits; rows carry additive keys (licence, origin_region, size, fit, validation); 12 rows carry the explicit GGUF tag in gguf_tag (ollama_tag is unchanged; the app switches in a later release). See docs/specs/model-catalogue-release-1.md.",
+ "generated": "2026-11-19",
+ "models": [
+  {
+   "name": "DeepSeek V4-Pro",
+   "family": "DeepSeek",
+   "origin": "DeepSeek, China",
+   "params_b": 1600,
+   "active_b": 49,
+   "ollama_tag": "deepseek-v4-pro:cloud",
+   "hf_id": "deepseek-ai/DeepSeek-V4-Pro",
+   "context_k": 1000,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "deepseek-v4-pro-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "DeepSeek, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "deepseek-v4-pro:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "MiniMax M3",
+   "family": "MiniMax",
+   "origin": "MiniMax, China",
+   "params_b": 428,
+   "active_b": 23,
+   "ollama_tag": "minimax-m3:cloud",
+   "hf_id": "MiniMaxAI/MiniMax-M3",
+   "context_k": 1000,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "minimax-m3-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "MiniMax, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "minimax-m3:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "GLM-5.3",
+   "family": "GLM",
+   "origin": "Zhipu / Z.ai, China",
+   "params_b": 744,
+   "active_b": 40,
+   "ollama_tag": "glm-5.3:cloud",
+   "hf_id": "zai-org/GLM-5.3",
+   "context_k": 200,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "glm-5_3-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Zhipu / Z.ai, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "glm-5.3:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "GLM-5.2",
+   "family": "GLM",
+   "origin": "Zhipu / Z.ai, China",
+   "params_b": 744,
+   "active_b": 40,
+   "ollama_tag": "glm-5.2:cloud",
+   "hf_id": "zai-org/GLM-5.2",
+   "context_k": 1000,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "glm-5_2-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Zhipu / Z.ai, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "glm-5.2:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "Kimi K2.7 Code",
+   "family": "Kimi",
+   "origin": "Moonshot AI, China",
+   "params_b": 1000,
+   "active_b": 32,
+   "ollama_tag": "kimi-k2.7-code:cloud",
+   "hf_id": "moonshotai/Kimi-K2.7-Code",
+   "context_k": 256,
+   "license": "Modified MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "kimi-k2_7-code-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Modified-MIT-Moonshot",
+    "name": "Modified MIT",
+    "link": null,
+    "restrictions": [
+     "user_threshold",
+     "revenue_threshold",
+     "attribution"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Above 100M monthly users or USD 20M monthly revenue the product must display the model name.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Moonshot AI, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "kimi-k2.7-code:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "DeepSeek V4.1-Flash",
+   "family": "DeepSeek",
+   "origin": "DeepSeek, China",
+   "params_b": 552,
+   "active_b": 16,
+   "ollama_tag": "deepseek-v4.1-flash:cloud",
+   "hf_id": "deepseek-ai/DeepSeek-V4.1-Flash",
+   "context_k": 1000,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "deepseek-v4_1-flash-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "DeepSeek, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "deepseek-v4.1-flash:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "Nemotron 3 Ultra",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 550,
+   "active_b": 55,
+   "ollama_tag": "nemotron-3-ultra:cloud",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
+   "context_k": 256,
+   "license": "OpenMDW-1.1",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3-ultra-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "OpenMDW-1.1",
+    "name": "OpenMDW-1.1",
+    "link": null,
+    "restrictions": [
+     "attribution"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Keep the licence copy and notices when the weights are shared.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3-ultra:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "Qwen3.5 122B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 122,
+   "active_b": 10,
+   "ollama_tag": "qwen3.5:122b",
+   "hf_id": "Qwen/Qwen3.5-122B-A10B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-122b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:122b",
+    "gguf_ref": "qwen3.5:122b-a10b-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "a10b-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "too_large"
+   },
+   "size": {
+    "weights_gb": 81,
+    "weights_basis": "library_page_size",
+    "params_total_b": 122,
+    "params_active_b": 10,
+    "context_trained_k": 262,
+    "layers": 48,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 12,
+    "kv_bytes_per_token_f16": 24576,
+    "context_gb_at_8k": 0.2,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 82.2
+   },
+   "gguf_tag": "qwen3.5:122b-a10b-q4_K_M"
+  },
+  {
+   "name": "DeepSeek V3.1",
+   "family": "DeepSeek",
+   "origin": "DeepSeek, China",
+   "params_b": 671,
+   "active_b": 37,
+   "ollama_tag": "deepseek-v3.1",
+   "hf_id": "deepseek-ai/DeepSeek-V3.1",
+   "context_k": 128,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "deepseek-v3_1",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "DeepSeek, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "deepseek-v3.1"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "too_large"
+   },
+   "size": {
+    "weights_gb": 406.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 671,
+    "params_active_b": 37,
+    "context_trained_k": 128,
+    "layers": 61,
+    "kv_heads": 128,
+    "head_dim": 56,
+    "attention_layers_with_kv": 61,
+    "kv_bytes_per_token_f16": 70272,
+    "context_gb_at_8k": 0.58,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "mla latent cache"
+    ],
+    "need_gb_at_8k": 408.4
+   }
+  },
+  {
+   "name": "gpt-oss 120B",
+   "family": "gpt-oss",
+   "origin": "OpenAI, US",
+   "params_b": 120,
+   "active_b": 5.1,
+   "ollama_tag": "gpt-oss:120b",
+   "hf_id": "openai/gpt-oss-120b",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gpt-oss-120b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "OpenAI, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gpt-oss:120b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "too_large"
+   },
+   "size": {
+    "weights_gb": 72.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 120,
+    "params_active_b": 5.1,
+    "context_trained_k": 128,
+    "layers": 36,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "attention_layers_with_kv": 36,
+    "kv_bytes_per_token_f16": 36864,
+    "context_gb_at_8k": 0.31,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 74.1
+   }
+  },
+  {
+   "name": "Qwen3.6 35B-A3B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 35,
+   "active_b": 3,
+   "ollama_tag": "qwen3.6",
+   "hf_id": "Qwen/Qwen3.6-35B-A3B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_6",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.6"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown",
+    "note": "plain tag: MLX build on Ollama 0.40.x for this architecture; explicit tag qwen3.6:35b-a3b-q4_K_M to confirm before use"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 24,
+    "weights_basis": "library_page_size_unconfirmed_mapping",
+    "params_total_b": 35,
+    "params_active_b": 3,
+    "context_trained_k": 262,
+    "layers": 40,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 10,
+    "kv_bytes_per_token_f16": 20480,
+    "context_gb_at_8k": 0.17,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 25.2
+   }
+  },
+  {
+   "name": "Kimi K3",
+   "family": "Kimi",
+   "origin": "Moonshot AI, China",
+   "params_b": 2800,
+   "active_b": 104,
+   "ollama_tag": "kimi-k3:cloud",
+   "hf_id": "moonshotai/Kimi-K3",
+   "context_k": 1000,
+   "license": "Kimi K3 License",
+   "intelligence": 0,
+   "gated": false,
+   "id": "kimi-k3-cloud",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Kimi-K3",
+    "name": "Kimi K3 License",
+    "link": null,
+    "restrictions": [
+     "revenue_threshold",
+     "attribution",
+     "field_of_use"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Custom licence, not Modified MIT. A separate agreement is needed for a Model-as-a-Service business with over USD 20M revenue in 12 months; display duty above 100M monthly users or USD 20M monthly revenue; internal use exempt. Peer lending to third parties may count as service access: unresolved.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Moonshot AI, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "kimi-k3:cloud"
+   },
+   "validation": "unvalidated",
+   "cloud": true,
+   "build_checked": null,
+   "size": {
+    "basis": "not_applicable_cloud"
+   },
+   "fit": {}
+  },
+  {
+   "name": "Nemotron 3.5 Super",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 120,
+   "active_b": 12,
+   "ollama_tag": "nemotron-3.5-super:120b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16",
+   "context_k": 256,
+   "license": "OpenMDW-1.1",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3_5-super-120b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "OpenMDW-1.1",
+    "name": "OpenMDW-1.1",
+    "link": null,
+    "restrictions": [
+     "attribution"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Keep the licence copy and notices when the weights are shared.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3.5-super:120b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "too_large"
+   },
+   "size": {
+    "weights_gb": 72.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 120,
+    "params_active_b": 12,
+    "context_trained_k": 256,
+    "layers": null,
+    "kv_heads": 2,
+    "head_dim": 128,
+    "attention_layers_with_kv": 8,
+    "kv_bytes_per_token_f16": 8192,
+    "context_gb_at_8k": 0.07,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid mamba: only attention layers counted"
+    ],
+    "need_gb_at_8k": 73.9
+   }
+  },
+  {
+   "name": "Llama 4 Maverick",
+   "family": "Llama",
+   "origin": "Meta, US",
+   "params_b": 402,
+   "active_b": 17,
+   "ollama_tag": "llama4:maverick",
+   "hf_id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+   "context_k": 1000,
+   "license": "Llama 4 Community License",
+   "intelligence": 0,
+   "gated": true,
+   "id": "llama4-maverick",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Llama-4-Community",
+    "name": "Llama 4 Community License",
+    "link": null,
+    "restrictions": [
+     "user_threshold",
+     "attribution",
+     "naming",
+     "derived_terms",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from meta-llama/llama-models on GitHub; Acceptable Use Policy not read",
+    "legal_reading": {
+     "text": "Over 700M monthly users a licence from Meta is needed. Sharing the weights needs the agreement copy, a Notice file and \"Built with Llama\". A shared model made with it must have a name starting with \"Llama\". Use must follow Meta's Acceptable Use Policy (not read).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Meta, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "llama4:maverick"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 243.7,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 402,
+    "params_active_b": 17,
+    "context_trained_k": 1000,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "Nemotron 3 Super",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 120,
+   "active_b": 12,
+   "ollama_tag": "nemotron-3-super:120b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+   "context_k": 256,
+   "license": "NVIDIA Nemotron Open Model License",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3-super-120b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-NVIDIA-Nemotron-Open-Model",
+    "name": "NVIDIA Nemotron Open Model License (v. December 15, 2025)",
+    "link": null,
+    "restrictions": [
+     "attribution",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Commercial use free, no thresholds, no acceptable-use or guardrail clause. Sharing the weights needs the licence copy and notices; sublicensing duties include an indemnity to NVIDIA (section 7); export laws apply (section 10).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3-super:120b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "too_large"
+   },
+   "size": {
+    "weights_gb": 72.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 120,
+    "params_active_b": 12,
+    "context_trained_k": 256,
+    "layers": 88,
+    "kv_heads": 2,
+    "head_dim": 128,
+    "attention_layers_with_kv": 8,
+    "kv_bytes_per_token_f16": 8192,
+    "context_gb_at_8k": 0.07,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid mamba: only attention layers counted"
+    ],
+    "need_gb_at_8k": 73.9
+   }
+  },
+  {
+   "name": "GLM-4.7-flash",
+   "family": "GLM",
+   "origin": "Zhipu / Z.ai, China",
+   "params_b": 30,
+   "active_b": 3,
+   "ollama_tag": "glm-4.7-flash",
+   "hf_id": "zai-org/GLM-4.7-Flash",
+   "context_k": 200,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "glm-4_7-flash",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Zhipu / Z.ai, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "glm-4.7-flash"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "tight",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18.2,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 30,
+    "params_active_b": 3,
+    "context_trained_k": 200,
+    "layers": 47,
+    "kv_heads": 20,
+    "head_dim": 102,
+    "attention_layers_with_kv": 47,
+    "kv_bytes_per_token_f16": 54144,
+    "context_gb_at_8k": 0.44,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "mla latent cache"
+    ],
+    "need_gb_at_8k": 19.6
+   }
+  },
+  {
+   "name": "Qwen3.8 27B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 27,
+   "active_b": 27,
+   "ollama_tag": "qwen3.8:27b",
+   "hf_id": "Qwen/Qwen3.8-27B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_8-27b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.8:27b",
+    "gguf_ref": "qwen3.8:27b-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "tight",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18,
+    "weights_basis": "library_page_size",
+    "params_total_b": 27,
+    "params_active_b": 27,
+    "context_trained_k": 262,
+    "layers": 64,
+    "kv_heads": 4,
+    "head_dim": 256,
+    "attention_layers_with_kv": 16,
+    "kv_bytes_per_token_f16": 65536,
+    "context_gb_at_8k": 0.54,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 19.5
+   },
+   "gguf_tag": "qwen3.8:27b-q4_K_M"
+  },
+  {
+   "name": "Qwen3.5 27B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 27,
+   "active_b": 27,
+   "ollama_tag": "qwen3.5:27b",
+   "hf_id": "Qwen/Qwen3.5-27B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-27b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:27b",
+    "gguf_ref": "qwen3.5:27b-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 17,
+    "weights_basis": "library_page_size",
+    "params_total_b": 27,
+    "params_active_b": 27,
+    "context_trained_k": 262,
+    "layers": 64,
+    "kv_heads": 4,
+    "head_dim": 256,
+    "attention_layers_with_kv": 16,
+    "kv_bytes_per_token_f16": 65536,
+    "context_gb_at_8k": 0.54,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 18.5
+   },
+   "gguf_tag": "qwen3.5:27b-q4_K_M"
+  },
+  {
+   "name": "Gemma 4 31B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 31,
+   "active_b": 31,
+   "ollama_tag": "gemma4:31b",
+   "hf_id": "google/gemma-4-31B-it",
+   "context_k": 256,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gemma4-31b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma4:31b",
+    "gguf_ref": "gemma4:31b-it-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "it-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 20,
+    "weights_basis": "library_page_size",
+    "params_total_b": 31,
+    "params_active_b": 31,
+    "context_trained_k": 256,
+    "layers": 60,
+    "kv_heads": 16,
+    "head_dim": 256,
+    "attention_layers_with_kv": 60,
+    "kv_bytes_per_token_f16": 163840,
+    "context_gb_at_8k": 2.18,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 23.2
+   },
+   "gguf_tag": "gemma4:31b-it-q4_K_M"
+  },
+  {
+   "name": "Gemma 4 26B-A4B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 26,
+   "active_b": 4,
+   "ollama_tag": "gemma4:26b",
+   "hf_id": "google/gemma-4-26B-A4B-it",
+   "context_k": 256,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gemma4-26b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma4:26b",
+    "gguf_ref": "gemma4:26b-a4b-it-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "a4b-it-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "tight",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18,
+    "weights_basis": "library_page_size",
+    "params_total_b": 26,
+    "params_active_b": 4,
+    "context_trained_k": 256,
+    "layers": 30,
+    "kv_heads": 8,
+    "head_dim": 256,
+    "attention_layers_with_kv": 30,
+    "kv_bytes_per_token_f16": 40960,
+    "context_gb_at_8k": 0.55,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 19.5
+   },
+   "gguf_tag": "gemma4:26b-a4b-it-q4_K_M"
+  },
+  {
+   "name": "Llama 4 Scout",
+   "family": "Llama",
+   "origin": "Meta, US",
+   "params_b": 109,
+   "active_b": 17,
+   "ollama_tag": "llama4:scout",
+   "hf_id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+   "context_k": 1000,
+   "license": "Llama 4 Community License",
+   "intelligence": 0,
+   "gated": true,
+   "id": "llama4-scout",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Llama-4-Community",
+    "name": "Llama 4 Community License",
+    "link": null,
+    "restrictions": [
+     "user_threshold",
+     "attribution",
+     "naming",
+     "derived_terms",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from meta-llama/llama-models on GitHub; Acceptable Use Policy not read",
+    "legal_reading": {
+     "text": "Over 700M monthly users a licence from Meta is needed. Sharing the weights needs the agreement copy, a Notice file and \"Built with Llama\". A shared model made with it must have a name starting with \"Llama\". Use must follow Meta's Acceptable Use Policy (not read).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Meta, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "llama4:scout"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 66.1,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 109,
+    "params_active_b": 17,
+    "context_trained_k": 1000,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "DeepSeek-R1 32B",
+   "family": "DeepSeek",
+   "origin": "DeepSeek, China",
+   "params_b": 32,
+   "active_b": 32,
+   "ollama_tag": "deepseek-r1:32b",
+   "hf_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+   "context_k": 128,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "deepseek-r1-32b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "DeepSeek, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "deepseek-r1:32b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "too_large",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 19.4,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 32,
+    "params_active_b": 32,
+    "context_trained_k": 128,
+    "layers": 64,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_layers_with_kv": 64,
+    "kv_bytes_per_token_f16": 262144,
+    "context_gb_at_8k": 2.15,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 22.5
+   }
+  },
+  {
+   "name": "Nemotron 3.5 Lightning",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 30,
+   "active_b": 3,
+   "ollama_tag": "nemotron-3.5-lightning:30b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+   "context_k": 256,
+   "license": "OpenMDW-1.1",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3_5-lightning-30b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "OpenMDW-1.1",
+    "name": "OpenMDW-1.1",
+    "link": null,
+    "restrictions": [
+     "attribution"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Keep the licence copy and notices when the weights are shared.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3.5-lightning:30b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18.2,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 30,
+    "params_active_b": 3,
+    "context_trained_k": 256,
+    "layers": 52,
+    "kv_heads": 2,
+    "head_dim": 128,
+    "attention_layers_with_kv": 6,
+    "kv_bytes_per_token_f16": 6144,
+    "context_gb_at_8k": 0.05,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid mamba: only attention layers counted"
+    ],
+    "need_gb_at_8k": 19.3
+   }
+  },
+  {
+   "name": "gpt-oss 20B",
+   "family": "gpt-oss",
+   "origin": "OpenAI, US",
+   "params_b": 20,
+   "active_b": 3.6,
+   "ollama_tag": "gpt-oss:20b",
+   "hf_id": "openai/gpt-oss-20b",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gpt-oss-20b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "OpenAI, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gpt-oss:20b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 12.1,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 20,
+    "params_active_b": 3.6,
+    "context_trained_k": 128,
+    "layers": 24,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "attention_layers_with_kv": 24,
+    "kv_bytes_per_token_f16": 24576,
+    "context_gb_at_8k": 0.2,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 13.3
+   }
+  },
+  {
+   "name": "Nemotron 3 Nano",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 30,
+   "active_b": 3.5,
+   "ollama_tag": "nemotron-3-nano:30b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+   "context_k": 256,
+   "license": "NVIDIA Nemotron Open Model License",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3-nano-30b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-NVIDIA-Nemotron-Open-Model",
+    "name": "NVIDIA Nemotron Open Model License (v. December 15, 2025)",
+    "link": null,
+    "restrictions": [
+     "attribution",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Commercial use free, no thresholds, no acceptable-use or guardrail clause. Sharing the weights needs the licence copy and notices; sublicensing duties include an indemnity to NVIDIA (section 7); export laws apply (section 10).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3-nano:30b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18.2,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 30,
+    "params_active_b": 3.5,
+    "context_trained_k": 256,
+    "layers": 52,
+    "kv_heads": 2,
+    "head_dim": 128,
+    "attention_layers_with_kv": 6,
+    "kv_bytes_per_token_f16": 6144,
+    "context_gb_at_8k": 0.05,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid mamba: only attention layers counted"
+    ],
+    "need_gb_at_8k": 19.3
+   }
+  },
+  {
+   "name": "Llama 3.3 70B",
+   "family": "Llama",
+   "origin": "Meta, US",
+   "params_b": 70,
+   "active_b": 70,
+   "ollama_tag": "llama3.3:70b",
+   "hf_id": "meta-llama/Llama-3.3-70B-Instruct",
+   "context_k": 128,
+   "license": "Llama 3.3 Community License",
+   "intelligence": 0,
+   "gated": true,
+   "quant_hf_id": "casperhansen/llama-3.3-70b-instruct-awq",
+   "id": "llama3_3-70b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Llama-3.3-Community",
+    "name": "Llama 3.3 Community License",
+    "link": null,
+    "restrictions": [
+     "user_threshold",
+     "attribution",
+     "naming",
+     "derived_terms",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from meta-llama/llama-models on GitHub; Acceptable Use Policy not read",
+    "legal_reading": {
+     "text": "Over 700M monthly users a licence from Meta is needed. Sharing the weights needs the agreement copy, a Notice file and \"Built with Llama\". A shared model made with it must have a name starting with \"Llama\". Use must follow Meta's Acceptable Use Policy (not read).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Meta, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "llama3.3:70b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 42.4,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 70,
+    "params_active_b": 70,
+    "context_trained_k": 128,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "Granite 4.2 30B-A3B",
+   "family": "Granite",
+   "origin": "IBM, US",
+   "params_b": 30,
+   "active_b": 3,
+   "ollama_tag": "granite4.2:30b",
+   "hf_id": "ibm-granite/granite-4.2-30b",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "granite4_2-30b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "IBM, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "granite4.2:30b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "tight",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 18.2,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 30,
+    "params_active_b": 3,
+    "context_trained_k": 128,
+    "layers": 64,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_layers_with_kv": 64,
+    "kv_bytes_per_token_f16": 262144,
+    "context_gb_at_8k": 2.15,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 21.3
+   }
+  },
+  {
+   "name": "Qwen3.5 9B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 9,
+   "active_b": 9,
+   "ollama_tag": "qwen3.5:9b",
+   "hf_id": "Qwen/Qwen3.5-9B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-9b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:9b",
+    "gguf_ref": "qwen3.5:9b-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 6.6,
+    "weights_basis": "library_page_size",
+    "params_total_b": 9,
+    "params_active_b": 9,
+    "context_trained_k": 262,
+    "layers": 32,
+    "kv_heads": 4,
+    "head_dim": 256,
+    "attention_layers_with_kv": 8,
+    "kv_bytes_per_token_f16": 32768,
+    "context_gb_at_8k": 0.27,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 7.9
+   },
+   "gguf_tag": "qwen3.5:9b-q4_K_M"
+  },
+  {
+   "name": "Gemma 3 27B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 27,
+   "active_b": 27,
+   "ollama_tag": "gemma3:27b",
+   "hf_id": "google/gemma-3-27b-it",
+   "context_k": 128,
+   "license": "Gemma Terms of Use",
+   "intelligence": 0,
+   "gated": true,
+   "id": "gemma3-27b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Gemma-Terms-of-Use",
+    "name": "Gemma Terms of Use (last modified April 1, 2026)",
+    "link": "https://gemma.ai/resources/terms/",
+    "restrictions": [
+     "field_of_use",
+     "attribution",
+     "derived_terms",
+     "revocable"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from gemma.ai (reached by Google's own ai.google.dev redirect)",
+    "legal_reading": {
+     "text": "No commercial limit or user threshold. Sharing weights or fine-tunes needs the terms copy, a Notice file and \"modified\" notices, and the Prohibited Use Policy must be passed on. Training another model on its outputs to copy its performance makes that model a derivative. Google may restrict use remotely and require deletion on breach.",
+     "label": "our reading, not legal advice",
+     "link": "https://gemma.ai/resources/terms/"
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma3:27b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 16.4,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 27,
+    "params_active_b": 27,
+    "context_trained_k": 128,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "Gemma 4 12B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 12,
+   "active_b": 12,
+   "ollama_tag": "gemma4:12b",
+   "hf_id": "google/gemma-4-12B-it",
+   "context_k": 256,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gemma4-12b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma4:12b",
+    "gguf_ref": "gemma4:12b-it-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "it-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "tight",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 8.0,
+    "weights_basis": "library_page_size",
+    "params_total_b": 12,
+    "params_active_b": 12,
+    "context_trained_k": 256,
+    "layers": 48,
+    "kv_heads": 8,
+    "head_dim": 256,
+    "attention_layers_with_kv": 48,
+    "kv_bytes_per_token_f16": 65536,
+    "context_gb_at_8k": 0.87,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 9.9
+   },
+   "gguf_tag": "gemma4:12b-it-q4_K_M"
+  },
+  {
+   "name": "Mistral Small 3.2 24B",
+   "family": "Mistral",
+   "origin": "Mistral AI, France (EU)",
+   "params_b": 24,
+   "active_b": 24,
+   "ollama_tag": "mistral-small3.2:24b",
+   "hf_id": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "mistral-small3_2-24b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "europe",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Mistral AI, France (EU)",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "mistral-small3.2:24b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "too_large",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 14.5,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 24,
+    "params_active_b": 24,
+    "context_trained_k": 128,
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_layers_with_kv": 40,
+    "kv_bytes_per_token_f16": 163840,
+    "context_gb_at_8k": 1.34,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 16.8
+   }
+  },
+  {
+   "name": "Phi-4 14B",
+   "family": "Phi",
+   "origin": "Microsoft, US",
+   "params_b": 14,
+   "active_b": 14,
+   "ollama_tag": "phi4:14b",
+   "hf_id": "microsoft/phi-4",
+   "context_k": 16,
+   "license": "MIT",
+   "intelligence": 0,
+   "gated": false,
+   "id": "phi4-14b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "MIT",
+    "name": "MIT",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Microsoft, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "phi4:14b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "too_large",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 8.5,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 14,
+    "params_active_b": 14,
+    "context_trained_k": 16,
+    "layers": 40,
+    "kv_heads": 10,
+    "head_dim": 128,
+    "attention_layers_with_kv": 40,
+    "kv_bytes_per_token_f16": 204800,
+    "context_gb_at_8k": 1.68,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 11.2
+   }
+  },
+  {
+   "name": "Granite 4.2 8B",
+   "family": "Granite",
+   "origin": "IBM, US",
+   "params_b": 9,
+   "active_b": 9,
+   "ollama_tag": "granite4.2:8b",
+   "hf_id": "ibm-granite/granite-4.2-8b",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "granite4_2-8b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "IBM, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "granite4.2:8b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 5.5,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 9,
+    "params_active_b": 9,
+    "context_trained_k": 128,
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_layers_with_kv": 40,
+    "kv_bytes_per_token_f16": 163840,
+    "context_gb_at_8k": 1.34,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 7.8
+   }
+  },
+  {
+   "name": "Qwen3.5 4B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 4,
+   "active_b": 4,
+   "ollama_tag": "qwen3.5:4b",
+   "hf_id": "Qwen/Qwen3.5-4B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-4b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:4b",
+    "gguf_ref": "qwen3.5:4b-q4_K_M"
+   },
+   "validation": "validated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q4_K_M",
+    "memory_test": {
+     "passed": true,
+     "turns": 48,
+     "conversations": 8,
+     "device": "M4 16 GB",
+     "date": "2026-11-19",
+     "resident_end_gb": 3.38
+    }
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "fits",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 3.3,
+    "weights_basis": "library_page_size",
+    "params_total_b": 4,
+    "params_active_b": 4,
+    "context_trained_k": 262,
+    "layers": 32,
+    "kv_heads": 4,
+    "head_dim": 256,
+    "attention_layers_with_kv": 8,
+    "kv_bytes_per_token_f16": 32768,
+    "context_gb_at_8k": 0.27,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 4.6
+   },
+   "gguf_tag": "qwen3.5:4b-q4_K_M"
+  },
+  {
+   "name": "Gemma 4 E4B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 8,
+   "active_b": 4,
+   "ollama_tag": "gemma4:e4b",
+   "hf_id": "google/gemma-4-E4B-it",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gemma4-e4b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma4:e4b",
+    "gguf_ref": "gemma4:e4b-it-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "it-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 6.6,
+    "weights_basis": "library_page_size",
+    "params_total_b": 8,
+    "params_active_b": 4,
+    "context_trained_k": 128,
+    "layers": 42,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 42,
+    "kv_bytes_per_token_f16": 14336,
+    "context_gb_at_8k": 0.15,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 7.8
+   },
+   "gguf_tag": "gemma4:e4b-it-q4_K_M"
+  },
+  {
+   "name": "Nemotron 3.5 Bolt",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 8,
+   "active_b": 4,
+   "ollama_tag": "nemotron-3.5-bolt:e4b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16",
+   "context_k": 256,
+   "license": "OpenMDW-1.1",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3_5-bolt-e4b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "OpenMDW-1.1",
+    "name": "OpenMDW-1.1",
+    "link": null,
+    "restrictions": [
+     "attribution"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Keep the licence copy and notices when the weights are shared.",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3.5-bolt:e4b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "too_large",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 4.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 8,
+    "params_active_b": 4,
+    "context_trained_k": 256,
+    "layers": 42,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 42,
+    "kv_bytes_per_token_f16": 14336,
+    "context_gb_at_8k": 0.15,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 6.0
+   }
+  },
+  {
+   "name": "Nemotron 3 Nano 4B",
+   "family": "Nemotron",
+   "origin": "NVIDIA, US",
+   "params_b": 4,
+   "active_b": 4,
+   "ollama_tag": "nemotron-3-nano:4b",
+   "hf_id": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+   "context_k": 262,
+   "license": "NVIDIA Nemotron Open Model License",
+   "intelligence": 0,
+   "gated": false,
+   "id": "nemotron-3-nano-4b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-NVIDIA-Nemotron-Open-Model",
+    "name": "NVIDIA Nemotron Open Model License (v. December 15, 2025)",
+    "link": null,
+    "restrictions": [
+     "attribution",
+     "export_control"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, see 92-licence-reading-partial.md",
+    "legal_reading": {
+     "text": "Commercial use free, no thresholds, no acceptable-use or guardrail clause. Sharing the weights needs the licence copy and notices; sublicensing duties include an indemnity to NVIDIA (section 7); export laws apply (section 10).",
+     "label": "our reading, not legal advice",
+     "link": null
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "NVIDIA, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "nemotron-3-nano:4b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "fits",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 2.4,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 4,
+    "params_active_b": 4,
+    "context_trained_k": 262,
+    "layers": 42,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_layers_with_kv": 4,
+    "kv_bytes_per_token_f16": 16384,
+    "context_gb_at_8k": 0.13,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid mamba: only attention layers counted"
+    ],
+    "need_gb_at_8k": 3.5
+   }
+  },
+  {
+   "name": "Gemma 3 4B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 4,
+   "active_b": 4,
+   "ollama_tag": "gemma3:4b",
+   "hf_id": "google/gemma-3-4b-it",
+   "context_k": 128,
+   "license": "Gemma Terms of Use",
+   "intelligence": 0,
+   "gated": true,
+   "id": "gemma3-4b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Gemma-Terms-of-Use",
+    "name": "Gemma Terms of Use (last modified April 1, 2026)",
+    "link": "https://gemma.ai/resources/terms/",
+    "restrictions": [
+     "field_of_use",
+     "attribution",
+     "derived_terms",
+     "revocable"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from gemma.ai (reached by Google's own ai.google.dev redirect)",
+    "legal_reading": {
+     "text": "No commercial limit or user threshold. Sharing weights or fine-tunes needs the terms copy, a Notice file and \"modified\" notices, and the Prohibited Use Policy must be passed on. Training another model on its outputs to copy its performance makes that model a derivative. Google may restrict use remotely and require deletion on breach.",
+     "label": "our reading, not legal advice",
+     "link": "https://gemma.ai/resources/terms/"
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma3:4b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 2.4,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 4,
+    "params_active_b": 4,
+    "context_trained_k": 128,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "Gemma 4 E2B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 5,
+   "active_b": 2,
+   "ollama_tag": "gemma4:e2b",
+   "hf_id": "google/gemma-4-E2B-it",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "gemma4-e2b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma4:e2b",
+    "gguf_ref": "gemma4:e2b-it-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "it-q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "too_large",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 4.6,
+    "weights_basis": "library_page_size",
+    "params_total_b": 5,
+    "params_active_b": 2,
+    "context_trained_k": 128,
+    "layers": 35,
+    "kv_heads": 1,
+    "head_dim": 256,
+    "attention_layers_with_kv": 35,
+    "kv_bytes_per_token_f16": 7168,
+    "context_gb_at_8k": 0.07,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 5.7
+   },
+   "gguf_tag": "gemma4:e2b-it-q4_K_M"
+  },
+  {
+   "name": "Qwen3.5 2B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 2,
+   "active_b": 2,
+   "ollama_tag": "qwen3.5:2b",
+   "hf_id": "Qwen/Qwen3.5-2B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-2b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:2b",
+    "gguf_ref": "qwen3.5:2b-q4_K_M"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q4_K_M"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "fits",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 1.9,
+    "weights_basis": "library_page_size",
+    "params_total_b": 2,
+    "params_active_b": 2,
+    "context_trained_k": 262,
+    "layers": 24,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 6,
+    "kv_bytes_per_token_f16": 12288,
+    "context_gb_at_8k": 0.1,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 3.0
+   },
+   "gguf_tag": "qwen3.5:2b-q4_K_M"
+  },
+  {
+   "name": "Granite 4.2 3B",
+   "family": "Granite",
+   "origin": "IBM, US",
+   "params_b": 3,
+   "active_b": 3,
+   "ollama_tag": "granite4.2:3b",
+   "hf_id": "ibm-granite/granite-4.2-3b",
+   "context_k": 128,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "granite4_2-3b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "IBM, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "granite4.2:3b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "fits",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 1.8,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 3,
+    "params_active_b": 3,
+    "context_trained_k": 128,
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "attention_layers_with_kv": 40,
+    "kv_bytes_per_token_f16": 81920,
+    "context_gb_at_8k": 0.67,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [],
+    "need_gb_at_8k": 3.5
+   }
+  },
+  {
+   "name": "Gemma 3 1B",
+   "family": "Gemma",
+   "origin": "Google, US",
+   "params_b": 1,
+   "active_b": 1,
+   "ollama_tag": "gemma3:1b",
+   "hf_id": "google/gemma-3-1b-it",
+   "context_k": 32,
+   "license": "Gemma Terms of Use",
+   "intelligence": 0,
+   "gated": true,
+   "id": "gemma3-1b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "LicenseRef-Gemma-Terms-of-Use",
+    "name": "Gemma Terms of Use (last modified April 1, 2026)",
+    "link": "https://gemma.ai/resources/terms/",
+    "restrictions": [
+     "field_of_use",
+     "attribution",
+     "derived_terms",
+     "revocable"
+    ],
+    "needs_human_read": false,
+    "read_by": "Model Dev (our reading, not legal advice), 2026-11-19, text from gemma.ai (reached by Google's own ai.google.dev redirect)",
+    "legal_reading": {
+     "text": "No commercial limit or user threshold. Sharing weights or fine-tunes needs the terms copy, a Notice file and \"modified\" notices, and the Prohibited Use Policy must be passed on. Training another model on its outputs to copy its performance makes that model a derivative. Google may restrict use remotely and require deletion on breach.",
+     "label": "our reading, not legal advice",
+     "link": "https://gemma.ai/resources/terms/"
+    }
+   },
+   "origin_region": "north_america",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Google, US",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "gemma3:1b"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "unknown"
+   },
+   "build_checked": null,
+   "fit": {
+    "8": "not_computed",
+    "16": "not_computed",
+    "24": "not_computed",
+    "32": "not_computed",
+    "64": "not_computed"
+   },
+   "size": {
+    "weights_gb": 0.6,
+    "weights_basis": "estimated_from_params_q4",
+    "params_total_b": 1,
+    "params_active_b": 1,
+    "context_trained_k": 32,
+    "basis": "unknown",
+    "why_unknown": "model config not readable (gated or nested)"
+   }
+  },
+  {
+   "name": "Qwen3.5 0.8B",
+   "family": "Qwen",
+   "origin": "Alibaba, China",
+   "params_b": 0.8,
+   "active_b": 0.8,
+   "ollama_tag": "qwen3.5:0.8b",
+   "hf_id": "Qwen/Qwen3.5-0.8B",
+   "context_k": 262,
+   "license": "Apache-2.0",
+   "intelligence": 0,
+   "gated": false,
+   "id": "qwen3_5-0_8b",
+   "kind": "chat",
+   "maturity": "release",
+   "maintained": true,
+   "score": {
+    "status": "unscored",
+    "note": "decision 23: no source yet; picker suggests the largest model that fits"
+   },
+   "licence": {
+    "spdx": "Apache-2.0",
+    "name": "Apache-2.0",
+    "link": null,
+    "restrictions": [],
+    "needs_human_read": false
+   },
+   "origin_region": "east_asia",
+   "region_verified": false,
+   "origin_basis": {
+    "source": "seed origin string",
+    "text": "Alibaba, China",
+    "note": "not yet checked against the lab's own page (rule 80-4)"
+   },
+   "source": {
+    "type": "ollama_library",
+    "ref": "qwen3.5:0.8b",
+    "gguf_ref": "qwen3.5:0.8b-q8_0"
+   },
+   "validation": "unvalidated",
+   "cloud": false,
+   "build": {
+    "engine": "llamacpp",
+    "format": "gguf",
+    "quant": "q8_0"
+   },
+   "build_checked": {
+    "date": "2026-11-19",
+    "ollama_version": null,
+    "method": "library_page"
+   },
+   "fit": {
+    "8": "fits",
+    "16": "fits",
+    "24": "fits",
+    "32": "fits",
+    "64": "fits"
+   },
+   "size": {
+    "weights_gb": 1.0,
+    "weights_basis": "library_page_size",
+    "params_total_b": 0.8,
+    "params_active_b": 0.8,
+    "context_trained_k": 262,
+    "layers": 24,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "attention_layers_with_kv": 6,
+    "kv_bytes_per_token_f16": 12288,
+    "context_gb_at_8k": 0.1,
+    "overhead_gb": 1.0,
+    "basis": "config",
+    "notes": [
+     "hybrid: linear-attention layers carry a small fixed state, not counted"
+    ],
+    "need_gb_at_8k": 2.1
+   },
+   "gguf_tag": "qwen3.5:0.8b-q8_0"
+  }
+ ]
 }

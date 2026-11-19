@@ -78,7 +78,7 @@ def test_builtin_catalog_has_params_and_license():
     cat = source.builtin_catalog()
     by_name = {m.name: m for m in cat}
     assert by_name["Qwen3.5 27B"].params_b == 27 and by_name["Qwen3.5 27B"].license == "Apache-2.0"
-    assert by_name["Llama 3.3 70B"].license == "Llama Community"
+    assert by_name["Llama 3.3 70B"].license == "Llama 3.3 Community License"
     assert by_name["GLM-5.2"].license == "MIT"  # the catalog carries each model's own licence
     assert all(m.source == "builtin" for m in cat)
 

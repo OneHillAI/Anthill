@@ -27,7 +27,9 @@ def test_kimi_k3_is_in_the_real_catalog_with_verified_specs():
     assert k3.active_b == 104
     assert k3.family == "Kimi"
     assert k3.origin == "Moonshot AI, China"
-    assert k3.license == "Modified MIT"
+    assert (
+        k3.license == "Kimi K3 License"
+    )  # read from the repo's LICENSE (#304); it is not Modified MIT
     assert k3.ollama_tag == "kimi-k3:cloud"
     assert k3.hf_id == "moonshotai/Kimi-K3"
     assert k3.gated is False

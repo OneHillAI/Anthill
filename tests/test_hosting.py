@@ -41,7 +41,8 @@ def test_unknown_tier_raises():
     "mem_gb,kind,expected_b",
     [
         # smartest that fits (intelligence x fit over the frontier catalog), not merely the largest
-        (16, "apple", 9),
+        # Release 1 (#304): every score is 0 (unscored), so the pick is the largest that fits, not the smartest
+        (16, "apple", 12),  # Gemma 4 12B (was the 9B while scores were unsourced values)
         (24, "apple", 20),  # a 20B (gpt-oss) fits this envelope
         (32, "apple", 30),  # the $1k Mac mini -> a 30B-class MoE
         (64, "apple", 35),  # Qwen3.6 35B-A3B (35B resident, 3B active)
@@ -62,7 +63,9 @@ def test_too_large_models_are_flagged_not_silently_dropped():
     rec = sizing.recommend(
         16, kind="apple"
     )  # default concurrency=4 -> a smaller pick than single-user
-    assert rec.recommended.params_b == 4  # a 4B is the pick at this (multi-stream) envelope
+    assert (
+        rec.recommended.params_b == 8
+    )  # Gemma 4 E4B (8B stored, 4B active) is the pick here (#304: unscored)
     # the frontier giant is present in the annotated list, flagged too-large, and not picked
     big = max(rec.fits, key=lambda m: m.model.params_b)
     assert big.model.params_b >= 400 and not big.fits and not big.recommended

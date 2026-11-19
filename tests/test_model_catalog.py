@@ -12,9 +12,10 @@ def test_bundled_catalog_loads_and_carries_intelligence():
     # the frontier is present: the leading Chinese labs + gpt-oss
     fams = {m.family for m in cat}
     assert {"GLM", "DeepSeek", "Qwen", "MiniMax", "Kimi", "gpt-oss"} <= fams
-    # every model is servable (a pullable Ollama tag) and scored, with total >= active params (MoE)
+    # every model is servable (a pullable Ollama tag), with total >= active params (MoE). Release 1 (#304)
+    # ships every score as 0 (unscored: no sourced index), so the picker falls back to the largest that fits.
     for m in cat:
-        assert m.ollama_tag and m.intelligence > 0
+        assert m.ollama_tag and m.intelligence >= 0
         assert m.active_b <= m.params_b
 
 
