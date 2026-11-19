@@ -8343,6 +8343,8 @@ def _removal_ws(db, user, scope, team_id):
 
 
 def _registry_forget(db, org, ws, slugs: list[str]) -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
     from .knowledge_registry import remove as registry_remove
 
     for slug in slugs:
@@ -8355,7 +8357,7 @@ def _registry_forget(db, org, ws, slugs: list[str]) -> None:
                 kind="page",
                 slug=slug,
             )
-        except Exception:  # noqa: BLE001 - the registry is only an index; never undo a removal for it
+        except SQLAlchemyError:  # the registry is only an index; never undo a removal for it
             db.rollback()
 
 
