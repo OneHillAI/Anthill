@@ -3,6 +3,21 @@
 {% block title %}Wiki{% endblock %}
 {% block page_title %}{% if scope=='org' %}Organisation wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}{% endblock %}
 {% block content %}
+<style>
+  .lib-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 4px}
+  .lib-filters input[type=search]{flex:1 1 220px;width:auto;min-width:0;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)}
+  .lib-filters select{width:auto;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)}
+  .lib-filters label{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+  .lib-filters input[type=checkbox]{width:auto;margin:0}
+  .lib-table{width:100%;border-collapse:collapse;margin-top:8px}
+  .lib-table tr{border-top:1px solid var(--border)}
+  .lib-table td{padding:8px 8px 8px 0;vertical-align:top}
+  .lib-main{width:100%}
+  .lib-sub{font-size:12px;margin-top:2px}
+  .lib-kind,.lib-when,.lib-actions{white-space:nowrap}
+  .lib-actions a+a{margin-left:10px}
+  .lib-chip{display:inline-block;margin-left:6px;padding:0 7px;border:1px solid var(--border);border-radius:999px;font-size:11px;line-height:18px;color:var(--muted);vertical-align:1px}
+</style>
 {{ compute_banner(compute_ready, setup_href) }}
 {% include "_knowledge_tabs.html" %}
 {% include "_wiki_tabs.html" %}
@@ -44,35 +59,58 @@
   {% endif %}
 </div>
 
-{% elif active_wiki_tab == 'files' %}
-{# ── Files sub-tab: the immutable raw documents every upload is preserved as before ingest
-   (founder, 2026-10-01: "where are uploaded docs stored?" - previously filesystem-only). ────── #}
+{% else %}
+{# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}
 {% set rq = request.query_params %}
 {% if rq.get('removed') %}<div class="alert alert-ok" style="max-width:760px;margin-bottom:12px" role="status">Removed. It is listed below for {{ retention_days }} days, and you can restore it until then.</div>{% endif %}
 {% if rq.get('restored') %}<div class="alert alert-ok" style="max-width:760px;margin-bottom:12px" role="status">Restored.</div>{% endif %}
 {% if rq.get('deleted') %}<div class="alert alert-ok" style="max-width:760px;margin-bottom:12px" role="status">Deleted for good.</div>{% endif %}
 {% if rq.get('restore_error') %}<div class="alert alert-warn" style="max-width:760px;margin-bottom:12px" role="alert">{{ rq.get('restore_error') }}</div>{% endif %}
-<div class="card" style="margin-bottom:12px">
-  <h2 style="font-size:15px;margin:0 0 4px">Files</h2>
-  <p class="text-sm text-muted" style="margin:0 0 8px">The original documents you've uploaded to this wiki, kept as-is alongside the pages your AI wrote from them. For most file types the text Anthill read out of the document is kept too: open it to see what your AI was given.</p>
-  {% if doc_search_off %}<p class="alert alert-warn text-sm" id="doc-search-off">{{ doc_search_off }}</p>{% endif %}
-  {% if raw_files %}
-  <table class="text-sm" style="width:100%;border-collapse:collapse">
-    {% for f in raw_files %}
-    <tr style="border-top:1px solid var(--border)">
-      <td style="padding:8px 8px 8px 0"><a href="/wiki/raw/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ f.name | original_name }}</a>{% if f.has_text %} <a class="text-muted" href="/wiki/text/{{ f.name }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">text read from it</a>{% endif %}</td>
-      <td class="text-muted" style="padding:8px;white-space:nowrap">{{ f.size | filesizeformat }}</td>
-      <td class="text-muted" style="padding:8px 0 8px 8px;white-space:nowrap">{{ f.modified }}</td>
-      {% if can_edit %}<td style="padding:8px 0 8px 8px;white-space:nowrap"><a class="text-sm" href="/wiki/remove?kind=original&name={{ f.name | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove</a></td>{% endif %}
+<div class="card mb-2" id="wiki-pages-card">
+  <div class="flex items-center justify-between">
+    <h2 style="font-size:15px;margin:0">Library</h2>
+    <span class="text-sm text-muted">Pages and the documents they were made from. <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.wiki.start();return false" class="text-sm">Take a tour</a></span>
+  </div>
+  {% if doc_search_off %}<p class="alert alert-warn text-sm" id="doc-search-off" style="margin-top:8px">{{ doc_search_off }}</p>{% endif %}
+  {% if library_total %}
+  <form method="get" action="{{ wiki_url }}" class="lib-filters" role="search">
+    <input type="search" name="q" value="{{ lib_q }}" placeholder="Search by title" aria-label="Search the Library by title">
+    <select name="kind" aria-label="Show">
+      <option value="">Pages and documents</option>
+      <option value="pages" {{ 'selected' if lib_kind == 'pages' }}>Pages</option>
+      <option value="documents" {{ 'selected' if lib_kind == 'documents' }}>Documents</option>
+    </select>
+    <label class="text-sm"><input type="checkbox" name="unchecked" value="1" {{ 'checked' if lib_unchecked }}> AI-written, unchecked</label>
+    <button class="btn btn-sm" type="submit">Show</button>
+    {% if lib_q or lib_kind or lib_unchecked %}<a class="text-sm" href="{{ wiki_url }}">Clear</a>{% endif %}
+  </form>
+  {% endif %}
+  {% if library %}
+  {% if library | selectattr('text_href') | list %}<p class="text-sm text-muted" style="margin:8px 0 0">For most file types the text Anthill read out of the document is kept too: open "text read from it" to see what your AI was given.</p>{% endif %}
+  <table class="text-sm lib-table">
+    {% for r in library %}
+    <tr>
+      <td class="lib-main">
+        <a href="{{ r.href }}">{{ r.title }}</a>
+        {% for c in r.chips %}<span class="lib-chip" {% if c == 'AI-written, unchecked' %}title="A model wrote this page and nobody has checked it. It still answers."{% endif %}>{{ c }}</span>{% endfor %}
+        {% if r.links or r.text_href %}<div class="text-muted lib-sub">
+          {% if r.text_href %}<a href="{{ r.text_href }}">text read from it</a>{% endif %}{% if r.text_href and r.links %} &middot; {% endif %}
+          {% if r.links %}{{ r.links_label }}: {% for l in r.links %}<a href="{{ l.href }}">{{ l.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        </div>{% endif %}
+      </td>
+      <td class="text-muted lib-kind">{{ 'Page' if r.kind == 'page' else 'Document' }}</td>
+      <td class="text-muted lib-when">{{ r.when }}{% if r.size %} &middot; {{ r.size | filesizeformat }}{% endif %}</td>
+      {% if can_edit %}<td class="lib-actions">{% if r.edit_href %}<a href="{{ r.edit_href }}">Edit</a>{% endif %}<a href="{{ r.remove_href }}">Remove</a></td>{% endif %}
     </tr>
     {% endfor %}
   </table>
-  {% else %}
-  <p class="text-muted text-sm" style="margin-top:8px">No files yet. Files you upload under <b>Pages</b> show up here.</p>
-  {% endif %}
+  <p class="text-sm text-muted" style="margin:8px 0 0">{{ library|length }}{% if library|length != library_total %} of {{ library_total }}{% endif %} item{{ '' if library_total == 1 else 's' }}</p>
+  {% elif library_total %}<p class="text-muted text-sm" style="margin-top:8px">Nothing matches. <a href="{{ wiki_url }}">Show everything</a></p>
+  {% elif can_edit %}<p class="text-muted text-sm" style="margin-top:8px">Nothing here yet. Seed a foundation with <b>Research topics</b> below, upload documents, or let the model write pages as it files good answers.</p>
+  {% else %}<p class="text-muted text-sm" style="margin-top:8px">Nothing here yet. Pages are written by the model as it ingests sources and files good answers.</p>{% endif %}
 </div>
 {% if removed_items %}
-<div class="card" id="wiki-removed">
+<div class="card mb-2" id="wiki-removed">
   <h2 style="font-size:15px;margin:0 0 4px">Removed</h2>
   <p class="text-sm text-muted" style="margin:0 0 8px">Not used in answers. Restore one, or delete it for good now; the rest is deleted after the days shown.</p>
   <table class="text-sm" style="width:100%;border-collapse:collapse">
@@ -90,20 +128,6 @@
 </div>
 {% endif %}
 
-{% else %}
-{# ── Pages sub-tab (default) ────────────────────────────────────────────────── #}
-<div class="card mb-2" id="wiki-pages-card">
-  <div class="flex items-center justify-between">
-    <h2 style="font-size:15px;margin:0">Pages</h2>
-    <span class="text-sm text-muted">The wiki documents in this scope. <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.wiki.start();return false" class="text-sm">Take a tour</a></span>
-  </div>
-  {% if pages %}
-  <ul class="text-sm" style="margin:10px 0 0 18px;line-height:1.9">
-    {% for p in pages %}<li><a href="/wiki/page/{{ p.slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">{{ p.title }}</a></li>{% endfor %}
-  </ul>
-  {% elif can_edit %}<p class="text-muted text-sm" style="margin-top:8px">No pages yet. Seed a foundation with <b>Research topics</b> below, upload documents, or let the model write pages as it files good answers.</p>
-  {% else %}<p class="text-muted text-sm" style="margin-top:8px">No pages yet. Pages are written by the model as it ingests sources and files good answers.</p>{% endif %}
-</div>
 
 {% if can_edit %}
 <div class="card mb-2" id="wiki-add-doc">
@@ -113,7 +137,7 @@
   {% set saved_title = request.query_params.get('title') %}
   {% set saved_slug = request.query_params.get('slug') %}
   <div id="wiki-upload-result">
-  {% if saved=='added' %}<div class="alert alert-ok">"{{ saved_title or 'Your document' }}" added to this wiki.{% if saved_how %} {{ saved_how }}{% endif %} The original is kept under <a href="?tab=files{% if scope!='personal' %}&amp;scope={{ scope }}{% endif %}">Files</a>. {% if saved_slug %}<a href="/wiki/page/{{ saved_slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">View the page →</a>{% endif %}</div>{% endif %}
+  {% if saved=='added' %}<div class="alert alert-ok">"{{ saved_title or 'Your document' }}" added to this wiki.{% if saved_how %} {{ saved_how }}{% endif %} The original is kept in the <a href="?tab=library{% if scope!='personal' %}&amp;scope={{ scope }}{% endif %}">Library</a>. {% if saved_slug %}<a href="/wiki/page/{{ saved_slug }}?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">View the page →</a>{% endif %}</div>{% endif %}
   {% if saved=='queued' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was flagged on review and is waiting in the <a href="{% if scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}{% else %}/wiki/review/personal{% endif %}">Needs review</a>.{% if saved_how %} {{ saved_how }}{% endif %}</div>{% endif %}
   {% if saved=='held' %}<div class="alert alert-warn">"{{ saved_title or 'Your document' }}" was <b>not</b> added: this wiki already has the same file or a page with that title. It is held for your decision in the <a href="{% if scope=='org' %}/wiki/review{% elif scope=='team' %}/teams/{{ team_id }}{% else %}/wiki/review/personal{% endif %}">Needs review</a>, with a recommendation from Anthill. Nothing changes until you choose.</div>{% endif %}
   {% if saved=='queued_for_model' %}<div class="alert alert-warn">Your local AI is still downloading. This document is saved and will be added automatically as soon as it's ready.</div>{% endif %}

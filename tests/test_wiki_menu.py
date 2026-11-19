@@ -39,7 +39,12 @@ def test_wiki_has_pages_principles_files_subtabs_and_one_needs_review_tab(tmp_pa
     page = c.get("/wiki/org").text
     assert 'class="settings-tabs"' in page
     tabs = page.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
-    assert ">Pages<" in tabs and ">Principles<" in tabs and ">Files<" in tabs
+    assert (
+        ">Library<" in tabs
+        and ">Principles<" in tabs
+        and ">Pages<" not in tabs
+        and ">Files<" not in tabs
+    )
     assert ">Review<" not in tabs  # what waits for a decision is the Knowledge bar's "Needs review"
     # ...and the decision page is part of that tab: the Knowledge bar with Needs review active
     review = c.get("/wiki/review").text
@@ -50,7 +55,7 @@ def test_wiki_has_pages_principles_files_subtabs_and_one_needs_review_tab(tmp_pa
 def test_member_wiki_has_no_review_tab(tmp_path, monkeypatch):
     c, _, _, _ = _client(tmp_path, monkeypatch, role="member")
     tabs = c.get("/wiki").text.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
-    assert ">Pages<" in tabs and ">Principles<" in tabs
+    assert ">Library<" in tabs and ">Principles<" in tabs
     assert ">Review<" not in tabs  # review is org-admin only
 
 

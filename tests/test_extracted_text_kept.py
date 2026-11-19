@@ -145,7 +145,8 @@ def test_a_person_can_open_the_text_from_the_files_tab_and_the_page(tmp_path, mo
     page = _html(client, f"/wiki/page/{slug}").select_one("p.text-muted")
     text = " ".join(page.get_text().split())
     assert (
-        "the original is kept under Files, and you can open the text Anthill read from it." in text
+        "the original is kept in the Library, and you can open the text Anthill read from it."
+        in text
     )
     assert page.find("a", string="open the text Anthill read from it")["href"] == link["href"]
 
