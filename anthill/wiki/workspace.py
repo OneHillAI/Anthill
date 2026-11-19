@@ -142,12 +142,13 @@ class Workspace:
         review: str = "",
         tier: str = "",
         sources: list[str] | None = None,
+        by_person: bool = False,
     ) -> Path:
         """Write a page in the native OKGF format: OKF frontmatter (type/title/timestamp + this
         workspace's ``x-anthill-scope``, plus any review/tier/sources) over the markdown body. The
         body keeps Anthill's ``[[slug]]`` authoring shorthand (only the export view in ``okf`` rewrites
         those to OKF links). Any frontmatter already on the input is stripped first, so re-saving a page
-        never double-wraps it."""
+        never double-wraps it. ``by_person`` records that a person wrote this text (see ``items.record_for_save``)."""
         from . import items, okf
 
         body = strip_frontmatter(markdown).strip()
@@ -162,7 +163,9 @@ class Workspace:
             review=review,
             tier=tier,
             sources=sources or [],
-            item=items.record_for_save(self, path, body, review=review),  # keeps an existing record
+            item=items.record_for_save(
+                self, path, body, review=review, by_person=by_person
+            ),  # keeps an existing record
         )
         path.write_text(okf.to_okf(page))
         # Embed the saved page in the background so the first question that needs it finds it ready.

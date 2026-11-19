@@ -87,7 +87,11 @@ The wiki has three tabs:
 
 - **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages. Each page
   says how it was made: "AI summary written by" the model that read the document, or "The note as
-  uploaded" for a note filed as written, with a link to the original file.
+  uploaded" for a note filed as written, with a link to the original file. If a page is wrong, open
+  it and choose **Edit this page** to correct the text. Your text replaces the page (the earlier text
+  isn't kept), the page then says it was edited by a person, and a model upgrade never rewrites it. You
+  can edit pages in your own wiki, in a team wiki if you own the team, and in the organisation wiki
+  if you're an admin.
 - **Principles**. Your own (or your org's) writing rules and house style. Applied automatically
   whenever Anthill answers or drafts something in that scope.
 - **Files**. Every original document you've uploaded, with its size and date, and a link to

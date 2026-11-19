@@ -10,6 +10,7 @@ from ..wiki.ingest import (
     PdfProcessingLimitExceeded,
     source_to_page,
 )
+from ..wiki.items import is_person_edited
 from ..wiki.workspace import Workspace
 from .version import is_verbatim, read_provenance, stale_pages, tag_page
 
@@ -18,13 +19,15 @@ from .version import is_verbatim, read_provenance, stale_pages, tag_page
 class RenovationReport:
     new_model: str
     regenerated: list[str] = field(default_factory=list)  # slugs rewritten
-    skipped: list[str] = field(default_factory=list)  # slugs with no source in raw/
+    skipped: list[str] = field(
+        default_factory=list
+    )  # slugs with no source in raw/, or edited by a person
     unchanged: list[str] = field(default_factory=list)  # already current, or a verbatim note
 
     def summary(self) -> str:
         return (
             f"renovated {len(self.regenerated)} page(s) with {self.new_model}; "
-            f"{len(self.skipped)} skipped (no source), "
+            f"{len(self.skipped)} skipped (no source, or edited by a person), "
             f"{len(self.unchanged)} already current"
         )
 
@@ -56,6 +59,9 @@ def renovate(
         slug = page_path.stem
         if recorded == new_model or is_verbatim(page_path.read_text()):
             report.unchanged.append(slug)
+            continue
+        if is_person_edited(page_path.read_text()):  # a person's text is never regenerated over
+            report.skipped.append(slug)
             continue
 
         # Find the original source. Pages are titled from the source H1, so the

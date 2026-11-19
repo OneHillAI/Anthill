@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jwt import PyJWTError as JWTError
 from sqlalchemy import insert, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -36,6 +36,7 @@ from .. import __version__, keystore
 from ..mesh_auth import require_mesh
 from ..platform_layer import hidden_window_kwargs
 from ..wiki import answer_record, doc_index
+from ..wiki import items as wiki_items
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
 from . import answer_panel, audit, bring_in, key_startup, metrics
@@ -8875,6 +8876,7 @@ def wiki_page_view(
     request: Request,
     scope: str = "personal",
     team_id: int | None = None,
+    saved: str = "",
     user: dict = Depends(_require_user),
 ):
     """Read a single wiki page (a markdown file in this scope's workspace). Makes the Pages list
@@ -8926,8 +8928,144 @@ def wiki_page_view(
             "text_link": _text_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "wiki_url": _wiki_page_url(scope, team_id),
             "can_remove": _wiki_can_edit(db, user, scope, team_id),
+            "can_edit": _wiki_can_edit(db, user, scope, team_id),
+            "edited_by_person": wiki_items.is_person_edited(md),
+            "edit_query": query,
+            "saved": saved == "1",
         },
     )
+
+
+MAX_PAGE_EDIT_CHARS = 100_000  # several times the largest page an upload writes
+
+
+def _edit_target(db, user, scope: str, team_id, slug: str):
+    """(workspace, page path) of a page this person may edit. 404 for a scope or page that is not theirs (the
+    rules of the page view), 403 when they can read the page but not edit it. An edit never creates a page."""
+    from ..common.text import slugify
+
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    path = ws.wiki / f"{slugify(slug)}.md"
+    if not path.is_file() or path.resolve().parent != ws.wiki.resolve():
+        raise HTTPException(status_code=404)
+    if not _wiki_can_edit(db, user, scope, team_id):
+        raise HTTPException(status_code=403, detail="Not allowed to edit this wiki")
+    return ws, path
+
+
+def _edit_form(request, user, org, scope, team_id, path, text: str, error: str = "", status=200):
+    from ..common.text import first_h1
+
+    return templates.TemplateResponse(
+        request,
+        "wiki_page_edit.html",
+        {
+            "request": request,
+            "user": user,
+            "org": org,
+            "scope": scope,
+            "team_id": team_id,
+            "slug": path.stem,
+            "title": first_h1(path.read_text()) or path.stem,
+            "text": text,
+            "error": error,
+            "query": f"?scope={scope}" + (f"&team_id={team_id}" if team_id else ""),
+        },
+        status_code=status,
+    )
+
+
+def _editable_text(markdown: str) -> str:
+    """A page's own text, as a person edits it: no front matter and no provenance comment."""
+    from ..common.text import strip_frontmatter
+    from ..lifecycle.version import PROVENANCE_RE
+
+    return PROVENANCE_RE.sub("", strip_frontmatter(markdown)).strip()
+
+
+@app.get("/wiki/page/{slug}/edit", response_class=HTMLResponse)
+def wiki_page_edit_form(
+    slug: str,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    db = _db()
+    org = _require_org(db, user)
+    _ws, path = _edit_target(db, user, scope, team_id, slug)
+    return _edit_form(request, user, org, scope, team_id, path, _editable_text(path.read_text()))
+
+
+@app.post("/wiki/page/{slug}/edit")
+def wiki_page_edit_save(
+    slug: str,
+    request: Request,
+    content: str = Form(""),
+    scope: str = Form("personal"),
+    team_id: int | None = Form(None),
+    user: dict = Depends(_require_user),
+):
+    """Save a person's correction to a page. The text is theirs from then on: the page's record says so, the page
+    keeps its source, and a model upgrade never regenerates it."""
+    from ..lifecycle.version import PROVENANCE_RE
+
+    db = _db()
+    org = _require_org(db, user)
+    ws, path = _edit_target(db, user, scope, team_id, slug)
+    old = path.read_text()
+    text = PROVENANCE_RE.sub("", content.replace("\r\n", "\n")).strip()
+    back = f"/wiki/page/{path.stem}?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
+    if not text:
+        return _edit_form(
+            request, user, org, scope, team_id, path, content, "A page cannot be empty.", 400
+        )
+    if len(text) > MAX_PAGE_EDIT_CHARS:
+        return _edit_form(
+            request, user, org, scope, team_id, path, content,
+            f"This page is too long to save here (over {MAX_PAGE_EDIT_CHARS:,} characters).", 400,
+        )  # fmt: skip
+    if text == _editable_text(old):
+        return RedirectResponse(back, status_code=303)  # nothing changed: nothing is written
+    tag = PROVENANCE_RE.search(old)
+    ws.write_page(path.stem, f"{text}\n\n{tag.group(0)}\n" if tag else text, by_person=True)
+    ws.rebuild_index()
+    ws.append_log("edit", path.stem)
+    _registry_sync_page(db, org.id, scope, team_id, path, user)
+    _audit_request(
+        request,
+        "wiki.edit",
+        f"scope={scope} page={path.stem}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse(f"{back}&saved=1", status_code=303)
+
+
+def _registry_sync_page(db, org_id, scope, team_id, path, user) -> None:
+    """Keep the database registry in line with an edited page. Best effort: the page is the source of truth."""
+    try:
+        from ..common.text import first_h1
+        from .knowledge_registry import sync_page
+
+        sync_page(
+            db,
+            org_id=org_id,
+            scope=scope,
+            team_id=team_id,
+            slug=path.stem,
+            title=first_h1(path.read_text()) or path.stem,
+            path=str(path),
+            user_id=int(user["sub"]),
+        )
+    except SQLAlchemyError:
+        db.rollback()
 
 
 _original_name = original_name  # the same helper the answer context uses
