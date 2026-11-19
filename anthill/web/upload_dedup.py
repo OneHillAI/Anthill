@@ -39,6 +39,10 @@ _ADVICE = {
 # 2026", "Plan v1" and "Plan v2", "Report final" and "Report") and whose text is mostly the same may be an older
 # version of it. The person is asked; nothing is decided from the names alone.
 _VERSION_WORDS = re.compile(r"\b(final|draft|copy|new|old|updated|revised|version|rev|latest)\b")
+# The share of the text (title line left out) two pages must have in common before the person is asked. It is a
+# starting point, chosen from a few examples, not a measured value. A wrong guess costs one extra question: a
+# page held that was not a newer version is kept with "No, keep both", and one that was missed is simply filed
+# as before. Nothing is written or lost either way, which is why it is a plain constant and not a setting.
 _SIMILAR_MIN = 0.6
 _COMPARE_CHARS = 8000
 
