@@ -67,12 +67,15 @@ def stale_pages(wiki_dir: Path, current_model: str) -> list[tuple[Path, str | No
 
     Older tags without a pipeline field fall back to their writer model. Untagged
     pages count as stale because their authoring pipeline is unknown. Verbatim notes
-    are never stale: there is no model output to upgrade.
+    and pages a person edited are never stale: there is no model output to upgrade, or it is no longer
+    the page's text.
     """
+    from ..wiki.items import is_person_edited
+
     out: list[tuple[Path, str | None]] = []
     for p in sorted(wiki_dir.glob("*.md")):
         text = p.read_text()
-        if is_verbatim(text):
+        if is_verbatim(text) or is_person_edited(text):
             continue
         prov = read_provenance(text)
         recorded = (prov.get("pipeline_model") or prov["model"]) if prov else None
