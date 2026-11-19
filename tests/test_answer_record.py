@@ -220,8 +220,12 @@ def test_a_stored_record_that_cannot_be_read_is_an_empty_one():
 
 
 def _meta(html):
-    node = BeautifulSoup(html, "html.parser").select_one("div.msg.assistant .meta")
-    return " ".join(node.get_text().split()) if node else ""
+    soup = BeautifulSoup(html, "html.parser")
+    parts = [
+        n.get_text()
+        for n in soup.select("div.msg.assistant .meta, div.msg.assistant .answer-record")
+    ]
+    return " ".join(" ".join(parts).split())
 
 
 def test_the_chat_keeps_the_record_and_shows_the_panel_after_a_reload(chat):  # noqa: F811
