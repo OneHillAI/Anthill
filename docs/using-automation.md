@@ -24,6 +24,12 @@ that job on its own, using your wiki, memory, and skills, and reports back. Anyt
 is held for your approval first. Sending an email, or writing to a shared wiki: none of it happens
 silently.
 
+An agent never writes to a wiki directly. A page it wants to add appears in **Needs review**, under
+**Knowledge**, in the wiki it belongs to (yours, a project's or the organisation's), marked as written
+by an agent, and nothing changes until a person approves it. It does not replace an existing page on its
+own: you see the proposed text and decide. An agent with no person to review its pages, such as one that another
+agent called, cannot write to the wiki.
+
 Results are checked automatically before you see them. Anything that doesn't hold up is flagged for
 your review, not presented as fact. Mark it reviewed once you've checked it.
 
