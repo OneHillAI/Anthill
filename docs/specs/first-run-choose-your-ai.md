@@ -37,6 +37,11 @@ First run only. Settings keeps the layout in `docs/specs/ai-stack-guided-layout.
    model". Nothing is saved until the form is submitted, so one submit still saves both choices. The progress bar
    has four steps and moves to step 4 without a page load. The "Frontier models" line is removed from the page.
 7. The link beside each provider reads "How open is it?" (it was "Ownership grade").
+8. **Step 4 has one way to skip, and it is announced.** The footer "Skip for now" link belongs to step 3 and drops the
+   chosen model, so it is hidden while step 4 shows (step 4 has its own "Not now", which keeps the model); it
+   returns on "Back to your model". Opening step 4 moves keyboard focus to its heading, and going back moves it to
+   the model pane, so a screen reader announces the change. The progress bar marks the current step with
+   `aria-current="step"` on every setup page, and the script moves the mark between steps 3 and 4.
 
 ## Acceptance criteria
 
@@ -47,5 +52,8 @@ First run only. Settings keeps the layout in `docs/specs/ai-stack-guided-layout.
 - Embedding-only installed models are not rows on that page.
 - The primary button opens the provider pane and the four-step bar marks step 4 current; "Not now" submits with no
   provider and lands on the dashboard.
+- With step 4 showing, the footer "Skip for now" form is hidden; with step 3 showing it is visible.
+- Opening step 4 focuses `#setup-provider-heading`; "Back to your model" focuses `#setup-pane-model`.
+- Exactly one step carries `aria-current="step"`.
 - `/personalize` (Settings) is unchanged.
 - `tests/test_setup_model_council.py`, `tests/test_ai_stack_layout.py`, `tests/test_model_picker_onboarding.py`.
