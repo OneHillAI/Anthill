@@ -1,0 +1,1 @@
+**A wiki's log now always records one event per line.** Before, text with line breaks in a log entry, such as a note saved by an agent, could appear as several entries. Whitespace in an entry is now collapsed to single spaces. Existing logs are not changed.
