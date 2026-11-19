@@ -30,7 +30,7 @@ ASDD is spec-driven. Either link the spec this implements, or add one in this PR
 - [ ] `make test` is green.
 - [ ] New behavior has tests (model-free where possible).
 - [ ] Optional features degrade gracefully (a missing key/dep disables only itself).
-- [ ] Docs updated if behavior or setup changed (a `docs/SYSTEM_IMPACT_LOG.md` line; a
+- [ ] Docs updated if behavior or setup changed (the guide pages under `docs/`; a
       `changelog.d/<id>.<category>.md` fragment if user-facing - see `changelog.d/README.md`, do not
       hand-edit `CHANGELOG.md`).
 - [ ] If this touches a protected path, a founding-contributor review is requested.

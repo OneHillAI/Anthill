@@ -68,3 +68,10 @@ fine. Automating the **tester on an open PR** is deferred until the sandbox is b
   needed for this workflow; the reusable kit belongs in Goose-as-ASDD.
 - **First live run verification.** The live Goose-in-CI path (install + provider env) is exercised only
   once the model is wired; until then the workflow dry-runs.
+
+## Update 2026-11-19 (#308): no impact-log entry
+
+The checklist item "`docs/SYSTEM_IMPACT_LOG.md` entry" and the impact-log part of the proposal are superseded: the log is
+frozen history and the documentation agent now proposes the changelog line and the untrue doc sentences only (a proposal
+with nothing to do is one line). The workflow, trust boundary (post-merge only, never on an open PR), audit record and
+runner are unchanged. See `docs/specs/retire-system-impact-log.md`.
