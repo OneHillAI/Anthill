@@ -8,12 +8,12 @@
   {% if kind == 'original' %}
   <p class="text-sm" style="margin:0 0 8px">The document and the text Anthill read from it will be removed.</p>
   {% if plan.goes %}
-  <p class="text-sm" style="margin:0 0 4px">These pages were made only from it, and nobody has checked them, so they go too:</p>
-  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.goes %}<li>{{ s }}</li>{% endfor %}</ul>
+  <p class="text-sm" style="margin:0 0 4px">{{ 'The page' if plan.goes|length == 1 else 'These pages' }} made only from it, that nobody has checked, {{ 'goes' if plan.goes|length == 1 else 'go' }} too:</p>
+  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.goes %}<li>{{ titles.get(s, s) }}</li>{% endfor %}</ul>
   {% endif %}
   {% if plan.stays %}
-  <p class="text-sm" style="margin:0 0 4px">These pages were made from it and stay, because they have been checked or may have other sources:</p>
-  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.stays %}<li>{{ s }}</li>{% endfor %}</ul>
+  <p class="text-sm" style="margin:0 0 4px">{{ 'The page made from it stays' if plan.stays|length == 1 else 'The pages made from it stay' }}. You can remove {{ 'it' if plan.stays|length == 1 else 'them' }} separately:</p>
+  <ul class="text-sm" style="margin:0 0 8px 18px">{% for s in plan.stays %}<li>{{ titles.get(s, s) }}</li>{% endfor %}</ul>
   {% endif %}
   {% else %}
   <p class="text-sm" style="margin:0 0 8px">The page will be removed. The document it was made from, if there is one, stays.</p>
