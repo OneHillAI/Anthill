@@ -1826,6 +1826,7 @@ def propose_wiki_write(
     source_message_id=None,
     provenance_hash: str = "",
     conflict: dict | None = None,
+    always_review: bool = False,
 ) -> bool:
     """The single gate for a wiki write (the agent review + auto-apply decision).
 
@@ -1842,6 +1843,9 @@ def propose_wiki_write(
     ``conflict`` (from ``upload_dedup.upload_conflict``) names an existing page this write would
     duplicate or overwrite. It is never applied: the write is queued for a decision with Anthill's
     proposal on top, under the conflicting page's slug (what "replace" writes over).
+
+    ``always_review`` queues the write for a person whatever the checks say: for a page a model proposed on its
+    own (an agent), which is never applied until someone approves it.
     """
     import hashlib
 
@@ -1858,8 +1862,10 @@ def propose_wiki_write(
     outline = outline_change(_backend_from_cfg(cfg), ws, slug, content, scope=target_scope)
     verdict = _verify_wiki_write(cfg, content=content, source=source)
     verifier_flagged = verdict is not None and not verdict.ok
-    if outline.flags or verifier_flagged or conflict:
+    if outline.flags or verifier_flagged or conflict or always_review:
         flags = list(outline.flags)
+        if always_review:
+            flags.append("agent-written")
         outline_text = outline.text
         if conflict:
             flags.append(conflict["flag"])
@@ -13940,12 +13946,20 @@ async def chat_stream(
                 from ..agent.executor import AgentExecutor
                 from ..agent.tools import WEB_TOOLS, make_tools
                 from .agent_context import agent_context_for
+                from .agent_writes import wiki_proposer
                 from .agents import audit_hook, get_or_create_identity, principal_for
                 from .mcp_store import mcp_client_tools
 
                 tools = make_tools(
                     workspace=str(ws_path),
                     owner=_files_owner(user),
+                    propose_write=wiki_proposer(
+                        db,
+                        org_id=org.id,
+                        user_id=int(user["sub"]),
+                        ws_path=str(ws_path),
+                        who="the chat agent",
+                    ),
                     # The "Web search" toggle otherwise only affected the plain-chat path below (its own
                     # decide_web/auto-augmentation) - agent mode kept web_search/fetch_url available
                     # regardless, including when the router silently auto-triggers agent mode (agent_auto,

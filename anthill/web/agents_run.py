@@ -59,10 +59,19 @@ def _plane_tools(db, agent, plane_inf):
         personal_user_id=agent.created_by,
         org_id=agent.org_id,
     )
+    from .agent_writes import wiki_proposer
     from .mcp_store import mcp_client_tools
 
     tools = make_tools(
-        workspace=ws_path, owner=files_owner(agent.org_id, agent.created_by)
+        workspace=ws_path,
+        owner=files_owner(agent.org_id, agent.created_by),
+        propose_write=wiki_proposer(
+            db,
+            org_id=agent.org_id,
+            user_id=agent.created_by,
+            ws_path=ws_path,
+            who=f"agent {agent.name}",
+        ),
     ) + mcp_client_tools(db, agent.org_id)  # files scoped per-user (owner=org/user)
     if (agent.governance or "standard") == "strict":
         tools = [
