@@ -11,7 +11,8 @@ platform do X?" and does not check the operating system itself.
 | --- | --- |
 | macOS, Apple Silicon | Beta. Signed, notarised, updates itself. |
 | Windows 10 and 11, x86_64 | Alpha, in progress. The backend builds, starts and answers a chat with a real local model in CI, and the installer is built and install-tested in CI; there is no signing or update feed for it yet. |
-| Windows on ARM, Linux, Intel Mac | Not supported. |
+| Windows on ARM, Intel Mac | Not supported. |
+| Linux | Not supported as an app: there is no desktop app or installer. The README quick start covers running from source with `start.sh`. |
 
 ## Capability table
 
