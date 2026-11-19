@@ -188,6 +188,9 @@ class Workspace:
         return migrated
 
     def append_log(self, kind: str, title: str) -> None:
+        """Add one line to the log. A line is always one line: line breaks and other whitespace in ``kind`` or
+        ``title`` (a note or a name that came from outside) become single spaces, so text cannot start a new entry."""
+        kind, title = " ".join(str(kind).split()), " ".join(str(title).split())
         with self.log_md.open("a") as fh:
             fh.write(f"## [{date.today().isoformat()}] {kind} | {title}\n")
 
