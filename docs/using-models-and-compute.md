@@ -2,22 +2,37 @@
 
 ## Choosing your model
 
-You choose in setup, at **Choose your AI**, and later under **Settings**, on the **Model** tab,
+On first run, setup asks you to **Choose your AI** in one decision. For a Solo account the model runs
+on this computer, which keeps it private and lets it work offline. Anthill has already picked the best
+fit for your machine and marks it **Best fit for this machine**; every other model that fits is one
+click away. The button names the model you are about to use, as in **Continue with** and its name.
+The next step, **Connect a provider**, is optional. It asks whether you want an inference provider
+for your hardest questions, says what stays private, and you can skip it with **Not now**. Image
+understanding comes on by default; turn it off with **Enable image understanding** under
+**Advanced** on that step if you'd rather not.
+
+Want bigger models in your own cloud? Set that up later, under **Settings**, on the **Model** tab,
 with **Change where it runs**. Pick **Your machine** or **Your cloud**, and Anthill shows the
 choices that fit: the models that fit your machine, or a provider and its models for your cloud.
-Image understanding comes on by default; turn it off under **Advanced** in setup if you'd rather
-not.
 
 Anthill lists the current open models, ranked by how smart a model your hardware can actually run.
-Not just the biggest name: an efficient model can beat a larger one. Each one is marked **fits**,
-**runs but slower**, or **too big**, based on your machine's memory. The list refreshes on demand,
-never automatically, and works fine offline once you've picked one.
+Not just the biggest name: an efficient model can beat a larger one. Each one is marked **Fits**,
+**Runs, tight** or **Runs, slower**, based on your machine's memory and, on a Mac, the speed of its
+chip. Models that are too big for the machine wait in a closed list, **Models too big for this
+machine**. A computer with no GPU is described by its memory, for example "16 GB RAM (CPU only)". The
+list refreshes on demand, never automatically, and works fine offline once you've picked one.
 
 A separate **Models** page has two jobs. You can pull a model outside the curated list by its Ollama
 or Hugging Face tag. And once you have at least a few answers you trust, approved or saved as a
 snippet, you can **benchmark** any installed model against your current one there. It's scored on how
 closely it matches those approved answers, so the choice is grounded in your own data, not a
 leaderboard. The score is advisory. You still decide.
+
+A model download shows live progress: the percentage, how much is downloaded, the speed and the time
+left. You see it on the Dashboard, on the **Models** page and under **Settings**, on the **Model** tab.
+It keeps going if you leave the page, and your current model keeps working until the new one is ready.
+Asking for a download that is already running reuses it, and **Cancel download** on the **Models**
+page stops it.
 
 To uninstall a model, find it in the model list under **Settings**, on the **Model** tab, and click
 **Uninstall**, then confirm. That frees the disk space it used. A model currently in use, as the

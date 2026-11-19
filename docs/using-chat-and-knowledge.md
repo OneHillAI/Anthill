@@ -30,6 +30,10 @@ A web search shows its sources. If search isn't available, Anthill says the answ
 wiki and the model alone. Searching sends only your question to a search provider, never your
 documents, so turn it off for anything that must stay on your machine.
 
+Under each answer a small label says where it ran: **On this device** when nothing left your machine,
+or **Sent over the network** when a model on another machine answered. The pages listed under **Pages
+in context** are links; click one to open that page in a new tab.
+
 ### Group chats with a project
 
 Group chats into a **project** to keep them together. Open a project to start a chat inside it, or

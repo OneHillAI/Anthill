@@ -1,6 +1,6 @@
 # Get started
 
-<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On a Mac the window fills the screen the first time; after that it opens at the size and place you left it. On first launch, enter your email, your name if you like, and a password of at least 12 characters, then choose how you'll use it:</p>
+<p>Install Anthill. One click; on a Mac, drag <code>Anthill.app</code> into Applications and open it. It starts a local server and opens the app window automatically. There's no URL to type. On a Mac the window fills the screen the first time; after that it opens at the size and place you left it. On first launch, setup has four short steps: create your account with your email, your name if you like, and a password of at least 12 characters; choose how you'll use it; choose your AI; and, if you like, connect an inference provider. The last two are described under <a href="/using-models-and-compute">Models &amp; compute</a>. The second step is a choice:</p>
 
 <ul>
   <li><strong>Just for yourself.</strong> Pick <strong>Just me</strong>. You're in, with your own private space, nothing else to set up. Skip to <a href="/USING_ANTHILL">Using Anthill</a> whenever you're ready. Everything past this point is for standing up a shared team or organisation.</li>
