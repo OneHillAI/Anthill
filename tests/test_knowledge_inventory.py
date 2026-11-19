@@ -448,3 +448,56 @@ def test_the_command_prints_json_and_skips_a_folder_that_is_not_there(tmp_path):
     )
     assert res.exit_code == 0, res.output
     assert "skipped" in res.output
+
+
+# ── what apply and undo keep, and what a dry run leaves alone (#306) ──────────
+
+
+def _a_page(ws: Workspace) -> Path:
+    return ws.wiki / "report.md"  # a page that gets a record
+
+
+def test_apply_and_undo_keep_the_permissions_a_page_had(tmp_path):
+    ws = _build(tmp_path)
+    page = _a_page(ws)
+    page.chmod(0o600)
+    res = inv.apply_records(ws, review_status=REVIEWS)
+    assert page.stat().st_mode & 0o777 == 0o600
+    inv.undo_records(ws, Path(res.manifest))
+    assert page.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_page_that_is_a_symlink_is_left_alone_by_apply_and_undo(tmp_path):
+    ws = _build(tmp_path)
+    target = _a_page(ws)
+    link = ws.wiki / "alias.md"
+    link.symlink_to(target.name)
+    before = target.read_bytes()
+    res = inv.apply_records(ws, review_status=REVIEWS)
+    assert link.is_symlink() and link.resolve() == target.resolve()
+    assert any(s.startswith("alias: a symbolic link") for s in res.skipped)
+    assert items.read_page_record(target.read_text()) is not None  # the real page got its record
+    assert target.read_bytes() != before
+    out = inv.undo_records(ws, Path(res.manifest))
+    assert (
+        link.is_symlink()
+        and out.restored_pages >= 1
+        and not any("alias" in s and "symbolic" not in s for s in out.skipped)
+    )
+
+
+def test_a_dry_run_reads_the_database_read_only_and_leaves_its_bytes_alone(tmp_path):
+    ws = _build(tmp_path)
+    db = _db(tmp_path / "data", [])
+    before = db.read_bytes()
+    status = _review_status_for(db, ws.root)
+    assert status is None or isinstance(status, dict)
+    assert (
+        db.read_bytes() == before
+    )  # SQLite may keep a -wal/-shm pair beside a WAL database while it is open
+    import sqlalchemy as sa
+
+    ro = sa.create_engine(f"sqlite:///file:{db}?mode=ro&uri=true", connect_args={"uri": True})
+    with ro.connect() as conn, pytest.raises(sa.exc.OperationalError):
+        conn.execute(sa.text("CREATE TABLE should_not_exist (x INTEGER)"))
+    ro.dispose()
