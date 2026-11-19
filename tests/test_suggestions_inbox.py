@@ -66,7 +66,7 @@ def test_inbox_aggregates_proposed_pages_and_skills(tmp_path, monkeypatch):
         "Learned a skill from your work" in body and "Weekly digest" in body
     )  # the skill suggestion
     assert (
-        'href="/knowledge/suggestions"' in body and "Suggestions" in body
+        'href="/knowledge/suggestions"' in body and "Needs review" in body
     )  # the Knowledge-hub tab
     assert '<span class="nav-badge">2</span>' in body  # ...with the count badge (page + skill)
     assert 'value="/knowledge/suggestions"' in body  # actions carry a next-back to the inbox

@@ -51,7 +51,7 @@ def test_knowledge_tabs_comment_reflects_five_surfaces():
         encoding="utf-8"
     )
     assert "five surfaces" in know_tabs
-    assert "Suggestions" in know_tabs
+    assert "Needs review" in know_tabs
 
 
 def test_chat_options_comment_omits_retired_agent_override():

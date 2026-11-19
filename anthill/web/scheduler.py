@@ -1309,9 +1309,9 @@ def _process_one_queued_upload(db, row: QueuedUpload) -> None:
     link = _wiki_page_url(row.target_scope, row.team_id)
     if row.status == "done":
         note = {
-            "queued": " It was flagged for review, so it's waiting in the review queue.",
+            "queued": " It was flagged for review, so it's waiting in Needs review.",
             "held": " It looks like a duplicate of a page you already have, so it's held for "
-            "your decision in the review queue.",
+            "your decision in Needs review.",
         }.get(status, "")
         notify(
             db,

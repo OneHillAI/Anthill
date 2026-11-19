@@ -289,7 +289,7 @@ def _nav_context(request: Request) -> dict:
             # Every user (any role) can have their own pending PERSONAL wiki reviews - their own
             # flagged uploads - so this badge is not admin-gated (issue #428).
             base["nav_badges"]["personal_review"] = _personal_review_q(db, org_id, uid).count()
-            # Suggestions inbox count (Knowledge hub tab badge): personal wiki reviews + the user's own
+            # Needs review count (Knowledge hub tab and rail badge): personal wiki reviews + the user's own
             # pending distilled-skill proposals (+ org reviews for an admin, added below).
             base["nav_badges"]["suggestions"] = (
                 base["nav_badges"]["personal_review"]
@@ -8139,7 +8139,8 @@ def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
                 "icon": "sparkles" if kind == "skill" else "file-text",
                 "approve": None if held else f"/wiki/review/{r.id}/approve",
                 "reject": f"/wiki/review/{r.id}/reject",
-                "adjust": "/wiki/review" if r.target_scope == "org" else "/wiki/review/personal",
+                "adjust": ("/wiki/review" if r.target_scope == "org" else "/wiki/review/personal")
+                + f"#review-{r.id}",
             }
         )
     props = (

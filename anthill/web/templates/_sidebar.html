@@ -208,7 +208,7 @@
       {% set _sp = request.url.path %}
       {# Lower group (below the cut): Knowledge and Projects - the shared knowledge/work spaces - sit here
          with Settings, apart from the daily work surfaces (Chat/Tasks/Agents) above. #}
-      <a href="/wiki" class="{% if _sp.startswith('/wiki') or _sp.startswith('/snippets') or _sp.startswith('/memory') or _sp.startswith('/skills') %}active{% endif %}"><i data-lucide="library">📚</i>Knowledge{% if user and user.role == 'admin' and nav_badges and nav_badges.review %}<span class="nav-badge">{{ nav_badges.review }}</span>{% endif %}</a>
+      <a href="/wiki" class="{% if _sp.startswith('/wiki') or _sp.startswith('/snippets') or _sp.startswith('/memory') or _sp.startswith('/skills') %}active{% endif %}"><i data-lucide="library">📚</i>Knowledge{% if nav_badges and nav_badges.suggestions %}<span class="nav-badge">{{ nav_badges.suggestions }}</span>{% endif %}</a>
       <a href="/teams" class="{% if '/teams' in _sp %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>Projects</a>
       {% for t in nav_teams %}<a href="/wiki/team/{{ t.id }}" class="{% if _sp == '/wiki/team/' ~ t.id %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>{{ t.name }}</a>{% endfor %}
       {# Settings: the single settings entry. Your personal setup (Model / Knowledge / Personality /

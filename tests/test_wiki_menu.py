@@ -34,16 +34,17 @@ def _client(tmp_path, monkeypatch, role="admin"):
     return c, app_mod, o.id, u.id
 
 
-def test_wiki_has_pages_principles_review_subtabs(tmp_path, monkeypatch):
+def test_wiki_has_pages_principles_files_subtabs_and_one_needs_review_tab(tmp_path, monkeypatch):
     c, _, _, _ = _client(tmp_path, monkeypatch)  # admin
     page = c.get("/wiki/org").text
     assert 'class="settings-tabs"' in page
     tabs = page.split('class="settings-tabs"', 1)[1].split("</div>", 1)[0]
-    assert (
-        ">Pages<" in tabs and ">Principles<" in tabs and ">Review<" in tabs
-    )  # admin org gets Review
-    # the review queue renders the same sub-tab bar (folded into the Wiki menu)
-    assert 'class="settings-tabs"' in c.get("/wiki/review").text
+    assert ">Pages<" in tabs and ">Principles<" in tabs and ">Files<" in tabs
+    assert ">Review<" not in tabs  # what waits for a decision is the Knowledge bar's "Needs review"
+    # ...and the decision page is part of that tab: the Knowledge bar with Needs review active
+    review = c.get("/wiki/review").text
+    bar = review.split('class="knowledge-tabs"', 1)[1].split("</div>", 1)[0]
+    assert 'class="active">Needs review' in bar and 'class="active">Wiki' not in bar
 
 
 def test_member_wiki_has_no_review_tab(tmp_path, monkeypatch):

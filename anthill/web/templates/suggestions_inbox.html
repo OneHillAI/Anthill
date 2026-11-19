@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Suggestions{% endblock %}
+{% block title %}Needs review{% endblock %}
 {% block page_title %}Knowledge{% endblock %}
 {% block content %}
 
@@ -16,8 +16,6 @@
   .sugg-actions form{margin:0}
 </style>
 
-<p class="text-muted" style="margin:0 0 14px">What your AI suggested for your knowledge - adjust and approve, or dismiss. Nothing is added until you approve it.</p>
-
 {% if items %}
 {% for it in items %}
 <div class="sugg-row">
@@ -28,18 +26,18 @@
     {% if it.desc %}<div class="sugg-desc">{{ it.desc }}</div>{% endif %}
   </div>
   <div class="sugg-actions">
-    <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open to edit before approving">{{ 'Decide' if not it.approve else 'Adjust' }}</a>
+    <a href="{{ it.adjust }}" class="btn btn-outline btn-sm" title="Open it to read, edit and decide">{{ 'Decide' if not it.approve else 'Open' }}</a>
     {% if it.approve %}
     <form method="post" action="{{ it.approve }}"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-primary btn-sm">Approve</button></form>
     {% endif %}
-    <form method="post" action="{{ it.reject }}" data-confirm="Dismiss this suggestion?"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
+    <form method="post" action="{{ it.reject }}" data-confirm="Dismiss this?"><input type="hidden" name="next" value="/knowledge/suggestions"><button type="submit" class="btn btn-outline btn-sm">Dismiss</button></form>
   </div>
 </div>
 {% endfor %}
 {% else %}
 <div class="card" style="text-align:center;padding:40px">
   <div style="font-size:30px;margin-bottom:10px;color:var(--accent,#2f6b4f)"><i data-lucide="check-circle-2"></i></div>
-  <p class="text-muted" style="margin:0">No suggestions right now. As you work, your AI proposes wiki pages and skills here for you to review.</p>
+  <p class="text-muted" style="margin:0">Nothing needs your review. Uploads that need a decision and pages or skills your AI proposes will wait here.</p>
 </div>
 {% endif %}
 {% endblock %}
