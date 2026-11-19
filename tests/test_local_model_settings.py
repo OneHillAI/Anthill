@@ -657,6 +657,17 @@ def _vision_waiter(app_mod, org_id: int):
     return (app_mod._MODEL_PULL_STATE.get(org_id) or {}).get("vision_waiter")
 
 
+def _pulling_flag(app_mod, org_id: int) -> str:
+    """The saved ``local_model_pulling`` value. A pull thread clears its in-memory state first and
+    writes this afterwards, so a test that has seen the state empty must wait for this value too."""
+    s = app_mod._SessionFactory()
+    try:
+        cfg = s.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
+        return (cfg.local_model_pulling if cfg else "") or ""
+    finally:
+        s.close()
+
+
 def _wait_until(pred, timeout: float = 3.0) -> bool:
     import time
 
@@ -763,8 +774,9 @@ def test_concurrent_downloads_and_one_exiting_preserve_active_state(tmp_path, mo
     # Now finish qwen: everything clears cleanly.
     proc_qwen.finish(0)
     assert _wait_until(lambda: not _active_pulls(app_mod, org_id))
-    cfg = app_mod._SessionFactory().query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
-    assert cfg.local_model_pulling == ""
+    # The pull thread empties the in-memory state, then writes the saved flag: wait for the flag.
+    assert _wait_until(lambda: _pulling_flag(app_mod, org_id) == "")
+    assert _pulling_flag(app_mod, org_id) == ""
     assert org_id not in app_mod._MODEL_PULL_PROGRESS
 
 
