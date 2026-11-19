@@ -43,6 +43,17 @@ Moving knowledge from a smaller space into a bigger shared one always goes throu
 first. Solo into an org wiki, or a project into the org: nothing reaches a wider audience by
 accident.
 
+## Settings and your dashboard
+
+**Settings** has one row of tabs: **Model**, **Knowledge**, **Personality**, **Privacy** and **This
+device**, plus **Integrations** and **Organisation** for an admin. Nothing on a tab is saved until you
+press **Save**. Next to the button the page says **No unsaved changes** or **You have unsaved changes**,
+and it asks before you leave with a change waiting.
+
+A new account's dashboard shows **Try this next** instead of empty counters, with three cards: **Add a
+document**, **Ask a question** and **Create a task**. As soon as any of answers, training examples,
+wiki entries or memory items is above zero, the counters appear.
+
 ## Multiple people on one device: profiles
 
 A **profile** is a fully separate account on the same install. It has its own chats, wiki, models,
