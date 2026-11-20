@@ -88,9 +88,11 @@ def test_the_message_is_above_the_files_list_with_a_gap(tmp_path, monkeypatch):
     ):
         soup = _soup(client, f"/wiki?tab=files&{flag}")
         alert = next(a for a in soup.find_all(class_="alert") if text in a.get_text())
-        files = soup.find("h2", string="Files")
+        files = soup.find("h2", string="Library")
         assert alert is not None and files is not None
-        assert alert.sourceline < files.sourceline, flag  # before the Files list, so it is in view
+        assert alert.sourceline < files.sourceline, (
+            flag
+        )  # before the Library list, so it is in view
         assert "margin-bottom" in alert["style"]
 
 
