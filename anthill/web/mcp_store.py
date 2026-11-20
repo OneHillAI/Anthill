@@ -199,17 +199,9 @@ def _answer(db, org_id, kind, query) -> str:
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     from ..wiki.workspace import workspace_for
 
-    if kind == "memory":
-        from .recall import recall_memory
-
-        return recall_memory(db, org_id, None, query) or "(no relevant memory)"
-    if kind == "cache":
-        from ..cache import SemanticCache
-
-        hit = SemanticCache(db_path=workspace_for("org", org_id=org_id).root / ".cache").lookup(
-            query
-        )
-        return hit.answer if hit else "(no cached answer)"
+    if kind in ("memory", "cache"):
+        # Not offered in this version (see anthill/mcp/server.py): a direct call gets nothing.
+        return "(this tool is not available)"
     # wiki (default): answer from the org wiki + cache
     from ..config import Config
     from ..inference.base import build_backend

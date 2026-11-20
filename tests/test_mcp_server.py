@@ -31,8 +31,9 @@ def test_tool_specs_only_enabled():
     from anthill.mcp.server import exposed_resources, tool_specs
 
     cfg = _Cfg(enabled=True, wiki=True, memory=True)
-    assert set(exposed_resources(cfg)) == {"wiki", "memory"}
-    assert {t["name"] for t in tool_specs(cfg)} == {"query_wiki", "recall_memory"}
+    # the memory (and cache) tools are never offered: nothing links a memory to the items it came from
+    assert set(exposed_resources(cfg)) == {"wiki"}
+    assert {t["name"] for t in tool_specs(cfg)} == {"query_wiki"}
 
 
 def test_handle_jsonrpc_dispatch_and_gate():

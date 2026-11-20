@@ -165,8 +165,17 @@ def _finish_removal(ws: Workspace, rec: Removed, rels: list[str]) -> Removed:
     _move(ws, rec, rels)
     _write_manifest(ws, rec)
     ws.rebuild_index()
+    _forget_in_search(ws, [Path(r).stem for r in rels if r.startswith("wiki/")])
     ws.append_log("remove", rec.name)
     return rec
+
+
+def _forget_in_search(ws: Workspace, slugs: list[str]) -> None:
+    """Take removed pages out of the search index when one is in use, so a removed page is not left in it."""
+    from ..search import meili
+
+    if slugs and meili.enabled():
+        meili.delete_pages(slugs, index=ws.meili_index)
 
 
 def remove_page(ws: Workspace, slug: str) -> Removed:

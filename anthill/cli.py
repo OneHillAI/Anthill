@@ -567,7 +567,7 @@ def generate(
     backend = build_backend(cfg)
 
     # Build context from the wiki
-    pages = ws.pages()[:6]
+    pages = ws.retrievable_pages()[:6]  # only what an answer may read
     context = "\n\n---\n\n".join(p.read_text() for p in pages) if pages else ""
 
     from .inference.base import Message
