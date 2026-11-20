@@ -21,6 +21,7 @@ biggest number.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import platform
 import re
@@ -98,6 +99,10 @@ class Model:
     need_gb: float = 0.0  # precomputed, once, in the catalogue: the memory this model occupies while running on Apple
     # Silicon at the reference setup (an 8,192-token window, one stream, the embedder resident), the quantity
     # `resident_gb` approximates. 0 = not computed: the flat estimate is used (docs/specs/catalogue-precomputed-need.md).
+    replaces: tuple[
+        str, ...
+    ] = ()  # older tags this row stands for (a plain tag that a build tag took over), so an
+    # install that chose the old tag keeps working (docs/specs/catalogue-replaced-tags.md). () = none.
 
 
 # The catalog is DATA, not code: a bundled JSON (hosting/model_catalog.json) the picker ranks by
@@ -256,6 +261,47 @@ def runs_on_bundled_engine(model: Model) -> bool:
     return required is None or shipped is None or required <= shipped
 
 
+def _valid_replaces(value: object, own_tag: object) -> tuple[str, ...]:
+    """The older tags a row says it replaces: only valid, distinct tags other than its own. Anything else (not a list,
+    an unsafe tag) is ignored, so a bad value never raises and never hides the row."""
+    if not isinstance(value, list):
+        return ()
+    out: list[str] = []
+    for tag in value:
+        if isinstance(tag, str) and tag != own_tag and tag not in out and is_safe_ollama_tag(tag):
+            out.append(tag)
+    return tuple(out)
+
+
+def row_tags(model: Model) -> tuple[str, ...]:
+    """Every tag that names this row: its own tag first, then the older tags it replaces."""
+    return (model.ollama_tag, *model.replaces)
+
+
+def row_for_tag(catalog: tuple[Model, ...] | list[Model], tag: str) -> Model | None:
+    """The row a tag belongs to, whether it is the row's own tag or one it replaces (first row wins)."""
+    return next((m for m in catalog if tag in row_tags(m)), None)
+
+
+def row_installed_tag(model: Model, installed) -> str:
+    """The tag of this row that is installed (own tag first, then a replaced one), or "" when none is."""
+    from ..inference.ollama import tag_matches_installed
+
+    return next((t for t in row_tags(model) if tag_matches_installed(t, installed)), "")
+
+
+def _without_clashing_claims(models: tuple[Model, ...]) -> tuple[Model, ...]:
+    """Two rows must not claim one tag. A row's own tag is never taken from it; a replaced tag that is another row's
+    own tag, or was already claimed by an earlier row, is dropped from the later row (the first claim wins)."""
+    claimed = {m.ollama_tag for m in models}
+    out: list[Model] = []
+    for m in models:
+        kept = tuple(t for t in m.replaces if t not in claimed)
+        claimed.update(kept)
+        out.append(m if kept == m.replaces else dataclasses.replace(m, replaces=kept))
+    return tuple(out)
+
+
 def _valid_need_gb(value: object) -> float:
     """A catalogue row's ``need_gb`` when it is a plausible memory figure, else 0 (not computed): a bad value must never
     change a verdict, it just falls back to the flat estimate."""
@@ -280,6 +326,7 @@ def _model_from_row(row: dict) -> Model:
         num_attention_heads=int(row.get("num_attention_heads") or 0),
         need_gb=_valid_need_gb(row.get("need_gb")),
         min_engine_version=_valid_engine_version(row.get("min_engine_version")),
+        replaces=_valid_replaces(row.get("replaces"), row.get("ollama_tag")),
     )
 
 
@@ -307,7 +354,7 @@ def load_catalog() -> tuple[Model, ...]:
             rows = rows if isinstance(rows, list) else []
             if not rows or not all(is_safe_row(r) for r in rows):
                 continue  # missing, malformed, or tampered -> fall back to the previous source
-            models = tuple(_model_from_row(r) for r in rows)
+            models = _without_clashing_claims(tuple(_model_from_row(r) for r in rows))
             if date:
                 held_date = date
         except Exception:
