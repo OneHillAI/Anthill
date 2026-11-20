@@ -118,8 +118,9 @@ class Workspace:
         return sorted(self.wiki.glob("*.md"))
 
     def retrievable_pages(self) -> list[Path]:
-        """The pages an answer may read: those whose record, if they have one, says active and approved (see
-        ``items.is_retrievable``). A page with no record is retrievable, as before records existed."""
+        """The pages an answer may read: those whose record says active and approved (see
+        ``items.is_retrievable``). A page with no record is not retrievable; a wiki from before records is given
+        its records once, automatically."""
         from . import items
 
         return [p for p in self.pages() if items.page_file_retrievable(p)]

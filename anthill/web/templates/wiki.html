@@ -3,6 +3,7 @@
 {% block title %}Wiki{% endblock %}
 {% block page_title %}{% if scope=='org' %}Organisation wiki{% elif scope=='team' %}Team wiki{% else %}Your wiki{% endif %}{% endblock %}
 {% block content %}
+{% if upgrade_notice %}<div class="alert alert-warn" id="records-upgrade-notice" role="status" style="max-width:760px;margin-bottom:12px">{{ upgrade_notice }}</div>{% endif %}
 <style>
   .lib-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 4px}
   .lib-filters input[type=search]{flex:1 1 220px;width:auto;min-width:0;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)}

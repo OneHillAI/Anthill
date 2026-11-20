@@ -556,6 +556,12 @@ def _startup():
         except Exception:
             pass
         try:
+            _upgrade_records_at_start()  # pages and documents from before records get theirs, once
+        except Exception:  # noqa: BLE001 - start-up goes on; the next start tries again, and reads retry per wiki
+            logging.getLogger(__name__).warning(
+                "could not prepare the wikis at start", exc_info=True
+            )
+        try:
             _warm_page_index_in_background()  # embed the wiki pages now, not at the first question
         except Exception:
             pass
@@ -609,6 +615,23 @@ def _warm_page_index_in_background() -> None:
         threading.Thread(
             target=page_index.warm_all, daemon=True, name="anthill-warm-page-index"
         ).start()
+
+
+def _upgrade_records_at_start() -> None:
+    """Give every wiki on this install its records, once, before anything reads it (wiki/inventory.py
+    ``ensure_upgraded``), using the review rows so an upload that is waiting or was rejected stays out of
+    answers. Backed up first and undoable; a wiki already done costs one file check. Never raises."""
+    from ..wiki import inventory
+    from ..wiki.page_index import workspace_roots
+    from ..wiki.workspace import workspace_at
+    from .review_status import review_status_for
+
+    for root in workspace_roots():
+        status = review_status_for(_engine or get_engine(), root)
+        inventory.ensure_upgraded(workspace_at(root), review_status=status)
+        wiki_items._upgrade_tried.add(
+            str(root)
+        )  # the step has had its go; reads need not repeat it
 
 
 def _index_docs_in_background() -> None:
@@ -8717,6 +8740,7 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "upload_problem": ups.UPLOAD_PROBLEMS.get(request.query_params.get("error", "")),
         "upload_types_text": _upload_types_text(),
         "doc_search_off": doc_index.off_notice(),
+        "upgrade_notice": wiki_items.upgrade_notice(ws.root),
         "saved_how": (
             ups.how_it_was_read(
                 db,
