@@ -80,3 +80,12 @@ fix and re-run.
 - The agent opening PRs or editing files (R9).
 - The merge-reviewer, the impact reviewer and the interaction agent.
 - Aligning the wider ASDD process docs (a separate docs change).
+
+## 6. Update 2026-11-19 (#308): the impact entry is retired
+
+Requirements R1 and R2 asked the agent for an impact-log entry and a heading built from the real PR number, title and
+merge date. `docs/SYSTEM_IMPACT_LOG.md` is now frozen history (its newest entry is 2026-10-09 and nobody pastes the
+proposed ones), so the agent no longer returns an impact entry and the renderer no longer builds one. It returns a
+changelog line and the doc sentences that are now untrue, and the rest of this spec (R3 onwards: the renderer checks
+the changelog fragment, the doc edits, invented numbers and dashes; the agent edits nothing) is unchanged. See
+`docs/specs/retire-system-impact-log.md`. The text above is kept as the record of the original design.

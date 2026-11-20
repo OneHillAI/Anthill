@@ -50,8 +50,8 @@ not_run() {
     echo
     echo "$1"
     echo
-    echo "This is not a proposal. A human should sync the docs for \`${CHANGE_REF}\`: the impact log entry,"
-    echo "a changelog fragment if product code changed, and any doc sentence that is now untrue."
+    echo "This is not a proposal. A human should sync the docs for \`${CHANGE_REF}\`: a changelog fragment"
+    echo "if product code changed, and any doc sentence that is now untrue."
   } > "$OUT"
 }
 
@@ -135,11 +135,11 @@ fi
 rrc=0
 python3 .github/asdd/operate/docsync-render.py --result "$RESULT" --ref "$CHANGE_REF" --pr "$PR_NUMBER" \
   --title "$PR_TITLE" --date "$MERGED_AT" --corpus .asdd-work/corpus.txt --changed .asdd-work/changed.txt \
-  --impact-log docs/SYSTEM_IMPACT_LOG.md --model "$MODEL" --root . > "$OUT.tmp" 2> .asdd-work/render.err || rrc=$?
+  --model "$MODEL" --root . > "$OUT.tmp" 2> .asdd-work/render.err || rrc=$?
 if [ "$rrc" -eq 0 ]; then
   mv "$OUT.tmp" "$OUT"
 else
   rm -f "$OUT.tmp"
-  failed "The documentation agent ran but its result had no usable impact-log entry (renderer exit ${rrc})." "$(tail -n 4 .asdd-work/render.err 2>/dev/null)"
+  failed "The documentation agent ran but its result had no usable proposal (renderer exit ${rrc})." "$(tail -n 4 .asdd-work/render.err 2>/dev/null)"
 fi
 exit 0
