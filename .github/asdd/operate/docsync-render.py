@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """Lay out the documentation agent's structured proposal as paste-ready blocks, and check them.
 
-The agent returns data (an impact entry, a changelog line, doc sentences that are now untrue). It never
-writes a heading, a diff, a PR number or a date: this script builds those from facts GitHub and git
-supply, and checks everything the model said against the project's real rules:
+The agent returns data (a changelog line, doc sentences that are now untrue). It never writes a heading, a
+diff, a PR number or a date: this script builds those from facts GitHub and git supply, and checks everything
+the model said against the project's real rules:
 
-- the impact-log heading uses the real PR number, title and merge date;
-- the entry has the template's four fields, `user_visible` starts yes or no, `footprint` starts with one of
-  additive, refactor, migration, plan-only;
+- the proposal is headed with the real PR number and commit;
 - a changelog fragment is only wanted when product code (anthill/) changed, is named
   changelog.d/<PR>.<category>.md with an allowed category, and has no heading or leading dash;
 - a doc edit is kept only if its file exists and its "now untrue" sentence is really in that file;
-- any number in the text that does not appear in the PR (title, description, diff stat, paths) is flagged;
-- en and em dashes (banned by the style gate) become plain hyphens.
+- any number in the changelog text, or in the fix for a sentence, that does not appear in the PR (title,
+  description, diff stat, paths) or in the sentence it replaces is flagged;
+- en and em dashes (banned by the style gate) become plain hyphens;
+- a result that is not a proposal (no `changelog` and no `doc_edits`) renders nothing; a proposal with
+  nothing to do renders one line saying so.
 
 The result file is model output: only known fields are read, each is length-capped, nothing is executed.
 
 Usage: docsync-render.py --result FILE --ref SHA --pr N --title T --date YYYY-MM-DD
-           --corpus FILE --changed FILE --impact-log FILE --model M [--root DIR]
+           --corpus FILE --changed FILE --model M [--root DIR]
 Exit: 0 rendered, 3 the result had no usable proposal (nothing is printed to stdout).
 """
 
@@ -30,8 +31,6 @@ import sys
 # Built from code points so this file never contains the characters the style gate bans.
 EN_DASH, EM_DASH = chr(0x2013), chr(0x2014)
 CATEGORIES = ("added", "changed", "deprecated", "removed", "fixed", "security")
-FOOTPRINTS = ("additive", "refactor", "migration", "plan-only")
-LIMITS = {"system_impact": 700, "surface": 320, "user_visible": 200, "footprint": 260}
 
 
 def clip(value, limit=400):
@@ -69,13 +68,6 @@ def numbers_not_in(texts, corpus):
     return missing
 
 
-def newest_month_heading(impact_log_text):
-    for line in impact_log_text.splitlines():
-        if re.match(r"^## \d{4}-\d{2}\s*$", line):
-            return line[3:].strip()
-    return None
-
-
 RELEASE_FILES = {"CHANGELOG.md", "pyproject.toml", "anthill/__init__.py"}
 
 
@@ -94,36 +86,6 @@ def needs_changelog(changed_paths, title=""):
     if is_release_cut(changed_paths, title):
         return False
     return any(p.startswith("anthill/") for p in changed_paths)
-
-
-def build_impact(payload, pr, title, date, flags, corpus):
-    imp = payload.get("impact") if isinstance(payload.get("impact"), dict) else {}
-    fields = {k: clip(imp.get(k, ""), LIMITS[k]) for k in LIMITS}
-    if not all(fields.values()):
-        return None
-    if not re.match(r"^(yes|no)\b", fields["user_visible"], re.I):
-        flags.append(
-            "The user-visible line should start with 'yes' or 'no'; fix it before pasting."
-        )
-    if not re.match(r"^(" + "|".join(FOOTPRINTS) + r")\b", fields["footprint"], re.I):
-        flags.append("The footprint line must start with one of: " + ", ".join(FOOTPRINTS) + ".")
-    bad = numbers_not_in(list(fields.values()), corpus + f" {pr} {date}")
-    if bad:
-        flags.append(
-            "These numbers are not in the PR, so the agent may have invented them: "
-            + ", ".join(bad)
-            + "."
-        )
-    heading = f"### PR #{pr} - {clip(title, 100) or 'merged change'} - merged {date}"
-    return "\n".join(
-        [
-            heading,
-            f"**System impact:** {fields['system_impact']}",
-            f"**Surface:** {fields['surface']}",
-            f"**User-visible:** {fields['user_visible']}",
-            f"**Footprint:** {fields['footprint']}",
-        ]
-    )
 
 
 def build_changelog(payload, pr, changed_paths, flags, title=""):
@@ -176,40 +138,59 @@ def build_doc_edits(payload, root, flags):
     return out
 
 
+def is_proposal(payload):
+    """A result is a proposal only if the agent said something about the changelog or the docs."""
+    return isinstance(payload, dict) and ("changelog" in payload or "doc_edits" in payload)
+
+
 def render(payload, a, flags=None):
     flags = [] if flags is None else flags
-    corpus = read(a.corpus) + " " + a.title
-    changed = [ln.strip() for ln in read(a.changed).splitlines() if ln.strip()]
-    entry = build_impact(payload, a.pr, a.title, a.date, flags, corpus)
-    if entry is None:
+    if not is_proposal(payload):
         return None
-    month = newest_month_heading(read(a.impact_log))
-    where = (
-        f"directly under the `## {month}` heading"
-        if month
-        else "at the top of the newest month section"
-    )
+    corpus = read(a.corpus) + " " + a.title + f" {a.pr} {a.date}"
+    changed = [ln.strip() for ln in read(a.changed).splitlines() if ln.strip()]
     cl_note, cl_text = build_changelog(payload, a.pr, changed, flags, a.title)
     edits = build_doc_edits(payload, a.root, flags)
+    if cl_text:
+        invented = numbers_not_in([cl_text], corpus)
+        if invented:
+            flags.append(
+                "These numbers are not in the PR, so the agent may have invented them: "
+                + ", ".join(invented)
+                + "."
+            )
+    for path, sentence, fix in edits:
+        invented = numbers_not_in([fix], corpus + " " + sentence)
+        if invented:
+            flags.append(
+                f"The fix for `{path}` has numbers that are not in the PR or the sentence it replaces: "
+                + ", ".join(invented)
+                + "."
+            )
     ref7 = a.ref[:7]
+    head = f"## Documentation agent - proposed doc updates for PR #{a.pr} (`{ref7}`)"
+    who = f"Role: documentation, model `{a.model}`."
+    # Nothing to do: no fragment wanted, no untrue sentence, nothing to check. Say so in one line, so the
+    # comment still shows the agent ran.
+    nothing = not cl_text and not edits and not flags and not needs_changelog(changed, a.title)
+    if nothing:
+        return (
+            "\n".join(
+                [head, "", f"No documentation changes proposed. The agent edited nothing. {who}"]
+            )
+            + "\n"
+        )
     lines = [
-        f"## Documentation agent - proposed doc updates for PR #{a.pr} (`{ref7}`)",
+        head,
         "",
-        f"Apply by hand: each block is plain text to copy in. The agent edited nothing. Role: documentation, model `{a.model}`.",
+        f"Apply by hand: each block is plain text to copy in. The agent edited nothing. {who}",
         "",
-        "### 1. Impact log (`docs/SYSTEM_IMPACT_LOG.md`)",
-        f"Paste this {where}, with a blank line after it:",
-        "",
-        "```",
-        entry,
-        "```",
-        "",
-        "### 2. Changelog",
+        "### 1. Changelog",
         cl_note,
     ]
     if cl_text:
         lines += ["", "```", cl_text, "```"]
-    lines += ["", "### 3. Docs that are now untrue"]
+    lines += ["", "### 2. Docs that are now untrue"]
     if edits:
         for path, sentence, fix in edits:
             lines += [
@@ -243,7 +224,6 @@ def main(argv=None):
         "date",
         "corpus",
         "changed",
-        "impact-log",
         "model",
     ):
         ap.add_argument("--" + name, required=True)
@@ -251,7 +231,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     out = render(load_payload(a.result), a)
     if out is None:
-        sys.stderr.write("docsync-render: the result had no usable impact entry\n")
+        sys.stderr.write("docsync-render: the result had no usable proposal\n")
         return 3
     sys.stdout.write(out)
     return 0

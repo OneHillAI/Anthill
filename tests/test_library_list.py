@@ -183,3 +183,23 @@ def test_the_principles_tab_is_untouched(tmp_path, monkeypatch):
     soup = _soup(client, "/wiki?tab=principles")
     assert soup.find(id="wiki-pages-card") is None
     assert soup.select_one(".settings-tabs a.active").get_text() == "Principles"
+
+
+# ── speed: a page is read again only when its file changed ─────────────────────────
+
+
+def test_a_page_is_read_again_only_when_its_file_changed(tmp_path, monkeypatch):
+    ws = _world(tmp_path / "user-1")
+    reads = []
+    real = library._page_record
+    monkeypatch.setattr(library, "_page_record", lambda text: reads.append(1) or real(text))
+    library._PAGE_CACHE.clear()
+    first = _rows(ws)
+    assert len(reads) == 4 and "Notes" in first  # every page read once
+    reads.clear()
+    _rows(ws)
+    assert reads == []  # nothing changed: nothing read again
+    page = ws.wiki / "notes.md"
+    page.write_text(page.read_text(encoding="utf-8").replace("# Notes", "# Notes, corrected"))
+    again = _rows(ws)
+    assert len(reads) == 1 and "Notes, corrected" in again and "Notes" not in again

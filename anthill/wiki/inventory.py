@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tarfile
 from collections.abc import Mapping
@@ -267,8 +268,13 @@ def _add_record_to_text(text: str, record: dict) -> str:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
+    """Replace ``path`` with ``data`` through a temporary file, keeping the permissions the file had."""
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data)
+    try:
+        os.chmod(tmp, path.stat().st_mode & 0o7777)
+    except OSError:
+        pass  # a new file keeps the default permissions
     tmp.replace(path)
 
 
@@ -366,6 +372,9 @@ def _apply_pages(
 ) -> None:
     for slug in slugs:
         path = ws.wiki / f"{slug}.md"
+        if path.is_symlink():  # rewriting would replace the link with a file: leave it to its owner
+            result.skipped.append(f"{slug}: a symbolic link, left as it is")
+            continue
         try:
             before, after = _page_with_record(path, slug, source_ids)
             _atomic_write(path, after)
@@ -418,6 +427,9 @@ def _undo_pages(ws: Workspace, entries: list[dict], backup: Path, out: UndoResul
     with tarfile.open(backup, "r:gz") as tar:
         for entry in entries:
             path = ws.wiki / f"{entry['slug']}.md"
+            if path.is_symlink():
+                out.skipped.append(f"{entry['slug']}: a symbolic link, left as it is")
+                continue
             try:
                 if _sha(path.read_bytes()) != entry["after"]:
                     out.skipped.append(f"{entry['slug']}: changed since the records were added")

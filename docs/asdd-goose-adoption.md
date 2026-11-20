@@ -89,7 +89,7 @@ Confirm it reads the diff, runs the suite on a model distinct from the developer
 - **interaction** agent: connect Anthill's chat / Slack surface - answers from the wiki, routes ideas
   into the governed intake as validated specs.
 - **tester** agent: independent tests on gpt-oss-120b (the project's tester differs from the BYO developer).
-- **documentation** agent: keeps docs / `SYSTEM_IMPACT_LOG` / the wiki in sync as governed PRs.
+- **documentation** agent: keeps docs / the changelog / the wiki in sync as governed PRs.
 - **developer**: stays BYO (the maintainer's own agent) - never project-provisioned, never self-merges.
 
 ## 8. Step 7 - (govern layer, separate) repoint the CI review gate

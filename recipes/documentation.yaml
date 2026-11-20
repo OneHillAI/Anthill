@@ -6,7 +6,7 @@ version: "1.0.0"
 title: "documentation agent"
 description: >
   Keeps the project's docs in sync with what merged. Reads the merged change and returns a structured
-  proposal (an impact-log entry, a changelog line, doc sentences that are now untrue). A script validates
+  proposal (a changelog line, doc sentences that are now untrue). A script validates
   and lays it out for a human to paste. Never opens a PR, never edits files, never merges.
 
 instructions: |
@@ -29,12 +29,6 @@ instructions: |
        "action_taken": "proposed doc updates",
        "reasoning": "one sentence: what in the change drives these docs",
        "payload": {
-         "impact": {
-           "system_impact": "what the system can now do or how its shape changed, in plain English, 2 to 3 sentences",
-           "surface": "the modules, endpoints, commands or workflows touched, in backticks",
-           "user_visible": "yes: what a user notices   OR   no: internal only",
-           "footprint": "additive | refactor | migration | plan-only, then a semicolon and one risk note"
-         },
          "changelog": {"category": "added|changed|deprecated|removed|fixed|security",
                        "text": "one plain paragraph, the user-facing release note"},
          "doc_edits": [{"path": "docs/<file>.md", "sentence": "an exact sentence now untrue, copied verbatim",
@@ -47,8 +41,8 @@ instructions: |
   - Omit `changelog` unless the change altered product behaviour a user would notice (code under anthill/).
   - Put in `doc_edits` only a sentence that is now untrue, copied exactly from a file that exists. Otherwise
     leave the list empty. Do not propose general rewrites.
+  - Always include `doc_edits`, as an empty list when nothing is untrue: a result without it is rejected.
   - Style: plain English, British spelling, plain hyphens only (never an en or em dash), no hype.
-  - Footprint must start with exactly one of: additive, refactor, migration, plan-only.
 
 prompt: "Read the merged change {{ change_ref }} and write your structured proposal to .asdd-work/operate-result.json as instructed (instructed by {{ instructed_by }}). Change nothing else."
 
