@@ -44,6 +44,33 @@ def _page_record(text: str) -> items.ItemRecord | None:
         return None
 
 
+# Reading a page's record parses its front matter, about 2 ms a page. A page is read again only when its file
+# changed (its modified time, size, inode or change time), so a wiki of thousands of pages pays that once.
+_PAGE_CACHE: dict[str, tuple[tuple, str, items.ItemRecord | None]] = {}
+_PAGE_CACHE_MAX = 20_000
+
+
+def _page_facts(path) -> tuple[str, items.ItemRecord | None, float]:
+    """The title, the record and the modified time of a page file."""
+    try:
+        st = path.stat()
+    except OSError:
+        return path.stem, None, 0.0
+    sig = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
+    hit = _PAGE_CACHE.get(str(path))
+    if hit is not None and hit[0] == sig:
+        return hit[1], hit[2], st.st_mtime
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    title, rec = first_h1(text) or path.stem, _page_record(text)
+    if len(_PAGE_CACHE) >= _PAGE_CACHE_MAX:
+        _PAGE_CACHE.clear()
+    _PAGE_CACHE[str(path)] = (sig, title, rec)
+    return title, rec, st.st_mtime
+
+
 def _source_record(ws, name: str) -> items.ItemRecord | None:
     try:
         return items.read_source_record(ws, name)
@@ -57,15 +84,8 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
     query = _query(scope, team_id)
     pages = []
     for path in ws.pages():
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            text = ""
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            mtime = 0.0
-        pages.append((path, first_h1(text) or path.stem, _page_record(text), mtime))
+        title, rec, mtime = _page_facts(path)
+        pages.append((path, title, rec, mtime))
     docs = [(f, _source_record(ws, f["name"])) for f in raw_files]
 
     doc_of_id = {rec.id: f for f, rec in docs if rec is not None}

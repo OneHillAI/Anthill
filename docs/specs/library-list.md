@@ -35,4 +35,7 @@ were in different tabs and not linked, and nothing showed which pages a model wr
 - The three filters work, can be combined, and stay filled in after the page reloads.
 - `?tab=files` and `?tab=pages` show the Library; the Principles tab is unchanged.
 - Remove and Restore work from the Library as before.
+- A page is read again only when its file changed. Measured with 1,000 pages and 500 originals: the first view
+  after a start takes about 1 s (every page's record is parsed once), later views about 22 ms; the old list of
+  pages took 30 ms.
 - Looked at on a running copy at desktop widths, light and dark.
