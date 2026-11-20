@@ -489,6 +489,16 @@ def test_a_page_that_is_a_symlink_is_left_alone_by_apply_and_undo(tmp_path):
 def test_a_dry_run_reads_the_database_read_only_and_leaves_its_bytes_alone(tmp_path):
     ws = _build(tmp_path)
     db = _db(tmp_path / "data", [])
+    # The helper's own connection may still be open and checkpoint the file when it is collected, which changes the
+    # file's header (its change counter) on some Python versions. Settle the file first, so the two reads compare
+    # the dry run and nothing else.
+    import gc
+    import sqlite3
+
+    gc.collect()
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    con.close()
     before = db.read_bytes()
     status = _review_status_for(db, ws.root)
     assert status is None or isinstance(status, dict)
