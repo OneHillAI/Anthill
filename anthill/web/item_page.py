@@ -4,6 +4,10 @@ and the answer records kept with each answer (anthill/wiki/answer_record.py)."""
 
 from __future__ import annotations
 
+import json
+
+from sqlalchemy import or_
+
 from ..wiki import answer_record, items
 from .answer_panel import SPACE_LABELS
 from .db import ChatMessage, Conversation
@@ -63,8 +67,10 @@ def used_in(
 ) -> dict:
     """The viewer's own chats whose answers were given this item: ``{chats: [{id, title, answers}], more}``, newest
     chat first. Only the viewer's conversations are read."""
-    rows = (
-        db.query(ChatMessage.conversation_id, ChatMessage.manifest, Conversation.title)
+    # The newest answers of the viewer, narrowed by the database to those whose record mentions the item (its id
+    # or its name, the name also as JSON writes it), so most records are never read into Python.
+    newest = (
+        db.query(ChatMessage.id)
         .join(Conversation, Conversation.id == ChatMessage.conversation_id)
         .filter(
             Conversation.user_id == user_id,
@@ -74,6 +80,17 @@ def used_in(
         )
         .order_by(ChatMessage.id.desc())
         .limit(MAX_ANSWERS_READ)
+        .subquery()
+    )
+    needles = [n for n in (record_id, name, json.dumps(name)[1:-1]) if n]
+    rows = (
+        db.query(ChatMessage.conversation_id, ChatMessage.manifest, Conversation.title)
+        .join(Conversation, Conversation.id == ChatMessage.conversation_id)
+        .filter(
+            ChatMessage.id.in_(db.query(newest.c.id)),
+            or_(*[ChatMessage.manifest.contains(n, autoescape=True) for n in needles]),
+        )
+        .order_by(ChatMessage.id.desc())
         .all()
     )
     chats: dict[int, dict] = {}

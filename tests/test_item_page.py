@@ -159,3 +159,13 @@ def test_a_team_wiki_needs_membership(tmp_path, monkeypatch):
     _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
     _login(client, ids["owner"])
     assert client.get("/wiki/item?kind=page&name=ferry&scope=team&team_id=999").status_code == 403
+
+
+def test_an_item_with_letters_outside_ascii_in_its_name_is_still_found(tmp_path, monkeypatch):
+    app_mod, _eng, client, ids = _setup(tmp_path, monkeypatch)
+    ws = _personal(ids)
+    (ws.wiki / "caf\u00e9.md").write_text("# Caf\u00e9\n\nNo record.\n", encoding="utf-8")
+    chat = _chat(app_mod, ids["owner"], ws, ["caf\u00e9"], title="About the cafe")
+    _login(client, ids["owner"])
+    story = _item(client, "page", "caf%C3%A9").find(id="item-story")
+    assert [a["href"] for a in story.select("ul li a")] == [f"/chat/{chat}"]

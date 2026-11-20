@@ -34,7 +34,9 @@ which of their chats used it.
 - The list is cut at 20 and counted.
 - A page with no record still has a page.
 - The page view and the Library lead to it.
-- Measured: with 1,000 stored answers the page takes about 16 ms on a laptop.
+- Measured at the cap of 3,000 stored answers, with 10 chats using the item: about 8 ms when each answer
+  names 5 items, 21 ms for 20 items and 49 ms for 50 items. The database narrows the answers to those whose
+  record mentions the item (its id or its name), so most records are never read into the application.
 - Looked at on a running copy at desktop widths, light and dark.
 
 ## Not here
