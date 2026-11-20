@@ -237,3 +237,69 @@ def test_mcp_endpoint_denies_a2a_without_scope(tmp_path, monkeypatch):
     finally:
         app_mod._engine = None
         app_mod._SessionFactory = None
+
+
+# ── an agent-to-agent run cannot write to a wiki ──────────────────────────────
+
+
+class _WritingBackend:
+    """A model that tries to write a wiki page, then answers. Records what the tool returned to it."""
+
+    model = "stub"
+
+    def __init__(self):
+        self.calls = 0
+        self.seen: list[str] = []
+
+    def chat_with_tools(self, messages, specs, model=None, num_predict=None):
+        self.calls += 1
+        self.seen.append("\n".join(str(getattr(m, "content", m)) for m in messages))
+        if self.calls == 1:
+            call = {
+                "function": {
+                    "name": "write_wiki_draft",
+                    "arguments": {
+                        "slug": "planted",
+                        "content": "# Planted\n\nA page nobody reviewed.\n",
+                    },
+                }
+            }
+            return {"message": {"content": "", "tool_calls": [call]}}
+        return {"message": {"content": "done"}}
+
+
+def _tree(root):
+    import hashlib
+
+    return {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
+
+
+@pytest.mark.parametrize("tool", ["a2a_ask_agent", "a2a_delegate"])
+def test_a_target_agent_reached_through_serve_a2a_cannot_write_to_a_wiki(
+    tmp_path, monkeypatch, tool
+):
+    from anthill.wiki.workspace import Workspace
+
+    ws = Workspace(tmp_path / "ws")
+    ws.init()
+    ws.write_page("existing", "# Existing\n\nKept as it is.\n")
+    monkeypatch.setenv("ANTHILL_WORKSPACE", str(ws.root))
+    backend = _WritingBackend()
+    monkeypatch.setattr("anthill.inference.base.build_backend", lambda config: backend)
+    s, org_id = _sess(tmp_path)
+    # the target is allowed to use the wiki tools, so only the missing reviewer stops the write
+    s.add(AgentIdentity(org_id=org_id, name="target", scopes="wiki", active=True))
+    s.commit()
+    before = _tree(ws.root)
+    caller = AgentPrincipal(name="bot", scopes={"a2a"})
+    out = a2a.serve_a2a(s, org_id, caller, tool, {"agent": "target", "question": "write a page"})
+    assert out == "done" and backend.calls == 2
+    assert "not available in this run" in backend.seen[1]  # what the model was told
+    assert _tree(ws.root) == before and not (ws.wiki / "planted.md").exists()
+    from anthill.web.db import WikiReview
+
+    assert s.query(WikiReview).count() == 0
