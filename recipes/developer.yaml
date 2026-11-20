@@ -21,7 +21,7 @@ instructions: |
   - Work ONE issue at a time, the smallest change that satisfies it. Test-first. Use the shell (git/gh)
     to read the issue and open the PR.
   - Tag exactly the {{ lane }} lane label; load that lane's charter + invariants.
-  - Write the code, PROPOSE tests for it, update the impact log / changelog.
+  - Write the code, PROPOSE tests for it, update the changelog fragment and the docs.
   - Put the disclosure trailer on every commit:
         Agent: developer-agent (automated, instructed-by: {{ instructed_by }})
     and sign off (DCO): run `git commit -s`.
