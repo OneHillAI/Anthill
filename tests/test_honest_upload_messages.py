@@ -27,9 +27,9 @@ def test_the_banner_names_the_model_that_read_the_document(tmp_path, monkeypatch
     text = " ".join(banner.get_text().split())
     assert "added to this wiki." in text
     assert "Read by qwen2.5:3b, which wrote the page from your document." in text
-    assert "The original is kept under Files." in text
+    assert "The original is kept in the Library." in text
     assert "indexed by" not in html
-    assert banner.select_one('a[href^="?tab=files"]') is not None
+    assert banner.select_one('a[href^="?tab=library"]') is not None
 
 
 def test_the_banner_says_a_short_note_was_filed_as_written(tmp_path, monkeypatch):
@@ -95,7 +95,7 @@ def test_the_page_says_it_is_an_ai_summary_and_links_the_original(tmp_path, monk
     text = " ".join(meta.get_text().split())
     assert text.startswith("AI summary written by qwen2.5:3b on ")
     assert "from my notes.md." in text  # the name it was uploaded with, not the hashed one
-    assert "It is not the text of your document; the original is kept under Files." in text
+    assert "It is not the text of your document; the original is kept in the Library." in text
     link = meta.select_one("a")
     assert link is not None and link["href"].startswith("/wiki/raw/my%20notes-")
     assert "-" in link["href"] and link.get_text() == "my notes.md"

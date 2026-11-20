@@ -452,9 +452,11 @@ def test_only_the_owner_sees_their_uploads_even_an_admin_in_the_same_org(tmp_pat
     _login(client, ids["mate"])
     assert "mine.md" not in client.get("/wiki").text
     _login(client, ids["admin2"])
-    assert "board.md" not in client.get("/wiki/org").text
+    assert "board.md" not in _list(
+        client.get("/wiki/org").text
+    )  # the upload list; the Library is shared
     _login(client, ids["admin"])
-    assert "board.md" in client.get("/wiki/org").text
+    assert "board.md" in _list(client.get("/wiki/org").text)
     assert "board.md" not in client.get("/wiki").text
 
 

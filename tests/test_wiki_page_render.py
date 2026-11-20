@@ -105,7 +105,7 @@ def test_wiki_index_caption_reads_as_a_sentence(tmp_path, monkeypatch):
             .select_one("#wiki-pages-card span.text-muted")
             .get_text()
         )
-        assert text.startswith("The wiki documents in this scope. Take a tour")
+        assert text.startswith("Pages and the documents they were made from. Take a tour")
     finally:
         app_mod._engine = None
         app_mod._SessionFactory = None

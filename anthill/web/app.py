@@ -39,7 +39,7 @@ from ..wiki import answer_record, doc_index
 from ..wiki import items as wiki_items
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import answer_panel, audit, bring_in, key_startup, metrics
+from . import answer_panel, audit, bring_in, key_startup, library, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -8649,7 +8649,6 @@ def _upload_types_text() -> str:
 
 
 def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
-    from ..common.text import first_h1
     from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS, INGEST_MODEL_TIMEOUT_SECONDS
     from ..wiki.principles import read_principles
     from .docsource import doc_source_servers
@@ -8661,15 +8660,15 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
     ws = _wiki_ws(user, scope, team_id)
     if not ws.exists():
         ws.init()
-    pages = []
-    for p in ws.pages():
-        try:
-            pages.append({"slug": p.stem, "title": first_h1(p.read_text()) or p.stem})
-        except Exception:
-            pages.append({"slug": p.stem, "title": p.stem})
-    tab = request.query_params.get("tab", "pages")
-    if tab not in ("pages", "principles", "files"):
-        tab = "pages"
+    # The Library is what the Pages and Files tabs were: ?tab=pages and ?tab=files still open it.
+    tab = "principles" if request.query_params.get("tab") == "principles" else "library"
+    raw_files = _wiki_raw_files(ws) if tab == "library" else []
+    everything = (
+        library.build(ws, raw_files, scope=scope, team_id=team_id) if tab == "library" else []
+    )
+    lib_kind = request.query_params.get("kind", "")
+    lib_unchecked = request.query_params.get("unchecked") == "1"
+    lib_q = request.query_params.get("q", "")[:200]
     return {
         "request": request,
         "user": user,
@@ -8678,9 +8677,12 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "team_id": team_id,
         "can_edit": _wiki_can_edit(db, user, scope, team_id),
         "principles_text": read_principles(ws),
-        "pages": pages,
-        "raw_files": _wiki_raw_files(ws) if tab == "files" else [],
-        "removed_items": _removed_items(ws) if tab == "files" else [],
+        "library": library.filtered(everything, kind=lib_kind, unchecked=lib_unchecked, q=lib_q),
+        "library_total": len(everything),
+        "lib_kind": lib_kind if lib_kind in ("pages", "documents") else "",
+        "lib_unchecked": lib_unchecked,
+        "lib_q": lib_q,
+        "removed_items": _removed_items(ws) if tab == "library" else [],
         "retention_days": removal_retention_days(),
         "pdf_confirmations": (
             [p.name for p in _pending_pdf_confirmation_paths(ws)]
