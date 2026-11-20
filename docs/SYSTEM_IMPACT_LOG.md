@@ -1,26 +1,20 @@
 # System Impact Log
 
-A plain-English, retrospective record of **what each merged PR did to the system** - the capability,
-architecture, and footprint change, not the line-level diff. Read top-down to see how Anthill got to
-where it is. This is the **developer-facing** companion to two other docs:
+**Frozen history.** This log was a hand-kept, plain-English entry per merged PR. Its newest entry is dated
+2026-10-09 and it is no longer maintained: nobody adds entries, and the documentation agent no longer
+proposes them (#308). It stays as the record of how Anthill got to where it was in October 2026; its entries
+are not edited.
 
-- **`CHANGELOG.md`** - user-facing release notes ("what's new" per version).
-- **`docs/USING_ANTHILL.md`** - the user-facing "what can I do and how do I use it" guide.
+Since then the record of a change is, from most to least detailed:
 
-Where the CHANGELOG says "we added X", this says "X means the system can now do Y, it lives in Z, and
-here is the footprint." A daily documentation agent cross-checks this log + the user guide against the
-actual system and reports drift (it does not edit docs unattended).
+- its **spec** in `docs/specs/` (problem, requirements, tests, known limits) and its **OpenSpec change** in
+  `openspec/changes/`;
+- its **changelog fragment** in `changelog.d/` (the user-facing release note; `CHANGELOG.md` is assembled at
+  release);
+- its **PR description**, which says what was and was not verified.
 
-**How to keep it current:** when you merge a PR, add an entry at the top of the current month using the
-template. Keep it to ~4 lines. Plan-only / docs PRs get an entry too (**Footprint: plan-only**).
-
-```
-### PR #NNN - <short title> - merged YYYY-MM-DD
-**System impact:** <what the system can now do / how its shape changed, in plain English>
-**Surface:** <modules, new endpoints, new CLI commands>
-**User-visible:** <yes: what a user notices | no: internal only>
-**Footprint:** <additive | refactor | migration | plan-only>; <regression / risk note>
-```
+What a user can do, and how, is described in the guide pages under `docs/` that docs.anthill.run publishes,
+starting from `docs/USING_ANTHILL.md`.
 
 ---
 

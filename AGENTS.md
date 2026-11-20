@@ -60,7 +60,7 @@ runs are bounded (`max_actions_per_run`). Report security issues **privately** p
 [`SECURITY.md`](SECURITY.md), never in a public issue.
 
 **After the merge.** Two agents comment on the merged PR: the test agent runs the whole suite on the merged
-code and records PASS or FAIL, and the documentation agent proposes the impact-log entry, changelog line and any
+code and records PASS or FAIL, and the documentation agent proposes the changelog line and any
 untrue doc sentence for a human to paste. Both advise; neither edits or merges. An agent with a shell runs
 only on merged code, never on an open PR. The agents, their models and their state are in
 [`docs/asdd-anthill-process.md`](docs/asdd-anthill-process.md).
@@ -81,9 +81,9 @@ person. See [`docs/guides/using-asdd-solo.md`](https://github.com/OneHillAI/ASDD
 ## Knowledge
 
 The codebase's knowledge is kept as an OKGF bundle ([`docs/OKGF.md`](docs/OKGF.md) is the format - a
-governed superset of Google's OKF). Keep the docs current with each change: a short
-[`docs/SYSTEM_IMPACT_LOG.md`](docs/SYSTEM_IMPACT_LOG.md) entry per merged PR, and
-[`docs/USING_ANTHILL.md`](docs/USING_ANTHILL.md) when user-facing behavior changes.
+governed superset of Google's OKF). Keep the docs current with each change: a changelog fragment, the spec, and the guide pages under `docs/`
+(start at [`docs/USING_ANTHILL.md`](docs/USING_ANTHILL.md)) when user-facing behavior changes.
+[`docs/SYSTEM_IMPACT_LOG.md`](docs/SYSTEM_IMPACT_LOG.md) is frozen history and gets no new entries.
 
 ## Instruction boundary
 

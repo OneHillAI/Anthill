@@ -39,7 +39,7 @@ from ..wiki import answer_record, doc_index
 from ..wiki import items as wiki_items
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import answer_panel, audit, bring_in, key_startup, metrics
+from . import answer_panel, audit, bring_in, key_startup, library, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -3168,22 +3168,27 @@ def _model_picker_view(cfg):
     from ..hosting.sizing import (
         families_by_intelligence,
         family_download_gb,
-        fit_tier,
         gpu_box_system_ram_gb,
         hardware_label,
         has_any_self_serve_path,
         load_catalog,
         local_hardware,
+        model_fit_tier,
+        row_installed_tag,
+        row_tags,
+        runs_on_bundled_engine,
         suggest_local_setup,
     )
-    from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
+    from ..inference.ollama import OllamaBackend, normalize_ollama_tag
 
     # the live (refreshable) catalog, so a Refresh shows new models without a restart. Split off the
     # handful of entries no path Anthill provisions today could ever serve (too big for any local box AND
     # for Anthill's own largest cloud GPU node) - those render as a "bring your own bigger infrastructure"
     # note instead of a permanently-disabled row cluttering every family list.
     FULL_CATALOG = load_catalog()
-    LOCAL_CATALOG = tuple(m for m in FULL_CATALOG if has_any_self_serve_path(m))
+    LOCAL_CATALOG = tuple(
+        m for m in FULL_CATALOG if has_any_self_serve_path(m) and runs_on_bundled_engine(m)
+    )
     FRONTIER_CATALOG = tuple(m for m in FULL_CATALOG if not has_any_self_serve_path(m))
     LOCAL_FAMILIES = families_by_intelligence(LOCAL_CATALOG)
     DEFAULT_LOCAL_FAMILY = LOCAL_FAMILIES[0] if LOCAL_FAMILIES else ""
@@ -3201,7 +3206,7 @@ def _model_picker_view(cfg):
     # installed, what can I remove" picture as everything else, not a second, separate page. On this
     # test machine 9 of 13 actually-installed tags fell outside the curated 23, so this is the common
     # case, not an edge case.
-    _catalog_tags = {normalize_ollama_tag(m.ollama_tag) for m in LOCAL_CATALOG}
+    _catalog_tags = {normalize_ollama_tag(t) for m in LOCAL_CATALOG for t in row_tags(m)}
     other_installed = sorted(
         (
             {"tag": m["name"], "size_gb": round(m["size_bytes"] / 1e9, 1)}
@@ -3212,14 +3217,8 @@ def _model_picker_view(cfg):
     )
 
     def _tier(m):
-        return fit_tier(
-            m.params_b,
-            mem_gb,
-            kind=kind,
-            context_k=8.0,
-            concurrency=1,
-            active_b=m.active_b,
-            system_ram_gb=system_ram_gb,
+        return model_fit_tier(
+            m, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
         )
 
     families = []
@@ -3247,7 +3246,7 @@ def _model_picker_view(cfg):
                 "offload": tiers[m.ollama_tag]
                 == "offload",  # overflows VRAM, but a modest MoE CPU-RAM spill still runs (slower)
                 "recommended": bool(pick and m.ollama_tag == pick.ollama_tag),
-                "installed": tag_matches_installed(m.ollama_tag, installed),
+                "installed": bool(row_installed_tag(m, installed)),
                 "intelligence": m.intelligence,  # for the capability bar (relative to intel_max)
             }
             for m in fam_models
@@ -3274,7 +3273,7 @@ def _model_picker_view(cfg):
             "tag": p.recommended.ollama_tag,
             "params_b": p.recommended.params_b,
             "download_gb": p.download_gb,
-            "installed": tag_matches_installed(p.recommended.ollama_tag, installed),
+            "installed": bool(row_installed_tag(p.recommended, installed)),
         }
         for p in suggestion.members
         if p.recommended is not None
@@ -3707,13 +3706,13 @@ def _apply_solo_compute(
         cfg.org_provision_key_enc = encrypt(provider_api_key.strip())
         cfg.solo_compute = "cloud"
         cfg.local_model_chosen = True
-        from ..hosting.sizing import load_catalog
+        from ..hosting.sizing import load_catalog, row_for_tag
 
         catalog = load_catalog()
         model_tag = lead or (cfg.ollama_model or "")
         if model_tag:
             cfg.org_model = model_tag
-            _m = next((m for m in catalog if m.ollama_tag == model_tag), None)
+            _m = row_for_tag(catalog, model_tag)
             cfg.org_gpu = _smallest_gpu_for_model(_m.params_b if _m else 0.0)
             cfg.org_model_params = str(_m.params_b) if _m else ""
         # Training is not configured separately here either (mirrors settings_organization_backend's
@@ -3750,7 +3749,7 @@ def _apply_solo_compute(
         if len(council) >= 2:
             members = []
             for t in council:
-                cm = next((m for m in catalog if m.ollama_tag == t), None)
+                cm = row_for_tag(catalog, t)
                 members.append(
                     {
                         **_empty_member(),
@@ -3825,7 +3824,7 @@ def _apply_solo_compute(
             catalog = sizing.load_catalog()
             member_params: list[float] = []
             for t in council:
-                m = next((c for c in catalog if c.ollama_tag == t), None)
+                m = sizing.row_for_tag(catalog, t)
                 if m:
                     member_params.append(m.params_b)
             # Mirrors the org admin's council-editor fit gate (settings_organization_council's
@@ -3898,7 +3897,17 @@ def model_picker_post(
     ``choice`` is an Ollama tag, or ``__skip__`` to defer (chat then shows a 'choose a model' state
     until one is pulled). ``enable_vision`` (default-on checkbox) also background-pulls a small vision
     model so image analysis works out of the box."""
-    from ..hosting.sizing import LOCAL_CATALOG, load_catalog, local_hardware, suggest_local_setup
+    from ..hosting.sizing import (
+        LOCAL_CATALOG,
+        load_catalog,
+        local_hardware,
+        row_for_tag,
+        row_installed_tag,
+        row_tags,
+        runs_on_bundled_engine,
+        suggest_local_setup,
+    )
+    from ..inference.ollama import tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -3977,8 +3986,6 @@ def model_picker_post(
                 with _MODEL_PULL_LOCK:
                     (_MODEL_PULL_STATE.get(org.id) or {}).pop("vision_waiter", None)
             db.commit()
-            from ..inference.ollama import tag_matches_installed
-
             installed = set(_installed_local_models(cfg))
             for m in members:
                 if not tag_matches_installed(m["model"], installed):
@@ -4002,14 +4009,19 @@ def model_picker_post(
         # whatever is on the configured URL degrades to "nothing installed" rather than 500ing
         # this request - it already has that guarantee; nothing else in this route did.
         installed = set(_installed_local_models(cfg))
-        valid = {m.ollama_tag for m in LOCAL_CATALOG} | installed
+        valid = {
+            t for m in LOCAL_CATALOG if runs_on_bundled_engine(m) for t in row_tags(m)
+        } | installed
         if choice in valid:  # never pull arbitrary user input
+            row = row_for_tag(LOCAL_CATALOG, choice)
+            if row is not None and not tag_matches_installed(choice, installed):
+                # a replaced (older) tag is never pulled: use the installed one, else the row's own build tag
+                choice = row_installed_tag(row, installed) or row.ollama_tag
             if _model_too_large_for_this_machine(cfg, choice):
                 # The picker already greys this option out, but it reached the catalog-membership
                 # check above regardless (a stale page, a not-fully-disabled option, or a direct
                 # request) - re-check fit here too, matching /personalize and /models/pull (#747).
                 return RedirectResponse("/setup/model?error=too_large", status_code=302)
-            from ..inference.ollama import tag_matches_installed
 
             if tag_matches_installed(choice, installed):
                 cfg.ollama_model = choice  # already here: activate now
@@ -6553,11 +6565,12 @@ def _local_model_options(cfg) -> list[str]:
     )
     try:
         from ..hosting.sizing import (
-            fit_tier,
             gpu_box_system_ram_gb,
             has_any_self_serve_path,
             load_catalog,
             local_hardware,
+            model_fit_tier,
+            runs_on_bundled_engine,
         )
 
         mem_gb, kind = local_hardware()
@@ -6567,14 +6580,9 @@ def _local_model_options(cfg) -> list[str]:
             for m in load_catalog()
             if m.ollama_tag
             and has_any_self_serve_path(m)
-            and fit_tier(
-                m.params_b,
-                mem_gb,
-                kind=kind,
-                context_k=8.0,
-                concurrency=1,
-                active_b=m.active_b,
-                system_ram_gb=system_ram_gb,
+            and runs_on_bundled_engine(m)
+            and model_fit_tier(
+                m, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
             )
             != "too_large"
         ]
@@ -6603,22 +6611,22 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
     if not tag or tag_matches_installed(tag, _installed_local_models(cfg)):
         return False
     try:
-        from ..hosting.sizing import fit_tier, gpu_box_system_ram_gb, load_catalog, local_hardware
+        from ..hosting.sizing import (
+            gpu_box_system_ram_gb,
+            load_catalog,
+            local_hardware,
+            model_fit_tier,
+            row_for_tag,
+        )
 
-        model = next((m for m in load_catalog() if m.ollama_tag == tag), None)
+        model = row_for_tag(load_catalog(), tag)
         if model is None:
             return False
         mem_gb, kind = local_hardware()
         system_ram_gb = gpu_box_system_ram_gb() if kind == "gpu" else None
         return (
-            fit_tier(
-                model.params_b,
-                mem_gb,
-                kind=kind,
-                context_k=8.0,
-                concurrency=1,
-                active_b=model.active_b,
-                system_ram_gb=system_ram_gb,
+            model_fit_tier(
+                model, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
             )
             == "too_large"
         )
@@ -8641,7 +8649,6 @@ def _upload_types_text() -> str:
 
 
 def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
-    from ..common.text import first_h1
     from ..wiki.ingest import INGEST_EXTENDED_TIMEOUT_SECONDS, INGEST_MODEL_TIMEOUT_SECONDS
     from ..wiki.principles import read_principles
     from .docsource import doc_source_servers
@@ -8653,15 +8660,15 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
     ws = _wiki_ws(user, scope, team_id)
     if not ws.exists():
         ws.init()
-    pages = []
-    for p in ws.pages():
-        try:
-            pages.append({"slug": p.stem, "title": first_h1(p.read_text()) or p.stem})
-        except Exception:
-            pages.append({"slug": p.stem, "title": p.stem})
-    tab = request.query_params.get("tab", "pages")
-    if tab not in ("pages", "principles", "files"):
-        tab = "pages"
+    # The Library is what the Pages and Files tabs were: ?tab=pages and ?tab=files still open it.
+    tab = "principles" if request.query_params.get("tab") == "principles" else "library"
+    raw_files = _wiki_raw_files(ws) if tab == "library" else []
+    everything = (
+        library.build(ws, raw_files, scope=scope, team_id=team_id) if tab == "library" else []
+    )
+    lib_kind = request.query_params.get("kind", "")
+    lib_unchecked = request.query_params.get("unchecked") == "1"
+    lib_q = request.query_params.get("q", "")[:200]
     return {
         "request": request,
         "user": user,
@@ -8670,9 +8677,12 @@ def _wiki_ctx(request, db, user, org, scope, *, team_id=None):
         "team_id": team_id,
         "can_edit": _wiki_can_edit(db, user, scope, team_id),
         "principles_text": read_principles(ws),
-        "pages": pages,
-        "raw_files": _wiki_raw_files(ws) if tab == "files" else [],
-        "removed_items": _removed_items(ws) if tab == "files" else [],
+        "library": library.filtered(everything, kind=lib_kind, unchecked=lib_unchecked, q=lib_q),
+        "library_total": len(everything),
+        "lib_kind": lib_kind if lib_kind in ("pages", "documents") else "",
+        "lib_unchecked": lib_unchecked,
+        "lib_q": lib_q,
+        "removed_items": _removed_items(ws) if tab == "library" else [],
         "retention_days": removal_retention_days(),
         "pdf_confirmations": (
             [p.name for p in _pending_pdf_confirmation_paths(ws)]
@@ -12689,6 +12699,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     otherwise download it in the background and switch only when the download finishes - the previous
     model keeps serving meanwhile, so the UI never shows a 'selected but not installed' model. The
     /models page polls /models/pull-status for live progress and a 'ready' confirmation."""
+    from ..hosting.sizing import load_catalog, row_for_tag, row_installed_tag
     from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
 
     db = _db()
@@ -12713,6 +12724,10 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
         return RedirectResponse(f"/models?pulling={model_tag}", status_code=302)
 
     installed = set(OllamaBackend(cfg.ollama_url, model_tag).installed_models()) if cfg else set()
+    row = row_for_tag(load_catalog(), model_tag)
+    if row is not None and not tag_matches_installed(model_tag, installed):
+        # a replaced (older) tag is never pulled: use the installed one, else the row's own build tag
+        model_tag = row_installed_tag(row, installed) or row.ollama_tag
     if tag_matches_installed(model_tag, installed):
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately

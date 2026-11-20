@@ -21,6 +21,7 @@ biggest number.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import platform
 import re
@@ -46,6 +47,8 @@ _LOCAL_RUNNER_GB = (
 # (the model loader, compute buffers, etc.). Sizing against this resident footprint - not raw weights -
 # is what stops a too-large "recommended" model from freezing a small Mac: a 16 GB box was previously told
 # to run a 14B (weights ~7.7 GB but resident ~10 GB) and froze (issue #490).
+_REFERENCE_CONTEXT_K = 8.0  # the window a catalogue row's precomputed `need_gb` is computed for
+_MAX_NEED_GB = 2048.0  # a `need_gb` above this is not a memory figure
 _COMFORT_FREE_GB = (
     7.0  # free system memory a model should LEAVE (after its resident footprint) to run
 )
@@ -89,6 +92,17 @@ class Model:
     # gpu_count (docs/specs/multi-gpu-tensor-parallel-serving.md); vLLM requires gpu_count to evenly
     # divide this. Not populated for model_catalog.json's current seed/placeholder rows - do not invent
     # a value here without a verified model card; 0 is treated as "not checked", not "one head."
+    min_engine_version: str = (
+        ""  # the oldest Ollama that can download and run this row ("0.40.16"); "" = no requirement
+    )
+    # stated. The local picker does not offer a row the engine Anthill ships is older than (docs/specs/catalogue-engine-compat.md).
+    need_gb: float = 0.0  # precomputed, once, in the catalogue: the memory this model occupies while running on Apple
+    # Silicon at the reference setup (an 8,192-token window, one stream, the embedder resident), the quantity
+    # `resident_gb` approximates. 0 = not computed: the flat estimate is used (docs/specs/catalogue-precomputed-need.md).
+    replaces: tuple[
+        str, ...
+    ] = ()  # older tags this row stands for (a plain tag that a build tag took over), so an
+    # install that chose the old tag keeps working (docs/specs/catalogue-replaced-tags.md). () = none.
 
 
 # The catalog is DATA, not code: a bundled JSON (hosting/model_catalog.json) the picker ranks by
@@ -213,6 +227,89 @@ def is_safe_row(row: object) -> bool:
     return is_safe_hf_id(row.get("hf_id", "")) and is_safe_hf_id(row.get("quant_hf_id", ""))
 
 
+_ENGINE_VERSION = re.compile(r"^\s*v?(\d+)\.(\d+)(?:\.(\d+))?\s*$")
+
+
+def _engine_version_tuple(value: object) -> tuple[int, int, int] | None:
+    """An Ollama version such as ``0.40.16`` (or ``0.40``) as a comparable tuple, or None when it is not one."""
+    match = _ENGINE_VERSION.match(value) if isinstance(value, str) else None
+    if not match:
+        return None
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch or 0))
+
+
+def _valid_engine_version(value: object) -> str:
+    """A catalogue row's ``min_engine_version`` written canonically, or "" (no requirement) when it is not a version:
+    a bad value never hides a row."""
+    parsed = _engine_version_tuple(value)
+    return "" if parsed is None else ".".join(str(part) for part in parsed)
+
+
+def bundled_engine_version() -> tuple[int, int, int] | None:
+    """The Ollama version the app ships (the pin in ``anthill.inference.ollama``), read without touching the network."""
+    from ..inference.ollama import _OLLAMA_VERSION
+
+    return _engine_version_tuple(_OLLAMA_VERSION)
+
+
+def runs_on_bundled_engine(model: Model) -> bool:
+    """False only when the row names an engine newer than the one the app ships; no requirement stated (or one that is
+    not a version) means it is offered, as before."""
+    required = _engine_version_tuple(model.min_engine_version)
+    shipped = bundled_engine_version()
+    return required is None or shipped is None or required <= shipped
+
+
+def _valid_replaces(value: object, own_tag: object) -> tuple[str, ...]:
+    """The older tags a row says it replaces: only valid, distinct tags other than its own. Anything else (not a list,
+    an unsafe tag) is ignored, so a bad value never raises and never hides the row."""
+    if not isinstance(value, list):
+        return ()
+    out: list[str] = []
+    for tag in value:
+        if isinstance(tag, str) and tag != own_tag and tag not in out and is_safe_ollama_tag(tag):
+            out.append(tag)
+    return tuple(out)
+
+
+def row_tags(model: Model) -> tuple[str, ...]:
+    """Every tag that names this row: its own tag first, then the older tags it replaces."""
+    return (model.ollama_tag, *model.replaces)
+
+
+def row_for_tag(catalog: tuple[Model, ...] | list[Model], tag: str) -> Model | None:
+    """The row a tag belongs to, whether it is the row's own tag or one it replaces (first row wins)."""
+    return next((m for m in catalog if tag in row_tags(m)), None)
+
+
+def row_installed_tag(model: Model, installed) -> str:
+    """The tag of this row that is installed (own tag first, then a replaced one), or "" when none is."""
+    from ..inference.ollama import tag_matches_installed
+
+    return next((t for t in row_tags(model) if tag_matches_installed(t, installed)), "")
+
+
+def _without_clashing_claims(models: tuple[Model, ...]) -> tuple[Model, ...]:
+    """Two rows must not claim one tag. A row's own tag is never taken from it; a replaced tag that is another row's
+    own tag, or was already claimed by an earlier row, is dropped from the later row (the first claim wins)."""
+    claimed = {m.ollama_tag for m in models}
+    out: list[Model] = []
+    for m in models:
+        kept = tuple(t for t in m.replaces if t not in claimed)
+        claimed.update(kept)
+        out.append(m if kept == m.replaces else dataclasses.replace(m, replaces=kept))
+    return tuple(out)
+
+
+def _valid_need_gb(value: object) -> float:
+    """A catalogue row's ``need_gb`` when it is a plausible memory figure, else 0 (not computed): a bad value must never
+    change a verdict, it just falls back to the flat estimate."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0.0
+    return float(value) if 0.0 < value < _MAX_NEED_GB else 0.0
+
+
 def _model_from_row(row: dict) -> Model:
     return Model(
         name=row["name"],
@@ -227,6 +324,9 @@ def _model_from_row(row: dict) -> Model:
         active_b=float(row.get("active_b") or 0),
         license=row.get("license", ""),
         num_attention_heads=int(row.get("num_attention_heads") or 0),
+        need_gb=_valid_need_gb(row.get("need_gb")),
+        min_engine_version=_valid_engine_version(row.get("min_engine_version")),
+        replaces=_valid_replaces(row.get("replaces"), row.get("ollama_tag")),
     )
 
 
@@ -254,7 +354,7 @@ def load_catalog() -> tuple[Model, ...]:
             rows = rows if isinstance(rows, list) else []
             if not rows or not all(is_safe_row(r) for r in rows):
                 continue  # missing, malformed, or tampered -> fall back to the previous source
-            models = tuple(_model_from_row(r) for r in rows)
+            models = _without_clashing_claims(tuple(_model_from_row(r) for r in rows))
             if date:
                 held_date = date
         except Exception:
@@ -578,6 +678,58 @@ def fit_tier(
     return "recommended" if (mem_gb - resident) >= _COMFORT_FREE_GB else "tight"
 
 
+def need_gb_for(model: Model, *, kind: str, context_k: float, concurrency: int) -> float | None:
+    """The model's precomputed memory need, or None when the flat estimate must be used: no valid ``need_gb`` on the
+    row, a box that is not Apple Silicon unified memory, or a window or stream count other than the reference one the
+    figure was computed for."""
+    if (
+        model.need_gb > 0.0
+        and kind == "apple"
+        and context_k == _REFERENCE_CONTEXT_K
+        and concurrency == 1
+    ):
+        return model.need_gb
+    return None
+
+
+def model_fits_memory(
+    model: Model, mem_gb: float, *, kind: str, context_k: float, concurrency: int, ceiling: float
+) -> bool:
+    """Whether the model fits: its precomputed need against the usable memory, else its parameter count against
+    ``ceiling`` (the flat estimate's largest parameter count). Both draw the line at the same place."""
+    need = need_gb_for(model, kind=kind, context_k=context_k, concurrency=concurrency)
+    if need is not None:
+        return need <= mem_gb * _APPLE_USABLE
+    return model.params_b <= ceiling
+
+
+def model_fit_tier(
+    model: Model,
+    mem_gb: float,
+    *,
+    kind: str = "apple",
+    context_k: float = 8.0,
+    concurrency: int = 1,
+    system_ram_gb: float | None = None,
+) -> str:
+    """``fit_tier`` for a catalogue model: judged by its precomputed ``need_gb`` when it has one, else exactly as
+    ``fit_tier`` judges its parameter count."""
+    need = need_gb_for(model, kind=kind, context_k=context_k, concurrency=concurrency)
+    if need is None:
+        return fit_tier(
+            model.params_b,
+            mem_gb,
+            kind=kind,
+            context_k=context_k,
+            concurrency=concurrency,
+            active_b=model.active_b,
+            system_ram_gb=system_ram_gb,
+        )
+    if need > mem_gb * _APPLE_USABLE:
+        return "too_large"
+    return "recommended" if (mem_gb - need) >= _COMFORT_FREE_GB else "tight"
+
+
 def max_params_b(
     mem_gb: float,
     *,
@@ -783,8 +935,14 @@ def recommend(
         catalog = load_catalog()
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
     best: Model | None = None
+    fits_memory = {
+        m.name: model_fits_memory(
+            m, mem_gb, kind=kind, context_k=context_k, concurrency=concurrency, ceiling=ceiling
+        )
+        for m in catalog
+    }
     for m in catalog:
-        fits_mem = m.params_b <= ceiling
+        fits_mem = fits_memory[m.name]
         if (
             fits_mem
             and is_usable_speed(m, kind=kind)
@@ -794,9 +952,9 @@ def recommend(
     fits = [
         ModelFit(
             model=m,
-            fits=(m.params_b <= ceiling),
+            fits=fits_memory[m.name],
             recommended=(best is not None and m.name == best.name),
-            too_slow=(m.params_b <= ceiling and not is_usable_speed(m, kind=kind)),
+            too_slow=(fits_memory[m.name] and not is_usable_speed(m, kind=kind)),
         )
         for m in catalog
     ]
@@ -886,11 +1044,18 @@ def recommend_by_family(
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
     picks: list[FamilyPick] = []
     for fam in families:
-        members = [m for m in catalog if m.family == fam]
+        members = [m for m in catalog if m.family == fam and runs_on_bundled_engine(m)]
         best: Model | None = None
         for m in members:
             if (
-                m.params_b <= ceiling
+                model_fits_memory(
+                    m,
+                    mem_gb,
+                    kind=kind,
+                    context_k=context_k,
+                    concurrency=concurrency,
+                    ceiling=ceiling,
+                )
                 and is_usable_speed(m, kind=kind)
                 and (
                     best is None

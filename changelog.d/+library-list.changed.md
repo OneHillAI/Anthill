@@ -1,0 +1,1 @@
+**The wiki's Pages and Files tabs are now one Library.** It lists every page and every original document of the wiki in one place, with a chip on pages a model wrote that nobody has checked, a link from each page to the document it was made from and back, and filters (search by title, pages or documents, unchecked only). Old links to the Pages and Files tabs open the Library.
