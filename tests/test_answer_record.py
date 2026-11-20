@@ -137,15 +137,21 @@ def test_the_record_holds_no_page_or_passage_text(tmp_path, embeds):  # noqa: F8
         assert words not in text
 
 
-def test_an_item_with_no_record_is_listed_without_an_id(tmp_path, embeds):  # noqa: F811
+def test_an_item_with_no_record_is_not_given_to_the_model_so_it_is_not_recorded(tmp_path, embeds):  # noqa: F811
     ws = _world(tmp_path / "w")
-    (ws.root / "records" / "sources" / f"{RAW}.json").unlink()  # an original from before records
+    items.ensure_records(ws.root)  # the wiki is already prepared; what is made now has no record
+    (ws.root / "records" / "sources" / f"{RAW}.json").unlink()  # an original with no record
     (ws.wiki / f"{PAGE}.md").write_text(SUMMARY)  # a page with no record either
-    record, _ = _turn(ws, MILL)
-    got = _by_kind(record)
-    for kind in ("page", "document"):
-        assert got[kind]["id"] == "" and got[kind]["version"] == 0 and got[kind]["hash"] == ""
-    assert got["page"]["title"] == "Hollis Bakery: Operations Handbook"
+    record, prompt = _turn(ws, MILL)
+    assert record["items"] == []
+    assert "Brandt" not in prompt and "Flurf" not in prompt  # neither was given
+
+
+def test_the_record_lists_a_page_without_a_record_with_an_empty_id_when_it_is_asked_to(tmp_path):
+    ws = _world(tmp_path / "w")
+    (ws.wiki / f"{PAGE}.md").write_text(SUMMARY)  # no record
+    record = answer_record.build([ws.wiki / f"{PAGE}.md"], [], [ws])
+    assert record["items"][0]["id"] == "" and record["items"][0]["version"] == 0
     assert answer_panel.panel(answer_record.dumps(record))["rows"][0]["version"] == 0
 
 

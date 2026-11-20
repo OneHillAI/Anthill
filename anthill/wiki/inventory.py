@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tarfile
@@ -25,6 +26,8 @@ from ..lifecycle.version import PROVENANCE_RE, read_provenance
 from . import items
 from .items import FRONT_MATTER_KEY, ItemRecord, RecordError
 from .workspace import Workspace, space_of_root
+
+log = logging.getLogger(__name__)
 
 _NAME_HASH = re.compile(r"-([0-9a-f]{12})(\.[^./\\]*)?$")
 MANIFEST_PREFIX = "inventory-"
@@ -279,15 +282,22 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def _source_state(
-    name: str, page_sources: Mapping[str, str], review_status: Mapping[str, str] | None
+    name: str,
+    page_sources: Mapping[str, str],
+    review_status: Mapping[str, str] | None,
+    legacy: bool = False,
 ) -> str:
-    """The review state an old original gets: approved when a page names it, else what its review row says."""
+    """The review state an old original gets: approved when a page names it, else what its review row says.
+    ``legacy`` is the automatic upgrade: an original with no evidence either way was readable before records
+    existed and stays readable (``checked``); only a review row that says waiting or rejected keeps it out."""
     if name in page_sources:
         return "checked"
     status = (review_status or {}).get(name)
     if status == "rejected":
         return "rejected"
-    return "checked" if status == "approved" else "proposed"
+    if status == "pending":
+        return "proposed"
+    return "checked" if (status == "approved" or legacy) else "proposed"
 
 
 def _page_sources_of(ws: Workspace) -> dict[str, str]:
@@ -385,7 +395,9 @@ def _apply_pages(
         result.changed_pages += 1
 
 
-def apply_records(ws: Workspace, *, review_status: Mapping[str, str] | None = None) -> ApplyResult:
+def apply_records(
+    ws: Workspace, *, review_status: Mapping[str, str] | None = None, legacy: bool = False
+) -> ApplyResult:
     """Give every page and every kept original without a record one. Backs up first; changes no page body;
     writes a manifest so ``undo_records`` can put everything back; does nothing (and writes no backup) when
     there is nothing to add. A damaged page or record is skipped and reported, never repaired."""
@@ -405,7 +417,7 @@ def apply_records(ws: Workspace, *, review_status: Mapping[str, str] | None = No
         "sources": [],
     }
     page_sources = _page_sources_of(ws)
-    state_of = {n: _source_state(n, page_sources, review_status) for n in todo_sources}
+    state_of = {n: _source_state(n, page_sources, review_status, legacy) for n in todo_sources}
     source_ids = {r.name: r.id for r in found.sources}
     source_ids.update(_apply_sources(ws, todo_sources, state_of, manifest, result))
     _apply_pages(ws, todo_pages, source_ids, manifest, result)
@@ -414,6 +426,40 @@ def apply_records(ws: Workspace, *, review_status: Mapping[str, str] | None = No
     mpath.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     result.manifest = str(mpath)
     return result
+
+
+UPGRADE_MARKER = ".upgraded.json"
+UPGRADE_ERRORS: dict[str, str] = {}  # workspace folder -> why the automatic upgrade could not run
+
+
+def ensure_upgraded(ws: Workspace, *, review_status: Mapping[str, str] | None = None) -> dict:
+    """Give a workspace's pages and originals their records once, automatically. A workspace that has been done
+    (its marker exists) or does not exist is left alone. Otherwise ``apply_records`` runs in its legacy mode
+    (backup first, byte-exact undo, no page body changed) and the marker records what it did. If it cannot run
+    (a read-only disk, a backup that cannot be verified) the reason is kept in ``UPGRADE_ERRORS`` and
+    the workspace is tried again at the next start; its items without a record stay out of answers meanwhile.
+    Never raises."""
+    marker = ws.root / items.RECORDS_DIR / UPGRADE_MARKER
+    if not ws.root.is_dir() or marker.is_file():
+        return {}
+    try:
+        res = apply_records(ws, review_status=review_status, legacy=True)
+        info = {
+            "at": items.now_iso(),
+            "pages": res.changed_pages,
+            "sources": res.changed_sources,
+            "skipped": len(res.skipped),
+            "manifest": Path(res.manifest).name if res.manifest else "",
+            "seen": res.nothing_to_do,
+        }
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(info) + "\n", encoding="utf-8")
+        UPGRADE_ERRORS.pop(str(ws.root), None)
+        return info
+    except Exception as exc:  # noqa: BLE001 - an upgrade that cannot run must not stop the app; the reason is shown
+        UPGRADE_ERRORS[str(ws.root)] = f"{exc.__class__.__name__}: {str(exc)[:120]}"
+        log.warning("could not add records to %s: %s", ws.root, exc)
+        return {}
 
 
 @dataclass

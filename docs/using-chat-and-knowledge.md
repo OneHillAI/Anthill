@@ -111,6 +111,11 @@ once. It waits under **Removed**, below the files, with the days left. **Restore
 of Anthill and its search. It cannot remove copies you already exported, backups, or anything a model
 was already trained on.
 
+A wiki made before this version is prepared once, automatically, the first time Anthill reads it: it
+backs up first, changes no page text, and says so on the wiki page, with how to undo it. Anthill uses a
+page or document in an answer only if it has a record that says it is active and approved; if a wiki cannot
+be prepared, it says why at the top of the wiki and tries again at the next start.
+
 Sharing knowledge beyond your own space, into a project or org wiki, always goes through
 **review** first. You see exactly what would be written before it's approved.
 

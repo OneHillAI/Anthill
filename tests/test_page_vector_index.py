@@ -20,6 +20,7 @@ from anthill.cache import page_vectors
 from anthill.cache.page_vectors import PageVectorIndex
 from anthill.common.text import strip_frontmatter
 from anthill.wiki import ask as ask_mod
+from anthill.wiki import items
 from anthill.wiki.workspace import Workspace
 
 DIM = 32
@@ -72,6 +73,9 @@ def _wiki(tmp_path: Path, name: str = "w", n: int = N_PAGES) -> Workspace:
     ws.init()
     for i in range(n):
         (ws.wiki / f"page-{i:02d}.md").write_text(_page_text(i))
+    items.ensure_records(
+        ws.root
+    )  # pages made before records get theirs now, as on the first question
     return ws
 
 
@@ -200,9 +204,9 @@ def test_editing_one_page_reembeds_exactly_that_page(tmp_path, fake):
     fake.calls.clear()
 
     target = ws.wiki / "page-05.md"
-    target.write_text("# Billing rewritten\n\nstripe invoice refund policy changed\n")
+    ws.write_page("page-05", "# Billing rewritten\n\nstripe invoice refund policy changed\n")
     got = _ask(ws, "stripe refund policy")
-    assert fake.calls == ["# Billing rewritten\n\nstripe invoice refund policy changed\n"]
+    assert fake.calls == ["# Billing rewritten\n\nstripe invoice refund policy changed"]
     assert got == _old_rank(ws.pages(), _vec("stripe refund policy"), 3)
     assert target in got  # the new text is what ranked, not the stale vector
 
@@ -297,7 +301,7 @@ def test_locked_database_falls_back_and_recovers(tmp_path, fake, monkeypatch):
     monkeypatch.setattr(page_vectors, "BUSY_TIMEOUT_S", 0.05)
     ws = _wiki(tmp_path)
     _ask(ws, QUESTIONS[0])  # creates the database
-    (ws.wiki / "page-07.md").write_text("# Hiring changed\n\ninterview candidate offer revised\n")
+    ws.write_page("page-07", "# Hiring changed\n\ninterview candidate offer revised\n")
     fake.calls.clear()
 
     locker = sqlite3.connect(_db(ws), isolation_level=None)
@@ -312,7 +316,7 @@ def test_locked_database_falls_back_and_recovers(tmp_path, fake, monkeypatch):
 
     fake.calls.clear()
     _ask(ws, "interview candidate offer")  # lock gone: only the changed page is embedded and stored
-    assert fake.calls == ["# Hiring changed\n\ninterview candidate offer revised\n"]
+    assert fake.calls == ["# Hiring changed\n\ninterview candidate offer revised"]
     fake.calls.clear()
     _ask(ws, "roadmap milestone")
     assert fake.calls == []
@@ -393,7 +397,7 @@ def test_page_outside_every_root_is_embedded_directly_and_not_stored(tmp_path, f
 
 def test_two_workspaces_keep_separate_indexes_even_for_the_same_slug(tmp_path, fake):
     a, b = _wiki(tmp_path, "a", n=6), _wiki(tmp_path, "b", n=6)
-    (b.wiki / "page-00.md").write_text("# Other\n\nentirely different words about gardens\n")
+    b.write_page("page-00", "# Other\n\nentirely different words about gardens\n")
     ask_mod._merge_relevant([a, b], "stripe invoice payment", 2, _vec("stripe invoice payment"))
     assert _rows(a).keys() == _rows(b).keys()
     assert (
@@ -403,7 +407,7 @@ def test_two_workspaces_keep_separate_indexes_even_for_the_same_slug(tmp_path, f
 
 def test_merge_relevant_equals_uncached_and_never_prunes_unlisted_pages(tmp_path, fake):
     a, b = _wiki(tmp_path, "a"), _wiki(tmp_path, "b")
-    (b.wiki / "page-00.md").write_text("# Billing b\n\nstripe invoice payment for team b\n")
+    b.write_page("page-00", "# Billing b\n\nstripe invoice payment for team b\n")
     k = 3
     for q in QUESTIONS[:3]:
         qv = _vec(q)
