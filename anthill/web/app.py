@@ -3174,6 +3174,7 @@ def _model_picker_view(cfg):
         load_catalog,
         local_hardware,
         model_fit_tier,
+        runs_on_bundled_engine,
         suggest_local_setup,
     )
     from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
@@ -3183,7 +3184,9 @@ def _model_picker_view(cfg):
     # for Anthill's own largest cloud GPU node) - those render as a "bring your own bigger infrastructure"
     # note instead of a permanently-disabled row cluttering every family list.
     FULL_CATALOG = load_catalog()
-    LOCAL_CATALOG = tuple(m for m in FULL_CATALOG if has_any_self_serve_path(m))
+    LOCAL_CATALOG = tuple(
+        m for m in FULL_CATALOG if has_any_self_serve_path(m) and runs_on_bundled_engine(m)
+    )
     FRONTIER_CATALOG = tuple(m for m in FULL_CATALOG if not has_any_self_serve_path(m))
     LOCAL_FAMILIES = families_by_intelligence(LOCAL_CATALOG)
     DEFAULT_LOCAL_FAMILY = LOCAL_FAMILIES[0] if LOCAL_FAMILIES else ""
@@ -3892,7 +3895,13 @@ def model_picker_post(
     ``choice`` is an Ollama tag, or ``__skip__`` to defer (chat then shows a 'choose a model' state
     until one is pulled). ``enable_vision`` (default-on checkbox) also background-pulls a small vision
     model so image analysis works out of the box."""
-    from ..hosting.sizing import LOCAL_CATALOG, load_catalog, local_hardware, suggest_local_setup
+    from ..hosting.sizing import (
+        LOCAL_CATALOG,
+        load_catalog,
+        local_hardware,
+        runs_on_bundled_engine,
+        suggest_local_setup,
+    )
 
     db = _db()
     org = _require_org(db, user)
@@ -3996,7 +4005,7 @@ def model_picker_post(
         # whatever is on the configured URL degrades to "nothing installed" rather than 500ing
         # this request - it already has that guarantee; nothing else in this route did.
         installed = set(_installed_local_models(cfg))
-        valid = {m.ollama_tag for m in LOCAL_CATALOG} | installed
+        valid = {m.ollama_tag for m in LOCAL_CATALOG if runs_on_bundled_engine(m)} | installed
         if choice in valid:  # never pull arbitrary user input
             if _model_too_large_for_this_machine(cfg, choice):
                 # The picker already greys this option out, but it reached the catalog-membership
@@ -6552,6 +6561,7 @@ def _local_model_options(cfg) -> list[str]:
             load_catalog,
             local_hardware,
             model_fit_tier,
+            runs_on_bundled_engine,
         )
 
         mem_gb, kind = local_hardware()
@@ -6561,6 +6571,7 @@ def _local_model_options(cfg) -> list[str]:
             for m in load_catalog()
             if m.ollama_tag
             and has_any_self_serve_path(m)
+            and runs_on_bundled_engine(m)
             and model_fit_tier(
                 m, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
             )
