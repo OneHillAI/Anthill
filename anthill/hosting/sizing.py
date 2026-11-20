@@ -91,6 +91,10 @@ class Model:
     # gpu_count (docs/specs/multi-gpu-tensor-parallel-serving.md); vLLM requires gpu_count to evenly
     # divide this. Not populated for model_catalog.json's current seed/placeholder rows - do not invent
     # a value here without a verified model card; 0 is treated as "not checked", not "one head."
+    min_engine_version: str = (
+        ""  # the oldest Ollama that can download and run this row ("0.40.16"); "" = no requirement
+    )
+    # stated. The local picker does not offer a row the engine Anthill ships is older than (docs/specs/catalogue-engine-compat.md).
     need_gb: float = 0.0  # precomputed, once, in the catalogue: the memory this model occupies while running on Apple
     # Silicon at the reference setup (an 8,192-token window, one stream, the embedder resident), the quantity
     # `resident_gb` approximates. 0 = not computed: the flat estimate is used (docs/specs/catalogue-precomputed-need.md).
@@ -218,6 +222,40 @@ def is_safe_row(row: object) -> bool:
     return is_safe_hf_id(row.get("hf_id", "")) and is_safe_hf_id(row.get("quant_hf_id", ""))
 
 
+_ENGINE_VERSION = re.compile(r"^\s*v?(\d+)\.(\d+)(?:\.(\d+))?\s*$")
+
+
+def _engine_version_tuple(value: object) -> tuple[int, int, int] | None:
+    """An Ollama version such as ``0.40.16`` (or ``0.40``) as a comparable tuple, or None when it is not one."""
+    match = _ENGINE_VERSION.match(value) if isinstance(value, str) else None
+    if not match:
+        return None
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch or 0))
+
+
+def _valid_engine_version(value: object) -> str:
+    """A catalogue row's ``min_engine_version`` written canonically, or "" (no requirement) when it is not a version:
+    a bad value never hides a row."""
+    parsed = _engine_version_tuple(value)
+    return "" if parsed is None else ".".join(str(part) for part in parsed)
+
+
+def bundled_engine_version() -> tuple[int, int, int] | None:
+    """The Ollama version the app ships (the pin in ``anthill.inference.ollama``), read without touching the network."""
+    from ..inference.ollama import _OLLAMA_VERSION
+
+    return _engine_version_tuple(_OLLAMA_VERSION)
+
+
+def runs_on_bundled_engine(model: Model) -> bool:
+    """False only when the row names an engine newer than the one the app ships; no requirement stated (or one that is
+    not a version) means it is offered, as before."""
+    required = _engine_version_tuple(model.min_engine_version)
+    shipped = bundled_engine_version()
+    return required is None or shipped is None or required <= shipped
+
+
 def _valid_need_gb(value: object) -> float:
     """A catalogue row's ``need_gb`` when it is a plausible memory figure, else 0 (not computed): a bad value must never
     change a verdict, it just falls back to the flat estimate."""
@@ -241,6 +279,7 @@ def _model_from_row(row: dict) -> Model:
         license=row.get("license", ""),
         num_attention_heads=int(row.get("num_attention_heads") or 0),
         need_gb=_valid_need_gb(row.get("need_gb")),
+        min_engine_version=_valid_engine_version(row.get("min_engine_version")),
     )
 
 
@@ -958,7 +997,7 @@ def recommend_by_family(
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
     picks: list[FamilyPick] = []
     for fam in families:
-        members = [m for m in catalog if m.family == fam]
+        members = [m for m in catalog if m.family == fam and runs_on_bundled_engine(m)]
         best: Model | None = None
         for m in members:
             if (
