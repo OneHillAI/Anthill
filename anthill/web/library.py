@@ -110,6 +110,8 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
         rows.append(
             {
                 "kind": "page",
+                "key": path.stem,
+                "record": rec,
                 "title": title,
                 "href": f"/wiki/page/{slug}{query}",
                 "chips": _chips(rec),
@@ -117,6 +119,7 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
                 "links": made_from,
                 "links_label": "Made from",
                 "when": _day(rec, mtime),
+                "details_href": f"/wiki/item?kind=page&name={slug}" + query.replace("?", "&"),
                 "edit_href": f"/wiki/page/{slug}/edit{query}",
                 "remove_href": f"/wiki/remove?kind=page&name={slug}&scope={scope}"
                 + (f"&team_id={team_id}" if team_id else ""),
@@ -127,6 +130,8 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
         rows.append(
             {
                 "kind": "document",
+                "key": f["name"],
+                "record": rec,
                 "title": original_name(f["name"]),
                 "href": f"/wiki/raw/{name}{query}",
                 "text_href": f"/wiki/text/{name}{query}" if f.get("has_text") else "",
@@ -136,6 +141,7 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
                 "links_label": "Pages made from it",
                 "size": f["size"],
                 "when": _day(rec, f["mtime"]),
+                "details_href": f"/wiki/item?kind=document&name={name}" + query.replace("?", "&"),
                 "edit_href": "",
                 "remove_href": f"/wiki/remove?kind=original&name={name}&scope={scope}"
                 + (f"&team_id={team_id}" if team_id else ""),
