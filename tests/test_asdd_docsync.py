@@ -2,10 +2,10 @@
 
 Two layers, both with no network and no model:
 
-- the renderer (`docsync-render.py`) on its own: the heading uses the real PR number, title and merge date;
-  the entry is checked against the project's rules; a changelog fragment is wanted only when product code
-  changed; a doc edit is kept only if its sentence is really in the file; numbers the PR never mentions are
-  flagged; en and em dashes become hyphens;
+- the renderer (`docsync-render.py`) on its own: the proposal carries the real PR number; a changelog
+  fragment is wanted only when product code changed; a doc edit is kept only if its sentence is really in
+  the file; numbers the PR never mentions are flagged; en and em dashes become hyphens; a result that is not
+  a proposal renders nothing and a proposal with nothing to do renders one line;
 - the real runner (`docsync.sh`) in an isolated git repo with only `goose` stubbed: the roster model, the
   recipe parameters, either spelling of the endpoint URL, the per-role endpoint and key, one audit record per
   run, and honest reports when the agent is not wired, absent, or leaves no usable result.
@@ -38,7 +38,6 @@ _WIRED = {
     "ASDD_RUNTIME_TOKEN": "sekret-key-123",
 }
 
-_IMPACT_LOG = "# System Impact Log\n\n## 2026-09\n\n### An older entry\n**System impact:** older.\n"
 # Built from code points so this file never contains the characters the style gate bans.
 EN_DASH, EM_DASH = chr(0x2013), chr(0x2014)
 _GUIDE = "# Guide\n\nFolders group your chats.\n"
@@ -58,7 +57,6 @@ def repo(tmp_path):
         shutil.copy2(ROOT / f, dst)
     (r / ".asdd.yml").write_text('models:\n  documentation: "doc-model"\n')
     (r / "docs").mkdir(exist_ok=True)
-    (r / "docs/SYSTEM_IMPACT_LOG.md").write_text(_IMPACT_LOG)
     (r / "docs/guide.md").write_text(_GUIDE)
     _git(r, "init", "-q")
     _git(r, "config", "user.email", "t@example.com")
@@ -112,12 +110,6 @@ def _result(repo: Path, payload: dict) -> str:
 
 
 _GOOD = {
-    "impact": {
-        "system_impact": "Chats are now grouped by project, not by folder.",
-        "surface": "`anthill/web/x.py`",
-        "user_visible": "yes: folders are gone",
-        "footprint": "refactor; removes the Folder model",
-    },
     "changelog": {"category": "changed", "text": "Chats are now grouped by project."},
     "doc_edits": [
         {
@@ -151,8 +143,8 @@ def test_a_good_proposal_is_laid_out_with_the_real_pr_facts(repo):
     r, report = _run(repo, _WIRED, [_goose(repo, _result(repo, _GOOD))])
     assert r.returncode == 0, r.stdout + r.stderr
     assert "proposed doc updates for PR #58" in report
-    assert "### PR #58 - Consolidate chat folders into projects - merged 2026-10-03" in report
-    assert "directly under the `## 2026-09` heading" in report
+    assert "### 1. Changelog" in report and "### 2. Docs that are now untrue" in report
+    assert "impact" not in report.lower()  # the impact log is retired (#308)
     assert "Create `changelog.d/58.changed.md`" in report
     assert "In `docs/guide.md`, replace:" in report and "Projects group your chats." in report
     assert "doc-model" in report  # the roster's documentation model
@@ -202,11 +194,11 @@ def test_a_run_with_no_result_says_it_did_not_complete_and_redacts_the_key(repo)
     assert "Wire the model" not in report  # it IS wired
 
 
-def test_a_result_with_no_usable_impact_entry_is_reported_not_rendered(repo):
-    body = _result(repo, {"impact": {"system_impact": "only one field"}})
+def test_a_result_that_is_not_a_proposal_is_reported_not_rendered(repo):
+    body = _result(repo, {"impact": {"system_impact": "the old shape, no changelog or doc_edits"}})
     _, report = _run(repo, _WIRED, [_goose(repo, body)])
-    assert "did not run to completion" in report and "no usable impact-log entry" in report
-    assert "### PR #58" not in report
+    assert "did not run to completion" in report and "no usable proposal" in report
+    assert "### 1. Changelog" not in report
 
 
 def test_an_unwired_runner_says_no_documentation_agent_ran(repo):
@@ -284,12 +276,10 @@ def _args(
     *,
     corpus="Folders become projects. Migration 5.",
     changed=("anthill/web/x.py",),
-    log=_IMPACT_LOG,
     root=None,
 ):
     (tmp_path / "corpus.txt").write_text(corpus)
     (tmp_path / "changed.txt").write_text("\n".join(changed))
-    (tmp_path / "log.md").write_text(log)
     return argparse.Namespace(
         ref="abcdef1234",
         pr="58",
@@ -297,34 +287,59 @@ def _args(
         date="2026-10-03",
         corpus=str(tmp_path / "corpus.txt"),
         changed=str(tmp_path / "changed.txt"),
-        impact_log=str(tmp_path / "log.md"),
         model="m",
         root=str(root or tmp_path),
     )
 
 
-def test_invented_numbers_and_a_bad_footprint_label_are_flagged(tmp_path):
+def test_invented_numbers_in_the_changelog_text_are_flagged(tmp_path):
     mod = _renderer()
     payload = {
-        "impact": {
-            "system_impact": "4 tests were updated and 2 browser tests added.",
-            "surface": "`anthill/web/x.py`",
-            "user_visible": "maybe",
-            "footprint": "reductive; removes things",
-        }
+        "changelog": {
+            "category": "changed",
+            "text": "4 tests were updated and 2 browser tests added.",
+        },
+        "doc_edits": [],
     }
     out = mod.render(payload, _args(tmp_path))
     assert "### Check before pasting" in out
     assert "may have invented them: 2, 4" in out
-    assert (
-        "footprint line must start with one of" in out and "should start with 'yes' or 'no'" in out
-    )
 
 
 def test_a_number_the_pr_does_mention_is_not_flagged(tmp_path):
     mod = _renderer()
-    payload = {"impact": {**_GOOD["impact"], "system_impact": "Migration 5 clears folder_id."}}
+    payload = {
+        "changelog": {"category": "changed", "text": "Migration 5 clears folder_id."},
+        "doc_edits": [],
+    }
     assert "invented" not in mod.render(payload, _args(tmp_path))
+
+
+def test_numbers_in_a_doc_fix_are_checked_against_the_sentence_it_replaces(tmp_path):
+    mod = _renderer()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/guide.md").write_text("Uploads of up to 25 MB are read.\n")
+    keeps = {
+        "doc_edits": [
+            {
+                "path": "docs/guide.md",
+                "sentence": "Uploads of up to 25 MB are read.",
+                "fix": "Uploads up to 25 MB read.",
+            }
+        ]
+    }
+    assert "not in the PR" not in mod.render(keeps, _args(tmp_path, changed=("docs/guide.md",)))
+    invents = {
+        "doc_edits": [
+            {
+                "path": "docs/guide.md",
+                "sentence": "Uploads of up to 25 MB are read.",
+                "fix": "Uploads up to 99 MB read.",
+            }
+        ]
+    }
+    out = mod.render(invents, _args(tmp_path, changed=("docs/guide.md",)))
+    assert "The fix for `docs/guide.md` has numbers that are not in the PR" in out and "99" in out
 
 
 def test_a_changelog_fragment_is_only_wanted_when_product_code_changed(tmp_path):
@@ -333,7 +348,7 @@ def test_a_changelog_fragment_is_only_wanted_when_product_code_changed(tmp_path)
     assert "No changelog fragment needed" in docs_only and "changelog.d/58" not in docs_only
     product = mod.render(_GOOD, _args(tmp_path))
     assert "`changelog.d/58.changed.md`" in product
-    no_fragment = mod.render({"impact": _GOOD["impact"]}, _args(tmp_path))
+    no_fragment = mod.render({"doc_edits": []}, _args(tmp_path))
     assert "did not propose a usable one" in no_fragment
     bad_cat = mod.render({**_GOOD, "changelog": {"category": "yolo", "text": "x"}}, _args(tmp_path))
     assert "did not propose a usable one" in bad_cat
@@ -400,26 +415,47 @@ def test_a_doc_edit_is_kept_only_if_its_sentence_is_in_the_file(tmp_path):
 def test_en_and_em_dashes_become_hyphens_and_text_is_capped(tmp_path):
     mod = _renderer()
     payload = {
-        "impact": {
-            **_GOOD["impact"],
-            "system_impact": "One " + EN_DASH + " two " + EM_DASH + " three. " + "x" * 5000,
-        }
+        "changelog": {
+            "category": "changed",
+            "text": "One " + EN_DASH + " two " + EM_DASH + " three. " + "x" * 5000,
+        },
+        "doc_edits": [],
     }
     out = mod.render(payload, _args(tmp_path))
     assert EN_DASH not in out and EM_DASH not in out
     assert "One - two - three." in out and len(out) < 4000
 
 
-def test_the_entry_goes_under_the_newest_month_heading(tmp_path):
+def test_a_result_that_is_not_a_proposal_renders_nothing(tmp_path):
     mod = _renderer()
-    log = "# Log\n\n## 2026-10\n\n### new\n\n## 2026-09\n\n### old\n"
-    assert "directly under the `## 2026-10` heading" in mod.render(_GOOD, _args(tmp_path, log=log))
-
-
-def test_a_result_with_no_usable_entry_renders_nothing(tmp_path):
-    mod = _renderer()
-    assert mod.render({"impact": {"system_impact": "only this"}}, _args(tmp_path)) is None
+    assert mod.render({"impact": {"system_impact": "the old shape"}}, _args(tmp_path)) is None
     assert mod.render({}, _args(tmp_path)) is None
+    assert mod.render("not a dict", _args(tmp_path)) is None
+
+
+def test_a_proposal_with_nothing_to_do_is_one_line(tmp_path):
+    mod = _renderer()
+    out = mod.render(
+        {"doc_edits": []}, _args(tmp_path, changed=("docs/guide.md", "tests/test_x.py"))
+    )
+    assert "No documentation changes proposed" in out
+    assert "### 1." not in out and "### 2." not in out
+    assert out.count("\n") <= 3
+    # but a change to product code with no usable changelog still says so
+    product = mod.render({"doc_edits": []}, _args(tmp_path))
+    assert "did not propose a usable one" in product
+
+
+def test_the_impact_log_is_gone_from_the_agents_recipe_and_runner():
+    for rel in (
+        "recipes/documentation.yaml",
+        ".github/asdd/operate/docsync.sh",
+        ".github/asdd/operate/docsync-render.py",
+    ):
+        text = (ROOT / rel).read_text().lower()
+        assert (
+            "impact log" not in text and "impact-log" not in text and "system_impact" not in text
+        ), rel
 
 
 def test_the_workflow_runs_after_merge_only_and_passes_the_role_settings():

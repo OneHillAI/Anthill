@@ -53,7 +53,7 @@ up only once it has been shown doing its job on a real change (ASDD standard, OP
 | Reviewer (code, security, spec, quality) | gemma-4-31B-it on Infercom | every PR | advisory recommendation, the `asdd/review` status and one comment | live, advisory |
 | Test run | none (deterministic: pytest) | after every merge to main | runs the full suite as CI does, records the `asdd/test` status | deterministic since #174; the verdict is pytest's exit code |
 | Test author | gpt-oss-120b on Infercom | on demand, while a change is built | proposes the missing tests | installed, not yet run on a real change |
-| Documentation | gemma-4-31B-it on Infercom | after every merge to main | proposes the impact-log entry, changelog line and untrue doc sentences as paste-ready blocks | first real run on PR 67 (2026-10-04): well formed; its one wrong suggestion (a fragment for a release cut) is fixed |
+| Documentation | gemma-4-31B-it on Infercom | after every merge to main | proposes the changelog line and untrue doc sentences as paste-ready blocks (it also proposed an impact-log entry until #308) | first real run on PR 67 (2026-10-04): well formed; its one wrong suggestion (a fragment for a release cut) is fixed |
 | Interaction | gemma-4-31B-it on Infercom | on a chat surface | answers from the wiki, routes ideas into intake | not connected |
 | Merge-reviewer and impact reviewer | to be set | before a merge | one independent go or no-go note | not installed |
 
