@@ -2745,6 +2745,18 @@ _MODEL_PULL_LOCK = threading.Lock()
 # BEFORE `_MODEL_PULL_LOCK`, never while holding it.
 _MODEL_PULL_DB_LOCK = threading.Lock()
 _MODEL_PULL_STATE: dict[int, dict[str, Any]] = {}
+# org id -> {"tag": ..., "reason": "" | "disk"} for a download that ended without success and was not cancelled, until a new
+# download starts or one succeeds. Only the tag and a plain reason are kept: nothing the download tool printed is stored or
+# shown (docs/specs/failed-download-says-so.md). Guarded by _MODEL_PULL_LOCK.
+_MODEL_PULL_FAILED: dict[int, dict[str, str]] = {}
+
+
+def _model_pull_failure(org_id: int) -> dict[str, str] | None:
+    with _MODEL_PULL_LOCK:
+        failed = _MODEL_PULL_FAILED.get(org_id)
+        return dict(failed) if failed else None
+
+
 _VISION_AUTOPULL_MAX_WAIT_SECONDS = 3600.0
 _VISION_AUTOPULL_POLL_SECONDS = 2.0
 
@@ -3043,6 +3055,7 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                 },
             }
             pulls[norm] = entry
+            _MODEL_PULL_FAILED.pop(org_id, None)  # a new download clears the last failure
             primary_tag = _sync_pull_state(org_id)
             reused = False
 
@@ -3052,6 +3065,7 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
 
     def _run() -> None:
         ok = False
+        disk_full = False
         try:
             import re as _re
             import subprocess
@@ -3082,6 +3096,8 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                         parts = _re.split(rb"[\r\n]+", buf)
                         buf = parts[-1]
                         for part in parts[:-1]:
+                            if b"no space left" in part.lower():
+                                disk_full = True  # only this fact is kept, never the text
                             parsed = _parse_ollama_pull_line(part.decode("utf-8", "replace"))
                             if parsed:
                                 with _MODEL_PULL_LOCK:
@@ -3109,6 +3125,13 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
             if cur_pulls.get(norm) is entry:
                 owned = True
                 cur_pulls.pop(norm, None)
+                if ok and not entry.get("cancelled"):
+                    _MODEL_PULL_FAILED.pop(org_id, None)
+                elif not entry.get("cancelled"):
+                    _MODEL_PULL_FAILED[org_id] = {
+                        "tag": str(entry["tag"]),
+                        "reason": "disk" if disk_full else "",
+                    }
                 if not ok or entry.get("cancelled"):
                     (st_now or {}).pop("vision_waiter", None)
                 _sync_pull_state(org_id)
@@ -6792,6 +6815,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "local_models": _local_model_options(cfg),
             "current_local_model": (cfg.ollama_model if cfg else "") or "",
             "pulling": (cfg.local_model_pulling if cfg else "") or "",
+            "pull_failed": _model_pull_failure(org.id),
             "installed_local": bool(_installed_local_models(cfg)),
             # Solo compute (P1): the local | cloud choice + whether a cloud endpoint is connected.
             "solo_cloud": (getattr(cfg, "solo_compute", "local") or "local") == "cloud",
@@ -12592,6 +12616,7 @@ def models_page(request: Request, user: dict = Depends(_require_admin)):
             "current_is_custom": bool(current) and current not in catalog_tags,
             "selected_tag": current if current in catalog_tags else picker["default_tag"],
             "pulling": (cfg.local_model_pulling if cfg else "") or "",
+            "pull_failed": _model_pull_failure(org.id),
             "resident": resident,
             "gold_count": gold_count,
             "benchmark": _get_benchmark_state(cfg) or None,
@@ -12977,6 +13002,7 @@ def models_pull_status(user: dict = Depends(_require_admin)):
             "installed": tag_matches_installed(current, installed),
             "progress": _MODEL_PULL_PROGRESS.get(org.id),
             "active_pulls": active_pulls,
+            "failed": _model_pull_failure(org.id),
         }
     )
 
