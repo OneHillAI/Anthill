@@ -69,6 +69,12 @@ def _world(root: Path) -> Workspace:
     path = ws.write_page("ledger", TRASHED_PAGE)
     path.write_text(path.read_text().replace("lifecycle: active", "lifecycle: trashed"))
     (ws.wiki / "tides.md").write_text(LEGACY_PAGE)  # written before records: no record
+    # an install from before records: nothing has been upgraded yet, so the first read does it
+    (ws.root / items.RECORDS_DIR / ".upgraded.json").unlink(missing_ok=True)
+    items._upgrade_tried.discard(str(ws.root))
+    items.ensure_records(
+        ws.root
+    )  # the page made before records gets its record, as on the first question
     doc_index.sync_workspace(ws.root)
     return ws
 
@@ -94,8 +100,8 @@ def test_only_active_and_approved_items_are_retrievable(lifecycle, review, expec
     assert items.is_retrievable(rec) is expected
 
 
-def test_an_item_with_no_record_is_retrievable_as_before():
-    assert items.is_retrievable(None) is True
+def test_an_item_with_no_record_is_not_retrievable():
+    assert items.is_retrievable(None) is False  # a missing record never means "allowed"
 
 
 def test_a_page_file_is_judged_from_its_record_and_remembered_until_it_changes(tmp_path):

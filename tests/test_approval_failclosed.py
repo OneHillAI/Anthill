@@ -105,7 +105,9 @@ def test_read_wiki_confines_traversal_slug(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
     (wiki / "team-plan.md").write_text("the plan")
-    assert _read_wiki("team-plan", str(tmp_path)) == "the plan"
+    assert "the plan" in _read_wiki(
+        "team-plan", str(tmp_path)
+    )  # the page now carries its record too
 
     # ...but a traversal slug cannot escape the wiki dir. Plant a secret outside it and confirm the
     # crafted slug does not read it (it collapses to a harmless in-dir name that does not exist).

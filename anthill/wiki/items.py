@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -321,11 +322,13 @@ def mark_source_rejected(ws: Workspace, name: str) -> bool:
 
 
 def is_retrievable(rec: ItemRecord | None) -> bool:
-    """May an answer read this item? Only when it is active and approved: lifecycle ``active`` and review
-    state ``checked`` or ``unchecked``. Waiting (``proposed``), rejected, superseded, archived, trashed and
-    purged items are not. An item with no record is retrievable, as it was before records existed."""
+    """May an answer read this item? Only when it has a valid record and the record says active and approved:
+    lifecycle ``active`` and review state ``checked`` or ``unchecked``. Waiting (``proposed``), rejected,
+    superseded, archived, trashed and purged items are not, and neither is an item with no record: a missing
+    record never means "allowed". A wiki made before records existed is given its records once, automatically
+    (``inventory.ensure_upgraded``), so it keeps working."""
     if rec is None:
-        return True
+        return False
     return rec.lifecycle == "active" and rec.review_state in RETRIEVABLE_REVIEW
 
 
@@ -363,6 +366,8 @@ def _page_head(path: Path) -> str:
 def page_file_retrievable(path: Path) -> bool:
     """May an answer read this page file? Judged from its record in the front matter, and remembered until the
     file changes. A damaged record or an unreadable file is not retrievable: it cannot be shown to be approved."""
+    if path.parent.name == "wiki":
+        ensure_records(path.parent.parent)
     try:
         st = path.stat()
     except OSError:
@@ -376,7 +381,7 @@ def page_file_retrievable(path: Path) -> bool:
         head = _page_head(path)
         front, _rest = split_front_matter(head)
         if front is None or FRONT_MATTER_KEY not in front:
-            ok = True  # no record: retrievable
+            ok = False  # no record: not retrievable
         else:
             ok = _plainly_retrievable(front) or is_retrievable(read_page_record(head))
     except (OSError, RecordError):
@@ -387,23 +392,88 @@ def page_file_retrievable(path: Path) -> bool:
     return ok
 
 
-_sources_memo: dict[str, tuple[int, frozenset[str]]] = {}
+_sources_memo: dict[str, tuple[tuple[int, int], frozenset[str]]] = {}
+_upgrade_tried: set[str] = set()
+_upgrade_lock = threading.Lock()
+
+
+def ensure_records(root: Path) -> None:
+    """Give the workspace at ``root`` its records, once per process, before the first answer reads it (see
+    ``inventory.ensure_upgraded``). The app does it with the review rows at start-up; this is the same step for a
+    command line or a library caller. A folder that is not a workspace is left alone."""
+    key = str(root)
+    if key in _upgrade_tried:
+        return
+    with (
+        _upgrade_lock
+    ):  # a second question waits for the first to finish, so it never sees a half-done wiki
+        if key in _upgrade_tried:
+            return
+        from . import inventory
+        from .workspace import workspace_at
+
+        inventory.ensure_upgraded(workspace_at(root))
+        _upgrade_tried.add(key)
+
+
+def upgrade_notice(root: Path) -> str:
+    """What to tell the person about the automatic upgrade of the workspace at ``root``: why it could not run,
+    or, once, that it ran. Empty when there is nothing to say."""
+    from . import inventory
+
+    err = inventory.UPGRADE_ERRORS.get(str(root))
+    if err:
+        return (
+            "Anthill could not prepare this wiki, so pages and documents made before this version are not used "
+            f"in answers. Reason: {err}. It will try again at the next start."
+        )
+    marker = root / RECORDS_DIR / inventory.UPGRADE_MARKER
+    try:
+        info = json.loads(marker.read_text(encoding="utf-8"))
+        if info.get("seen") or not (info.get("pages") or info.get("sources")):
+            return ""
+        info["seen"] = True
+        marker.write_text(json.dumps(info) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        return ""
+    undo = (
+        f" To undo it, run: anthill knowledge inventory --undo records/{info['manifest']}"
+        if info.get("manifest")
+        else ""
+    )
+    return (
+        f"Anthill prepared this wiki: {info.get('pages', 0)} pages and {info.get('sources', 0)} documents now "
+        f"have records, and no page text changed. A backup was made first.{undo}"
+    )
 
 
 def hidden_sources(root: Path) -> frozenset[str]:
-    """The stored names of the originals in the workspace at ``root`` that an answer may not read: those whose
-    record says waiting, rejected, trashed and so on, or whose record is damaged. An original with no record
-    is not in the set. Remembered until a record in the folder changes."""
+    """The stored names of the originals in the workspace at ``root`` that an answer may not read: those with no
+    record, whose record says waiting, rejected, trashed and so on, or whose record is damaged. Remembered until
+    a record or the folder of originals changes."""
+    ensure_records(root)
     folder = root / RECORDS_DIR / SOURCES_DIR
-    try:
-        stamp = folder.stat().st_mtime_ns
-    except OSError:
-        return frozenset()
+    raw = root / "raw"
+
+    def _mtime(p: Path) -> int:
+        try:
+            return p.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    stamp = (_mtime(folder), _mtime(raw))
     key = str(folder)
     memo = _sources_memo.get(key)
     if memo is not None and memo[0] == stamp:
         return memo[1]
     hidden: set[str] = set()
+    try:
+        recorded = {p.name[: -len(".json")] for p in folder.glob("*.json")}
+        hidden |= {
+            p.name for p in raw.iterdir() if p.is_file() and not p.name.startswith(".")
+        } - recorded
+    except OSError:
+        pass  # no folder of originals: nothing to hide
     for sidecar in folder.glob("*.json"):
         name = sidecar.name[: -len(".json")]
         try:
