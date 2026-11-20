@@ -100,7 +100,7 @@
       </td>
       <td class="text-muted lib-kind">{{ 'Page' if r.kind == 'page' else 'Document' }}</td>
       <td class="text-muted lib-when">{{ r.when }}{% if r.size %} &middot; {{ r.size | filesizeformat }}{% endif %}</td>
-      {% if can_edit %}<td class="lib-actions">{% if r.edit_href %}<a href="{{ r.edit_href }}">Edit</a>{% endif %}<a href="{{ r.remove_href }}">Remove</a></td>{% endif %}
+      <td class="lib-actions"><a href="{{ r.details_href }}">Details</a>{% if can_edit %}{% if r.edit_href %}<a href="{{ r.edit_href }}">Edit</a>{% endif %}<a href="{{ r.remove_href }}">Remove</a>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

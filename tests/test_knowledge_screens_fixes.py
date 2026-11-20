@@ -167,7 +167,11 @@ def test_the_page_view_has_one_row_of_actions_for_whoever_may_edit(tmp_path, mon
     _personal(ids)
     _login(client, ids["owner"])
     row = _soup(client, "/wiki/page/ferry").find(id="page-actions")
-    assert [a.get_text() for a in row.find_all("a")] == ["Edit this page", "Remove this page"]
+    assert [a.get_text() for a in row.find_all("a")] == [
+        "About this page",
+        "Edit this page",
+        "Remove this page",
+    ]
     # an organisation member can read the organisation's pages and has no actions
     s = app_mod._SessionFactory()
     s.add(Team(org_id=ids["owner"][1], name="T", slug="t", owner_id=ids["admin"][0]))
@@ -177,4 +181,5 @@ def test_the_page_view_has_one_row_of_actions_for_whoever_may_edit(tmp_path, mon
     org_ws.init()
     org_ws.write_page("ferry", "# Ferry\n\nThe organisation's page.\n")
     view = _soup(client, "/wiki/page/ferry?scope=org")
-    assert view.find(id="page-actions") is None and view.find("a", string="Edit this page") is None
+    row = view.find(id="page-actions")  # only what anyone may do: look at what it is
+    assert [a.get_text() for a in row.find_all("a")] == ["About this page"]
