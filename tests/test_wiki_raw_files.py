@@ -85,7 +85,7 @@ def test_files_tab_is_empty_before_any_upload(tmp_path, monkeypatch):
 
     r = client.get("/wiki", params={"tab": "files"})
     assert r.status_code == 200
-    assert "No files yet" in r.text
+    assert "Nothing here yet" in r.text
 
 
 def test_raw_file_downloads_with_original_content(tmp_path, monkeypatch):

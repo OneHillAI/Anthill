@@ -1,10 +1,8 @@
-{# Sub-tab bar for the Wiki menu (Pages + Principles + Files). `wiki_url` is this scope's base wiki URL;
-   `active_wiki_tab` is pages | principles | files. What is waiting for a decision is not a Wiki tab any more:
-   it is the one "Needs review" tab of the Knowledge bar (issue #428 made a flagged upload approvable by a solo
-   user; the queue and its decision pages are unchanged). Files lists the immutable raw documents every upload is preserved as (founder, 2026-10-01:
-   "where are uploaded docs stored?" - previously filesystem-only, no UI showed them at all). #}
+{# Sub-tab bar for the Wiki menu: Library and Principles. `wiki_url` is this scope's base wiki URL;
+   `active_wiki_tab` is library | principles. The Library is the one list of pages and kept originals (it is what
+   the Pages and Files tabs were; ?tab=pages and ?tab=files still open it). What is waiting for a decision is the
+   "Needs review" tab of the Knowledge bar. #}
 <div class="settings-tabs">
-  <a href="{{ wiki_url }}" class="{% if active_wiki_tab == 'pages' %}active{% endif %}">Pages</a>
+  <a href="{{ wiki_url }}" class="{% if active_wiki_tab == 'library' %}active{% endif %}">Library</a>
   <a href="{{ wiki_url }}?tab=principles" class="{% if active_wiki_tab == 'principles' %}active{% endif %}">Principles</a>
-  <a href="{{ wiki_url }}?tab=files" class="{% if active_wiki_tab == 'files' %}active{% endif %}">Files</a>
 </div>
