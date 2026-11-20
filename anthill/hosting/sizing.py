@@ -46,6 +46,8 @@ _LOCAL_RUNNER_GB = (
 # (the model loader, compute buffers, etc.). Sizing against this resident footprint - not raw weights -
 # is what stops a too-large "recommended" model from freezing a small Mac: a 16 GB box was previously told
 # to run a 14B (weights ~7.7 GB but resident ~10 GB) and froze (issue #490).
+_REFERENCE_CONTEXT_K = 8.0  # the window a catalogue row's precomputed `need_gb` is computed for
+_MAX_NEED_GB = 2048.0  # a `need_gb` above this is not a memory figure
 _COMFORT_FREE_GB = (
     7.0  # free system memory a model should LEAVE (after its resident footprint) to run
 )
@@ -89,6 +91,9 @@ class Model:
     # gpu_count (docs/specs/multi-gpu-tensor-parallel-serving.md); vLLM requires gpu_count to evenly
     # divide this. Not populated for model_catalog.json's current seed/placeholder rows - do not invent
     # a value here without a verified model card; 0 is treated as "not checked", not "one head."
+    need_gb: float = 0.0  # precomputed, once, in the catalogue: the memory this model occupies while running on Apple
+    # Silicon at the reference setup (an 8,192-token window, one stream, the embedder resident), the quantity
+    # `resident_gb` approximates. 0 = not computed: the flat estimate is used (docs/specs/catalogue-precomputed-need.md).
 
 
 # The catalog is DATA, not code: a bundled JSON (hosting/model_catalog.json) the picker ranks by
@@ -213,6 +218,14 @@ def is_safe_row(row: object) -> bool:
     return is_safe_hf_id(row.get("hf_id", "")) and is_safe_hf_id(row.get("quant_hf_id", ""))
 
 
+def _valid_need_gb(value: object) -> float:
+    """A catalogue row's ``need_gb`` when it is a plausible memory figure, else 0 (not computed): a bad value must never
+    change a verdict, it just falls back to the flat estimate."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0.0
+    return float(value) if 0.0 < value < _MAX_NEED_GB else 0.0
+
+
 def _model_from_row(row: dict) -> Model:
     return Model(
         name=row["name"],
@@ -227,6 +240,7 @@ def _model_from_row(row: dict) -> Model:
         active_b=float(row.get("active_b") or 0),
         license=row.get("license", ""),
         num_attention_heads=int(row.get("num_attention_heads") or 0),
+        need_gb=_valid_need_gb(row.get("need_gb")),
     )
 
 
@@ -578,6 +592,58 @@ def fit_tier(
     return "recommended" if (mem_gb - resident) >= _COMFORT_FREE_GB else "tight"
 
 
+def need_gb_for(model: Model, *, kind: str, context_k: float, concurrency: int) -> float | None:
+    """The model's precomputed memory need, or None when the flat estimate must be used: no valid ``need_gb`` on the
+    row, a box that is not Apple Silicon unified memory, or a window or stream count other than the reference one the
+    figure was computed for."""
+    if (
+        model.need_gb > 0.0
+        and kind == "apple"
+        and context_k == _REFERENCE_CONTEXT_K
+        and concurrency == 1
+    ):
+        return model.need_gb
+    return None
+
+
+def model_fits_memory(
+    model: Model, mem_gb: float, *, kind: str, context_k: float, concurrency: int, ceiling: float
+) -> bool:
+    """Whether the model fits: its precomputed need against the usable memory, else its parameter count against
+    ``ceiling`` (the flat estimate's largest parameter count). Both draw the line at the same place."""
+    need = need_gb_for(model, kind=kind, context_k=context_k, concurrency=concurrency)
+    if need is not None:
+        return need <= mem_gb * _APPLE_USABLE
+    return model.params_b <= ceiling
+
+
+def model_fit_tier(
+    model: Model,
+    mem_gb: float,
+    *,
+    kind: str = "apple",
+    context_k: float = 8.0,
+    concurrency: int = 1,
+    system_ram_gb: float | None = None,
+) -> str:
+    """``fit_tier`` for a catalogue model: judged by its precomputed ``need_gb`` when it has one, else exactly as
+    ``fit_tier`` judges its parameter count."""
+    need = need_gb_for(model, kind=kind, context_k=context_k, concurrency=concurrency)
+    if need is None:
+        return fit_tier(
+            model.params_b,
+            mem_gb,
+            kind=kind,
+            context_k=context_k,
+            concurrency=concurrency,
+            active_b=model.active_b,
+            system_ram_gb=system_ram_gb,
+        )
+    if need > mem_gb * _APPLE_USABLE:
+        return "too_large"
+    return "recommended" if (mem_gb - need) >= _COMFORT_FREE_GB else "tight"
+
+
 def max_params_b(
     mem_gb: float,
     *,
@@ -783,8 +849,14 @@ def recommend(
         catalog = load_catalog()
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
     best: Model | None = None
+    fits_memory = {
+        m.name: model_fits_memory(
+            m, mem_gb, kind=kind, context_k=context_k, concurrency=concurrency, ceiling=ceiling
+        )
+        for m in catalog
+    }
     for m in catalog:
-        fits_mem = m.params_b <= ceiling
+        fits_mem = fits_memory[m.name]
         if (
             fits_mem
             and is_usable_speed(m, kind=kind)
@@ -794,9 +866,9 @@ def recommend(
     fits = [
         ModelFit(
             model=m,
-            fits=(m.params_b <= ceiling),
+            fits=fits_memory[m.name],
             recommended=(best is not None and m.name == best.name),
-            too_slow=(m.params_b <= ceiling and not is_usable_speed(m, kind=kind)),
+            too_slow=(fits_memory[m.name] and not is_usable_speed(m, kind=kind)),
         )
         for m in catalog
     ]
@@ -890,7 +962,14 @@ def recommend_by_family(
         best: Model | None = None
         for m in members:
             if (
-                m.params_b <= ceiling
+                model_fits_memory(
+                    m,
+                    mem_gb,
+                    kind=kind,
+                    context_k=context_k,
+                    concurrency=concurrency,
+                    ceiling=ceiling,
+                )
                 and is_usable_speed(m, kind=kind)
                 and (
                     best is None
