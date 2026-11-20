@@ -218,6 +218,9 @@ def is_safe_row(row: object) -> bool:
 
 
 FIT_TIERS_GB: tuple[int, ...] = (8, 16, 24, 32, 64)
+_FIT_TABLE_CEILING_GB = (
+    80  # above this the 64 GB column no longer describes the box; the ceiling rule picks
+)
 _FIT_VERDICTS = frozenset({"fits", "tight", "too_large"})
 
 
@@ -251,6 +254,18 @@ def _uses_fit_table(kind: str, context_k: float, concurrency: int) -> bool:
     """The table was precomputed for one user at an 8k window on unified memory; any other shape of box keeps
     the memory-ceiling rule."""
     return kind == "apple" and concurrency <= 1 and context_k <= 8.0
+
+
+def _table_tier(
+    catalog: tuple[Model, ...], mem_gb: float, kind: str, context_k: float, concurrency: int
+) -> int | None:
+    """The tier whose verdicts choose the default, or None to use the memory-ceiling rule: the box must be the
+    shape the table was computed for and the catalogue must carry at least one verdict at that tier (an older
+    file has none, so it behaves as before)."""
+    if not _uses_fit_table(kind, context_k, concurrency) or mem_gb >= _FIT_TABLE_CEILING_GB:
+        return None
+    tier = fit_tier_gb(mem_gb)
+    return tier if any(fit_verdict(m, tier) for m in catalog) else None
 
 
 def _by_size(m: Model) -> tuple[float, float]:
@@ -834,14 +849,14 @@ def recommend(
     if catalog is None:
         catalog = load_catalog()
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
-    table = fit_tier_gb(mem_gb) if _uses_fit_table(kind, context_k, concurrency) else None
+    table = _table_tier(catalog, mem_gb, kind, context_k, concurrency)
     best: Model | None = None
     for m in catalog:
-        verdict = fit_verdict(m, table)
-        if verdict is not None:
-            # the catalogue's precomputed answer: the default is the largest model that "fits" (never a "tight" one)
+        if table is not None:
+            # the catalogue's precomputed answer: the default is the largest model that "fits" (never a "tight"
+            # one, and never a row that carries no verdict, which stays listed but is not chosen for you)
             if (
-                verdict == "fits"
+                fit_verdict(m, table) == "fits"
                 and is_usable_speed(m, kind=kind)
                 and (best is None or _by_size(m) > _by_size(best))
             ):
@@ -945,16 +960,15 @@ def recommend_by_family(
     if families is None:
         families = families_by_intelligence(catalog)
     ceiling = max_params_b(mem_gb, kind=kind, context_k=context_k, concurrency=concurrency)
-    table = fit_tier_gb(mem_gb) if _uses_fit_table(kind, context_k, concurrency) else None
+    table = _table_tier(catalog, mem_gb, kind, context_k, concurrency)
     picks: list[FamilyPick] = []
     for fam in families:
         members = [m for m in catalog if m.family == fam]
         best: Model | None = None
         for m in members:
-            verdict = fit_verdict(m, table)
-            if verdict is not None:
+            if table is not None:
                 if (
-                    verdict == "fits"
+                    fit_verdict(m, table) == "fits"
                     and is_usable_speed(m, kind=kind)
                     and (best is None or _by_size(m) > _by_size(best))
                 ):

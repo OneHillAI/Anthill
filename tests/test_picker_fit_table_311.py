@@ -40,15 +40,29 @@ def test_a_smaller_tier_and_a_machine_below_the_smallest_tier():
     )
 
 
-def test_rows_without_a_verdict_keep_the_ceiling_rule():
-    no_fit = (sizing.Model("plain", 6, "x/y", "plain:t", intelligence=0.0),)
+def test_with_no_verdicts_at_all_the_ceiling_rule_is_used():
+    no_fit = (sizing.Model("plain", 6, "x/y", "plain:t"),)
     assert (
         sizing.recommend(16, kind="apple", concurrency=1, catalog=no_fit).recommended.name
         == "plain"
     )
-    gated = (_m("g", 6, {"8": "fits"}), sizing.Model("plain", 5, "x/y", "plain:t"))
-    # tier 16 has no verdict for "g", so it falls back to the ceiling rule like "plain"
-    assert sizing.recommend(16, kind="apple", concurrency=1, catalog=gated).recommended.name == "g"
+
+
+def test_a_row_without_a_verdict_is_never_the_default_when_others_have_one():
+    mixed = (_m("checked", 4, {"16": "fits"}), sizing.Model("gated-70b", 70, "x/y", "gated:t"))
+    r = sizing.recommend(16, kind="apple", concurrency=1, catalog=mixed)
+    assert (
+        r.recommended.name == "checked"
+    )  # tier 16 has a verdict: the unchecked 70B is listed, not chosen
+
+
+def test_a_box_far_above_the_largest_tier_keeps_the_ceiling_rule(monkeypatch):
+    monkeypatch.setattr(sizing, "is_usable_speed", lambda m, *, kind: True)  # not about speed
+    big = (_m("huge", 120, {"64": "too_large"}), _m("mid", 30, {"64": "fits"}))
+    assert sizing.recommend(64, kind="apple", concurrency=1, catalog=big).recommended.name == "mid"
+    assert (
+        sizing.recommend(128, kind="apple", concurrency=1, catalog=big).recommended.name == "huge"
+    )
 
 
 def test_other_shapes_of_box_keep_the_ceiling_rule():
