@@ -38,7 +38,9 @@ catalogue, shape gate) and `docs/specs/huggingface-source-pinned.md` (the later 
    `validation` (`unvalidated`, except `qwen3.5:4b-q4_K_M` which has a recorded 48-turn memory test),
    `build`, `build_checked` (library-page method, or null), and for local rows `size` and `fit`.
 5. `fit` has the tiers 8, 16, 24, 32 and 64 GB with `fits`, `tight`, `too_large` or `not_computed`. Rule: need =
-   weights + context memory at 8k + 1.0 GB; budget = 0.67 x memory up to 32 GB and 0.75 x at 64 GB; `fits` if need is at
+   weights + context memory at 8k + the bge-m3 embedder (1.2 GB, assumed from its library page size) + a runner allowance of
+   26% of the weights (calibrated so a 9B plus the embedder is 9.8 GB, the roadmap's resident-set test #97); the one
+   validated row (`qwen3.5:4b-q4_K_M`) uses its measured resident size (3.38 GB) plus the embedder; budget = 0.67 x memory up to 32 GB and 0.75 x at 64 GB; `fits` if need is at
    most 0.9 x budget, `tight` if at most the budget. Layers, KV heads and head size come from the published `config.json`
    (35 reads); the six gated repositories (Llama x3, Gemma 3 x3) are `not_computed`. Weights are the library page size
    for the 13 checked rows and an estimate (parameters x 4.85 bits) for the rest, labelled in `size.weights_basis`.
@@ -50,7 +52,7 @@ catalogue, shape gate) and `docs/specs/huggingface-source-pinned.md` (the later 
 
 Because every score is 0, the picker's default no longer comes from a score. It comes from the `fit` table in each row
 (issue #311, `docs/specs/picker-order-by-fit-table.md`): the largest model marked `fits` for the machine's memory tier. The
-defaults: 8 GB Qwen3.5 4B, 16 GB Qwen3.5 9B, 24 GB gpt-oss 20B, 32 GB Nemotron 3 Nano 30B, 64 GB Qwen3.6 35B-A3B.
+defaults: 8 GB Qwen3.5 4B, 16 GB Granite 4.2 8B, 24 GB Phi-4 14B, 32 GB gpt-oss 20B, 64 GB Qwen3.6 35B-A3B.
 
 ## Licence reading (our reading, not legal advice; full text in the maintainer's notes)
 

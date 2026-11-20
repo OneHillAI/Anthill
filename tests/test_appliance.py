@@ -192,8 +192,8 @@ def test_total_memory_gb_reads_sysctl():
 
 
 def test_recommended_ollama_tag_sizes_to_ram():
-    # the largest model the catalogue marks "fits" on a 32 GB Mac mini (#311): a 30B-class MoE
-    assert appliance.recommended_ollama_tag(32) == "nemotron-3-nano:30b"
+    # the largest model the catalogue marks "fits" on a 32 GB Mac mini (#311): a 20B MoE; the table counts the embedder and a runner allowance (#311)
+    assert appliance.recommended_ollama_tag(32) == "gpt-oss:20b"
     assert appliance.recommended_ollama_tag(0) == "qwen3.5:0.8b"  # unknown RAM -> safe default
 
 
@@ -235,7 +235,7 @@ def test_install_appliance_writes_loads_pulls_and_reports():
     res = appliance.install_appliance(
         port=8000,
         home="/Users/anthill",
-        mem_gb=32,  # -> sizes to nemotron-3-nano:30b
+        mem_gb=32,  # -> sizes to gpt-oss:20b
         lan_ip="192.168.1.50",
         apple=True,
         session="Aqua",
@@ -243,8 +243,8 @@ def test_install_appliance_writes_loads_pulls_and_reports():
         runner=lambda cmd: launchctl.append(cmd) or "",
         puller=lambda tag: pulled.append(tag) or True,
     )
-    assert res.model == "nemotron-3-nano:30b"
-    assert res.pulled is True and pulled == ["nemotron-3-nano:30b"]
+    assert res.model == "gpt-oss:20b"
+    assert res.pulled is True and pulled == ["gpt-oss:20b"]
     assert res.lan_url == "http://192.168.1.50:8000"
     assert res.gpu.accelerated is True
     # the plist was written to the right path and binds all interfaces

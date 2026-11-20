@@ -30,8 +30,9 @@ memory tier, computed once up front, with no score.
 
 ## What the user notices
 
-Defaults from the release-1 table: 8 GB Qwen3.5 4B; 16 GB Qwen3.5 9B (Gemma 4 12B is `tight`, not the default); 24 GB
-gpt-oss 20B; 32 GB Nemotron 3 Nano 30B; 64 GB Qwen3.6 35B-A3B. These are the same models or close to what the picker offered
+Defaults from the release-1 table (which counts the embedder and a runner allowance): 8 GB Qwen3.5 4B; 16 GB Granite 4.2 8B
+(Qwen3.5 9B and Gemma 4 12B are `tight`); 24 GB Phi-4 14B; 32 GB gpt-oss 20B; 64 GB Qwen3.6 35B-A3B. The 16 GB pick clears the
+limit by about 0.15 GB on an estimated weights size, so it is sensitive to the allowance. These are the same models or close to what the picker offered
 before; the rule no longer depends on a score or on the machine's speed estimate.
 
 ## Unchanged

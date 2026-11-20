@@ -413,12 +413,15 @@
     "attention_layers_with_kv": 12,
     "kv_bytes_per_token_f16": 24576,
     "context_gb_at_8k": 0.2,
-    "overhead_gb": 1.0,
+    "overhead_gb": 22.26,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 82.2
+    "need_gb_at_8k": 103.5,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.5:122b-a10b-q4_K_M"
   },
@@ -485,12 +488,15 @@
     "attention_layers_with_kv": 61,
     "kv_bytes_per_token_f16": 70272,
     "context_gb_at_8k": 0.58,
-    "overhead_gb": 1.0,
+    "overhead_gb": 106.97,
     "basis": "config",
     "notes": [
      "mla latent cache"
     ],
-    "need_gb_at_8k": 408.4
+    "need_gb_at_8k": 514.3,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -556,10 +562,13 @@
     "attention_layers_with_kv": 36,
     "kv_bytes_per_token_f16": 36864,
     "context_gb_at_8k": 0.31,
-    "overhead_gb": 1.0,
+    "overhead_gb": 20.13,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 74.1
+    "need_gb_at_8k": 93.2,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -626,12 +635,15 @@
     "attention_layers_with_kv": 10,
     "kv_bytes_per_token_f16": 20480,
     "context_gb_at_8k": 0.17,
-    "overhead_gb": 1.0,
+    "overhead_gb": 7.44,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 25.2
+    "need_gb_at_8k": 31.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -761,12 +773,15 @@
     "attention_layers_with_kv": 8,
     "kv_bytes_per_token_f16": 8192,
     "context_gb_at_8k": 0.07,
-    "overhead_gb": 1.0,
+    "overhead_gb": 20.13,
     "basis": "config",
     "notes": [
      "hybrid mamba: only attention layers counted"
     ],
-    "need_gb_at_8k": 73.9
+    "need_gb_at_8k": 93.0,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -914,12 +929,15 @@
     "attention_layers_with_kv": 8,
     "kv_bytes_per_token_f16": 8192,
     "context_gb_at_8k": 0.07,
-    "overhead_gb": 1.0,
+    "overhead_gb": 20.13,
     "basis": "config",
     "notes": [
      "hybrid mamba: only attention layers counted"
     ],
-    "need_gb_at_8k": 73.9
+    "need_gb_at_8k": 93.0,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -970,7 +988,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "tight",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -985,12 +1003,15 @@
     "attention_layers_with_kv": 47,
     "kv_bytes_per_token_f16": 54144,
     "context_gb_at_8k": 0.44,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.93,
     "basis": "config",
     "notes": [
      "mla latent cache"
     ],
-    "need_gb_at_8k": 19.6
+    "need_gb_at_8k": 24.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1048,7 +1069,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "tight",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1063,12 +1084,15 @@
     "attention_layers_with_kv": 16,
     "kv_bytes_per_token_f16": 65536,
     "context_gb_at_8k": 0.54,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.88,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 19.5
+    "need_gb_at_8k": 24.4,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.8:27b-q4_K_M"
   },
@@ -1127,7 +1151,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "fits",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1142,12 +1166,15 @@
     "attention_layers_with_kv": 16,
     "kv_bytes_per_token_f16": 65536,
     "context_gb_at_8k": 0.54,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.62,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 18.5
+    "need_gb_at_8k": 23.2,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.5:27b-q4_K_M"
   },
@@ -1221,10 +1248,13 @@
     "attention_layers_with_kv": 60,
     "kv_bytes_per_token_f16": 163840,
     "context_gb_at_8k": 2.18,
-    "overhead_gb": 1.0,
+    "overhead_gb": 6.4,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 23.2
+    "need_gb_at_8k": 28.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "gemma4:31b-it-q4_K_M"
   },
@@ -1283,7 +1313,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "tight",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1298,10 +1328,13 @@
     "attention_layers_with_kv": 30,
     "kv_bytes_per_token_f16": 40960,
     "context_gb_at_8k": 0.55,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.88,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 19.5
+    "need_gb_at_8k": 24.4,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "gemma4:26b-a4b-it-q4_K_M"
   },
@@ -1441,10 +1474,13 @@
     "attention_layers_with_kv": 64,
     "kv_bytes_per_token_f16": 262144,
     "context_gb_at_8k": 2.15,
-    "overhead_gb": 1.0,
+    "overhead_gb": 6.24,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 22.5
+    "need_gb_at_8k": 27.8,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1503,7 +1539,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "fits",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1518,12 +1554,15 @@
     "attention_layers_with_kv": 6,
     "kv_bytes_per_token_f16": 6144,
     "context_gb_at_8k": 0.05,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.93,
     "basis": "config",
     "notes": [
      "hybrid mamba: only attention layers counted"
     ],
-    "need_gb_at_8k": 19.3
+    "need_gb_at_8k": 24.2,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1573,7 +1612,7 @@
    "fit": {
     "8": "too_large",
     "16": "too_large",
-    "24": "fits",
+    "24": "too_large",
     "32": "fits",
     "64": "fits"
    },
@@ -1589,10 +1628,13 @@
     "attention_layers_with_kv": 24,
     "kv_bytes_per_token_f16": 24576,
     "context_gb_at_8k": 0.2,
-    "overhead_gb": 1.0,
+    "overhead_gb": 4.35,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 13.3
+    "need_gb_at_8k": 16.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1652,7 +1694,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "fits",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1667,12 +1709,15 @@
     "attention_layers_with_kv": 6,
     "kv_bytes_per_token_f16": 6144,
     "context_gb_at_8k": 0.05,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.93,
     "basis": "config",
     "notes": [
      "hybrid mamba: only attention layers counted"
     ],
-    "need_gb_at_8k": 19.3
+    "need_gb_at_8k": 24.2,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1797,7 +1842,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "tight",
+    "32": "too_large",
     "64": "fits"
    },
    "size": {
@@ -1812,10 +1857,13 @@
     "attention_layers_with_kv": 64,
     "kv_bytes_per_token_f16": 262144,
     "context_gb_at_8k": 2.15,
-    "overhead_gb": 1.0,
+    "overhead_gb": 5.93,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 21.3
+    "need_gb_at_8k": 26.3,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -1871,7 +1919,7 @@
    },
    "fit": {
     "8": "too_large",
-    "16": "fits",
+    "16": "tight",
     "24": "fits",
     "32": "fits",
     "64": "fits"
@@ -1888,12 +1936,15 @@
     "attention_layers_with_kv": 8,
     "kv_bytes_per_token_f16": 32768,
     "context_gb_at_8k": 0.27,
-    "overhead_gb": 1.0,
+    "overhead_gb": 2.92,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 7.9
+    "need_gb_at_8k": 9.8,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.5:9b-q4_K_M"
   },
@@ -2022,7 +2073,7 @@
    },
    "fit": {
     "8": "too_large",
-    "16": "tight",
+    "16": "too_large",
     "24": "fits",
     "32": "fits",
     "64": "fits"
@@ -2039,10 +2090,13 @@
     "attention_layers_with_kv": 48,
     "kv_bytes_per_token_f16": 65536,
     "context_gb_at_8k": 0.87,
-    "overhead_gb": 1.0,
+    "overhead_gb": 3.28,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 9.9
+    "need_gb_at_8k": 12.1,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "gemma4:12b-it-q4_K_M"
   },
@@ -2094,7 +2148,7 @@
     "8": "too_large",
     "16": "too_large",
     "24": "too_large",
-    "32": "fits",
+    "32": "tight",
     "64": "fits"
    },
    "size": {
@@ -2109,10 +2163,13 @@
     "attention_layers_with_kv": 40,
     "kv_bytes_per_token_f16": 163840,
     "context_gb_at_8k": 1.34,
-    "overhead_gb": 1.0,
+    "overhead_gb": 4.97,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 16.8
+    "need_gb_at_8k": 20.8,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -2178,10 +2235,13 @@
     "attention_layers_with_kv": 40,
     "kv_bytes_per_token_f16": 204800,
     "context_gb_at_8k": 1.68,
-    "overhead_gb": 1.0,
+    "overhead_gb": 3.41,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 11.2
+    "need_gb_at_8k": 13.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -2247,10 +2307,13 @@
     "attention_layers_with_kv": 40,
     "kv_bytes_per_token_f16": 163840,
     "context_gb_at_8k": 1.34,
-    "overhead_gb": 1.0,
+    "overhead_gb": 2.63,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 7.8
+    "need_gb_at_8k": 9.5,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -2331,12 +2394,15 @@
     "attention_layers_with_kv": 8,
     "kv_bytes_per_token_f16": 32768,
     "context_gb_at_8k": 0.27,
-    "overhead_gb": 1.0,
+    "overhead_gb": null,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 4.6
+    "need_gb_at_8k": 4.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "measured chat resident (48 turns) + embedder"
    },
    "gguf_tag": "qwen3.5:4b-q4_K_M"
   },
@@ -2393,7 +2459,7 @@
    },
    "fit": {
     "8": "too_large",
-    "16": "fits",
+    "16": "tight",
     "24": "fits",
     "32": "fits",
     "64": "fits"
@@ -2410,10 +2476,13 @@
     "attention_layers_with_kv": 42,
     "kv_bytes_per_token_f16": 14336,
     "context_gb_at_8k": 0.15,
-    "overhead_gb": 1.0,
+    "overhead_gb": 2.92,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 7.8
+    "need_gb_at_8k": 9.7,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "gemma4:e4b-it-q4_K_M"
   },
@@ -2488,10 +2557,13 @@
     "attention_layers_with_kv": 42,
     "kv_bytes_per_token_f16": 14336,
     "context_gb_at_8k": 0.15,
-    "overhead_gb": 1.0,
+    "overhead_gb": 2.45,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 6.0
+    "need_gb_at_8k": 7.4,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -2566,12 +2638,15 @@
     "attention_layers_with_kv": 4,
     "kv_bytes_per_token_f16": 16384,
     "context_gb_at_8k": 0.13,
-    "overhead_gb": 1.0,
+    "overhead_gb": 1.82,
     "basis": "config",
     "notes": [
      "hybrid mamba: only attention layers counted"
     ],
-    "need_gb_at_8k": 3.5
+    "need_gb_at_8k": 4.4,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -2716,10 +2791,13 @@
     "attention_layers_with_kv": 35,
     "kv_bytes_per_token_f16": 7168,
     "context_gb_at_8k": 0.07,
-    "overhead_gb": 1.0,
+    "overhead_gb": 2.4,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 5.7
+    "need_gb_at_8k": 7.1,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "gemma4:e2b-it-q4_K_M"
   },
@@ -2793,12 +2871,15 @@
     "attention_layers_with_kv": 6,
     "kv_bytes_per_token_f16": 12288,
     "context_gb_at_8k": 0.1,
-    "overhead_gb": 1.0,
+    "overhead_gb": 1.69,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 3.0
+    "need_gb_at_8k": 3.7,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.5:2b-q4_K_M"
   },
@@ -2865,10 +2946,13 @@
     "attention_layers_with_kv": 40,
     "kv_bytes_per_token_f16": 81920,
     "context_gb_at_8k": 0.67,
-    "overhead_gb": 1.0,
+    "overhead_gb": 1.67,
     "basis": "config",
     "notes": [],
-    "need_gb_at_8k": 3.5
+    "need_gb_at_8k": 4.1,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    }
   },
   {
@@ -3013,12 +3097,15 @@
     "attention_layers_with_kv": 6,
     "kv_bytes_per_token_f16": 12288,
     "context_gb_at_8k": 0.1,
-    "overhead_gb": 1.0,
+    "overhead_gb": 1.46,
     "basis": "config",
     "notes": [
      "hybrid: linear-attention layers carry a small fixed state, not counted"
     ],
-    "need_gb_at_8k": 2.1
+    "need_gb_at_8k": 2.6,
+    "embedder_gb": 1.2,
+    "runner_allowance": 0.26,
+    "need_basis": "weights + context at 8k + embedder + 26% runner allowance"
    },
    "gguf_tag": "qwen3.5:0.8b-q8_0"
   }

@@ -14,8 +14,8 @@ from anthill.hosting import sizing
 _ANCHORS = [
     (8, 4),  # the largest model the catalogue marks "fits" at 8 GB (#311)
     (16, 9),  # Qwen3.5 9B; Gemma 4 12B is "tight" at 16 GB, so never the default
-    (24, 20),  # a 20B (gpt-oss) fits here
-    (32, 30),  # a 30B-class MoE (GLM-4.7-flash)
+    (24, 14),  # Phi-4 14B
+    (32, 20),  # gpt-oss 20B
     (64, 35),  # Qwen3.6 35B-A3B
 ]
 

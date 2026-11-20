@@ -43,8 +43,12 @@ def test_unknown_tier_raises():
         # smartest that fits (intelligence x fit over the frontier catalog), not merely the largest
         # #304/#311: no scores; the default is the largest model the catalogue marks "fits" for the tier
         (16, "apple", 9),
-        (24, "apple", 20),  # a 20B (gpt-oss) fits this envelope
-        (32, "apple", 30),  # the $1k Mac mini -> a 30B-class MoE
+        (
+            24,
+            "apple",
+            14,
+        ),  # Phi-4 14B: the largest the table (embedder and runner allowance included) marks fits
+        (32, "apple", 20),  # the $1k Mac mini -> gpt-oss 20B
         (64, "apple", 35),  # Qwen3.6 35B-A3B (35B resident, 3B active)
         (80, "gpu", 122),  # one big GPU -> a 122B MoE
         (160, "gpu", 122),  # two big GPUs; the frontier giants (284B+) still need more
