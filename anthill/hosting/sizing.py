@@ -1084,11 +1084,17 @@ class LocalSetupSuggestion:
     hw_label: str
 
 
+# A local council runs several models at once, so the first-run suggestion offers one only on a machine with room for
+# it. Below this the suggestion is the single best-fitting model (docs/specs/first-run-single-model.md).
+FIRST_RUN_COUNCIL_MIN_GB = 64.0
+
+
 def suggest_local_setup(
     mem_gb: float, kind: str, *, catalog: tuple[Model, ...] | None = None
 ) -> LocalSetupSuggestion:
-    """Try a 3-member family-diverse local council first (the reached-for default); fall back to the
-    single smartest model only when the council does not fit - in memory OR on disk. This is the ONE
+    """Try a 3-member family-diverse local council first when the machine has at least
+    ``FIRST_RUN_COUNCIL_MIN_GB``; fall back to the single best-fitting model whenever the council is not
+    offered or does not fit - in memory OR on disk. This is the ONE
     place this decision is made; do not duplicate the fallback logic elsewhere.
 
     Built on ``recommend_by_family`` (already family-diverse, strongest-family-first, fit+speed
@@ -1102,7 +1108,7 @@ def suggest_local_setup(
         return LocalSetupSuggestion(mode="single", members=[], hw_label=hw_label)
 
     top3 = fitting[:3]
-    if len(top3) == 3:
+    if len(top3) == 3 and mem_gb >= FIRST_RUN_COUNCIL_MIN_GB:
         params = [p.recommended.params_b for p in top3 if p.recommended is not None]
         if onprem_council_fits(params) and onprem_council_fits_on_disk(params):
             return LocalSetupSuggestion(mode="council", members=top3, hw_label=hw_label)
