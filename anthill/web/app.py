@@ -3168,12 +3168,12 @@ def _model_picker_view(cfg):
     from ..hosting.sizing import (
         families_by_intelligence,
         family_download_gb,
-        fit_tier,
         gpu_box_system_ram_gb,
         hardware_label,
         has_any_self_serve_path,
         load_catalog,
         local_hardware,
+        model_fit_tier,
         suggest_local_setup,
     )
     from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
@@ -3212,14 +3212,8 @@ def _model_picker_view(cfg):
     )
 
     def _tier(m):
-        return fit_tier(
-            m.params_b,
-            mem_gb,
-            kind=kind,
-            context_k=8.0,
-            concurrency=1,
-            active_b=m.active_b,
-            system_ram_gb=system_ram_gb,
+        return model_fit_tier(
+            m, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
         )
 
     families = []
@@ -6553,11 +6547,11 @@ def _local_model_options(cfg) -> list[str]:
     )
     try:
         from ..hosting.sizing import (
-            fit_tier,
             gpu_box_system_ram_gb,
             has_any_self_serve_path,
             load_catalog,
             local_hardware,
+            model_fit_tier,
         )
 
         mem_gb, kind = local_hardware()
@@ -6567,14 +6561,8 @@ def _local_model_options(cfg) -> list[str]:
             for m in load_catalog()
             if m.ollama_tag
             and has_any_self_serve_path(m)
-            and fit_tier(
-                m.params_b,
-                mem_gb,
-                kind=kind,
-                context_k=8.0,
-                concurrency=1,
-                active_b=m.active_b,
-                system_ram_gb=system_ram_gb,
+            and model_fit_tier(
+                m, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
             )
             != "too_large"
         ]
@@ -6603,7 +6591,12 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
     if not tag or tag_matches_installed(tag, _installed_local_models(cfg)):
         return False
     try:
-        from ..hosting.sizing import fit_tier, gpu_box_system_ram_gb, load_catalog, local_hardware
+        from ..hosting.sizing import (
+            gpu_box_system_ram_gb,
+            load_catalog,
+            local_hardware,
+            model_fit_tier,
+        )
 
         model = next((m for m in load_catalog() if m.ollama_tag == tag), None)
         if model is None:
@@ -6611,14 +6604,8 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
         mem_gb, kind = local_hardware()
         system_ram_gb = gpu_box_system_ram_gb() if kind == "gpu" else None
         return (
-            fit_tier(
-                model.params_b,
-                mem_gb,
-                kind=kind,
-                context_k=8.0,
-                concurrency=1,
-                active_b=model.active_b,
-                system_ram_gb=system_ram_gb,
+            model_fit_tier(
+                model, mem_gb, kind=kind, context_k=8.0, concurrency=1, system_ram_gb=system_ram_gb
             )
             == "too_large"
         )
