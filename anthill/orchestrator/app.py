@@ -174,13 +174,34 @@ class PromoteRequest(BaseModel):
     reason: str = ""
 
 
+def _promote_direct() -> bool:
+    """Whether this hub may write a promoted page into its wiki without a person reviewing it first. Off unless the
+    operator turns it on: the hub has no review queue of its own."""
+    return os.environ.get("ANTHILL_MESH_PROMOTE_DIRECT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 @app.post("/wiki/promote", status_code=201)
 def promote_page(req: PromoteRequest, _: None = Depends(require_mesh)):
     """Accept a promoted wiki page from a node agent (§7.4).
 
-    Phase 3 policy: any registered node may promote. Ed25519-signed
-    manifests and per-tenant policy rules are the next step.
+    A page from another machine is a proposal, and this hub has nowhere for a person to review it, so by default it
+    refuses. An operator who accepts that can set ``ANTHILL_MESH_PROMOTE_DIRECT=1``: a registered node may then add
+    a NEW page (an existing page is never replaced), marked as written by that node and not yet checked.
+    Ed25519-signed manifests and per-tenant policy rules are the next step.
     """
+    if not _promote_direct():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "this hub has no review queue, so it does not accept promoted pages; "
+                "propose the page in the organisation's wiki instead"
+            ),
+        )
     ws = _wiki()
     live_ids = {n.node_id for n in registry.live_nodes()}
     if req.promoted_by not in live_ids:
@@ -188,10 +209,17 @@ def promote_page(req: PromoteRequest, _: None = Depends(require_mesh)):
             status_code=403,
             detail="promoting node is not registered or timed out",
         )
-    path = ws.write_page(req.slug, req.content)
+    from ..common.text import slugify
+    from ..lifecycle.version import tag_page
+
+    if (ws.wiki / f"{slugify(req.slug)}.md").exists():
+        raise HTTPException(
+            status_code=409, detail=f"page '{req.slug}' already exists; it is not replaced"
+        )
+    path = ws.write_page(req.slug, tag_page(req.content, f"node:{req.promoted_by}"))
     ws.rebuild_index()
-    ws.append_log("promote", req.slug)
-    return {"slug": req.slug, "path": str(path.relative_to(ws.root))}
+    ws.append_log("promote", f"{req.slug} from {req.promoted_by}")
+    return {"slug": req.slug, "path": str(path.relative_to(ws.root)), "review": "unchecked"}
 
 
 @app.get("/wiki/lint")

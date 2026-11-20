@@ -2745,6 +2745,18 @@ _MODEL_PULL_LOCK = threading.Lock()
 # BEFORE `_MODEL_PULL_LOCK`, never while holding it.
 _MODEL_PULL_DB_LOCK = threading.Lock()
 _MODEL_PULL_STATE: dict[int, dict[str, Any]] = {}
+# org id -> {"tag": ..., "reason": "" | "disk"} for a download that ended without success and was not cancelled, until a new
+# download starts or one succeeds. Only the tag and a plain reason are kept: nothing the download tool printed is stored or
+# shown (docs/specs/failed-download-says-so.md). Guarded by _MODEL_PULL_LOCK.
+_MODEL_PULL_FAILED: dict[int, dict[str, str]] = {}
+
+
+def _model_pull_failure(org_id: int) -> dict[str, str] | None:
+    with _MODEL_PULL_LOCK:
+        failed = _MODEL_PULL_FAILED.get(org_id)
+        return dict(failed) if failed else None
+
+
 _VISION_AUTOPULL_MAX_WAIT_SECONDS = 3600.0
 _VISION_AUTOPULL_POLL_SECONDS = 2.0
 
@@ -3043,6 +3055,7 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                 },
             }
             pulls[norm] = entry
+            _MODEL_PULL_FAILED.pop(org_id, None)  # a new download clears the last failure
             primary_tag = _sync_pull_state(org_id)
             reused = False
 
@@ -3052,6 +3065,7 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
 
     def _run() -> None:
         ok = False
+        disk_full = False
         try:
             import re as _re
             import subprocess
@@ -3082,6 +3096,8 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
                         parts = _re.split(rb"[\r\n]+", buf)
                         buf = parts[-1]
                         for part in parts[:-1]:
+                            if b"no space left" in part.lower():
+                                disk_full = True  # only this fact is kept, never the text
                             parsed = _parse_ollama_pull_line(part.decode("utf-8", "replace"))
                             if parsed:
                                 with _MODEL_PULL_LOCK:
@@ -3109,6 +3125,13 @@ def _start_model_pull(org_id: int, tag: str, *, activate_when_done: bool = True)
             if cur_pulls.get(norm) is entry:
                 owned = True
                 cur_pulls.pop(norm, None)
+                if ok and not entry.get("cancelled"):
+                    _MODEL_PULL_FAILED.pop(org_id, None)
+                elif not entry.get("cancelled"):
+                    _MODEL_PULL_FAILED[org_id] = {
+                        "tag": str(entry["tag"]),
+                        "reason": "disk" if disk_full else "",
+                    }
                 if not ok or entry.get("cancelled"):
                     (st_now or {}).pop("vision_waiter", None)
                 _sync_pull_state(org_id)
@@ -3174,10 +3197,12 @@ def _model_picker_view(cfg):
         load_catalog,
         local_hardware,
         model_fit_tier,
+        row_installed_tag,
+        row_tags,
         runs_on_bundled_engine,
         suggest_local_setup,
     )
-    from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
+    from ..inference.ollama import OllamaBackend, normalize_ollama_tag
 
     # the live (refreshable) catalog, so a Refresh shows new models without a restart. Split off the
     # handful of entries no path Anthill provisions today could ever serve (too big for any local box AND
@@ -3204,7 +3229,7 @@ def _model_picker_view(cfg):
     # installed, what can I remove" picture as everything else, not a second, separate page. On this
     # test machine 9 of 13 actually-installed tags fell outside the curated 23, so this is the common
     # case, not an edge case.
-    _catalog_tags = {normalize_ollama_tag(m.ollama_tag) for m in LOCAL_CATALOG}
+    _catalog_tags = {normalize_ollama_tag(t) for m in LOCAL_CATALOG for t in row_tags(m)}
     other_installed = sorted(
         (
             {"tag": m["name"], "size_gb": round(m["size_bytes"] / 1e9, 1)}
@@ -3244,7 +3269,7 @@ def _model_picker_view(cfg):
                 "offload": tiers[m.ollama_tag]
                 == "offload",  # overflows VRAM, but a modest MoE CPU-RAM spill still runs (slower)
                 "recommended": bool(pick and m.ollama_tag == pick.ollama_tag),
-                "installed": tag_matches_installed(m.ollama_tag, installed),
+                "installed": bool(row_installed_tag(m, installed)),
                 "intelligence": m.intelligence,  # for the capability bar (relative to intel_max)
             }
             for m in fam_models
@@ -3271,7 +3296,7 @@ def _model_picker_view(cfg):
             "tag": p.recommended.ollama_tag,
             "params_b": p.recommended.params_b,
             "download_gb": p.download_gb,
-            "installed": tag_matches_installed(p.recommended.ollama_tag, installed),
+            "installed": bool(row_installed_tag(p.recommended, installed)),
         }
         for p in suggestion.members
         if p.recommended is not None
@@ -3704,13 +3729,13 @@ def _apply_solo_compute(
         cfg.org_provision_key_enc = encrypt(provider_api_key.strip())
         cfg.solo_compute = "cloud"
         cfg.local_model_chosen = True
-        from ..hosting.sizing import load_catalog
+        from ..hosting.sizing import load_catalog, row_for_tag
 
         catalog = load_catalog()
         model_tag = lead or (cfg.ollama_model or "")
         if model_tag:
             cfg.org_model = model_tag
-            _m = next((m for m in catalog if m.ollama_tag == model_tag), None)
+            _m = row_for_tag(catalog, model_tag)
             cfg.org_gpu = _smallest_gpu_for_model(_m.params_b if _m else 0.0)
             cfg.org_model_params = str(_m.params_b) if _m else ""
         # Training is not configured separately here either (mirrors settings_organization_backend's
@@ -3747,7 +3772,7 @@ def _apply_solo_compute(
         if len(council) >= 2:
             members = []
             for t in council:
-                cm = next((m for m in catalog if m.ollama_tag == t), None)
+                cm = row_for_tag(catalog, t)
                 members.append(
                     {
                         **_empty_member(),
@@ -3822,7 +3847,7 @@ def _apply_solo_compute(
             catalog = sizing.load_catalog()
             member_params: list[float] = []
             for t in council:
-                m = next((c for c in catalog if c.ollama_tag == t), None)
+                m = sizing.row_for_tag(catalog, t)
                 if m:
                     member_params.append(m.params_b)
             # Mirrors the org admin's council-editor fit gate (settings_organization_council's
@@ -3899,9 +3924,13 @@ def model_picker_post(
         LOCAL_CATALOG,
         load_catalog,
         local_hardware,
+        row_for_tag,
+        row_installed_tag,
+        row_tags,
         runs_on_bundled_engine,
         suggest_local_setup,
     )
+    from ..inference.ollama import tag_matches_installed
 
     db = _db()
     org = _require_org(db, user)
@@ -3980,8 +4009,6 @@ def model_picker_post(
                 with _MODEL_PULL_LOCK:
                     (_MODEL_PULL_STATE.get(org.id) or {}).pop("vision_waiter", None)
             db.commit()
-            from ..inference.ollama import tag_matches_installed
-
             installed = set(_installed_local_models(cfg))
             for m in members:
                 if not tag_matches_installed(m["model"], installed):
@@ -4005,14 +4032,19 @@ def model_picker_post(
         # whatever is on the configured URL degrades to "nothing installed" rather than 500ing
         # this request - it already has that guarantee; nothing else in this route did.
         installed = set(_installed_local_models(cfg))
-        valid = {m.ollama_tag for m in LOCAL_CATALOG if runs_on_bundled_engine(m)} | installed
+        valid = {
+            t for m in LOCAL_CATALOG if runs_on_bundled_engine(m) for t in row_tags(m)
+        } | installed
         if choice in valid:  # never pull arbitrary user input
+            row = row_for_tag(LOCAL_CATALOG, choice)
+            if row is not None and not tag_matches_installed(choice, installed):
+                # a replaced (older) tag is never pulled: use the installed one, else the row's own build tag
+                choice = row_installed_tag(row, installed) or row.ollama_tag
             if _model_too_large_for_this_machine(cfg, choice):
                 # The picker already greys this option out, but it reached the catalog-membership
                 # check above regardless (a stale page, a not-fully-disabled option, or a direct
                 # request) - re-check fit here too, matching /personalize and /models/pull (#747).
                 return RedirectResponse("/setup/model?error=too_large", status_code=302)
-            from ..inference.ollama import tag_matches_installed
 
             if tag_matches_installed(choice, installed):
                 cfg.ollama_model = choice  # already here: activate now
@@ -6607,9 +6639,10 @@ def _model_too_large_for_this_machine(cfg, tag: str) -> bool:
             load_catalog,
             local_hardware,
             model_fit_tier,
+            row_for_tag,
         )
 
-        model = next((m for m in load_catalog() if m.ollama_tag == tag), None)
+        model = row_for_tag(load_catalog(), tag)
         if model is None:
             return False
         mem_gb, kind = local_hardware()
@@ -6782,6 +6815,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "local_models": _local_model_options(cfg),
             "current_local_model": (cfg.ollama_model if cfg else "") or "",
             "pulling": (cfg.local_model_pulling if cfg else "") or "",
+            "pull_failed": _model_pull_failure(org.id),
             "installed_local": bool(_installed_local_models(cfg)),
             # Solo compute (P1): the local | cloud choice + whether a cloud endpoint is connected.
             "solo_cloud": (getattr(cfg, "solo_compute", "local") or "local") == "cloud",
@@ -12637,6 +12671,7 @@ def models_page(request: Request, user: dict = Depends(_require_admin)):
             "current_is_custom": bool(current) and current not in catalog_tags,
             "selected_tag": current if current in catalog_tags else picker["default_tag"],
             "pulling": (cfg.local_model_pulling if cfg else "") or "",
+            "pull_failed": _model_pull_failure(org.id),
             "resident": resident,
             "gold_count": gold_count,
             "benchmark": _get_benchmark_state(cfg) or None,
@@ -12744,6 +12779,7 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
     otherwise download it in the background and switch only when the download finishes - the previous
     model keeps serving meanwhile, so the UI never shows a 'selected but not installed' model. The
     /models page polls /models/pull-status for live progress and a 'ready' confirmation."""
+    from ..hosting.sizing import load_catalog, row_for_tag, row_installed_tag
     from ..inference.ollama import OllamaBackend, normalize_ollama_tag, tag_matches_installed
 
     db = _db()
@@ -12768,6 +12804,10 @@ async def pull_model(model_tag: str = Form(...), user: dict = Depends(_require_a
         return RedirectResponse(f"/models?pulling={model_tag}", status_code=302)
 
     installed = set(OllamaBackend(cfg.ollama_url, model_tag).installed_models()) if cfg else set()
+    row = row_for_tag(load_catalog(), model_tag)
+    if row is not None and not tag_matches_installed(model_tag, installed):
+        # a replaced (older) tag is never pulled: use the installed one, else the row's own build tag
+        model_tag = row_installed_tag(row, installed) or row.ollama_tag
     if tag_matches_installed(model_tag, installed):
         if cfg:
             cfg.ollama_model = model_tag  # already here: switch immediately
@@ -13017,6 +13057,7 @@ def models_pull_status(user: dict = Depends(_require_admin)):
             "installed": tag_matches_installed(current, installed),
             "progress": _MODEL_PULL_PROGRESS.get(org.id),
             "active_pulls": active_pulls,
+            "failed": _model_pull_failure(org.id),
         }
     )
 

@@ -159,6 +159,13 @@
   <div id="ready-banner" class="alert alert-ok mb-2" style="display:none">
     ✅ <b id="ready-tag"></b> finished downloading and is now ready.
   </div>
+<div id="fail-banner" class="alert alert-warn mb-2" style="display:{% if pull_failed and not pulling %}block{% else %}none{% endif %}">
+  <span id="fail-text">{% if pull_failed and pull_failed.reason == 'disk' %}There was not enough free disk space to finish the download. Free some space, then try again.{% else %}The download did not finish. Nothing was changed and your current model keeps working.{% endif %}</span>
+  <form method="post" action="/models/pull" style="margin-top:8px">
+    <input type="hidden" name="model_tag" id="fail-tag" value="{{ pull_failed.tag if pull_failed else '' }}">
+    <button type="submit" class="btn btn-outline btn-sm">Try again</button>
+  </form>
+</div>
 
   {% set INFER_NAMES = {'berget': 'Berget AI', 'groq': 'Groq', 'infercom': 'Infercom'} %}
   <div class="card mb-2">
@@ -613,6 +620,18 @@ function trainNow() {
     if (p.eta) parts.push('~' + p.eta + ' remaining');
     return parts.length ? parts.join(' - ') : 'Starting download...';
   }
+  function showPullFailure(s) {
+    var fb = document.getElementById('fail-banner');
+    if (!fb || !s.failed) return false;
+    var ft = document.getElementById('fail-text');
+    if (ft) ft.textContent = s.failed.reason === 'disk'
+      ? 'There was not enough free disk space to finish the download. Free some space, then try again.'
+      : 'The download did not finish. Nothing was changed and your current model keeps working.';
+    var tg = document.getElementById('fail-tag');
+    if (tg) tg.value = s.failed.tag || '';
+    fb.style.display = 'block';
+    return true;
+  }
   function poll() {
     fetch('/models/pull-status', { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.redirected ? null : r.json(); })
@@ -631,6 +650,11 @@ function trainNow() {
           if (pb) pb.style.display = 'block';
           if (rb) rb.style.display = 'none';
           setTimeout(poll, 2000);
+        } else if (wasPulling && s.failed) {
+          if (pb) pb.style.display = 'none';
+          if (rb) rb.style.display = 'none';
+          showPullFailure(s);  // the download did not finish: say so, never the "finished" banner
+          wasPulling = '';
         } else if (wasPulling) {
           var rt = document.getElementById('ready-tag');
           if (rt) rt.textContent = s.current || wasPulling;
