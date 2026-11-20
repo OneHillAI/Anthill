@@ -10,7 +10,7 @@ The **developer is bring-your-own** ([`standards/spec-driven.md`](../standards/s
 
 - `test-author.yaml` - develops and extends the test suite from the spec, on a **different model** from the developer. Run on demand while a change is built.
 - `test-runner.yaml` - runs the suite and reports pass/fail, on a **different model** from the developer. Together they satisfy `developer != test_author, test_runner` - the project independently tests the bring-your-own developer's work. In CI the runner runs only after a merge to main (`.github/workflows/asdd-test.yml`), never on an open PR.
-- `documentation.yaml` - keeps docs / impact log / knowledge base in sync as a governed PR.
+- `documentation.yaml` - keeps docs / changelog / knowledge base in sync as a governed PR.
 - `interaction.yaml` - the outer membrane: connects a chat/web surface, answers from the project's knowledge, and routes ideas into the governed intake as a validated spec (see [`agents/interaction.md`](../agents/interaction.md), [`agents/intake.md`](../agents/intake.md)). Use this for **trusted, members-only** channels.
 - `interaction-public.yaml` - the **execution-free** variant for an **untrusted public** surface (a public Discord/Slack channel, the web widget): no shell, so an injection in an anonymous message cannot exfiltrate the model key. Answers from read-only knowledge and routes via `spec_check` only. See `agents/interaction.md`, "Public (untrusted) surfaces".
 

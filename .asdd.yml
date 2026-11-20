@@ -29,7 +29,7 @@ models:
   test_author: "gpt-oss-120b"     # OpenAI open, EU-hosted; MUST differ from developer, and differs from the reviewer
   test_runner: "gpt-oss-120b"     # OpenAI open, EU-hosted; MUST differ from developer, and differs from the reviewer
   reviewer: "gemma-4-31B-it"      # independent merge-reviewer; Google open, EU-hosted (diffs stay in the EU)
-  documentation: "gemma-4-31B-it" # post-merge doc / impact-log sync; the same model docsync runs on ASDD_MODEL
+  documentation: "gemma-4-31B-it" # post-merge doc / changelog sync; the same model docsync runs on ASDD_MODEL
   interaction: "gemma-4-31B-it"   # member / public interaction surface; Google open, EU-hosted
 
 # The developer council (OPTIONAL frontier produce loop). 2 to 5 diverse models propose, cross-critique,
@@ -141,8 +141,8 @@ triage_labels:
 #
 # Deliberately NOT declared yet, because the naive check does not match Anthill's real rule and would
 # cry wolf at the observe stage (fed back to the framework as adoption findings):
-#   - impact_log: Anthill records docs/SYSTEM_IMPACT_LOG.md POST-merge, so an in-PR check reports every
-#     feature PR as missing. Declare it once the documentation agent fills it in the same change.
+#   - impact_log: Anthill no longer keeps docs/SYSTEM_IMPACT_LOG.md (frozen history since #308), so there is
+#     nothing to declare.
 #   - spec_dir:   require_spec (enforced by intake) already allows REFERENCING an existing spec; the
 #     conventions check instead wants a spec file touched in the diff, which is stricter and wrong here.
 conventions:
