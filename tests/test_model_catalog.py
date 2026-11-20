@@ -76,7 +76,7 @@ def test_stale_override_does_not_hide_newer_bundled_catalog(tmp_path, monkeypatc
     override.write_text(json.dumps({"generated": "2026-10-14", "models": [row]}))
 
     names = [m.name for m in sizing.load_catalog()]
-    assert "Qwen3.8 27B" in names and "Old Refresh 7B" not in names
+    assert "Qwen3.5 27B" in names and "Old Refresh 7B" not in names
 
     override.write_text(json.dumps({"generated": "2099-01-01", "models": [row]}))
     assert [m.name for m in sizing.load_catalog()] == ["Old Refresh 7B"]
