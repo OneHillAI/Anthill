@@ -68,6 +68,13 @@
 <div id="ready-banner" class="alert alert-ok" style="display:none">
   ✅ <b id="ready-tag"></b> finished downloading and is now your local model.
 </div>
+<div id="fail-banner" class="alert alert-warn" style="display:{% if pull_failed and not pulling %}block{% else %}none{% endif %}">
+  <span id="fail-text">{% if pull_failed and pull_failed.reason == 'disk' %}There was not enough free disk space to finish the download. Free some space, then try again.{% else %}The download did not finish. Nothing was changed and your current model keeps working.{% endif %}</span>
+  <form method="post" action="/models/pull" style="margin-top:8px">
+    <input type="hidden" name="model_tag" id="fail-tag" value="{{ pull_failed.tag if pull_failed else '' }}">
+    <button type="submit" class="btn btn-outline btn-sm">Try again</button>
+  </form>
+</div>
 
 {# The curated, hardware-ranked model picker used to live here too, duplicating Settings -> Model ->
    "Change where it runs" (the council builder does the same job, plus council/cloud/inference-provider
@@ -146,6 +153,18 @@ async function fetchModelJSON(url, options) {
     if (p.eta) parts.push('~' + p.eta + ' remaining');
     return parts.length ? parts.join(' - ') : 'Starting download...';
   }
+  function showPullFailure(s) {
+    var fb = document.getElementById('fail-banner');
+    if (!fb || !s.failed) return false;
+    var ft = document.getElementById('fail-text');
+    if (ft) ft.textContent = s.failed.reason === 'disk'
+      ? 'There was not enough free disk space to finish the download. Free some space, then try again.'
+      : 'The download did not finish. Nothing was changed and your current model keeps working.';
+    var tg = document.getElementById('fail-tag');
+    if (tg) tg.value = s.failed.tag || '';
+    fb.style.display = 'block';
+    return true;
+  }
   function poll() {
     fetchModelJSON('/models/pull-status', { headers: { 'Accept': 'application/json' } })
       .then(function (s) {
@@ -160,6 +179,9 @@ async function fetchModelJSON(url, options) {
           if (meta) meta.textContent = formatPullProgress(s.progress);
           pb.style.display = 'block'; rb.style.display = 'none';
           setTimeout(poll, 2000);
+        } else if (wasPulling && s.failed) {
+          pb.style.display = 'none'; rb.style.display = 'none';
+          showPullFailure(s);  // the download did not finish: say so, never the "finished" banner
         } else if (wasPulling) {
           document.getElementById('ready-tag').textContent = s.current;
           pb.style.display = 'none'; rb.style.display = 'block';
