@@ -133,23 +133,44 @@ def _box(page, selector):
     )
 
 
-def _settled_cards(page, timeout=3.0):
-    """The two tier cards measured once the layout has stopped moving. Right after the page loads or a card is
-    clicked the cards can still be on their way (fonts arriving, the script's first layout): a measurement taken
-    then differs from the settled one by a lot (634 against 15 px was seen on the CI runner), which no pixel
-    slack can absorb. Two measurements 100 ms apart that agree mean it has settled; a layout that never settles
-    is returned as it is, so the test fails on it."""
+# Every "this edge is where that edge is" check in this file allows this many pixels. The same page lays out 1 to 2 px
+# differently on the CI runner than on a Mac (fonts, sub-pixel rounding), and a check written to the pixel failed at
+# random there (2 px on the row check, 636 against 634, 18 against 16 on the card distance).
+LAYOUT_SLACK_PX = 3
+
+
+def _settled(page, read, timeout=3.0):
+    """``read()`` once the layout has stopped moving. Right after the page loads or a card is clicked the cards can
+    still be on their way (fonts arriving, the script's first layout): a reading taken then differs from the settled
+    one by a lot (634 against 15 px was seen on the CI runner), which no pixel slack can absorb. Two readings 100 ms
+    apart that agree mean it has settled; a layout that never settles is returned as it is, so the test fails on it."""
     deadline = time.monotonic() + timeout
     last = None
     while True:
-        now = (
-            _box(page, '.cc-tier[data-tier="local"]'),
-            _box(page, '.cc-tier[data-tier="cloud"]'),
-        )
+        now = read()
         if now == last or time.monotonic() > deadline:
             return now
         last = now
         page.wait_for_timeout(100)
+
+
+def _settled_cards(page):
+    """The two tier cards, measured once the layout has settled."""
+    return _settled(
+        page,
+        lambda: (
+            _box(page, '.cc-tier[data-tier="local"]'),
+            _box(page, '.cc-tier[data-tier="cloud"]'),
+        ),
+    )
+
+
+def _gap_below_panel(page):
+    """The distance from the panel's bottom to the top of the inference-provider card, read in one call."""
+    return page.evaluate(
+        """() => document.querySelector('.cc-infer-card').getBoundingClientRect().top
+                 - document.querySelector('#cc-attach').getBoundingClientRect().bottom"""
+    )
 
 
 def _boxes(page):
@@ -220,7 +241,7 @@ def test_machine_models_sit_inside_the_panel_that_the_selected_card_opens_into(l
             card, panel = _boxes(page)
             assert page.locator(".cc-tier.sel").get_attribute("data-tier") == "local"
             assert (
-                abs(card["l"] - panel["l"]) <= 1
+                abs(card["l"] - panel["l"]) <= LAYOUT_SLACK_PX
             )  # the card is a tab: same left edge as the panel
             assert _seam(card, panel)
             r = _seam_is_really_open(page)
@@ -245,7 +266,9 @@ def test_cloud_opens_its_own_provider_key_and_models_inside_the_panel(live):
             _wait_for_seam(page)
             card, panel = _boxes(page)
             assert page.locator(".cc-tier.sel").get_attribute("data-tier") == "cloud"
-            assert abs(card["r"] - panel["r"]) <= 1  # the right-hand tab ends where the panel ends
+            assert (
+                abs(card["r"] - panel["r"]) <= LAYOUT_SLACK_PX
+            )  # the right-hand tab ends where the panel ends
             assert _seam(card, panel)
             r = _seam_is_really_open(page)
             assert r["border"] == "0px" and r["covered"], r
@@ -264,14 +287,14 @@ def test_the_inference_provider_is_not_attached_to_the_tier_and_defaults_to_none
                 "class"
             )
             assert page.locator("#cc-escalation-provider").input_value() == ""
-            before = _box(page, ".cc-infer-card")["t"] - _box(page, "#cc-attach")["b"]
+            before = _settled(page, lambda: _gap_below_panel(page))
             page.click('.cc-tier[data-tier="cloud"]')
-            after = _box(page, ".cc-infer-card")["t"] - _box(page, "#cc-attach")["b"]
+            after = _settled(page, lambda: _gap_below_panel(page))
             assert (
                 page.locator("#cc-escalation-provider").input_value() == ""
             )  # untouched by the tier
             assert (
-                abs(before - after) < 1
+                abs(before - after) <= LAYOUT_SLACK_PX
             )  # still a separate card at the same distance from the panel
         finally:
             browser.close()
@@ -417,8 +440,14 @@ def test_narrow_window_keeps_the_cards_in_place_as_tabs_over_the_panel(live):
                 now_m, now_c = _settled_cards(page)
                 # "stay put" with a few pixels of slack: the same page lays out 1 to 2 px differently on the
                 # CI runner (fonts, sub-pixel rounding) after a card is clicked
-                assert abs(now_m["l"] - machine["l"]) <= 3 and abs(now_c["l"] - cloud["l"]) <= 3
-                assert abs(now_m["t"] - machine["t"]) <= 3 and abs(now_c["t"] - cloud["t"]) <= 3
+                assert (
+                    abs(now_m["l"] - machine["l"]) <= LAYOUT_SLACK_PX
+                    and abs(now_c["l"] - cloud["l"]) <= LAYOUT_SLACK_PX
+                )
+                assert (
+                    abs(now_m["t"] - machine["t"]) <= LAYOUT_SLACK_PX
+                    and abs(now_c["t"] - cloud["t"]) <= LAYOUT_SLACK_PX
+                )
                 _wait_for_seam(page)
                 assert _seam(*_boxes(page)), tier
                 r = _seam_is_really_open(page)
