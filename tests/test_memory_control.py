@@ -97,13 +97,13 @@ def test_team_promoted_memory_stays_visible_on_the_memory_page(tmp_path, monkeyp
     assert "team fact" in page  # the fix: still shown, not silently dropped
 
 
-# ── #683 companion fix: pausing auto-memory must also stop training capture ─────────────────────
+# ── the memory switch is only about remembering facts: an answered chat is kept as a private example either way ──
 
 
-def test_pausing_auto_memory_stops_training_capture(tmp_path, monkeypatch):
-    # Before the fix, record_example() in the chat route was gated only on "not ephemeral" - a user
-    # who paused auto-memory (expecting Anthill to stop remembering things about them) still had every
-    # full turn captured as training data, which is more revealing than a distilled memory item.
+def test_pausing_auto_memory_does_not_stop_the_example_being_kept_privately(tmp_path, monkeypatch):
+    # The switch controls remembering facts. An answered chat is kept on this device as a possible training
+    # example, privately, whether it is on or paused; nothing trains on it until the person decides (the Memory
+    # page says so). Examples had been tied to this switch, which made one setting decide two different things.
     import anthill.web.app as app_mod
     from anthill.web.db import Conversation, TrainingExample
 
@@ -121,14 +121,16 @@ def test_pausing_auto_memory_stops_training_capture(tmp_path, monkeypatch):
     cid = conv.id
 
     client.get(f"/chat/{cid}/stream", params={"message": "hello"})
-    assert app_mod._SessionFactory().query(TrainingExample).count() == 0  # off means off
+    assert (
+        app_mod._SessionFactory().query(TrainingExample).count() == 1
+    )  # kept privately, memory paused
 
     client.post("/memory/auto-toggle", follow_redirects=False)  # resume
     conv2 = Conversation(org_id=ids["org"], user_id=ids["u"], plane="solo")
     s.add(conv2)
     s.commit()
     client.get(f"/chat/{conv2.id}/stream", params={"message": "hello again"})
-    assert app_mod._SessionFactory().query(TrainingExample).count() == 1  # capture resumes
+    assert app_mod._SessionFactory().query(TrainingExample).count() == 2  # and with it on
 
 
 # ── routes: toggle / keep-personal / edit / provenance / snippet edit ───────────

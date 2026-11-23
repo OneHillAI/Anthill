@@ -203,6 +203,35 @@ def stale_turns(messages) -> set[int]:
     return drop
 
 
+_SPACE_ORDER = ("personal", "team", "org")  # narrowest first
+
+
+def narrowest_space(record: dict) -> str:
+    """The narrowest space among the items an answer was given: personal if any item is personal (or there are none),
+    else team, else org. What combines items is no wider than the narrowest of them."""
+    spaces = {
+        str(i.get("space") or "personal") for i in record.get("items", []) if isinstance(i, dict)
+    }
+    for space in _SPACE_ORDER:
+        if space in spaces or not spaces:
+            return space
+    return "personal"
+
+
+def training_context(record: dict) -> str:
+    """What a training example keeps of the context its answer was written with: the id, version and space of each item
+    the answer was given, and the narrowest of those spaces. Never the text of an item. Empty when nothing was given."""
+    keep = ("kind", "id", "version", "hash", "space", "space_ref", "name", "slug")
+    items_ = [
+        {k: i[k] for k in keep if k in i} for i in record.get("items", []) if isinstance(i, dict)
+    ]
+    if not items_:
+        return ""
+    return json.dumps(
+        {"v": 1, "space": narrowest_space(record), "items": items_}, separators=(",", ":")
+    )
+
+
 def dumps(record: dict) -> str:
     """The text kept with the answer. An empty record is the empty string: nothing was given."""
     return json.dumps(record, separators=(",", ":")) if record.get("items") else ""
