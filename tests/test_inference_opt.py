@@ -13,16 +13,16 @@ from anthill.wiki import prompts
 # ── prefix-stable prompt assembly ──────────────────────────────────────────────
 
 
-def test_reference_block_is_up_front_and_question_is_last():
+def test_reference_block_follows_the_conversation_and_question_is_last():
     history = [("user", "earlier q"), ("assistant", "earlier a")]
     msgs = prompts.answer_question(
         "Refund window is 45 days.", "what is the refund window?", history
     )
     roles = [m.role for m in msgs]
-    # system, THEN the reference block, THEN the conversation, THEN the question - a stable growing prefix
-    assert roles == ["system", "user", "user", "assistant", "user"]
-    assert "REFERENCE MATERIAL" in msgs[1].content and "45 days" in msgs[1].content
-    assert msgs[2].content == "earlier q" and msgs[3].content == "earlier a"
+    # system, THEN the conversation, THEN the reference for this question, THEN the question - a stable growing prefix
+    assert roles == ["system", "user", "assistant", "user", "user"]
+    assert msgs[1].content == "earlier q" and msgs[2].content == "earlier a"
+    assert "REFERENCE MATERIAL" in msgs[3].content and "45 days" in msgs[3].content
     assert msgs[-1].content == "QUESTION: what is the refund window?"
 
 
