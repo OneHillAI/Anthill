@@ -37,6 +37,10 @@
     <button class="btn btn-outline btn-sm">{{ 'Resume' if auto_off else 'Pause' }}</button>
   </form>
 </div>
+<p class="text-sm text-muted" id="training-note" style="margin:0 0 12px">
+  This switch is only about remembering facts. Your answered chats are kept on this device, privately, as possible
+  training examples whether it is on or paused; nothing trains a model until you decide.
+</p>
 
 {# This fills in on its own as you chat - "+ Add memory" is the manual, optional path, so it stays
    secondary weight (outline, not primary) rather than competing with the automatic story above. #}
