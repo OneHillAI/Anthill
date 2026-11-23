@@ -190,10 +190,11 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
             return None
         rec = _source_record(ws, key)
         pages = []
-        for path in ws.pages() if rec is not None else []:
-            title, page_rec, _mtime = _page_facts(path)
-            if page_rec is not None and rec.id in page_rec.derived_from:
-                pages.append({"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"})
+        if rec is not None:
+            for path in ws.pages():
+                title, page_rec, _mtime = _page_facts(path)
+                if page_rec is not None and rec.id in page_rec.derived_from:
+                    pages.append({"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"})
         return _doc_row(f, rec, pages, query, scope, team_id)
     return None
 
