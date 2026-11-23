@@ -128,8 +128,8 @@ that produced it. It also becomes one of your own approved ("gold") examples, wh
 personal training draws on. Saving a snippet guarantees it's kept, rather than hoping a good answer
 gets noticed on its own.
 
-A snippet only trains the *shared* team or org model once it's corroborated. Either another person
-independently saves matching content, or an admin approves it in **Needs review**. You
+A snippet trains the *shared* team or org model only when an admin approves it in **Needs review**;
+other people saving matching content does not move it. You
 can edit, tag, filter, or delete any snippet. You can also push one to the wiki manually at any
 time.
 
@@ -144,6 +144,6 @@ auto-learning pipeline whenever you want; memories already learned keep working 
 Mark anything **keep personal** so it's never shared, even if it comes up for someone else too.
 That's reversible any time.
 
-When the same fact surfaces for two or more people, it's promoted automatically to the shared
-project or org level and marked **shared by N**. An admin can also promote one by hand. Any memory
+A memory stays personal, however many other people hold a similar one. An admin can promote one to
+the shared project or org level by hand. Any memory
 can be turned into a full wiki page proposal when it deserves more than a one-line fact.

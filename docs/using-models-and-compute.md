@@ -78,7 +78,7 @@ is the only tier that actually trains a model.
 
 A solo user fine-tunes on their own gold answers, on whatever compute they've connected. An
 organisation fine-tunes the one shared model on the team's gold, including answers promoted from
-individual snippets once corroborated, using the org's connected GPU. Either way, the steps are the
+individual snippets an admin approved, using the org's connected GPU. Either way, the steps are the
 same: connect a GPU or local toolchain, accumulate enough gold answers, then turn training on.
 Trigger a run manually, or let it run on a schedule as new gold accumulates. A newly trained model
 is only promoted if it beats the one you're currently using. You always keep the weights either
