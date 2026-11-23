@@ -65,8 +65,9 @@ def promote_to_silver(db: Session, instruction: str, org_id: int | None) -> None
     """Promote the most recent matching bronze example to silver.
 
     Called when the org index returns this answer to a *different* node -
-    meaning it was useful enough that someone else benefited from it. That
-    cross-user reuse is itself corroboration, so silver examples are org-scope.
+    meaning it was useful enough that someone else benefited from it. That raises
+    the example's quality. It never changes its scope: an example stays where it
+    was made unless its owner moves it.
     """
     ex = (
         db.query(TrainingExample)
@@ -80,5 +81,4 @@ def promote_to_silver(db: Session, instruction: str, org_id: int | None) -> None
     )
     if ex:
         ex.quality = "silver"
-        ex.scope = "org"  # reuse by another user = corroboration
         db.commit()

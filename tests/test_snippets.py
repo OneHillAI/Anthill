@@ -51,16 +51,14 @@ def test_single_user_save_is_personal_gold(tmp_path):
     assert ex.context == snip.rationale  # red line rides along as context
 
 
-def test_two_users_corroborate_to_org(tmp_path):
+def test_two_users_saving_the_same_text_do_not_widen_it(tmp_path):
     db = _db(tmp_path)
     text = "Kafka was chosen for the event pipeline."
     s1 = save_snippet(db, org_id=1, user_id=1, content=text, backend=None)
-    assert s1.scope == "personal"  # first saver → personal
     s2 = save_snippet(db, org_id=1, user_id=2, content=text, backend=None)
-    assert s2.scope == "org"  # second distinct user → corroborated
-    # BOTH users' training examples are now org-scope
+    assert s1.scope == "personal" and s2.scope == "personal"  # nobody's saving moves anyone else's
     exs = db.query(TrainingExample).filter(TrainingExample.source == "snippet").all()
-    assert len(exs) == 2 and all(e.scope == "org" for e in exs)
+    assert len(exs) == 2 and all(e.scope == "personal" for e in exs)
 
 
 def test_same_user_twice_does_not_corroborate(tmp_path):
@@ -100,25 +98,27 @@ def test_all_tags_dedup_and_sorted(tmp_path):
     assert all_tags(db, 1) == ["a", "m", "z"]
 
 
-def test_org_export_excludes_uncorroborated_personal(tmp_path):
-    """The shared-model dataset (scope=org) must exclude one-user-only snippets."""
+def test_the_shared_model_dataset_has_only_what_a_person_moved(tmp_path):
+    """The shared-model dataset (scope=org) holds nothing until an admin approves a snippet into the wiki."""
     from anthill.training.export import export_jsonl
+    from anthill.web.snippets import promote_snippet
 
     db = _db(tmp_path)
     long = "x" * 60  # clears min_output_len
-    # one user → personal only
     save_snippet(db, org_id=1, user_id=1, content="solo " + long, backend=None)
-    # two users on the same content → org
     shared = "shared " + long
     save_snippet(db, org_id=1, user_id=1, content=shared, backend=None)
-    save_snippet(db, org_id=1, user_id=2, content=shared, backend=None)
+    approved = save_snippet(
+        db, org_id=1, user_id=2, content=shared, backend=None
+    )  # same text, second user
 
     org_out = tmp_path / "org.jsonl"
+    assert (
+        export_jsonl(db, org_out, min_quality="gold", org_id=1, scope="org") == 0
+    )  # saving moves nothing
+    promote_snippet(db, approved, "org")  # an admin approves it: that is a person's action
     n_org = export_jsonl(db, org_out, min_quality="gold", org_id=1, scope="org")
-    # both org examples for the shared key (2 rows), none of the personal solo one
-    assert n_org == 2
-    assert "solo" not in org_out.read_text()
-    assert "shared" in org_out.read_text()
+    assert n_org == 2 and "solo" not in org_out.read_text() and "shared" in org_out.read_text()
 
 
 def test_snippets_page_frames_itself_as_the_manual_wiki_path(tmp_path, monkeypatch):

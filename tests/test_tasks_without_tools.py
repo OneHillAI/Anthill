@@ -396,7 +396,6 @@ def test_a_task_memory_is_the_answer_not_the_note(tmp_path, monkeypatch):
     monkeypatch.setattr("anthill.memory.embed_text", lambda text: [0.1, 0.2])
     monkeypatch.setattr("anthill.memory.is_semantically_new", lambda *a, **k: True)
     monkeypatch.setattr("anthill.web.memory_ops.auto_memory_on", lambda db, uid: True)
-    monkeypatch.setattr("anthill.web.memory_ops.maybe_corroborate", lambda *a, **k: None)
     scheduler._remember_task_outcome(db, task, NO_TOOLS_NOTE + "Next week has three meetings.")
     db.commit()
     texts = [m.text for m in db.query(MemoryItem).all()]
@@ -485,7 +484,6 @@ def test_an_agent_memory_is_the_answer_not_the_note(tmp_path, monkeypatch):
     monkeypatch.setattr("anthill.memory.embed_text", lambda text: [0.1, 0.2])
     monkeypatch.setattr("anthill.memory.is_semantically_new", lambda *a, **k: True)
     monkeypatch.setattr("anthill.web.memory_ops.auto_memory_on", lambda db, uid: True)
-    monkeypatch.setattr("anthill.web.memory_ops.maybe_corroborate", lambda *a, **k: None)
     scheduler._remember_agent_outcome(agent, NO_TOOLS_NOTE + "Competitor shipped X.", db)
     db.commit()
     assert [m.text for m in db.query(MemoryItem).all()] == ["Agent 'Scout': Competitor shipped X."]
