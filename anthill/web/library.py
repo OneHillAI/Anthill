@@ -78,6 +78,61 @@ def _source_record(ws, name: str) -> items.ItemRecord | None:
         return None
 
 
+def _page_row(path, title, rec, mtime, made_from, query, scope, team_id) -> dict:
+    slug = quote(path.stem)
+    chips = _chips(rec)
+    return {
+        "kind": "page",
+        "key": path.stem,
+        "record": rec,
+        "title": title,
+        "href": f"/wiki/page/{slug}{query}",
+        "chips": chips,
+        "unchecked": UNCHECKED_CHIP in chips,
+        "links": made_from,
+        "links_label": "Made from",
+        "when": _day(rec, mtime),
+        "details_href": f"/wiki/item?kind=page&name={slug}" + query.replace("?", "&"),
+        "edit_href": f"/wiki/page/{slug}/edit{query}",
+        "remove_href": f"/wiki/remove?kind=page&name={slug}&scope={scope}"
+        + (f"&team_id={team_id}" if team_id else ""),
+    }
+
+
+def _doc_row(f, rec, pages, query, scope, team_id) -> dict:
+    name = quote(f["name"])
+    chips = _chips(rec)
+    return {
+        "kind": "document",
+        "key": f["name"],
+        "record": rec,
+        "title": original_name(f["name"]),
+        "href": f"/wiki/raw/{name}{query}",
+        "text_href": f"/wiki/text/{name}{query}" if f.get("has_text") else "",
+        "chips": chips,
+        "unchecked": UNCHECKED_CHIP in chips,
+        "links": pages,
+        "links_label": "Pages made from it",
+        "size": f["size"],
+        "when": _day(rec, f["mtime"]),
+        "details_href": f"/wiki/item?kind=document&name={name}" + query.replace("?", "&"),
+        "edit_href": "",
+        "remove_href": f"/wiki/remove?kind=original&name={name}&scope={scope}"
+        + (f"&team_id={team_id}" if team_id else ""),
+    }
+
+
+def _made_from(doc_of_id: dict, rec, query) -> list[dict]:
+    return [
+        {
+            "title": original_name(doc_of_id[i]["name"]),
+            "href": f"/wiki/raw/{quote(doc_of_id[i]['name'])}{query}",
+        }
+        for i in (rec.derived_from if rec is not None else [])
+        if i in doc_of_id
+    ]
+
+
 def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) -> list[dict]:
     """Every page and original document of ``ws`` as a row, by title. ``raw_files`` is the wiki's list of kept
     originals (name, size, modified time, whether its text was kept)."""
@@ -96,59 +151,76 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
                 {"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"}
             )
 
-    rows: list[dict] = []
-    for path, title, rec, mtime in pages:
-        slug = quote(path.stem)
-        made_from = [
-            {
-                "title": original_name(doc_of_id[i]["name"]),
-                "href": f"/wiki/raw/{quote(doc_of_id[i]['name'])}{query}",
-            }
-            for i in (rec.derived_from if rec is not None else [])
-            if i in doc_of_id
-        ]
-        rows.append(
-            {
-                "kind": "page",
-                "key": path.stem,
-                "record": rec,
-                "title": title,
-                "href": f"/wiki/page/{slug}{query}",
-                "chips": _chips(rec),
-                "unchecked": UNCHECKED_CHIP in _chips(rec),
-                "links": made_from,
-                "links_label": "Made from",
-                "when": _day(rec, mtime),
-                "details_href": f"/wiki/item?kind=page&name={slug}" + query.replace("?", "&"),
-                "edit_href": f"/wiki/page/{slug}/edit{query}",
-                "remove_href": f"/wiki/remove?kind=page&name={slug}&scope={scope}"
-                + (f"&team_id={team_id}" if team_id else ""),
-            }
+    rows = [
+        _page_row(path, title, rec, mtime, _made_from(doc_of_id, rec, query), query, scope, team_id)
+        for path, title, rec, mtime in pages
+    ]
+    rows += [
+        _doc_row(
+            f, rec, pages_of_id.get(rec.id, []) if rec is not None else [], query, scope, team_id
         )
-    for f, rec in docs:
-        name = quote(f["name"])
-        rows.append(
-            {
-                "kind": "document",
-                "key": f["name"],
-                "record": rec,
-                "title": original_name(f["name"]),
-                "href": f"/wiki/raw/{name}{query}",
-                "text_href": f"/wiki/text/{name}{query}" if f.get("has_text") else "",
-                "chips": _chips(rec),
-                "unchecked": UNCHECKED_CHIP in _chips(rec),
-                "links": pages_of_id.get(rec.id, []) if rec is not None else [],
-                "links_label": "Pages made from it",
-                "size": f["size"],
-                "when": _day(rec, f["mtime"]),
-                "details_href": f"/wiki/item?kind=document&name={name}" + query.replace("?", "&"),
-                "edit_href": "",
-                "remove_href": f"/wiki/remove?kind=original&name={name}&scope={scope}"
-                + (f"&team_id={team_id}" if team_id else ""),
-            }
-        )
+        for f, rec in docs
+    ]
     rows.sort(key=lambda r: (r["title"].casefold(), r["kind"]))
     return rows
+
+
+def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> dict | None:
+    """The row of one item, found directly: ``kind`` is "page" (``key`` is its slug) or "document" (``key`` is
+    the name the original is kept under). Only what the row needs is read: the item's own file and record, and,
+    for its links, the records of the originals a page names or the pages of a document. None if it is not there."""
+    query = _query(scope, team_id)
+    if kind == "page":
+        path = ws.wiki / f"{key}.md"
+        if not path.is_file():
+            return None
+        title, rec, mtime = _page_facts(path)
+        wanted = set(rec.derived_from) if rec is not None else set()
+        found: dict[str, dict] = {}
+        for name in _raw_names(ws) if wanted else []:
+            source = _source_record(ws, name)
+            if source is not None and source.id in wanted:
+                found[source.id] = {"name": name}
+        return _page_row(
+            path, title, rec, mtime, _made_from(found, rec, query), query, scope, team_id
+        )
+    if kind == "document":
+        f = _raw_entry(ws, key)
+        if f is None:
+            return None
+        rec = _source_record(ws, key)
+        pages = []
+        for path in ws.pages() if rec is not None else []:
+            title, page_rec, _mtime = _page_facts(path)
+            if page_rec is not None and rec.id in page_rec.derived_from:
+                pages.append({"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"})
+        return _doc_row(f, rec, pages, query, scope, team_id)
+    return None
+
+
+def _raw_names(ws) -> list[str]:
+    if not ws.raw.is_dir():
+        return []
+    return sorted(p.name for p in ws.raw.iterdir() if p.is_file() and not p.name.startswith("."))
+
+
+def _raw_entry(ws, name: str) -> dict | None:
+    """The kept original called ``name`` as the Library lists it, or None."""
+    path = ws.raw / name
+    try:
+        if path.is_symlink() or not path.is_file() or path.resolve().parent != ws.raw.resolve():
+            return None
+        st = path.stat()
+    except OSError:
+        return None
+    text = ws.text / f"{name}.txt"
+    try:
+        has_text = (
+            text.is_file() and not text.is_symlink() and text.resolve().parent == ws.text.resolve()
+        )
+    except OSError:
+        has_text = False
+    return {"name": name, "size": st.st_size, "mtime": st.st_mtime, "has_text": has_text}
 
 
 def filtered(

@@ -9046,8 +9046,7 @@ def wiki_item_page(
     ws = _wiki_ws(user, scope, team_id)
     if kind not in ("page", "document") or Path(name).name != name:
         raise HTTPException(status_code=404)
-    rows = library.build(ws, _wiki_raw_files(ws), scope=scope, team_id=team_id)
-    row = next((r for r in rows if r["kind"] == kind and r["key"] == name), None)
+    row = library.row(ws, kind, name, scope=scope, team_id=team_id)
     if row is None:
         raise HTTPException(status_code=404)
     rec = row["record"]
