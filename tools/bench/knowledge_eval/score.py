@@ -7,13 +7,17 @@ import re
 
 from .cases import Case
 
-SCORING_VERSION = 1
+SCORING_VERSION = (
+    2  # 2: also counts "does not contain" and "don't have specific ..." as saying it is not known
+)
 
 _ABSTAIN = re.compile(
     r"(do(?:es)?n[o']?t know|do not know|don't have (?:any |that |this )?(?:information|answer)|no information|not (?:mentioned|covered|"
     r"included|provided|available|in (?:the|my|our) (?:wiki|knowledge|notes|documents|pages))|cannot find|can't find|couldn't find|"
     r"could not find|unable to (?:find|say|answer)|isn't (?:mentioned|covered|stated|specified)|is not (?:stated|specified)|"
-    r"nothing (?:in|about|on)|no (?:record|page|mention)|not sure)",
+    r"nothing (?:in|about|on)|no (?:record|page|mention|details)|not sure|"
+    r"(?:does(?:n't| not)|do(?:n't| not)) (?:contain|include)|"
+    r"(?:does(?:n't| not)|do(?:n't| not)) have (?:any |specific |that |this )*(?:answer|(?:\w+ ){0,3}(?:information|details|data)))",
     re.I,
 )
 

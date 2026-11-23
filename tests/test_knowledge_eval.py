@@ -221,3 +221,55 @@ def test_the_comparison_names_what_got_worse_and_warns_when_the_sets_differ():
         "worse" in line or "better" in line
         for line in compare_mod.compare(result(2, 1), result(2, 1))
     )
+
+
+def test_ordinary_ways_of_saying_it_is_not_known_count_and_asking_which_company_does_not():
+    for said in (
+        "The information provided does not contain any details about that.",
+        "I don't have specific salary band information for C.",
+        "The reference material doesn't include it.",
+    ):
+        assert score_mod.abstained(said), said
+    assert not score_mod.abstained(
+        "To give the right answer I would need to know which company you mean."
+    )
+    assert not score_mod.abstained("Band C starts at 53,000.")
+
+
+def test_a_stored_result_can_be_scored_again_without_a_model_and_a_changed_set_is_refused(tmp_path):
+    cases, set_hash = cases_mod.load("starter")
+    rows = [
+        {
+            "id": c.id,
+            "kind": c.kind,
+            "question": c.question,
+            "answer": "The material does not contain that.",
+            "passed": False,
+            "abstained": False,
+            "missing": [],
+            "forbidden": [],
+            "pages_given": [],
+            "first_word_ms": 100,
+            "total_ms": 200,
+            "error": "",
+        }
+        for c in cases
+    ]
+    result = {
+        "set": "starter",
+        "set_hash": set_hash,
+        "scoring_version": 1,
+        "results": {"m": {"summary": {}, "cases": rows}},
+    }
+    again = run_mod.rescore(result)
+    passed = {r["id"] for r in again["results"]["m"]["cases"] if r["passed"]}
+    assert passed == {
+        c.id for c in cases if c.abstain
+    }  # an abstaining answer passes exactly the cases that want one
+    assert (
+        again["scoring_version"] == score_mod.SCORING_VERSION
+        and again["results"]["m"]["summary"]["cases"] == 14
+    )
+    result["set_hash"] = "other"
+    with pytest.raises(ValueError, match="set has changed"):
+        run_mod.rescore(result)

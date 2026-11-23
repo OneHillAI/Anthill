@@ -1,7 +1,6 @@
 # Spec: a repeatable evaluation of answers from the knowledge base
 
-Status: implemented as a harness and a starter set; the independent documents and the stored baseline are not yet there (see Known
-limits). Lane: `pillar:knowledge`. Build plan step 2.0.
+Status: implemented as a harness, a starter set and a stored baseline; the independent documents are not yet there (see Known limits). Lane: `pillar:knowledge`. Build plan step 2.0.
 
 ## Problem
 
@@ -32,8 +31,18 @@ reading a few answers.
   not write; those need a source from outside, and the result file reports 0 independent cases until they are added.
 - Scoring is by phrase, which is blunt: a correct answer in other words can fail, and a wrong answer that happens to contain a required
   phrase can pass. It is the same for every run, which is what a baseline needs.
-- No baseline has been run yet: it needs the models running on a machine, and is stored under `benchmarks/knowledge-eval/` when it is.
+- The baseline is one run on one Mac and one engine (Ollama 0.40.7), with the two models installed there; there is no 8B model in it. It shows today's behaviour, not a target.
 - Fourteen cases are enough to see a large change, not a small one.
+
+## Baseline
+
+Stored in `benchmarks/knowledge-eval/starter-20261123T225331Z.json` (the answers are kept, so it can be scored again with
+`run.py --rescore FILE` without running a model; the file is at scoring version 2): `qwen2.5:3b` passed 12 of 14 and `qwen3.5:4b` 13
+of 14, on the builders' starter set. Lookups, updates, corrections, conflicts and multi-source questions all passed on both. The
+failures are about saying it is not known: `qwen2.5:3b` answered the removed door code and the unknown chief executive with a request
+for more context and not an abstention, and `qwen3.5:4b` invented a number for a removed salary band (it did not give the removed
+number). The median first word was 253 ms and 379 ms. The first scoring (version 1) passed 10 and 12; two phrasings of "it does not
+say" were missed and the scorer was widened, which is why the file carries version 2.
 
 ## Acceptance
 
@@ -44,5 +53,4 @@ model that is not installed stops the run; the comparison names what got worse a
 
 ## Not verified here
 
-Not run with a real model, so the figures a real baseline would hold (pass rate and first-word time for a small and a larger model)
-do not exist yet.
+A model larger than 4B (none is installed), a run on another machine or engine, and a set written by anyone but the builders.

@@ -102,6 +102,29 @@ def summarise(rows: list[dict], cases: list[Case]) -> dict:
     }
 
 
+def rescore(result: dict, set_name: str | None = None) -> dict:
+    """Score the stored answers of a result again with the current scorer, so a change to the scoring does not mean running the
+    models again. The answers stay as they were; the passed flags, the summaries and the scoring version are recomputed."""
+    cases, set_hash = load(set_name or result["set"])
+    if set_hash != result.get("set_hash"):
+        raise ValueError(
+            "the set has changed since this result was made, so its answers cannot be scored against it"
+        )
+    by_id = {c.id: c for c in cases}
+    for data in result["results"].values():
+        for row in data["cases"]:
+            scored = score(by_id[row["id"]], row["answer"])
+            row.update(
+                passed=scored["passed"] and not row["error"],
+                abstained=scored["abstained"],
+                missing=scored["missing"],
+                forbidden=scored["forbidden"],
+            )
+        data["summary"] = summarise(data["cases"], [by_id[r["id"]] for r in data["cases"]])
+    result["scoring_version"] = SCORING_VERSION
+    return result
+
+
 def _commit() -> str:
     try:
         root = Path(__file__).resolve().parents[3]
@@ -171,13 +194,30 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--model",
         action="append",
-        required=True,
         help="an installed Ollama tag; repeat for several",
     )
     ap.add_argument("--url", default="http://localhost:11434")
     ap.add_argument("--out", default="benchmarks/knowledge-eval", help="folder for the result file")
     ap.add_argument("--limit", type=int, default=0, help="only the first N cases (a quick look)")
+    ap.add_argument(
+        "--rescore",
+        metavar="FILE",
+        help="score the stored answers of a result file again; runs no model",
+    )
     args = ap.parse_args(argv)
+    if args.rescore:
+        path = Path(args.rescore)
+        path.write_text(
+            json.dumps(
+                rescore(json.loads(path.read_text(encoding="utf-8"))), indent=2, ensure_ascii=False
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(f"scored again with scoring version {SCORING_VERSION}: {path}")
+        return 0
+    if not args.model:
+        ap.error("--model is required (or --rescore FILE)")
     from machinebench.engine import EngineError, OllamaEngine
 
     try:
