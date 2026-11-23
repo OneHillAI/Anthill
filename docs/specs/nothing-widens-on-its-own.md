@@ -3,6 +3,11 @@
 Status: implemented. Lane: `pillar:knowledge`. A memory, a training example and a snippet are private to the person who made
 them. They stay where they were made unless that person, or an admin approving a snippet into the wiki, moves them.
 
+## Problem
+
+A memory, a training example and a snippet were moved to the team or the whole organisation by Anthill itself when other people held,
+reused or saved something similar. What a person made privately became shared without their action.
+
 ## Requirements
 
 1. **A memory stays where its owner made it**, however many other people hold a similar one. `maybe_corroborate` and its three
