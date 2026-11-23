@@ -595,9 +595,8 @@ def _recover_orphaned_task_runs(db, now: datetime) -> None:
     db.commit()
 
 
-def _remember_task_outcome(db, task, result: str) -> list[tuple[set[int], str, str, int]]:
+def _remember_task_outcome(db, task, result: str) -> None:
     """Stage a successful task memory in the same transaction as occurrence finalization."""
-    notices: list[tuple[set[int], str, str, int]] = []
     try:
         with db.begin_nested():
             from .. import memory as mem
@@ -608,7 +607,7 @@ def _remember_task_outcome(db, task, result: str) -> list[tuple[set[int], str, s
             first = strip_no_tools_note(result or "").strip().splitlines()
             summary = f"Task '{task.title}': {first[0][:280]}" if first else ""
             if not summary or not task.created_by or not auto_memory_on(db, task.created_by):
-                return notices
+                return
             rows = (
                 db.query(MemoryItem)
                 .filter(MemoryItem.user_id == task.created_by, MemoryItem.scope == "personal")
@@ -618,7 +617,7 @@ def _remember_task_outcome(db, task, result: str) -> list[tuple[set[int], str, s
             if not mem.is_new(summary, [row.text for row in rows]) or not mem.is_semantically_new(
                 vec, [mem.decode_vec(row.embedding) for row in rows]
             ):
-                return notices
+                return
             new = MemoryItem(
                 org_id=task.org_id,
                 user_id=task.created_by,
@@ -631,19 +630,8 @@ def _remember_task_outcome(db, task, result: str) -> list[tuple[set[int], str, s
             )
             db.add(new)
             db.flush()
-            from .memory_ops import maybe_corroborate
-
-            maybe_corroborate(db, task.org_id, new, notification_queue=notices)
-        return notices
     except Exception:
-        return []
-
-
-def _dispatch_memory_notices(db, notices: list[tuple[set[int], str, str, int]]) -> None:
-    from .memory_ops import _notify_promoted
-
-    for notice in notices:
-        _notify_promoted(db, *notice)
+        return
 
 
 def _close_unpublished_task_run(db, run_id: int, started_at: datetime, error: str) -> None:
@@ -764,7 +752,6 @@ def _tick(engine):
         task.verify_needs_review = bool(getattr(task, "_attempt_verify_needs_review", False))
         task.verify_reason = getattr(task, "_attempt_verify_reason", "")
         task.verify_confidence = getattr(task, "_attempt_verify_confidence", "")
-        memory_notices = []
         if error:
             task.last_result = f"ERROR: {error}"
             task.verify_needs_review = False
@@ -773,7 +760,7 @@ def _tick(engine):
         else:
             task.last_result = result[:4000]
             _verify_task_result(task, result, db)
-            memory_notices = _remember_task_outcome(db, task, result)
+            _remember_task_outcome(db, task, result)
         task.run_count += 1
         _finish_task_run(db, run_row, task, started_at=started, result=result, error=error)
         task_occurrences.project(db, task)
@@ -784,8 +771,6 @@ def _tick(engine):
                 db, run_row.id, started, f"task outcome publication failed: {exc}"
             )
             continue
-
-        _dispatch_memory_notices(db, memory_notices)
 
         # Surface a run that needs attention through the unified notification centre (#284): a flagged or
         # failed run pings the owner (bell + centre + web push); a clean routine run stays quiet.
@@ -1409,9 +1394,6 @@ def _remember_agent_outcome(agent, result: str, db) -> None:
             )
             db.add(new)
             db.flush()
-            from .memory_ops import maybe_corroborate
-
-            maybe_corroborate(db, agent.org_id, new)
     except Exception:
         pass
 

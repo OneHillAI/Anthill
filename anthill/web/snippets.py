@@ -5,8 +5,8 @@ Trust boundary (mirrors personal-wiki → org-wiki promotion):
   • A user saving/tagging a snippet is the strongest signal **for that user**.
     It becomes a PERSONAL gold example - improves that user's experience,
     but does NOT train the shared org model and does NOT enter the org KB.
-  • It is promoted to ORG scope only when corroborated: ≥ N distinct users
-    deliberately save matching content, OR an admin approves it into the wiki.
+  • It is promoted to ORG scope only when an admin approves it into the wiki; other
+    people saving matching content does not move it.
   • Org-scope examples are what the shared model trains on (see export.py).
 
 Filing to the org wiki stays a separate, review-gated action.
@@ -20,11 +20,7 @@ import re
 from sqlalchemy.orm import Session
 
 from ..inference.base import Message
-from .db import Snippet, Team, TeamMembership, TrainingExample
-
-# How many DISTINCT users must deliberately save matching content before the
-# signal counts for the whole org. The original saver + at least one other.
-ORG_PROMOTE_DISTINCT_USERS = 2
+from .db import Snippet, TrainingExample
 
 
 def content_key(text: str) -> str:
@@ -79,9 +75,8 @@ def save_snippet(
     source: str = "chat",
     source_ref: str = "",
     backend=None,
-    org_threshold: int = ORG_PROMOTE_DISTINCT_USERS,
 ) -> Snippet:
-    """Persist a snippet (PERSONAL gold), then promote to ORG if corroborated."""
+    """Persist a snippet (PERSONAL gold). It stays personal until its owner, or an admin approving it into the wiki, moves it."""
     content = (content or "").strip()
     tags = ",".join(t.strip() for t in tags.split(",") if t.strip())
     key = content_key(content)
@@ -105,7 +100,7 @@ def save_snippet(
     db.add(snip)
     db.flush()  # snip.id
 
-    # A saved snippet is gold - but PERSONAL until others corroborate it.
+    # A saved snippet is gold, and PERSONAL: it moves only by its owner's action or an admin's approval.
     ex = TrainingExample(
         org_id=org_id,
         user_id=user_id,
@@ -121,44 +116,8 @@ def save_snippet(
     db.flush()
     snip.training_id = ex.id
 
-    # Corroboration: which DISTINCT users saved matching content in this org?
-    savers = {
-        uid
-        for (uid,) in db.query(Snippet.user_id)
-        .filter(Snippet.org_id == org_id, Snippet.content_key == key)
-        .distinct()
-        .all()
-        if uid is not None
-    }
-    if len(savers) >= org_threshold:
-        # Localized to a single team -> team scope; spanning beyond it -> org scope.
-        # (No teams, or savers split across teams, falls through to org - the old
-        # behaviour, so a plain two-user corroboration still promotes to org.)
-        localized_team = None
-        for (tid,) in db.query(Team.id).filter(Team.org_id == org_id).all():
-            if savers <= _team_member_ids(db, tid):
-                localized_team = tid
-                break
-        if localized_team is not None:
-            _promote_key(db, org_id, key, "team", team_id=localized_team)
-            snip.scope, snip.team_id = "team", localized_team
-        else:
-            _promote_key(db, org_id, key, "org")
-            snip.scope = "org"
-
     db.commit()
     return snip
-
-
-def _team_member_ids(db: Session, team_id: int) -> set:
-    """Active member user-ids of a team."""
-    return {
-        uid
-        for (uid,) in db.query(TeamMembership.user_id)
-        .filter(TeamMembership.team_id == team_id, TeamMembership.status == "active")
-        .distinct()
-        .all()
-    }
 
 
 def _promote_key(

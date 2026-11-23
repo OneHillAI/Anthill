@@ -108,15 +108,10 @@ def test_memory_promotion_push_waits_for_successful_outcome_commit(
         original_commit()
 
     worker.commit = fail_outcome_commit
-    notice = ({1, 2}, "shared fact", "org", 2)
-    dispatched = []
     monkeypatch.setattr(scheduler, "sessionmaker", lambda bind=None: lambda: worker)
     monkeypatch.setattr(scheduler, "_run_task", lambda task, db: "done")
     monkeypatch.setattr(scheduler, "_verify_task_result", lambda task, result, db: None)
-    monkeypatch.setattr(scheduler, "_remember_task_outcome", lambda db, task, result: [notice])
-    monkeypatch.setattr(
-        scheduler, "_dispatch_memory_notices", lambda db, notices: dispatched.extend(notices)
-    )
+    monkeypatch.setattr(scheduler, "_remember_task_outcome", lambda db, task, result: None)
 
     if commit_fails:
 
@@ -134,7 +129,6 @@ def test_memory_promotion_push_waits_for_successful_outcome_commit(
     else:
         scheduler._tick(s.get_bind())
 
-    assert dispatched == ([] if commit_fails else [notice])
     if not commit_fails:
         s.expire_all()
         run = s.query(TaskRun).filter(TaskRun.task_id == task.id).one()

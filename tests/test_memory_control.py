@@ -1,5 +1,5 @@
 """Memory visibility + control: pause auto-memory, keep-personal opt-out, edit, provenance links;
-plus snippet edit. Model-free (no embeddings needed - corroboration falls back to text match)."""
+plus snippet edit. Model-free (no embeddings needed)."""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -63,42 +63,6 @@ def test_auto_memory_on_reflects_user_flag(tmp_path):
     u.auto_memory_off = True
     db.commit()
     assert auto_memory_on(db, u.id) is False  # paused
-
-
-def test_corroborate_promotes_across_users(tmp_path):
-    from anthill.web.db import MemoryItem
-    from anthill.web.memory_ops import maybe_corroborate
-
-    db = _session(tmp_path)
-    a = MemoryItem(org_id=1, user_id=1, scope="personal", kind="fact", text="we use postgres")
-    b = MemoryItem(org_id=1, user_id=2, scope="personal", kind="fact", text="we use postgres")
-    db.add_all([a, b])
-    db.commit()
-    scope = maybe_corroborate(db, 1, b)  # b is the freshly stored one
-    db.commit()
-    assert scope == "org"  # no common team -> org-wide
-    assert db.query(MemoryItem).filter(MemoryItem.id == a.id).first().scope == "org"
-
-
-def test_corroborate_skips_kept_personal(tmp_path):
-    from anthill.web.db import MemoryItem
-    from anthill.web.memory_ops import maybe_corroborate
-
-    db = _session(tmp_path)
-    # b is kept-personal -> never promoted, even though user 1 has the same fact
-    a = MemoryItem(org_id=1, user_id=1, scope="personal", kind="fact", text="we use postgres")
-    b = MemoryItem(
-        org_id=1,
-        user_id=2,
-        scope="personal",
-        kind="fact",
-        text="we use postgres",
-        pinned_personal=True,
-    )
-    db.add_all([a, b])
-    db.commit()
-    assert maybe_corroborate(db, 1, b) is None
-    assert db.query(MemoryItem).filter(MemoryItem.id == a.id).first().scope == "personal"
 
 
 # ── #683 companion fix: a team-promoted memory must stay visible on the Memory page ─────────────
