@@ -63,6 +63,23 @@ def index_pages(pages: list[Path], *, index: str = INDEX) -> bool:
         return False
 
 
+def delete_pages(slugs: list[str], *, index: str = INDEX) -> bool:
+    """Remove pages (by slug) from the search index. Best-effort, like ``index_pages``."""
+    if not enabled() or not slugs:
+        return False
+    try:
+        resp = httpx.post(
+            f"{_base()}/indexes/{index}/documents/delete-batch",
+            headers=_headers(),
+            json=list(slugs),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return True
+    except Exception:  # noqa: BLE001 - the search index is only a copy; a failure must not undo a removal
+        return False
+
+
 def search_slugs(query: str, k: int = 3, *, index: str = INDEX) -> list[str]:
     """Return up to k page slugs ranked by Meilisearch. [] on failure/disabled."""
     if not enabled():

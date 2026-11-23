@@ -87,13 +87,11 @@ def exposed_resources(cfg) -> list:
     """Enabled resource keys for this org ([] if the MCP server is off)."""
     if not getattr(cfg, "mcp_server_enabled", False):
         return []
+    # The cache and memory tools are not offered in this version; they return when they can follow the same rule
+    # as the wiki tool.
     keys = []
     if getattr(cfg, "mcp_expose_wiki", False):
         keys.append("wiki")
-    if getattr(cfg, "mcp_expose_cache", False):
-        keys.append("cache")
-    if getattr(cfg, "mcp_expose_memory", False):
-        keys.append("memory")
     return keys
 
 

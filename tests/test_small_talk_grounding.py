@@ -592,6 +592,9 @@ def test_small_talk_embeds_nothing_and_asks_neither_cache_nor_org_index(tmp_path
     from anthill.cache import embedder as emb
 
     ws = _workspace(tmp_path, monkeypatch)
+    monkeypatch.setenv(
+        "ANTHILL_ORG_INDEX_ANSWERS", "1"
+    )  # the index is on: small talk must still not ask it
     embedded: list = []
     asked_org: list = []
     published: list = []

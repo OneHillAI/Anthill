@@ -399,7 +399,14 @@ def ask(
             return hit.answer, hit.slugs, True
 
     # ── 2. org central index ──────────────────────────────────────────────────
-    if org_url and q_vec is not None and not has_img and not _skip_shared and not no_cache:
+    if (
+        org_url
+        and _serve_from_org_index()
+        and q_vec is not None
+        and not has_img
+        and not _skip_shared
+        and not no_cache
+    ):
         org_answer = _central_lookup(org_url, q_vec, question)
         if org_answer:
             if _is_cacheable_answer(org_answer):
@@ -1138,6 +1145,17 @@ def _backend_with_model(backend, model_override: str | None, think: bool | None 
             return known_window(backend, model or model_override)
 
     return _OverrideBackend()
+
+
+def _serve_from_org_index() -> bool:
+    """Whether an answer may be taken from the organisation's shared answer index. Off unless the operator turns
+    it on."""
+    return os.environ.get("ANTHILL_ORG_INDEX_ANSWERS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _central_lookup(org_url: str, q_vec: np.ndarray, question: str) -> str | None:
