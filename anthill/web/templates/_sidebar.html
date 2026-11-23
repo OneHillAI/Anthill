@@ -209,6 +209,7 @@
       {# Lower group (below the cut): Knowledge and Projects - the shared knowledge/work spaces - sit here
          with Settings, apart from the daily work surfaces (Chat/Tasks/Agents) above. #}
       <a href="/wiki" class="{% if _sp.startswith('/wiki') or _sp.startswith('/snippets') or _sp.startswith('/memory') or _sp.startswith('/skills') %}active{% endif %}"><i data-lucide="library">📚</i>Knowledge{% if nav_badges and nav_badges.suggestions %}<span class="nav-badge">{{ nav_badges.suggestions }}</span>{% endif %}</a>
+      <a href="/peers" class="{% if _sp.startswith('/peers') %}active{% endif %}"><i data-lucide="share-2">🕸️</i>Peers &amp; Hills{% if nav_node and nav_node.enabled %}<span class="nav-badge">{{ nav_node.online_peers }}</span>{% endif %}</a>
       <a href="/teams" class="{% if '/teams' in _sp %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>Projects</a>
       {% for t in nav_teams %}<a href="/wiki/team/{{ t.id }}" class="{% if _sp == '/wiki/team/' ~ t.id %}active{% endif %}"><i data-lucide="folder-kanban">🗂️</i>{{ t.name }}</a>{% endfor %}
       {# Settings: the single settings entry. Your personal setup (Model / Knowledge / Personality /

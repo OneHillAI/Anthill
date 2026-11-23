@@ -487,6 +487,17 @@
               <button class="thumbs" title="Redo with {{ escalation_provider_label }}"
                       onclick="redoWithProviderClicked(this, document.getElementById('bubble-{{ msg.id }}').parentElement, {{ msg.id }})"><i data-lucide="zap">⚡</i></button>
               {% endif %}
+              {% if nav_node and nav_node.enabled %}
+              <form method="post" action="/peers/consult/start" style="display:inline;margin:0"
+                    onsubmit="var prev=this.closest('.msg').previousElementSibling;this.question.value=(prev&&prev.classList.contains('user'))?prev.querySelector('.bubble').innerText.trim():'{{ active_conv.title | e }}';this.draft.value=document.getElementById('bubble-{{ msg.id }}').innerText.trim();">
+                <input type="hidden" name="question" value="">
+                <input type="hidden" name="draft" value="">
+                <input type="hidden" name="conversation_id" value="{{ active_conv.id }}">
+                <button type="submit" class="thumbs" title="Counter-check this draft with connected peers (visible exit preview first)">
+                  <i data-lucide="share-2">🕸️</i>
+                </button>
+              </form>
+              {% endif %}
             </div>
             {% if msg.manifest %}
               {% set panel = answer_panel(msg.manifest) %}

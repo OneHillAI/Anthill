@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Open Thread' if active and active.mode == 'open' else 'Consult Peers' }}{% endblock %}
+{% block page_title %}{{ 'Open Thread' if active and active.mode == 'open' else 'Consult Peers' }}{% endblock %}
+{% block content %}
+
+{% if msg %}<div class="alert alert-ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-err">{{ err }}</div>{% endif %}
+
+<div class="node-stack">
+  <div class="node-row-between">
+    <a href="/peers" class="btn btn-outline btn-sm">&larr; Back to Peers &amp; Hills</a>
+    {% if consults %}
+    <div class="node-row">
+      <span class="text-sm text-muted">Recent:</span>
+      {% for c in consults[:5] %}
+      <a href="/peers/consult?cid={{ c.id }}" class="btn btn-sm {{ 'btn-primary' if active and active.id == c.id else 'btn-outline' }}">
+        {{ c.question[:28] }}{% if c.question|length > 28 %}...{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# Start a new consultation #}
+  <details class="card" {% if not active %}open{% endif %}>
+    <summary style="cursor:pointer;font-weight:600;font-size:14px">Start a new peer counter-check consultation</summary>
+    <form method="post" action="/peers/consult/start" class="node-stack-sm" style="margin-top:12px">
+      <div class="node-row">
+        <input type="text" name="question" placeholder="Ask a question to draft locally and counter-check with peers..." style="flex:2;min-width:240px" required>
+        <select name="hill_id" style="flex:1;min-width:160px">
+          {% for h in hills %}
+          <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <textarea name="draft" rows="2" placeholder="Optional local draft answer (leave blank to draft locally with {{ local_model }} before sending anything)..."></textarea>
+      <div><button type="submit" class="btn btn-primary btn-sm">Draft locally &amp; preview exit</button></div>
+    </form>
+  </details>
+
+  {% if active %}
+  {% set is_open = active.mode == 'open' %}
+  {% set accepted_count = suggestions | selectattr('status', 'equalto', 'accepted') | list | length %}
+
+  <div class="node-row-between">
+    <div class="node-row">
+      <h2 style="font-size:19px;margin:0">{{ active.question }}</h2>
+      <span class="badge {{ 'badge-running' if is_open else 'badge-clay' }}">
+        {{ 'Open thread - Humans post' if is_open else 'Only you - Consult alone' }}
+      </span>
+    </div>
+    <form method="post" action="/peers/consult/{{ active.id }}/open-thread" style="margin:0">
+      <button type="submit" class="btn btn-outline btn-sm">
+        {{ 'Back to solo consult' if is_open else 'Open to people' }}
+      </button>
+    </form>
+  </div>
+
+  {# Pinned local draft / current answer #}
+  <div class="card node-stack-sm">
+    <div class="node-row-between">
+      <span class="text-sm text-muted">
+        {{ 'Pinned answer' if is_open else 'Your AI local draft' }} - {{ active.model }}
+      </span>
+      <span class="badge badge-active">
+        {{ accepted_count }} change{{ '' if accepted_count == 1 else 's' }} accepted
+      </span>
+    </div>
+    <p style="font-size:15px;line-height:1.6">{{ active.draft_current }}</p>
+  </div>
+
+  {% if not is_open %}
+  {# Consulted peers & Rule 2 Visible Exit Preview #}
+  <div class="card node-stack-sm">
+    <div class="node-row-between">
+      <div>
+        <div style="font-weight:600;font-size:14px">Consulted peer AIs</div>
+        <div class="text-sm text-muted">Brief only (question + draft, never chat history) - peer endpoints run with 0 tools.</div>
+      </div>
+      {% if not show_preview %}
+      <a href="/peers/consult?cid={{ active.id }}&preview=1" class="btn btn-primary btn-sm">
+        {{ 'Re-run counter-check' if suggestions else 'Consult peers' }}
+      </a>
+      {% endif %}
+    </div>
+
+    <div class="node-row">
+      {% if not peers %}
+      <span class="text-sm text-muted">No paired peers in this Hill yet - sending will still sign a Question record into the log for offline bundle sync.</span>
+      {% else %}
+      {% for p in peers %}
+      <span class="badge {{ 'badge-active' if p.status == 'online' else 'badge-clay' }}">
+        {{ p.display_name }} - {{ p.model_label }} ({{ 'online' if p.status == 'online' else 'offline' }})
+      </span>
+      {% endfor %}
+      {% endif %}
+    </div>
+
+    {% if show_preview and brief_preview %}
+    <div class="alert alert-warn node-stack-sm" style="margin-top:6px;margin-bottom:0">
+      <div class="node-row-between">
+        <b>Visible exit preview (Rule 2 - labelled remote)</b>
+        <span class="text-sm">Brief only - session history &amp; private wiki stay local</span>
+      </div>
+      <div class="text-sm">
+        <b>Question sent:</b> {{ brief_preview.question }}<br>
+        <b>Draft sent:</b> {{ brief_preview.draft }}
+        {% if brief_preview.had_pii %}<br><i>PII scrubber automatically redacted: {{ brief_preview.scrub_counts }}</i>{% endif %}
+      </div>
+      <form method="post" action="/peers/consult/{{ active.id }}/send" class="node-stack-sm">
+        <input type="hidden" name="confirm_egress" value="yes">
+        {% if peers %}
+        <div class="node-row">
+          {% for p in peers %}
+          <label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:13px">
+            <input type="checkbox" name="peer_ids" value="{{ p.id }}" checked style="width:auto">
+            {{ p.display_name }} ({{ p.model_label }})
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="node-row">
+          <button type="submit" class="btn btn-primary btn-sm">Send brief to selected peers</button>
+          <a href="/peers/consult?cid={{ active.id }}" class="btn btn-outline btn-sm">Cancel</a>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  {# Open Thread controls (Rule 11: humans post only, no system synthesis) #}
+  <div class="card node-stack-sm" style="background:var(--bg-subtle)">
+    <div class="node-row-between">
+      <div style="font-weight:600;font-size:14px">Open Thread - Human-approved posts only (Rule 11)</div>
+      <div class="node-row">
+        <a href="/peers/consult?cid={{ active.id }}&sort=new" class="btn btn-sm {{ 'btn-primary' if sort == 'new' else 'btn-outline' }}">New knowledge first</a>
+        <a href="/peers/consult?cid={{ active.id }}&sort=disagree" class="btn btn-sm {{ 'btn-primary' if sort == 'disagree' else 'btn-outline' }}">Disagreements</a>
+        <a href="/peers/consult?cid={{ active.id }}&sort=top" class="btn btn-sm {{ 'btn-primary' if sort == 'top' else 'btn-outline' }}">Top</a>
+      </div>
+    </div>
+    <p class="text-sm text-muted">
+      Prior AI counter-check suggestions remain as context. There is no system-made synthesis - only people post, vote, and accept changes.
+    </p>
+    <form method="post" action="/peers/consult/{{ active.id }}/post" class="node-stack-sm">
+      <textarea name="body" rows="2" placeholder="Post your own answer or a human comment/suggested change..." required></textarea>
+      <div class="node-row">
+        <select name="kind" style="width:auto">
+          <option value="own_answer">Post own answer (signed Answer record)</option>
+          <option value="comment">Post suggested change / comment</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Post as human</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {# Counter-check suggestions & Open Thread own answers #}
+  {% if not suggestions and not own_answers %}
+  <div class="card text-sm text-muted" style="background:var(--bg-subtle)">
+    Confirm the visible exit preview above to send your brief to connected peers. Each peer's AI counter-checks
+    your draft against its lent areas (0 tools) and returns structured suggestions. Your AI decides nothing - you
+    accept or reject each change.
+  </div>
+  {% else %}
+  <div class="node-stack">
+    {% for s in suggestions %}
+    <div class="node-sugg-card">
+      {% if is_open %}
+      <div class="node-vote-col">
+        <form method="post" action="/peers/consult/{{ active.id }}/vote" style="margin:0">
+          <input type="hidden" name="item_id" value="{{ s.id }}">
+          <input type="hidden" name="bucket" value="suggestion">
+          <button type="submit" class="btn btn-outline btn-sm" aria-label="Upvote">&#9650;</button>
+        </form>
+        <b class="text-sm">{{ s.votes }}</b>
+      </div>
+      {% endif %}
+      <div class="node-stack-sm" style="flex:1;min-width:0">
+        <div class="node-row-between">
+          <div class="node-row text-sm">
+            <b>{{ s.human_author if is_open else s.author }}</b>
+            <span class="text-muted">- {{ s.model }} - karma {{ s.karma }}</span>
+            <span class="badge {{ 'badge-danger' if s.kind == 'disagree' else 'badge-active' if s.kind == 'agree' else 'badge-amber' }}">
+              {{ s.kind }}
+            </span>
+          </div>
+          {% if s.status == 'accepted' %}
+          <span class="badge badge-active">Accepted</span>
+          {% elif s.status == 'rejected' %}
+          <span class="badge badge-clay">Rejected (kept visible)</span>
+          {% endif %}
+        </div>
+        <div style="font-size:14px">
+          <b>{{ s.issue }}:</b>
+          <span class="{{ 'node-diff-del' if s.kind == 'disagree' else 'node-diff-ins' }}">{{ s.wording }}</span>
+        </div>
+        <div class="text-sm text-muted">
+          {{ s.reason }}
+          {% if s.sources %} - Sources: {{ s.sources | join(', ') }}{% endif %}
+        </div>
+        <div class="node-row">
+          {% if s.status != 'accepted' %}
+          <form method="post" action="/peers/consult/{{ active.id }}/decide" style="margin:0">
+            <input type="hidden" name="suggestion_id" value="{{ s.id }}">
+            <input type="hidden" name="decision" value="accepted">
+            <button type="submit" class="btn btn-outline btn-sm">Accept</button>
+          </form>
+          {% endif %}
+          {% if s.status != 'rejected' %}
+          <form method="post" action="/peers/consult/{{ active.id }}/decide" style="margin:0">
+            <input type="hidden" name="suggestion_id" value="{{ s.id }}">
+            <input type="hidden" name="decision" value="rejected">
+            <button type="submit" class="btn btn-outline btn-sm">Reject</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if is_open %}
+    {% for o in own_answers %}
+    <div class="node-sugg-card">
+      <div class="node-vote-col">
+        <form method="post" action="/peers/consult/{{ active.id }}/vote" style="margin:0">
+          <input type="hidden" name="item_id" value="{{ o.id }}">
+          <input type="hidden" name="bucket" value="own">
+          <button type="submit" class="btn btn-outline btn-sm" aria-label="Upvote">&#9650;</button>
+        </form>
+        <b class="text-sm">{{ o.votes }}</b>
+      </div>
+      <div class="node-stack-sm" style="flex:1;min-width:0">
+        <div class="node-row text-sm">
+          <b>{{ o.author }}</b>
+          <span class="badge badge-running">own answer</span>
+        </div>
+        <div style="font-size:14px">{{ o.text }}</div>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="node-row-between" style="padding-top:10px;border-top:1px solid var(--border)">
+    <span class="text-sm text-muted">Signed records run underneath - your AI decides nothing without your approval.</span>
+    <form method="post" action="/peers/consult/{{ active.id }}/propose-wiki" style="margin:0">
+      <button type="submit" class="btn btn-primary btn-sm">Propose to my wiki</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

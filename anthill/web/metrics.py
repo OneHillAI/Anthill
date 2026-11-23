@@ -60,10 +60,11 @@ def summary(db: Session, org_id: int, days: int = 30) -> dict:
     durations = sorted(int(r.duration_ms) for r in rows if r.duration_ms is not None)
     avg_ms = round(sum(durations) / len(durations)) if durations else None
 
-    # Queries that escalated to a paid cloud model (tagged source="cloud" at answer
-    # time). These are the only queries where anything (a PII-scrubbed, question-only
-    # prompt) left the perimeter, and the only ones not answered on local hardware.
+    # Queries that left the local perimeter: paid cloud escalations (source="cloud") plus
+    # peer-to-peer Node consultations (source="peer", Rule 2).
     cloud_escalations = sum(1 for r in rows if r.source == "cloud")
+    peer_egress = sum(1 for r in rows if r.source == "peer")
+    remote_egress = cloud_escalations + peer_egress
 
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     # Per-query cloud-equivalent estimates (admin-overridable in Settings). Defaults:
@@ -79,12 +80,11 @@ def summary(db: Session, org_id: int, days: int = 30) -> dict:
 
     # ── value-prop metrics (one number per proposition) ───────────────────────
     cloud_enabled = bool(getattr(cfg, "cloud_enabled", False))
-    # Resilience: queries answered on the org's own hardware (everything but escalations).
-    served_local = total - cloud_escalations
+    # Resilience: queries answered on the org's own hardware (everything but remote egress).
+    served_local = total - remote_egress
     # Sovereignty: exact share answered without anything leaving the perimeter. 100%
-    # when nothing escalated (always true with the cloud fallback off, the default);
-    # otherwise (total - escalations) / total.
-    in_perimeter_pct = round((total - cloud_escalations) / total * 100, 1) if total else 100
+    # when nothing escalated or consulted a remote peer; otherwise (total - remote_egress) / total.
+    in_perimeter_pct = round((total - remote_egress) / total * 100, 1) if total else 100
     # Ownership: the org's own trained model version + how much gold backs it.
     model_version = int(getattr(cfg, "training_model_ver", 0) or 0)
     gold_examples = (
@@ -161,6 +161,7 @@ def summary(db: Session, org_id: int, days: int = 30) -> dict:
         "saved_energy_gco2": saved_energy_gco2,
         "served_local": served_local,
         "cloud_escalations": cloud_escalations,
+        "peer_egress": peer_egress,
         "in_perimeter_pct": in_perimeter_pct,
         "cloud_enabled": cloud_enabled,
         "model_version": model_version,

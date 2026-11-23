@@ -211,6 +211,7 @@ def _nav_context(request: Request) -> dict:
         "nav_profile": None,
         "nav_profiles": [],
         "nav_account": None,
+        "nav_node": {"enabled": False, "online_peers": 0},
         "workspace_mode": False,
         "back_href": "",
         "back_label": "",
@@ -308,6 +309,9 @@ def _nav_context(request: Request) -> dict:
                 .filter(Notification.user_id == uid, Notification.read.is_(False))
                 .count()
             )
+            from .node_routes import nav_node_summary
+
+            base["nav_node"] = nav_node_summary(db, uid)
             if user.get("role") == "admin":
                 base["nav_badges"]["review"] = _org_review_q(db, org_id).count()
                 base["nav_badges"]["suggestions"] += base["nav_badges"]["review"]
@@ -8128,6 +8132,11 @@ async def approve_review(
     rev.reviewed_at = datetime.now(timezone.utc)
     db.commit()
 
+    if getattr(rev, "peer_record_hash", ""):
+        from .node_routes import record_peer_review_decision
+
+        record_peer_review_decision(db, user_id=int(user["sub"]), rev=rev, accepted=True)
+
     # Approval is authorization: if this page came from a snippet, its training
     # example follows the page to the same scope, so the right model/KB learns it.
     if kind == "page" and rev.target_scope in ("team", "org"):
@@ -8205,7 +8214,14 @@ def _suggestions_for(db, org_id: int, uid: int, is_admin: bool) -> list[dict]:
             "-", " "
         ).title()
         held = kind == "page" and HELD_FLAGS.intersection(json.loads(r.flags or "[]"))
-        if held and "looks_newer" in held:
+        pstate = getattr(r, "peer_state", "") or ""
+        if pstate == "quarantined":
+            what = "Quarantined peer page - verify before admitting"
+        elif pstate == "contested":
+            what = "Contested peer page - compare side-by-side"
+        elif pstate == "proposed":
+            what = "Proposed peer wiki page"
+        elif held and "looks_newer" in held:
             what = "Held upload - may be a newer version"
         elif held:
             what = "Held upload - possible duplicate"
@@ -8309,6 +8325,10 @@ async def reject_review(
     rev.reviewed_by = int(user["sub"])
     rev.reviewed_at = datetime.now(timezone.utc)
     db.commit()
+    if getattr(rev, "peer_record_hash", ""):
+        from .node_routes import record_peer_review_decision
+
+        record_peer_review_decision(db, user_id=int(user["sub"]), rev=rev, accepted=False)
     kind = getattr(rev, "kind", "page") or "page"
     if kind == "page":
         _reject_source_of(rev)  # the upload that proposed this page is no longer read in answers
@@ -18778,3 +18798,10 @@ async def ingest_metric(request: Request, _: None = Depends(require_mesh)):
         model=data.get("model", ""),
     )
     return {"ok": True}
+
+
+# -- Peer-to-peer Node pillar routes (opt-in, Rule 12) -------------------------
+
+from .node_routes import build_node_router as _build_node_router  # noqa: E402
+
+app.include_router(_build_node_router(get_db=_db, require_user=_require_user, templates=templates))

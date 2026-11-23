@@ -26,9 +26,25 @@
       <span class="text-sm text-muted" style="margin-left:10px">submitted {{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
     </div>
     <div class="flex gap-2">
-      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ {'same_file': 'same file', 'new_version': 'new version', 'title_clash': 'same title', 'looks_newer': 'newer version?'}.get(f, f) }}</span>{% endfor %}
+      {% if rev.peer_state == 'quarantined' %}<span class="badge badge-danger">Quarantined (Open Hill)</span>
+      {% elif rev.peer_state == 'contested' %}<span class="badge badge-amber">Contested (no auto-merge)</span>
+      {% elif rev.peer_state == 'proposed' %}<span class="badge badge-running">Proposed (Peer)</span>{% endif %}
+      {% for f in rev.flag_list %}<span class="badge badge-amber">{{ {'same_file': 'same file', 'new_version': 'new version', 'title_clash': 'same title', 'looks_newer': 'newer version?', 'peer_proposed': 'peer proposed', 'peer_contested': 'contested', 'peer_quarantined': 'quarantined'}.get(f, f) }}</span>{% endfor %}
     </div>
   </div>
+
+  {% if rev.peer_record_hash %}
+  <p class="text-sm text-muted mb-2">
+    Signed by <b>{{ rev.peer_signer_name or 'Peer' }}</b>
+    {% if rev.peer_signer_key %} &middot; <span class="node-fp">ed25519:{{ rev.peer_signer_key[:6] }}...{{ rev.peer_signer_key[-6:] }}</span>{% endif %}
+    {% if rev.peer_hill_id %} &middot; Hill: <b>{{ rev.peer_hill_id }}</b>{% endif %}
+  </p>
+  {% if rev.peer_state == 'quarantined' %}
+  <div class="alert alert-danger text-sm mb-2">
+    <b>Quarantined (Rule 4):</b> This low-trust Open Hill page is excluded from AI retrieval and local search until you verify its source and explicitly admit it.
+  </div>
+  {% endif %}
+  {% endif %}
 
   {# Provenance: a verifiable content fingerprint of exactly what this would write, plus a link back to
      the chat it came from when the source is known. #}
@@ -93,7 +109,7 @@
   </form>
     {% else %}
     <div class="flex gap-2 mt-2">
-      <button class="btn btn-success btn-sm">Approve</button>
+      <button class="btn btn-success btn-sm">{{ 'Verify source & Admit' if rev.peer_state == 'quarantined' else 'Approve' }}</button>
       <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('form').reset()">Revert edits</button>
     </div>
   </form>

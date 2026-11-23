@@ -545,6 +545,14 @@ class WikiReview(Base):
     status = Column(String(20), nullable=False, default="pending")  # pending|approved|rejected
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
+    # Peer-to-peer Node pillar provenance (Rule 4: inbound peer PageChange records always land here).
+    peer_record_hash: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    peer_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=""
+    )  # "" | proposed | contested | quarantined
+    peer_hill_id: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    peer_signer_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    peer_signer_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -1345,6 +1353,223 @@ class MCPConsumer(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+# -- Peer-to-peer Node pillar tables (opt-in, Rule 12) -------------------------
+
+
+class NodeSettings(Base):
+    """Per-user opt-in state for the peer-to-peer Node pillar (default OFF)."""
+
+    __tablename__ = "node_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), unique=True, nullable=False
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    presence_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    transport: Mapped[str] = mapped_column(String(20), nullable=False, default="bundle")
+    public_endpoint: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    open_trust_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeIdentity(Base):
+    """Per-user Ed25519 root key and X25519 key-agreement key (private keys AES-GCM encrypted)."""
+
+    __tablename__ = "node_identities"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), unique=True, nullable=False
+    )
+    root_pub_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    root_priv_key_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    x25519_pub_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    x25519_priv_key_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    recovery_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeDevice(Base):
+    """Per-desktop Ed25519 device signing key linked to the user's root key (revocable offline)."""
+
+    __tablename__ = "node_devices"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    device_pub_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_priv_key_enc: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    root_binding_sig: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revocation_sig: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeHill(Base):
+    """A Hill (group of Anthill nodes) governed by a single admin's signed Membership list."""
+
+    __tablename__ = "node_hills"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    scope: Mapped[str] = mapped_column(String(24), nullable=False, default="private-group")
+    admin_root_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    membership_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodePeer(Base):
+    """A pinned peer in a Hill (trusted only after human SAS confirmation)."""
+
+    __tablename__ = "node_peers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    root_pub_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_pub_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    x25519_pub_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    binding_sig: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    endpoint_url: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    model_label: Mapped[str] = mapped_column(String(120), nullable=False, default="local")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="human")
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sas_code: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    trust_label: Mapped[str] = mapped_column(String(120), nullable=False, default="Direct trust")
+    karma: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="offline")
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeInvite(Base):
+    """One-time expiring pairing invite and pending SAS handshake state."""
+
+    __tablename__ = "node_invites"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    hill_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(24), nullable=False, default="private-group")
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="inviter")
+    nonce: Mapped[str] = mapped_column(String(64), nullable=False)
+    token: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sas_code: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    peer_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeRecord(Base):
+    """Signed, numbered, hash-chained record stored locally for a Hill."""
+
+    __tablename__ = "node_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    record_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    prev_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    author_root_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    record_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload_type: Mapped[str] = mapped_column(String(16), nullable=False, default="plain")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    content_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    envelope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeBlob(Base):
+    """Detached page content blob referenced by ``content_hash`` (erasable without breaking chain)."""
+
+    __tablename__ = "node_blobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    erased_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeLendingRule(Base):
+    """Explicit per-Hill allow-list of wiki areas (enforced in Python outside the model)."""
+
+    __tablename__ = "node_lending_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    area_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    area_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class NodeConsultation(Base):
+    """Counter-check consultation and optional Open Thread state."""
+
+    __tablename__ = "node_consultations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    hill_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    conversation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_base: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_current: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="local")
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="solo")
+    suggestions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    own_answers_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NodeEgressLedger(Base):
+    """Zero-content egress & usage ledger for peer sends/receives (Rule 2)."""
+
+    __tablename__ = "node_egress_ledger"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    direction: Mapped[str] = mapped_column(String(32), nullable=False)
+    peer_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    peer_root_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(24), nullable=False, default="private-group")
+    outcome: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    record_hash: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
 def normalize_topology(v: str) -> str:
     """Map any stored deployment topology to the current set (org | solo).
 
@@ -1575,6 +1800,17 @@ def create_tables(engine=None):
         engine,
         "task_occurrences",
         {"cadence_deferred": "BOOLEAN NOT NULL DEFAULT 0"},
+    )
+    _ensure_columns(
+        engine,
+        "wiki_reviews",
+        {
+            "peer_record_hash": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "peer_state": "VARCHAR(20) NOT NULL DEFAULT ''",
+            "peer_hill_id": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "peer_signer_key": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "peer_signer_name": "VARCHAR(120) NOT NULL DEFAULT ''",
+        },
     )
     _secure_db_file(engine)  # 0600, like secrets.env
     # Ordered, versioned migrations for non-additive changes (renames, backfills, table rebuilds).

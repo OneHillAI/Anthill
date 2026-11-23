@@ -1,0 +1,580 @@
+{% extends "base.html" %}
+{% block title %}Peers &amp; Hills{% endblock %}
+{% block page_title %}Peers &amp; Hills{% endblock %}
+{% block content %}
+
+{% if msg %}<div class="alert alert-ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-err">{{ err }}</div>{% endif %}
+
+{% if not settings.enabled %}
+<div class="node-cover">
+  <span class="badge badge-clay">Node pillar off (Rule 12)</span>
+  <h2 style="font-size:20px">Anthill is running strictly locally</h2>
+  <p class="text-muted" style="max-width:56ch;font-size:14px">
+    No peer endpoint is listening, no presence is broadcast, and no records leave this machine.
+    Switch the Node pillar on whenever you want to pair with another Anthill desktop, sync an
+    encrypted Hill bundle, or counter-check an answer with peers.
+  </p>
+  <form method="post" action="/peers/toggle">
+    <input type="hidden" name="action" value="enabled">
+    <button type="submit" class="btn btn-primary">Enable Node peer-to-peer</button>
+  </form>
+</div>
+{% else %}
+
+<div class="node-row-between" style="margin-bottom:14px">
+  <div class="settings-tabs" style="margin-bottom:0;flex:1" role="tablist">
+    <a href="/peers?tab=connections" class="{% if active_tab == 'connections' %}active{% endif %}">Connections</a>
+    <a href="/peers?tab=lending" class="{% if active_tab == 'lending' %}active{% endif %}">Knowledge lending</a>
+    <a href="/peers?tab=log" class="{% if active_tab == 'log' %}active{% endif %}">Record log &amp; sync</a>
+    <a href="/peers?tab=identity" class="{% if active_tab == 'identity' %}active{% endif %}">Identity &amp; egress</a>
+  </div>
+  <a href="/peers/consult" class="btn btn-primary btn-sm">Consult peers &amp; Open threads</a>
+</div>
+
+{# ======================= TAB 1: CONNECTIONS ======================= #}
+{% if active_tab == 'connections' %}
+<div class="node-stack">
+  {# Opt-in & Presence Strip (Rule 12 & 13) #}
+  <div class="card node-row-between" style="padding:14px 18px">
+    <div class="node-row" style="gap:18px">
+      <form method="post" action="/peers/toggle" class="node-row" style="margin:0">
+        <input type="hidden" name="action" value="enabled">
+        <button type="submit" class="btn btn-outline btn-sm">Turn Node off</button>
+        <div>
+          <div style="font-weight:600;font-size:14px">Node peer-to-peer: On</div>
+          <div class="text-sm text-muted">Opt-in - {{ online_count }} peer{{ '' if online_count == 1 else 's' }} reachable</div>
+        </div>
+      </form>
+      <form method="post" action="/peers/toggle" class="node-row" style="margin:0">
+        <input type="hidden" name="action" value="presence">
+        <button type="submit" class="btn {{ 'btn-primary' if settings.presence_visible else 'btn-outline' }} btn-sm">
+          {{ 'Appear online: On' if settings.presence_visible else 'Appear online: Off' }}
+        </button>
+        <div class="text-sm text-muted">Signed presence - group only</div>
+      </form>
+    </div>
+    <span class="badge badge-active" title="Rule 13: Peer-facing AI runs with 0 tools and no private wiki access">
+      Peer endpoint: 0 tools
+    </span>
+  </div>
+
+  {# Active Pairing Invites & SAS Verification Cards #}
+  {% for item in invites %}
+  {% set inv = item.invite %}
+  {% set pm = item.peer_meta %}
+  {% if inv.status == 'pending' and inv.role == 'inviter' %}
+  <div class="card node-stack-sm">
+    <div class="node-row-between">
+      <h3 style="margin:0">One-time pairing invite active</h3>
+      <span class="badge badge-amber">Expires in 10 min</span>
+    </div>
+    <p class="text-sm text-muted">
+      Share this one-time token with the other Anthill Desktop. Both desktops will pin each other's
+      Ed25519 keys and display a matching 6-digit verification code.
+    </p>
+    <div class="node-token-box" id="invite-token-{{ inv.id }}">{{ inv.token }}</div>
+    <div class="node-row-between">
+      <div class="node-row">
+        <button type="button" class="btn btn-outline btn-sm"
+                onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('invite-token-{{ inv.id }}').textContent.trim());showToast('Copied one-time invite token')">
+          Copy invite
+        </button>
+        <span class="text-sm text-muted">Hill: {{ inv.hill_name }} ({{ inv.scope }})</span>
+      </div>
+      <form method="post" action="/peers/invites/{{ inv.id }}/cancel" style="margin:0">
+        <button type="submit" class="btn btn-outline btn-sm">Cancel</button>
+      </form>
+    </div>
+    <details class="adv-disclosure" style="margin-top:4px">
+      <summary>Offline handshake? Paste the joining desktop's signed response JSON</summary>
+      <div class="adv-disclosure-body">
+        <form method="post" action="/peers/invites/{{ inv.id }}/attach-response" class="node-stack-sm">
+          <textarea name="response_json" rows="3" placeholder='{"v":1,"nonce":"...","joiner_root_key":"..."}'></textarea>
+          <div><button type="submit" class="btn btn-outline btn-sm">Verify join response &amp; show SAS code</button></div>
+        </form>
+      </div>
+    </details>
+  </div>
+  {% elif inv.status == 'awaiting_sas' %}
+  <div class="card node-stack-sm">
+    <div class="node-row-between">
+      {% set other_name = pm.joiner.joiner_name if inv.role == 'inviter' else pm.inviter.inviter_name %}
+      {% set other_key = pm.joiner.joiner_root_key if inv.role == 'inviter' else pm.inviter.inviter_root_key %}
+      <h3 style="margin:0">Verify short code with {{ other_name }}</h3>
+      <span class="badge badge-active">Key pinning handshake</span>
+    </div>
+    <p class="text-sm text-muted">
+      Confirm this 6-digit code matches on {{ other_name }}'s screen (in person, call, or trusted chat)
+      before trusting their root key. Keys are pinned only after you confirm.
+    </p>
+    <div class="node-row-between">
+      <div class="node-sas-code">{{ inv.sas_code }}</div>
+      <div class="node-stack-sm">
+        <span class="text-sm text-muted">Peer Ed25519 root key</span>
+        <span class="node-fp">{{ key_fp(other_key) }}</span>
+      </div>
+    </div>
+    {% if inv.role == 'joiner' and not pm.live_notified %}
+    <details class="adv-disclosure" open style="margin-top:4px">
+      <summary>Offline handshake: copy this signed join response to {{ other_name }}'s desktop</summary>
+      <div class="adv-disclosure-body">
+        <div class="node-token-box">{{ pm.join_response | tojson }}</div>
+      </div>
+    </details>
+    {% endif %}
+    <div class="node-row" style="margin-top:4px">
+      <form method="post" action="/peers/invites/{{ inv.id }}/confirm" style="margin:0">
+        <button type="submit" class="btn btn-primary btn-sm">Codes match - Trust &amp; Connect</button>
+      </form>
+      <form method="post" action="/peers/invites/{{ inv.id }}/cancel" style="margin:0">
+        <button type="submit" class="btn btn-outline btn-sm">Abort</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {# Invite & Join Cards #}
+  <div class="grid-2">
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Invite another desktop</h3>
+        <span class="badge badge-clay">Admin - One-time token</span>
+      </div>
+      <p class="text-sm text-muted">
+        Generate an expiring <code>anthill-pair://v1/...</code> token. Keys pin directly between desktops with no central account server.
+      </p>
+      <form method="post" action="/peers/invites/create" class="node-stack-sm">
+        <select name="hill_id" aria-label="Hill to invite to">
+          {% for h in hills %}
+          {% if h.admin_root_key == ident.root_pub_key %}
+          <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }})</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+        <input type="text" name="endpoint_url" value="{{ settings.public_endpoint }}"
+               placeholder="Optional direct LAN/Tailscale URL (e.g. http://192.168.1.20:8001)">
+        <div><button type="submit" class="btn btn-primary btn-sm">Create pairing invite</button></div>
+      </form>
+    </div>
+
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Join with an invite</h3>
+        <span class="badge badge-pending">SAS verified</span>
+      </div>
+      <p class="text-sm text-muted">
+        Paste an active token from another Anthill desktop. Inbound records stay Proposed until you accept them.
+      </p>
+      <form method="post" action="/peers/invites/join" class="node-stack-sm">
+        <input type="text" name="token" placeholder="Paste anthill-pair://v1/..." required>
+        <input type="text" name="my_endpoint_url" value="{{ settings.public_endpoint }}"
+               placeholder="Optional: this desktop's reachable URL (for live LAN sync)">
+        <div><button type="submit" class="btn btn-outline btn-sm">Verify invite &amp; compute SAS</button></div>
+      </form>
+    </div>
+  </div>
+
+  {# Connected Peers & Hills #}
+  <div class="node-stack-sm">
+    <div class="node-row-between">
+      <h3 style="margin:0;font-size:15px">Connected peers &amp; Hills</h3>
+      <div class="node-row">
+        <a href="/peers?tab=connections&hill=all" class="btn btn-sm {{ 'btn-primary' if selected_hill == 'all' else 'btn-outline' }}">All ({{ all_peers|length }})</a>
+        {% for h in hills %}
+        <a href="/peers?tab=connections&hill={{ h.hill_id }}" class="btn btn-sm {{ 'btn-primary' if selected_hill == h.hill_id else 'btn-outline' }}">{{ h.name }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="node-peer-list">
+      {% if not peers %}
+      <div style="padding:20px;text-align:center" class="text-sm text-muted">
+        No verified peers in this Hill yet. Create or join a one-time pairing invite above to connect two Anthill desktops.
+      </div>
+      {% else %}
+      {% for p in peers %}
+      {% set h = hill_by_id.get(p.hill_id) %}
+      <div class="node-peer-row">
+        <div class="node-row" style="gap:12px;flex:1;min-width:220px">
+          <span class="node-peer-av">{{ (p.display_name[:2] if p.display_name else 'AN') | upper }}</span>
+          <div class="node-stack-sm" style="gap:4px">
+            <div class="node-row">
+              <b>{{ p.display_name }}</b>
+              <span class="badge {{ 'badge-active' if p.status == 'online' else 'badge-clay' }}">
+                <span class="node-dot"></span> {{ 'Direct HTTP' if p.status == 'online' else 'Offline - bundle ready' }}
+              </span>
+              {% if h %}<span class="badge badge-pending">{{ h.name }} ({{ h.scope }})</span>{% endif %}
+            </div>
+            <div class="node-row text-sm text-muted">
+              <span>{{ p.device_name or 'Anthill Desktop' }}</span>
+              <span>-</span>
+              <span><b>{{ p.model_label }}</b></span>
+              <span>-</span>
+              <span>Karma {{ p.karma }}</span>
+              <span class="node-fp">{{ key_fp(p.root_pub_key) }}</span>
+            </div>
+            <div class="text-sm text-muted">
+              {{ p.trust_label }} - Synced head #{{ heads_by_dev.get(p.device_pub_key, 0) }}
+              {% if p.endpoint_url %} - <code>{{ p.endpoint_url }}</code>{% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="node-row">
+          <form method="post" action="/peers/{{ p.id }}/sync" style="margin:0">
+            <button type="submit" class="btn btn-outline btn-sm">Sync</button>
+          </form>
+          <a href="/peers/consult" class="btn btn-outline btn-sm">Consult</a>
+          <form method="post" action="/peers/{{ p.id }}/remove" style="margin:0"
+                data-confirm="Remove {{ p.display_name }} and sign an updated Membership list? Future records from their key will be rejected.">
+            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+
+    <details class="adv-disclosure" style="margin-top:4px">
+      <summary>Create a new Hill (Private group, Internal, or Open)</summary>
+      <div class="adv-disclosure-body card">
+        <form method="post" action="/peers/hills/create" class="node-row">
+          <input type="text" name="name" placeholder="Hill name (e.g. Solar Co-op Research)" style="flex:2;min-width:200px" required>
+          <select name="scope" style="flex:1;min-width:150px">
+            <option value="private-group">Private group (invite-only)</option>
+            <option value="internal">Internal (org)</option>
+            <option value="open">Open (quarantine low-trust)</option>
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">Create Hill</button>
+        </form>
+      </div>
+    </details>
+  </div>
+
+  {# Transport Selector (Sec 4.1 #5) #}
+  <div class="node-stack-sm">
+    <h3 style="margin:0;font-size:15px">Transport layer (sync is transport-agnostic)</h3>
+    <div class="node-transport-grid">
+      <form method="post" action="/peers/toggle" style="margin:0">
+        <input type="hidden" name="action" value="transport">
+        <input type="hidden" name="transport" value="bundle">
+        <button type="submit" class="node-transport-card {{ 'active' if settings.transport == 'bundle' else '' }}">
+          <div class="node-row-between"><b>File bundle</b><span class="badge badge-clay">H2 first</span></div>
+          <span class="text-sm text-muted">Encrypted .anthill-bundle files. Works fully offline via AirDrop, USB, or email.</span>
+        </button>
+      </form>
+      <form method="post" action="/peers/toggle" style="margin:0">
+        <input type="hidden" name="action" value="transport">
+        <input type="hidden" name="transport" value="lan">
+        <button type="submit" class="node-transport-card {{ 'active' if settings.transport == 'lan' else '' }}">
+          <div class="node-row-between"><b>Local network</b><span class="badge badge-active">LAN HTTP</span></div>
+          <span class="text-sm text-muted">Authenticated Ed25519 peer HTTP sync on the same LAN, loopback, or Tailscale.</span>
+        </button>
+      </form>
+      <button type="button" class="node-transport-card" disabled>
+        <div class="node-row-between"><b>Direct P2P</b><span class="badge badge-pending">iroh / Tor later</span></div>
+        <span class="text-sm text-muted">Pluggable NodeTransport interface ready for iroh or Tor relays after the H2 pilot.</span>
+      </button>
+    </div>
+
+    <form method="post" action="/peers/toggle" class="card node-row" style="padding:12px 16px">
+      <input type="hidden" name="action" value="endpoint">
+      <label for="peer-ep" style="margin:0;font-size:13px;white-space:nowrap">This desktop's peer URL:</label>
+      <input id="peer-ep" type="text" name="public_endpoint" value="{{ settings.public_endpoint }}"
+             placeholder="http://127.0.0.1:8001 (loopback default; set LAN/Tailscale IP to share)" style="flex:1;min-width:220px">
+      <button type="submit" class="btn btn-outline btn-sm">Save URL</button>
+    </form>
+  </div>
+</div>
+
+{# ======================= TAB 2: KNOWLEDGE LENDING ======================= #}
+{% elif active_tab == 'lending' %}
+<div class="node-stack">
+  <div class="alert alert-ok" style="margin-bottom:0">
+    <b>Lending by area (Rules 3, 8 &amp; 13):</b> Choose once which wiki areas peers may consult through your AI.
+    Private and un-lent areas are blocked in Python outside the model. Your AI answers with its view and sources,
+    never raw page copies, and scrubs emails, keys, and numbers on egress.
+    <b>Honest limit:</b> anything your AI reads from a lent area can influence its answer.
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Wiki area</th>
+          <th>Default policy</th>
+          {% for h in hills %}
+          <th>{{ h.name }} <span class="text-sm text-muted">({{ h.scope }})</span></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for area in areas %}
+        <tr>
+          <td>
+            <div style="font-weight:600">{{ area.area_name }}</div>
+            <div class="text-sm text-muted">{{ area.page_count }} approved OKGF page{{ '' if area.page_count == 1 else 's' }} - local index only (vectors never travel)</div>
+          </td>
+          <td>
+            {% if area.locked %}
+            <span class="badge badge-danger">Never lent</span>
+            {% else %}
+            <span class="badge badge-clay">{{ area.scope_default }}</span>
+            {% endif %}
+          </td>
+          {% for h in hills %}
+          {% set is_lent = area.area_id in lending_matrix.get(h.hill_id, []) %}
+          <td>
+            {% if area.locked %}
+            <button type="button" class="btn btn-outline btn-sm" disabled>Locked</button>
+            {% else %}
+            <form method="post" action="/peers/lending/toggle" style="margin:0">
+              <input type="hidden" name="hill_id" value="{{ h.hill_id }}">
+              <input type="hidden" name="area_id" value="{{ area.area_id }}">
+              <input type="hidden" name="area_name" value="{{ area.area_name }}">
+              <button type="submit" class="btn btn-sm {{ 'btn-primary' if is_lent else 'btn-outline' }}">
+                {{ 'Lent' if is_lent else 'Not lent' }}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid-2">
+    <div class="card node-stack-sm" style="background:var(--bg-subtle)">
+      <div style="font-weight:600;font-size:14px">Peer endpoint containment (Rule 13)</div>
+      <p class="text-sm text-muted">
+        Incoming peer consultations invoke plain chat with <b>0 tools</b>, <b>no shell/file/web access</b>,
+        and physical Python filtering restricted strictly to the toggled areas above.
+      </p>
+    </div>
+    <div class="card node-stack-sm" style="background:var(--bg-subtle)">
+      <div style="font-weight:600;font-size:14px">Anti-extraction quotas</div>
+      <p class="text-sm text-muted">
+        Plain chat responses capped at <b>{{ max_consult_tokens }} tokens</b> -
+        <b>{{ rate_limit_hr }} requests/hour</b> per peer - egress PII scrubber active -
+        private fine-tunes stay hidden from untrusted callers.
+      </p>
+    </div>
+  </div>
+</div>
+
+{# ======================= TAB 3: RECORD LOG & SYNC ======================= #}
+{% elif active_tab == 'log' %}
+<div class="node-stack">
+  <div class="grid-2">
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Export encrypted .anthill-bundle</h3>
+        <span class="badge badge-clay">H2 Offline-first</span>
+      </div>
+      <p class="text-sm text-muted">
+        Encrypts your Hill's signed records and detached blobs to active members' X25519 keys (ephemeral ECDH + HKDF + AES-256-GCM) and signs with Ed25519.
+      </p>
+      <form method="post" action="/peers/bundle/export" class="node-row">
+        <select name="hill_id" style="flex:1">
+          {% for h in hills %}
+          <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }})</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Export .anthill-bundle</button>
+      </form>
+    </div>
+
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Import .anthill-bundle</h3>
+        <span class="badge badge-active">Signature verified</span>
+      </div>
+      <p class="text-sm text-muted">
+        Verifies sender membership and Ed25519 signature before decrypting. Incoming PageChange records land in Knowledge Review Gate as Proposed (Rule 4).
+      </p>
+      <form method="post" action="/peers/bundle/import" enctype="multipart/form-data" class="node-row">
+        <input type="file" name="bundle_file" accept=".anthill-bundle,.json" required style="flex:1">
+        <button type="submit" class="btn btn-outline btn-sm">Verify &amp; Import</button>
+      </form>
+    </div>
+  </div>
+
+  {% if local_pages %}
+  <div class="card node-row-between" style="padding:14px 18px">
+    <div>
+      <div style="font-weight:600;font-size:14px">Propose a local wiki page into a Hill log</div>
+      <div class="text-sm text-muted">Writes a signed PageChange record with a detached erasable body blob.</div>
+    </div>
+    <form method="post" action="/peers/wiki/publish" class="node-row" style="margin:0">
+      <select name="hill_id" style="width:auto">
+        {% for h in hills %}
+        <option value="{{ h.hill_id }}">{{ h.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="slug" style="width:auto">
+        {% for lp in local_pages %}
+        <option value="{{ lp.slug }}">{{ lp.title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-outline btn-sm">Sign PageChange</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="node-stack-sm">
+    <div class="node-row-between">
+      <h3 style="margin:0;font-size:15px">Signed record log (click any record to inspect envelope)</h3>
+      <span class="text-sm text-muted">1 chain per device key - detached content for erasure</span>
+    </div>
+    <div class="node-peer-list">
+      {% if not records %}
+      <div style="padding:20px;text-align:center" class="text-sm text-muted">No signed records yet.</div>
+      {% else %}
+      {% for item in records %}
+      {% set r = item.row %}
+      <details class="node-record-row">
+        <summary>
+          <div class="node-row-between">
+            <div class="node-row">
+              <span class="badge {{ 'badge-active' if r.record_type == 'Acceptance' else 'badge-clay' if r.record_type == 'Membership' else 'badge-amber' if r.record_type == 'Lending' else 'badge-pending' }}">
+                {{ r.record_type }}
+              </span>
+              <span style="font-weight:600;font-size:14px">{{ item.summary }}</span>
+            </div>
+            <div class="node-row text-sm text-muted">
+              <code>#{{ r.seq }}</code>
+              <span>-</span>
+              <span class="node-fp">{{ item.author_fp }}</span>
+              <span>-</span>
+              <span data-utc="{{ r.created_at.isoformat() }}">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </div>
+          </div>
+          <div class="node-row text-sm text-muted" style="margin-top:4px">
+            <span>scope: <b>{{ r.scope }}</b></span>
+            <span>-</span>
+            <code>{{ r.record_hash[:22] }}...</code>
+            {% if r.content_ref %}
+            <span>-</span>
+            <span style="color:var(--accent)">detached body (erasable)</span>
+            {% endif %}
+          </div>
+        </summary>
+        <div class="node-envelope">{{ item.pretty_json }}</div>
+        {% if r.content_ref %}
+        <form method="post" action="/peers/records/{{ r.id }}/erase" style="margin-top:8px"
+              data-confirm="Erase the detached page body for this record and sign a Deletion record? The hash chain stays intact.">
+          <button type="submit" class="btn btn-outline btn-sm">Erase detached body (keep chain)</button>
+        </form>
+        {% endif %}
+      </details>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ======================= TAB 4: IDENTITY & EGRESS ======================= #}
+{% elif active_tab == 'identity' %}
+<div class="node-stack">
+  <div class="grid-2">
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Root identity (Ed25519)</h3>
+        <span class="badge {{ 'badge-active' if ident.recovery_verified_at else 'badge-amber' }}">
+          {{ 'Recovery verified' if ident.recovery_verified_at else 'Verify recovery kit' }}
+        </span>
+      </div>
+      <div class="node-token-box">{{ root_fp }}<br><span class="text-sm text-muted">{{ ident.root_pub_key }}</span></div>
+      <p class="text-sm text-muted">
+        One Ed25519 root key per person; separate device keys sign each desktop's log chain.
+        Private keys are stored AES-256-GCM encrypted at rest via Anthill's keystore (never plaintext).
+      </p>
+      <div class="node-row">
+        <form method="post" action="/peers/identity/recovery-test" style="margin:0">
+          <button type="submit" class="btn btn-outline btn-sm">Test recovery</button>
+        </form>
+        <a href="/peers?tab=identity&recovery=show" class="btn btn-outline btn-sm">Show 33-word kit</a>
+        <a href="/peers/export-all" class="btn btn-primary btn-sm">Export all (open OKGF)</a>
+      </div>
+      {% if recovery_words %}
+      <div class="alert alert-warn" style="margin-top:8px;margin-bottom:0">
+        <b>Write these 33 recovery words down offline (never share):</b>
+        <div class="node-token-box" style="margin-top:6px">{{ recovery_words }}</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card node-stack-sm">
+      <div class="node-row-between">
+        <h3 style="margin:0">Linked device keys</h3>
+        <span class="badge badge-clay">{{ devices|length }} device{{ '' if devices|length == 1 else 's' }}</span>
+      </div>
+      {% for d in devices %}
+      <div class="node-row-between" style="padding:8px 0;border-top:{{ '1px solid var(--border)' if not loop.first else '0' }}">
+        <div>
+          <div style="font-weight:600;font-size:14px">{{ d.device_name }}</div>
+          <div class="text-sm text-muted">
+            <code>{{ key_fp(d.device_pub_key) }}</code>
+          </div>
+        </div>
+        {% if d.is_current %}
+        <span class="badge badge-active">Active</span>
+        {% elif d.revoked_at %}
+        <span class="badge badge-danger">Revoked</span>
+        {% else %}
+        <form method="post" action="/peers/devices/{{ d.id }}/revoke" style="margin:0"
+              data-confirm="Revoke device key for {{ d.device_name }}?">
+          <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="node-stack-sm">
+    <div class="node-row-between">
+      <h3 style="margin:0;font-size:15px">Egress &amp; usage ledger (Rule 2 - peer sends counted as remote)</h3>
+      <span class="text-sm text-muted">Signed - zero prompt or answer content stored</span>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Direction</th>
+            <th>Peer</th>
+            <th>Model</th>
+            <th>Scope</th>
+            <th>Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if not egress_rows %}
+          <tr><td colspan="6" class="text-sm text-muted" style="text-align:center;padding:18px">No remote peer egress recorded yet.</td></tr>
+          {% else %}
+          {% for row in egress_rows %}
+          <tr>
+            <td><code data-utc="{{ row.created_at.isoformat() }}">{{ row.created_at.strftime('%Y-%m-%d %H:%M') }}</code></td>
+            <td><span class="badge {{ 'badge-amber' if 'outbound' in row.direction else 'badge-clay' }}">{{ row.direction }}</span></td>
+            <td><b>{{ row.peer_name }}</b></td>
+            <td>{{ row.model }}</td>
+            <td>{{ row.scope }}</td>
+            <td>{{ row.outcome }}</td>
+          </tr>
+          {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-sm text-muted">
+      Note (Brief Sec 4.5): In internal org settings, usage logs count as staff monitoring and require legal review before activation.
+    </p>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
