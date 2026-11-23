@@ -12,7 +12,7 @@ from anthill.hosting import sizing
 # (unified memory GB, params_b of the smartest model that fits). Ranking is intelligence x fit now, so
 # these track the frontier catalog: an MoE with few active params can win at a given memory budget.
 _ANCHORS = [
-    (8, 2),  # smallest safe pick
+    (8, 4),  # Nemotron 3 Nano 4B: need 4.8 GB by the rule (#336), under 66% of 8 GB ("tight")
     (16, 9),
     (24, 20),  # a 20B (gpt-oss) fits here
     (32, 30),  # a 30B-class MoE (GLM-4.7-flash)

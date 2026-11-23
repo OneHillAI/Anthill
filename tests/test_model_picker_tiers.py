@@ -57,7 +57,9 @@ def test_picker_still_offers_a_default_on_a_tight_machine(monkeypatch):
     view = app._model_picker_view(None)
     assert view["default_tag"], "an 8GB Mac should still get a (tight) default suggestion"
     picked = [m for fam in view["families"] for m in fam["models"] if m["recommended"]]
-    assert picked and all(m["params_b"] <= 3 for m in picked)  # only the 3B-and-under tier fits 8GB
+    assert picked and all(
+        m["params_b"] <= 4 for m in picked
+    )  # only the 4B-and-under tier fits 8GB under the calibrated rule (#336; the 4B is "tight")
 
 
 def test_picker_surfaces_offload_tier_for_a_modest_spill_moe_on_a_gpu_box(monkeypatch):

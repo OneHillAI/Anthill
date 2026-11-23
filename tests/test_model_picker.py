@@ -40,7 +40,9 @@ def test_recommend_by_family_picks_smartest_that_fits():
     # A 16 GB Apple box (~10 GB usable for weights at 4-bit) fits ~9-12B, not the big ones.
     picks = {p.family: p for p in sizing.recommend_by_family(16, kind="apple")}
     assert picks["Qwen"].recommended.ollama_tag == "qwen3.5:9b"  # the smartest Qwen that fits
-    assert picks["Gemma"].recommended.ollama_tag == "gemma4:12b"  # 12B fits, 26B/27B/31B do not
+    assert (
+        picks["Gemma"].recommended.ollama_tag == "gemma4:e4b"
+    )  # the 12B needs 11.6 GB by the rule (#336): too large at 16 GB
     # the frontier giants (DeepSeek/GLM/MiniMax/Kimi) have nothing small enough to fit a 16 GB box
     assert picks["DeepSeek"].recommended is None
     # the download size is reported for the UI
