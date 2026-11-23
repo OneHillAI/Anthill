@@ -2035,16 +2035,6 @@ def _propose_scoped(
     return True
 
 
-def _corroborate_memory(db, org_id, item) -> None:
-    """Best-effort: promote a fresh personal memory to team/org if >= 2 users hold it."""
-    try:
-        from .memory_ops import maybe_corroborate
-
-        maybe_corroborate(db, org_id, item)
-    except Exception:
-        pass
-
-
 def _cfg(db: Session, org: Organization) -> OrgSettings | None:
     """The org's settings row (None until first saved). Centralizes the org-scoped lookup."""
     return db.query(OrgSettings).filter(OrgSettings.org_id == org.id).first()
@@ -2347,7 +2337,6 @@ def _distil_memory_from_chat(db, org_id, user_id, conv, backend) -> None:
                 )
                 db.add(new)
                 db.flush()
-                _corroborate_memory(db, org_id, new)
                 seen_text.append(text)
                 seen_vec.append(vec)
     conv.memory_mark = total
@@ -14048,7 +14037,6 @@ async def chat_stream(
                         )
                         db.add(new)
                         db.flush()
-                        _corroborate_memory(db, org.id, new)
                         db.commit()
                         audit.log(db, "memory.add", "remember", org_id=org.id, user_id=uid)
                         ack = "Saved that to memory. You can review or remove it anytime on the Memory page."
@@ -15045,7 +15033,6 @@ async def memory_add(text: str = Form(...), user: dict = Depends(_require_user))
             )
             db.add(new)
             db.flush()
-            _corroborate_memory(db, org.id, new)
             db.commit()
             audit.log(db, "memory.add", "manual", org_id=org.id, user_id=uid)
     return RedirectResponse("/memory", status_code=302)

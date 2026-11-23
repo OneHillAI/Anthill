@@ -9,8 +9,8 @@
   answers, but capturing one directly guarantees it's kept. Content you mark becomes a page in your
   personal wiki right away, plus gets the model's <b>red line</b> (why it's relevant) and a
   <b>personal</b> gold example that improves things for <b>you</b>. It trains the <b>shared org
-  model</b> only once <b>≥2 distinct users</b> save matching content (corroboration) or an admin
-  approves it into the wiki. Same bar protects the general knowledge base.
+  model</b> only when an admin approves it into the wiki; other people saving matching content does not
+  move it. Same bar protects the general knowledge base.
   <a href="#" onclick="window._anthillWalkthroughs && window._anthillWalkthroughs.snippets.start();return false">Take a tour</a>
 </p>
 
@@ -43,7 +43,7 @@
       <span class="text-sm text-muted">{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
       {% if s.wiki_slug %}<span class="badge badge-active">in wiki review</span>{% endif %}
       {% if s.scope == 'org' %}
-      <span class="badge badge-active" title="Corroborated by ≥2 users - trains the shared model">shared · org</span>
+      <span class="badge badge-active" title="Approved by an admin - trains the shared model">shared · org</span>
       {% else %}
       <span class="badge badge-member" title="Your signal only - trains the org model once others save it too">personal</span>
       {% endif %}

@@ -2004,7 +2004,7 @@ async function commitSnip() {
     // silo), so future answers can retrieve it - state that payoff here, not only on /snippets.
     let scope;
     if (d.scope === 'org') {
-      scope = ' (now shared org-wide - corroborated)';
+      scope = ' (shared org-wide)';
     } else if (d.wiki_applied) {
       scope = ' - now in your personal wiki, so it can ground future answers';
     } else {
