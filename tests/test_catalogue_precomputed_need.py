@@ -136,28 +136,40 @@ def _legacy_by_family(mem_gb, catalog):
     return picks
 
 
-def test_no_shipped_row_has_a_need_yet(shipped):
-    assert all(m.need_gb == 0.0 for m in shipped)
+# Catalogue need-by-rule (#336): the 13 local rows with a library file of 10 GB or less carry a need; nothing else does.
+NEED_ROWS = {
+    "qwen3.5:0.8b", "qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b", "gemma4:e2b", "gemma4:e4b", "gemma4:12b",
+    "gemma3:1b", "gemma3:4b", "granite4.2:3b", "granite4.2:8b", "nemotron-3-nano:4b", "phi4:14b",
+}  # fmt: skip
+# the only per-family picks that change against the flat formula, by memory tier
+CHANGED_FAMILY_PICKS = {8: {"Nemotron"}, 16: {"Gemma"}}
+
+
+def test_only_the_rows_up_to_10_gb_carry_a_need(shipped):
+    assert {m.ollama_tag for m in shipped if m.need_gb} == NEED_ROWS
 
 
 @pytest.mark.parametrize("mem_gb", TIERS_GB)
 def test_every_shipped_verdict_is_unchanged(shipped, mem_gb):
     for m in shipped:
-        assert sizing.model_fit_tier(m, float(mem_gb)) == sizing.fit_tier(
-            m.params_b, float(mem_gb), active_b=m.active_b
-        )
+        if m.need_gb == 0.0:  # a row without a need is judged exactly as before
+            assert sizing.model_fit_tier(m, float(mem_gb)) == sizing.fit_tier(
+                m.params_b, float(mem_gb), active_b=m.active_b
+            )
     now = {
         p.family: (p.recommended.name if p.recommended else None)
         for p in sizing.recommend_by_family(float(mem_gb), catalog=shipped)
     }
-    assert now == _legacy_by_family(float(mem_gb), shipped)
+    legacy = _legacy_by_family(float(mem_gb), shipped)
+    assert {f for f in now if now[f] != legacy[f]} == CHANGED_FAMILY_PICKS.get(mem_gb, set())
     legacy_fits = {
         m.name: m.params_b
         <= sizing.max_params_b(float(mem_gb), kind="apple", context_k=8.0, concurrency=1)
         for m in shipped
     }
     sized = sizing.recommend(float(mem_gb), kind="apple", concurrency=1, catalog=shipped)
-    assert {f.model.name: f.fits for f in sized.fits} == legacy_fits
+    got = {f.model.name: f.fits for f in sized.fits}
+    assert {n for n in got if got[n] != legacy_fits[n]} <= {m.name for m in shipped if m.need_gb}
 
 
 # ── the app's own guard reads it too ─────────────────────────────────────────────────────────────
