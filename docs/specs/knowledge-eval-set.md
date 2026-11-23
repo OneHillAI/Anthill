@@ -33,6 +33,8 @@ reading a few answers.
   phrase can pass. It is the same for every run, which is what a baseline needs.
 - The baseline is one run on one Mac and one engine (Ollama 0.40.7), with the two models installed there; there is no 8B model in it. It shows today's behaviour, not a target.
 - Fourteen cases are enough to see a large change, not a small one.
+- This is a starter baseline, not the evaluation: a set of fourteen cases written by the builders is too small, and too close to a perfect
+  score, to decide whether a change is acceptable. It cannot be the gate for a later step until it holds cases written by someone else.
 
 ## Baseline
 
