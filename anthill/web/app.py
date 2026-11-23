@@ -5077,10 +5077,11 @@ def _slack_answer(
                 )
                 db.add(conv)
                 db.flush()
+            stale = answer_record.stale_turns(conv.messages)
             history = [
                 (m.role, m.content)
                 for m in conv.messages
-                if m.role in ("user", "assistant") and m.content
+                if m.role in ("user", "assistant") and m.content and m.id not in stale
             ][-20:]
             answer, model = _org_plane_answer(db, org, member, question, history=history)
             db.add(ChatMessage(conversation_id=conv.id, role="user", content=question))
@@ -14332,10 +14333,14 @@ async def chat_stream(
                 # current message; ask() reconciles to the context budget.
                 from ..wiki.ask import strip_web_note
 
+                stale = answer_record.stale_turns(
+                    conv.messages
+                )  # turns that used an item no longer readable
                 history = [
                     (m.role, strip_web_note(m.content) if m.role == "assistant" else m.content)
                     for m in conv.messages
                     if m.id != user_msg_id
+                    and m.id not in stale
                     and m.role in ("user", "assistant")
                     and m.content
                     and not m.generation_failed

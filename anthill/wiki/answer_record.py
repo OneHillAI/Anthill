@@ -150,6 +150,59 @@ def _pages_of_tag(tag: str) -> list[int]:
     return [int(n) for n in inside.replace(" ", "").split(",") if n.isdigit()]
 
 
+def _root_of(item: dict) -> Path | None:
+    """The folder of the wiki an item was read from, from the space its record names. None when it cannot be told."""
+    from .workspace import workspace_for
+
+    space, ref = str(item.get("space") or "personal"), str(item.get("space_ref") or "")
+    num = ref.split("-", 1)[1] if "-" in ref else ""
+    n = int(num) if num.isdigit() else None
+    try:
+        if space == "team" and n is not None:
+            return workspace_for("team", team_id=n).root
+        if space == "org":
+            return workspace_for("org", org_id=n).root if n is not None else None
+        return workspace_for("personal", user_id=n).root
+    except (ValueError, OSError):
+        return None
+
+
+def still_eligible(item: dict) -> bool:
+    """May an answer still read this recorded item? False when its wiki, file or record is gone or no longer says
+    active and approved (a removed, waiting or rejected item). Fails closed: what cannot be found is not eligible."""
+    root = _root_of(item)
+    if root is None:
+        return False
+    if item.get("kind") == "document":
+        name = str(item.get("name") or "")
+        return (
+            bool(name)
+            and (root / "raw" / name).is_file()
+            and name not in items.hidden_sources(root)
+        )
+    slug = str(item.get("slug") or "")
+    path = root / "wiki" / f"{slug}.md"
+    return bool(slug) and path.is_file() and items.page_file_retrievable(path)
+
+
+def stale_turns(messages) -> set[int]:
+    """The ids of chat messages to leave out when earlier turns are replayed to the model: an answer whose record names an
+    item that may no longer be read, and the question it answered. An answer with no record (made before records) is kept."""
+    drop: set[int] = set()
+    previous_user: int | None = None
+    for m in messages:
+        role = getattr(m, "role", "")
+        if role == "user":
+            previous_user = getattr(m, "id", None)
+        elif role == "assistant":
+            rec = loads(getattr(m, "manifest", "") or "")
+            if any(not still_eligible(i) for i in rec["items"] if isinstance(i, dict)):
+                drop.add(m.id)
+                if previous_user is not None:
+                    drop.add(previous_user)
+    return drop
+
+
 def dumps(record: dict) -> str:
     """The text kept with the answer. An empty record is the empty string: nothing was given."""
     return json.dumps(record, separators=(",", ":")) if record.get("items") else ""

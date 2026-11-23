@@ -185,8 +185,8 @@
     </label>
     <div class="text-sm" style="margin:0 0 4px">Expose these resources:</div>
     <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_wiki" {% if cfg and cfg.mcp_expose_wiki %}checked{% endif %}> Wiki - answers from the org wiki + cache</label>
-    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_cache" {% if cfg and cfg.mcp_expose_cache %}checked{% endif %}> Cache - cached answers only</label>
-    <label class="toggle-opt" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="expose_memory" {% if cfg and cfg.mcp_expose_memory %}checked{% endif %}> Memory - durable org memory</label>
+    <label class="toggle-opt text-muted" style="display:flex;gap:8px;align-items:center" id="mcp-cache-off"><input type="checkbox" disabled> Cache - not available in this version</label>
+    <label class="toggle-opt text-muted" style="display:flex;gap:8px;align-items:center" id="mcp-memory-off"><input type="checkbox" disabled> Memory - not available in this version</label>
     <div class="form-group" style="margin-top:10px">
       <label>Review mode</label>
       <select name="mcp_review_mode">
