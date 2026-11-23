@@ -9033,8 +9033,8 @@ def wiki_item_page(
     team_id: int | None = None,
     user: dict = Depends(_require_user),
 ):
-    """One page or one original document of a wiki: what it is, where it came from, what was made from it and which
-    of the viewer's chats used it. The access rules are those of the page view."""
+    """One page or one original document of a wiki: what it is, where it came from and what was made from it.
+    The access rules are those of the page view."""
     db = _db()
     org = _require_org(db, user)
     if scope not in ("personal", "team", "org"):
@@ -9051,7 +9051,7 @@ def wiki_item_page(
     if row is None:
         raise HTTPException(status_code=404)
     rec = row["record"]
-    space, space_ref = wiki_items.workspace_space(ws)
+    space, _ref = wiki_items.workspace_space(ws)
     return templates.TemplateResponse(
         request,
         "wiki_item.html",
@@ -9063,16 +9063,6 @@ def wiki_item_page(
             "team_id": team_id,
             "row": row,
             "facts": item_page.facts(rec, space),
-            "used": item_page.used_in(
-                db,
-                user_id=int(user["sub"]),
-                org_id=org.id,
-                record_id=rec.id if rec is not None else "",
-                kind=kind,
-                name=name,
-                space=space,
-                space_ref=space_ref,
-            ),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "wiki_url": _wiki_page_url(scope, team_id),
         },

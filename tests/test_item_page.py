@@ -1,35 +1,7 @@
-"""An item's own page (#315): what it is, where it came from, and which of the viewer's chats used it. Model-free."""
+"""An item's own page (#315): what it is and where it came from. Model-free."""
 
-from anthill.web.db import ChatMessage, Conversation
-from anthill.wiki import answer_record
 from tests.test_remove_an_item import A, B, _personal, _soup
 from tests.test_upload_status import _login, _setup
-
-DOC = f"doc:{A} (page 1)"
-
-
-def _chat(app_mod, who, ws, sources, *, title="A chat", answers=1):
-    """A conversation of ``who`` with ``answers`` answers, each given ``sources`` (page slugs and ``doc:`` tags)."""
-    uid, org_id, _role = who
-    sess = app_mod._SessionFactory()
-    try:
-        conv = Conversation(user_id=uid, org_id=org_id, plane="solo", title=title)
-        sess.add(conv)
-        sess.flush()
-        for _ in range(answers):
-            sess.add(ChatMessage(conversation_id=conv.id, role="user", content="q"))
-            sess.add(
-                ChatMessage(
-                    conversation_id=conv.id,
-                    role="assistant",
-                    content="a",
-                    manifest=answer_record.dumps(answer_record.from_sources(sources, [ws])),
-                )
-            )
-        sess.commit()
-        return conv.id
-    finally:
-        sess.close()
 
 
 def _item(client, kind, name, **query):
@@ -65,44 +37,6 @@ def test_a_document_lists_its_pages_and_offers_its_text(tmp_path, monkeypatch):
     assert actions.find("a", string="text read from it")["href"].startswith("/wiki/text/")
     assert actions.find("a", string="Edit") is None  # a document is removed, not edited
     assert actions.find("a", string="Remove")["href"].startswith("/wiki/remove?kind=original")
-
-
-def test_the_chats_that_used_an_item_are_listed_newest_first_with_their_answers(
-    tmp_path, monkeypatch
-):
-    app_mod, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    ws = _personal(ids)
-    older = _chat(app_mod, ids["owner"], ws, ["ferry"], title="Ferry times", answers=2)
-    newer = _chat(app_mod, ids["owner"], ws, ["ferry", DOC], title="Ferry and quokkas")
-    _chat(app_mod, ids["owner"], ws, ["walrus"], title="Only the walrus")
-    _login(client, ids["owner"])
-    used = _item(client, "page", "ferry").find(id="item-story")
-    links = [(a.get_text(), a["href"]) for a in used.select("ul li a")]
-    assert links == [("Ferry and quokkas", f"/chat/{newer}"), ("Ferry times", f"/chat/{older}")]
-    assert "2 answers" in used.get_text() and "1 answer" in used.get_text()
-    doc = _item(client, "document", A).find(id="item-story")
-    assert [a.get_text() for a in doc.select("ul li a")] == ["Ferry and quokkas"]
-    walrus = _item(client, "page", "ferry-checked").find(id="item-story")
-    assert "None of your chats has given this to an answer yet." in walrus.get_text()
-
-
-def test_another_persons_chat_is_never_listed(tmp_path, monkeypatch):
-    app_mod, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    ws = _personal(ids)
-    _chat(app_mod, ids["mate"], ws, ["ferry"], title="Someone else's chat")
-    _login(client, ids["owner"])
-    text = _item(client, "page", "ferry").find(id="item-story").get_text()
-    assert "Someone else's chat" not in text and "None of your chats" in text
-
-
-def test_a_long_list_is_cut_and_counted(tmp_path, monkeypatch):
-    app_mod, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    ws = _personal(ids)
-    for i in range(23):
-        _chat(app_mod, ids["owner"], ws, ["ferry"], title=f"Chat {i}")
-    _login(client, ids["owner"])
-    story = _item(client, "page", "ferry").find(id="item-story")
-    assert len(story.select("ul li")) == 20 and "and 3 more chats" in story.get_text()
 
 
 def test_a_page_with_no_record_still_has_a_page(tmp_path, monkeypatch):
@@ -159,13 +93,3 @@ def test_a_team_wiki_needs_membership(tmp_path, monkeypatch):
     _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
     _login(client, ids["owner"])
     assert client.get("/wiki/item?kind=page&name=ferry&scope=team&team_id=999").status_code == 403
-
-
-def test_an_item_with_letters_outside_ascii_in_its_name_is_still_found(tmp_path, monkeypatch):
-    app_mod, _eng, client, ids = _setup(tmp_path, monkeypatch)
-    ws = _personal(ids)
-    (ws.wiki / "caf\u00e9.md").write_text("# Caf\u00e9\n\nNo record.\n", encoding="utf-8")
-    chat = _chat(app_mod, ids["owner"], ws, ["caf\u00e9"], title="About the cafe")
-    _login(client, ids["owner"])
-    story = _item(client, "page", "caf%C3%A9").find(id="item-story")
-    assert [a["href"] for a in story.select("ul li a")] == [f"/chat/{chat}"]

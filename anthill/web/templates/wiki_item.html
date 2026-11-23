@@ -25,16 +25,6 @@
     {% endif %}
   </dl>
 
-  <h3 style="font-size:14px;margin:16px 0 4px">Used in your chats</h3>
-  {% if used.chats %}
-  <ul class="text-sm" style="margin:0 0 0 18px;padding:0;line-height:1.8">
-    {% for c in used.chats %}<li><a href="/chat/{{ c.id }}">{{ c.title }}</a> <span class="text-muted">&middot; {{ c.answers }} answer{{ '' if c.answers == 1 else 's' }}</span></li>{% endfor %}
-  </ul>
-  {% if used.more %}<p class="text-sm text-muted" style="margin:4px 0 0 18px">and {{ used.more }} more chat{{ '' if used.more == 1 else 's' }}</p>{% endif %}
-  {% else %}
-  <p class="text-sm text-muted" style="margin:0">None of your chats has given this to an answer yet.</p>
-  {% endif %}
-
   <p class="text-sm" id="item-actions" style="margin:16px 0 0">
     <a href="{{ row.href }}">Open {{ 'the page' if row.kind == 'page' else 'the original' }}</a>
     {% if row.text_href %}<span class="text-muted">&middot;</span> <a href="{{ row.text_href }}">text read from it</a>{% endif %}

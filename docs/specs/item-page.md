@@ -1,13 +1,11 @@
 # Spec: an item's own page
 
-Status: implemented. Lane: `pillar:knowledge`. Issue: #315. Builds on `library-list.md` (#312) and
-`answer-manifest.md`. Part of the knowledge update, epic #270 (step 6, smallest version). It only reads.
+Status: implemented. Lane: `pillar:knowledge`. Issue: #315. Builds on `library-list.md` (#312). Part of the knowledge update, epic #270 (step 6, smallest version). It only reads.
 
 ## Problem
 
-A person could see what a wiki holds (the Library) and what one answer was given (the panel under an answer),
-but not the other way round: for one page or document, what it is, where it came from, what was made from it, and
-which of their chats used it.
+A person could see what a wiki holds (the Library), but not the item as one thing: what it is, where it came from,
+and what was made from it. The record of each item already says all of that.
 
 ## Fix
 
@@ -18,28 +16,21 @@ which of their chats used it.
    version with the plain note that the earlier text is not kept, the day it was learned, and a short content
    fingerprint.
 3. "Made from" (a page's document) or "Pages made from it" (a document's pages), as links.
-4. "Used in your chats": the chats whose answers were given this item, newest first, each a link with the number
-   of answers, the first 20 and then "and N more chats". Only the viewer's own chats are read, and at most their
-   newest 3,000 answers. An item no chat used says so. The wording is "used in", never "caused".
-5. The actions the person already had: open the page or the original, "text read from it", Edit (pages) and
+4. The actions the person already had: open the page or the original, "text read from it", Edit (pages) and
    Remove, shown only to someone who may edit that wiki.
-6. An item with no record, or a damaged one, has a page too, with what is known and no version.
-7. Access is that of the page view: a team wiki needs membership (403), the organisation wiki is not open to a Solo
+5. An item with no record, or a damaged one, has a page too, with what is known and no version.
+6. Access is that of the page view: a team wiki needs membership (403), the organisation wiki is not open to a Solo
    account, and a missing item, a wrong kind or a path is 404.
 
 ## Acceptance
 
-- A page and a document each show their facts, their links and the right chats, newest first, with answer counts.
-- Another person's chat is never listed.
-- The list is cut at 20 and counted.
+- A page and a document each show their facts and their links.
 - A page with no record still has a page.
 - The page view and the Library lead to it.
-- Measured at the cap of 3,000 stored answers, with 10 chats using the item: about 8 ms when each answer
-  names 5 items, 21 ms for 20 items and 49 ms for 50 items. The database narrows the answers to those whose
-  record mentions the item (its id or its name), so most records are never read into the application.
 - Looked at on a running copy at desktop widths, light and dark.
 
 ## Not here
 
-A version list, restore of an earlier version and supersede (the earlier text is not kept); training status;
-connector status and expiry; project and space; other people's chats, tasks, agents and the widget.
+Which of the person's chats used the item: that needs an index of answers to items, not a search of the stored
+answer records, and comes with that index. A version list, restore of an earlier version and supersede (the
+earlier text is not kept); training status; connector status and expiry; project and space.
