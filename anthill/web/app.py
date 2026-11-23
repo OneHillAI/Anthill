@@ -14748,19 +14748,15 @@ async def chat_stream(
                 + "\n\n"
             )
 
-        # Record training example (bronze, personal - attributed to this user). Failed turns are not
-        # model output and must never become training data. Also skipped for an ephemeral
-        # personal-mode-on-org run (P4: nothing is retained or trained), and when the user paused
-        # auto-memory - "off" must mean off: a user who asked Anthill to stop
-        # automatically remembering things about them would not expect their full turns to keep
-        # being captured as training data either, which is more revealing than a distilled memory.
-        from .memory_ops import auto_memory_on
-
+        # Record training example (bronze, personal - attributed to this user, kept on this device). Failed turns are
+        # not model output and must never become training data. Also skipped for an ephemeral personal-mode-on-org
+        # run (P4: nothing is retained or trained). It does not depend on the automatic-memory switch: that switch
+        # is about remembering facts; an example is only kept, privately, and nothing trains on it until the person
+        # decides. The example keeps the items its answer was given, and the narrowest space they belong to.
         if (
             not generation_failed
             and not fixed_answer  # code-made text is not model output
             and not (plane_inf and plane_inf.ephemeral)
-            and auto_memory_on(db, int(user["sub"]))
         ):
             from ..training.collect import record_example
             from ..wiki.ask import strip_web_note
@@ -14774,6 +14770,7 @@ async def chat_stream(
                 org_id=org.id,
                 user_id=int(user["sub"]),
                 scope="personal",
+                context=answer_record.training_context(record_box[-1]) if record_box else "",
                 training_eligible=_training_eligible(cfg),
             )
 
