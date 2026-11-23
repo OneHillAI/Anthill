@@ -323,7 +323,9 @@ class HttpPeerTransport:
         self.timeout = timeout
         self._client_transport = client_transport
 
-    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self, path: str, payload: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         body = canonical_json(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
@@ -339,7 +341,7 @@ class HttpPeerTransport:
         try:
             with httpx.Client(
                 base_url=self.base_url,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
                 trust_env=False,
                 transport=self._client_transport,
             ) as client:
@@ -379,12 +381,14 @@ class HttpPeerTransport:
                 "blobs": outgoing_blobs,
                 "device_bindings": device_bindings,
             },
+            timeout=max(self.timeout, 30.0),
         )
 
     def consult(self, hill_id: str, question: str, draft: str) -> dict[str, Any]:
         return self._post(
             "/api/node/p2p/consult",
             {"hill_id": hill_id, "question": question, "draft": draft},
+            timeout=max(self.timeout, 120.0),
         )
 
     def send_pair_request(self, join_response: dict[str, Any]) -> dict[str, Any]:

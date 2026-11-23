@@ -71,3 +71,55 @@ Complete the quick first-run setup on both:
 5. Instance B's isolated 0-tool peer endpoint answers strictly from lent areas (capped at 600 tokens, PII-scrubbed, 20 req/hr quota) and returns structured suggestions.
 6. On Instance A, click **Accept** or **Reject** on suggestions (rejected items stay visible; accepted items write signed `Acceptance` records and update local karma), optionally click **Open to people** to switch to a human-only Open Thread, and click **Propose to my wiki** to send the result through the Review Gate.
 7. Inspect **Peers & Hills -> Identity & egress** on both instances to verify zero-content usage ledger entries, test the 33-word recovery kit, or download an open-format OKGF + signed JSONL export.
+
+## 5. Connecting Two Desktops in Two Different Locations (Over the Internet)
+
+When two testers are on different networks (not the same Wi-Fi/LAN), Anthill keeps its web server bound to loopback (`127.0.0.1`) and connects over HTTPS via a zero-account Cloudflare Quick Tunnel (`cloudflared`) or Tailscale. No router port forwarding is required.
+
+### Option 5A: Both machines open a quick tunnel (full bidirectional sync + consult)
+
+Each person starts Anthill on loopback (`127.0.0.1:8001`) plus a quick tunnel in a second terminal:
+
+```bash
+# Install once on macOS if needed: brew install cloudflared
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8001
+```
+
+`cloudflared` prints a temporary public HTTPS URL such as `https://example-words.trycloudflare.com`.
+
+1. Both testers enable **Node peer-to-peer** under **Peers & Hills** and save their own `https://...trycloudflare.com` URL under **This desktop's peer URL**.
+2. Person A clicks **Create pairing invite** and sends the `anthill-pair://v1/...` token to Person B (Signal/Slack/WhatsApp).
+3. Person B pastes it under **Join with an invite** (with Person B's own `https://...trycloudflare.com` URL filled in) and clicks **Verify invite & compute SAS**.
+4. Both verify the **exact same 6-digit SAS code** out-of-band (voice call / Signal) and click **Codes match - Trust & Connect**.
+5. Live **Sync**, **Knowledge lending**, and **Consult peers** now run end-to-end across the Internet, with every HTTP request Ed25519-signed and verified against the pinned peer keys.
+6. If either machine restarts `cloudflared` and gets a new hostname, open **Update peer URL (LAN / Tailscale / tunnel)** on that peer's row to update the URL without re-pairing.
+
+### Option 5B: One-sided NAT (only one person opens a tunnel)
+
+Only Person A runs `cloudflared`. Person B leaves **This desktop's peer URL** blank:
+- Person B joins A's invite live, clicks **Sync** (one HTTPS POST both pushes B's missing records to A and pulls A's missing records to B), and runs live **Consult peers** against A's AI.
+- For offline/air-gapped tests with zero tunnels, exchange the offline join-response JSON + verify SAS, then pass `.anthill-bundle` files over any messenger or email.
+
+## 6. Autonomous Coding Agent Prompt
+
+Paste this prompt directly into a coding agent (Claude Code, Antigravity, Codex, etc.) to set up and launch the pilot autonomously:
+
+```text
+Set up and launch the Anthill peer-to-peer Node pillar proof-of-concept from branch `feat/node-p2p-pilot` of `https://github.com/OneHillAI/Anthill`.
+
+Do everything autonomously step by step:
+1. If not already in the Anthill repo, clone `https://github.com/OneHillAI/Anthill.git` and cd into it. Run `git fetch origin && git checkout feat/node-p2p-pilot && git pull --ff-only origin feat/node-p2p-pilot`.
+2. Ensure the Python venv is installed (`make install` if `.venv/bin/anthill` is missing).
+3. Verify the pilot works locally by running `.venv/bin/pytest -q tests/test_node_p2p.py` and confirm all tests pass (including the cross-Internet HTTPS tunnel + one-sided NAT test).
+4. Ensure Ollama is running locally (`ollama serve` in the background if `http://127.0.0.1:11434/api/tags` is unreachable) and ensure at least one small local chat model (such as `qwen2.5:3b`) is pulled.
+5. Start an isolated pilot Anthill Desktop instance in the background on `127.0.0.1:8001` with its own clean data dir `/tmp/anthill-pilot-me` (`ANTHILL_ALLOW_EPHEMERAL_KEY=1`, `ANTHILL_HOME=/tmp/anthill-pilot-me`, `ANTHILL_DB=/tmp/anthill-pilot-me/anthill.db`, `ANTHILL_ORG_WIKI=/tmp/anthill-pilot-me/org-wiki`, `ANTHILL_LOCAL_ONLY=1`), and wait until `http://127.0.0.1:8001/` responds.
+6. To allow connecting live with a remote peer in another location over the Internet, check if `cloudflared` is installed (install via `brew install cloudflared` on macOS if missing and brew is available). Start `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8001` in the background and capture the printed `https://*.trycloudflare.com` URL. (If `cloudflared` is unavailable, report that offline `.anthill-bundle` mode or Tailscale IP can be used instead.)
+7. Optionally, if I ask to test solo first, also start a second isolated instance on `127.0.0.1:8002` using `/tmp/anthill-pilot-peer`.
+8. Report back clearly with:
+   - Test pass summary
+   - Local browser URL to open (`http://127.0.0.1:8001/setup` then `/peers`)
+   - Public HTTPS tunnel URL to paste into "This desktop's peer URL" for cross-Internet pairing
+   - PIDs / stop commands for the background Anthill and cloudflared processes
+   - The 4-step checklist to pair with Raul via `anthill-pair://v1/...` + 6-digit SAS verification, sync an encrypted `.anthill-bundle` or live HTTPS delta, lend a wiki area, and run a 0-tool counter-check consultation.
+```
+

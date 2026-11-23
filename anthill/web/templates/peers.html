@@ -219,6 +219,17 @@
               {{ p.trust_label }} - Synced head #{{ heads_by_dev.get(p.device_pub_key, 0) }}
               {% if p.endpoint_url %} - <code>{{ p.endpoint_url }}</code>{% endif %}
             </div>
+            <details class="adv-disclosure" style="margin-top:2px">
+              <summary>Update peer URL (LAN / Tailscale / tunnel)</summary>
+              <div class="adv-disclosure-body">
+                <form method="post" action="/peers/{{ p.id }}/endpoint" class="node-row" style="margin:0">
+                  <input type="text" name="endpoint_url" value="{{ p.endpoint_url }}"
+                         placeholder="https://peer.trycloudflare.com or http://100.x.y.z:8001"
+                         style="flex:1;min-width:220px">
+                  <button type="submit" class="btn btn-outline btn-sm">Save peer URL</button>
+                </form>
+              </div>
+            </details>
           </div>
         </div>
         <div class="node-row">
@@ -282,7 +293,7 @@
       <input type="hidden" name="action" value="endpoint">
       <label for="peer-ep" style="margin:0;font-size:13px;white-space:nowrap">This desktop's peer URL:</label>
       <input id="peer-ep" type="text" name="public_endpoint" value="{{ settings.public_endpoint }}"
-             placeholder="http://127.0.0.1:8001 (loopback default; set LAN/Tailscale IP to share)" style="flex:1;min-width:220px">
+             placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8001" style="flex:1;min-width:220px">
       <button type="submit" class="btn btn-outline btn-sm">Save URL</button>
     </form>
   </div>

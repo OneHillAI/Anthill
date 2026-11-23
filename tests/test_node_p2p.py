@@ -800,3 +800,210 @@ def test_two_instance_e2e_pilot_and_rule12_and_rule2(tmp_path: Path, monkeypatch
         assert "err=" in revoked_sync.headers["location"]
     finally:
         node_routes.set_test_hooks(transport_resolver=None, backend_factory=None)
+
+
+# -- Two Different Locations Over the Internet (HTTPS Tunnel + One-Sided NAT) --
+
+
+class _ProxiedInternetTransport(httpx.BaseTransport):
+    """Simulates two desktops in different cities connected via an HTTPS tunnel/reverse proxy."""
+
+    def __init__(self, targets: dict[str, TestClient]) -> None:
+        self.targets = {k.rstrip("/"): v for k, v in targets.items()}
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        origin = f"{request.url.scheme}://{request.url.host}"
+        if request.url.port:
+            origin += f":{request.url.port}"
+        tc = self.targets.get(origin)
+        if tc is None:
+            raise httpx.ConnectError(f"Host unreachable over Internet: {origin}")
+        proxied_headers = dict(request.headers)
+        proxied_headers["X-Forwarded-Proto"] = "https"
+        proxied_headers["X-Forwarded-Host"] = request.url.host
+        proxied_headers["X-Forwarded-For"] = "203.0.113.42"
+        resp = tc.request(
+            request.method,
+            request.url.raw_path.decode("ascii"),
+            content=request.content,
+            headers=proxied_headers,
+        )
+        return httpx.Response(
+            status_code=resp.status_code,
+            headers=dict(resp.headers),
+            content=resp.content,
+            request=request,
+        )
+
+
+def test_cross_internet_tunnel_and_nat_peer_pilot(tmp_path: Path, monkeypatch):
+    """Two desktops in different networks: Desktop A behind an HTTPS tunnel, Desktop B behind NAT.
+
+    Verifies:
+      - Ed25519 peer auth headers pass cleanly through HTTPS reverse proxies (X-Forwarded-*).
+      - One-sided NAT works: B (no public URL) pairs live with A, syncs bidirectionally in one
+        POST (pushing B's page to A AND pulling A's page to B), and consults A's AI live.
+      - Rotating A's quick-tunnel URL via POST /peers/{id}/endpoint preserves pinned keys.
+    """
+    raul = _make_desktop_instance(
+        tmp_path, name="Raul-Remote", email="raul@city-a.example", org_id=11
+    )
+    christoph = _make_desktop_instance(
+        tmp_path, name="Christoph-NAT", email="christoph@city-b.example", org_id=12
+    )
+    ws_by_org = {raul["oid"]: raul["ws"], christoph["oid"]: christoph["ws"]}
+
+    def _fake_workspace_for(scope="personal", *, user_id=None, team_id=None, org_id=None):
+        if scope == "personal" and org_id in ws_by_org:
+            return ws_by_org[org_id]
+        empty = Workspace(tmp_path / f"net-empty-{scope}-{org_id}", scope=scope)
+        empty.init()
+        return empty
+
+    monkeypatch.setattr(node_routes, "workspace_for", _fake_workspace_for)
+
+    tunnel_v1 = "https://raul-city-a-v1.trycloudflare.com"
+    tunnel_v2 = "https://raul-city-a-v2.trycloudflare.com"
+    internet = _ProxiedInternetTransport({tunnel_v1: raul["client"], tunnel_v2: raul["client"]})
+    stub_raul = _StubPeerBackend(
+        "qwen2.5:3b",
+        {
+            "suggestions": [
+                {
+                    "kind": "add",
+                    "issue": "Cross-network check",
+                    "wording": "Verify the 6-digit SAS code on a separate call before trusting keys.",
+                    "reason": "From Raul's lent remote pilot notes.",
+                    "sources": ["Remote Pilot Notes"],
+                }
+            ]
+        },
+    )
+    node_routes.set_test_hooks(
+        transport_resolver=lambda _url: internet,
+        backend_factory=lambda _db, _oid, _uid: stub_raul,
+    )
+
+    try:
+        # Both enable Node pillar; only Raul exposes an HTTPS quick tunnel (Christoph stays behind NAT).
+        raul["client"].post("/peers/toggle", data={"action": "enabled"}, follow_redirects=False)
+        christoph["client"].post(
+            "/peers/toggle", data={"action": "enabled"}, follow_redirects=False
+        )
+        raul["client"].post(
+            "/peers/toggle",
+            data={"action": "endpoint", "public_endpoint": tunnel_v1},
+            follow_redirects=False,
+        )
+
+        with raul["factory"]() as db_r:
+            hill_id = db_r.query(web_db.NodeHill).first().hill_id
+
+        # 1. Raul creates invite with HTTPS tunnel URL; Christoph joins from behind NAT (empty URL).
+        raul["client"].post(
+            "/peers/invites/create",
+            data={"hill_id": hill_id, "endpoint_url": tunnel_v1},
+            follow_redirects=False,
+        )
+        with raul["factory"]() as db_r:
+            inv_r = db_r.query(NodeInvite).filter(NodeInvite.role == "inviter").first()
+            token, inv_r_id = inv_r.token, inv_r.id
+
+        christoph["client"].post(
+            "/peers/invites/join",
+            data={"token": token, "my_endpoint_url": ""},
+            follow_redirects=False,
+        )
+        with raul["factory"]() as db_r, christoph["factory"]() as db_c:
+            r_inv = db_r.query(NodeInvite).filter(NodeInvite.id == inv_r_id).first()
+            c_inv = db_c.query(NodeInvite).filter(NodeInvite.role == "joiner").first()
+            assert r_inv.status == "awaiting_sas" and c_inv.status == "awaiting_sas"
+            assert r_inv.sas_code == c_inv.sas_code
+            inv_c_id = c_inv.id
+
+        raul["client"].post(f"/peers/invites/{inv_r_id}/confirm", follow_redirects=False)
+        christoph["client"].post(f"/peers/invites/{inv_c_id}/confirm", follow_redirects=False)
+
+        with christoph["factory"]() as db_c:
+            raul_peer = db_c.query(NodePeer).filter(NodePeer.verified.is_(True)).first()
+            assert raul_peer is not None and raul_peer.endpoint_url == tunnel_v1
+            raul_peer_id = raul_peer.id
+
+        # 2. Both publish pages locally; Christoph initiates ONE bidirectional HTTPS sync over the tunnel.
+        raul["ws"].write_page(
+            "remote-pilot-notes",
+            "# Remote Pilot Notes\n\nAlways verify SAS out of band over voice or Signal.",
+            review="approved",
+        )
+        parsed_r = okf.parse_okf(
+            (raul["ws"].wiki / "remote-pilot-notes.md").read_text(encoding="utf-8")
+        )
+        parsed_r.tags = ["area:pilot"]
+        (raul["ws"].wiki / "remote-pilot-notes.md").write_text(
+            okf.to_okf(parsed_r), encoding="utf-8"
+        )
+        raul["client"].post(
+            "/peers/wiki/publish",
+            data={"hill_id": hill_id, "slug": "remote-pilot-notes"},
+            follow_redirects=False,
+        )
+        christoph["ws"].write_page(
+            "field-report",
+            "# Field Report\n\nOffline bundle handoff tested on Mac Mini.",
+            review="approved",
+        )
+        christoph["client"].post(
+            "/peers/wiki/publish",
+            data={"hill_id": hill_id, "slug": "field-report"},
+            follow_redirects=False,
+        )
+
+        # Single sync from Christoph (behind NAT) pushes field-report to Raul AND pulls remote-pilot-notes!
+        sync_resp = christoph["client"].post(f"/peers/{raul_peer_id}/sync", follow_redirects=False)
+        assert sync_resp.status_code == 303 and "err=" not in sync_resp.headers["location"]
+
+        with raul["factory"]() as db_r, christoph["factory"]() as db_c:
+            assert (
+                db_r.query(WikiReview).filter_by(slug="field-report", peer_state="proposed").first()
+            )
+            assert (
+                db_c.query(WikiReview)
+                .filter_by(slug="remote-pilot-notes", peer_state="proposed")
+                .first()
+            )
+
+        # 3. Rotate Raul's quick-tunnel URL (simulating cloudflared restart); pinned keys stay valid!
+        upd = christoph["client"].post(
+            f"/peers/{raul_peer_id}/endpoint",
+            data={"endpoint_url": tunnel_v2},
+            follow_redirects=False,
+        )
+        assert upd.status_code == 303 and "err=" not in upd.headers["location"]
+
+        # 4. Raul lends area:pilot -> Christoph runs live counter-check over the rotated HTTPS tunnel.
+        raul["client"].post(
+            "/peers/lending/toggle",
+            data={"hill_id": hill_id, "area_id": "area:pilot", "area_name": "Pilot"},
+            follow_redirects=False,
+        )
+        start = christoph["client"].post(
+            "/peers/consult/start",
+            data={
+                "question": "How should we verify keys across two locations?",
+                "draft": "Paste the invite token and click confirm.",
+                "hill_id": hill_id,
+            },
+            follow_redirects=False,
+        )
+        cid = int(start.headers["location"].split("cid=")[1].split("&")[0])
+        send = christoph["client"].post(
+            f"/peers/consult/{cid}/send",
+            data={"confirm_egress": "yes", "peer_ids": [str(raul_peer_id)]},
+            follow_redirects=False,
+        )
+        assert send.status_code == 303 and "err=" not in send.headers["location"]
+        assert stub_raul.chat_calls == 2
+        html = christoph["client"].get(f"/peers/consult?cid={cid}").text
+        assert "Cross-network check" in html
+    finally:
+        node_routes.set_test_hooks(transport_resolver=None, backend_factory=None)

@@ -1418,6 +1418,40 @@ def build_node_router(
             status_code=303,
         )
 
+    @router.post("/peers/{peer_id}/endpoint")
+    def update_peer_endpoint(
+        peer_id: int,
+        endpoint_url: str = Form(""),
+        user: dict[str, Any] = Depends(require_user),
+    ):
+        """Update a pinned peer's direct LAN/Tailscale/tunnel URL without changing pinned keys."""
+        db = get_db()
+        uid = int(user["sub"])
+        peer = (
+            db.query(NodePeer)
+            .filter(
+                NodePeer.id == peer_id,
+                NodePeer.user_id == uid,
+                NodePeer.verified.is_(True),
+                NodePeer.revoked.is_(False),
+            )
+            .first()
+        )
+        if peer is None:
+            return RedirectResponse("/peers?err=Peer+not+found.", status_code=303)
+        cleaned = endpoint_url.strip().rstrip("/")
+        if cleaned and not cleaned.startswith(("http://", "https://")):
+            return RedirectResponse(
+                "/peers?err=Peer+URL+must+start+with+http://+or+https://.", status_code=303
+            )
+        peer.endpoint_url = cleaned
+        peer.status = "online" if cleaned else "offline"
+        db.commit()
+        return RedirectResponse(
+            f"/peers?msg={quote_plus(f'Updated direct endpoint URL for {peer.display_name}.')}",
+            status_code=303,
+        )
+
     @router.post("/peers/{peer_id}/sync")
     def sync_peer_http(peer_id: int, user: dict[str, Any] = Depends(require_user)):
         db = get_db()
