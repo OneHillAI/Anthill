@@ -48,10 +48,10 @@ def test_answer_question_interleaves_history():
     msgs = prompts.answer_question("(the wiki is empty)", "what's my name?", history=history)
     roles = [m.role for m in msgs]
     assert roles[0] == "system"  # system first
-    # prefix-stable RAG: the reference block sits up front (right after system), before the conversation
-    assert msgs[1].role == "user" and "REFERENCE MATERIAL" in msgs[1].content
-    assert (msgs[2].role, msgs[2].content) == ("user", "my name is Sam")
-    assert (msgs[3].role, msgs[3].content) == ("assistant", "Nice to meet you, Sam")
+    # prefix-stable order: the conversation comes right after system; the reference for THIS question follows it
+    assert (msgs[1].role, msgs[1].content) == ("user", "my name is Sam")
+    assert (msgs[2].role, msgs[2].content) == ("assistant", "Nice to meet you, Sam")
+    assert msgs[3].role == "user" and "REFERENCE MATERIAL" in msgs[3].content
     assert msgs[-1].role == "user" and "what's my name?" in msgs[-1].content  # question last
 
 
