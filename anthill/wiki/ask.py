@@ -432,10 +432,14 @@ def ask(
     cited = cited + source_tags(doc_hits)
     if on_record is not None:
         on_record(answer_record.build(pages, doc_hits, spaces))
+    reference = context  # what was found for THIS question: the pages and passages
+    guidance = _guidance_block(profile=profile, principles=principles)  # the same text every turn
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
-        context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
+        memory_block = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n"
+        context = memory_block + context
+        reference = memory_block + reference
 
     # ── 5. web search (best-effort; falls back to a local answer on failure) ──
     # When the caller explicitly asks for web, always use it (blended with any
@@ -504,10 +508,11 @@ def ask(
             )
         else:
             messages = prompts.answer_question(
-                context,
+                reference,
                 question,
                 history=prepared_history,
                 window=_window_for(backend, model_override),
+                guidance=guidance,
             )
             # Prompt-injection defence, layer 2. Two failure modes on the injection-suspect path, both
             # handled here (see qa/chat-eval/DEV_FINDINGS.md, "#338 follow-up"):
@@ -568,11 +573,12 @@ def ask(
             # show the hijacked first answer or a raw backend error.
             if _looks_hijacked(answer, question, context) or not answer.strip():
                 messages = prompts.answer_question(
-                    context,
+                    reference,
                     question,
                     history=prepared_history,
                     reassert=True,
                     window=_window_for(backend, model_override),
+                    guidance=guidance,
                 )
                 try:
                     retry = _chat(
@@ -778,10 +784,14 @@ def ask_stream(
     cited = cited + source_tags(doc_hits)
     if on_record is not None:
         on_record(answer_record.build(pages, doc_hits, spaces))
+    reference = context  # what was found for THIS question: the pages and passages
+    guidance = _guidance_block(profile=profile, principles=principles)  # the same text every turn
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
-        context = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n{context}"
+        memory_block = f"What you remember (durable memory):\n{memory_context}\n\n---\n\n"
+        context = memory_block + context
+        reference = memory_block + reference
     if on_context is not None:
         on_context(cited)
 
@@ -919,7 +929,11 @@ def ask_stream(
                 "results_unusable"  # the search worked but the model could not write from it
             )
     messages = prompts.answer_question(
-        context, question, history=prepared_history, window=_window_for(backend, model_override)
+        reference,
+        question,
+        history=prepared_history,
+        window=_window_for(backend, model_override),
+        guidance=guidance,
     )
     chunks: list[str] = []
     note_due = web_failed
@@ -1058,6 +1072,23 @@ def _reference(spaces, pages: list[Path], question: str, *, small_talk: bool = F
     if doc_hits:
         context = format_block(doc_hits) + (PAGE_SEPARATOR + context if context else "")
     return context, doc_hits
+
+
+def _guidance_block(*, profile: str = "", principles: str = "") -> str:
+    """The principles and the profile as one block of the same text and labels as ``_decorate_context`` gives them,
+    in the same order, and nothing that changes with the question. Empty when there is neither."""
+    parts = []
+    if principles:
+        parts.append(
+            f"Standing principles (organization authoritative; follow these in "
+            f"every answer):\n{principles}"
+        )
+    if profile:
+        parts.append(
+            f"About the user you are helping (their stated profile and "
+            f"preferences - honor these):\n{profile}"
+        )
+    return "\n\n---\n\n".join(parts)
 
 
 def _decorate_context(context: str, *, profile: str = "", principles: str = "") -> str:
