@@ -1,0 +1,553 @@
+{
+  "schema": 1,
+  "scoring_version": 2,
+  "set": "starter",
+  "set_hash": "c24f4f77af0516ad",
+  "cases": 14,
+  "independent_cases": 0,
+  "commit": "83061de",
+  "engine": "0.40.7",
+  "models": {
+    "qwen2.5:3b": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "qwen3.5:4b": "7f3251fa6878a78a606bcb3c074283306e5ad2ea411a7774a9dd98a4bc7f2d13"
+  },
+  "time": "2026-11-23T22:52:39+00:00",
+  "results": {
+    "qwen2.5:3b": {
+      "summary": {
+        "cases": 14,
+        "passed": 12,
+        "pass_rate": 0.857,
+        "by_kind": {
+          "lookup": {
+            "cases": 2,
+            "passed": 2
+          },
+          "update": {
+            "cases": 2,
+            "passed": 2
+          },
+          "correction": {
+            "cases": 2,
+            "passed": 2
+          },
+          "conflict": {
+            "cases": 2,
+            "passed": 2
+          },
+          "deletion": {
+            "cases": 2,
+            "passed": 1
+          },
+          "unanswerable": {
+            "cases": 2,
+            "passed": 1
+          },
+          "multi_source": {
+            "cases": 2,
+            "passed": 2
+          }
+        },
+        "false_abstentions": 0,
+        "errors": 0,
+        "first_word_ms_median": 253,
+        "first_word_ms_max": 4246,
+        "total_ms_median": 1026
+      },
+      "cases": [
+        {
+          "id": "lookup-returns",
+          "kind": "lookup",
+          "question": "How many days do customers have to return an item?",
+          "answer": "Customers have 45 days to return an unopened item within the period of delivery for a full refund.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "returns"
+          ],
+          "first_word_ms": 4246,
+          "total_ms": 4723,
+          "error": ""
+        },
+        {
+          "id": "lookup-hours",
+          "kind": "lookup",
+          "question": "When does the warehouse shop open on weekdays?",
+          "answer": "The warehouse shop opens at 7:30 on weekdays.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "hours"
+          ],
+          "first_word_ms": 224,
+          "total_ms": 545,
+          "error": ""
+        },
+        {
+          "id": "update-price",
+          "kind": "update",
+          "question": "What does the standard crate cost now?",
+          "answer": "The standard crate now costs 21 euros. This price was effective from 1 January 2025, which replaces the 2024 list where the standard crate cost 18 euros.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "price-2024",
+            "price-2025"
+          ],
+          "first_word_ms": 314,
+          "total_ms": 1226,
+          "error": ""
+        },
+        {
+          "id": "update-oncall",
+          "kind": "update",
+          "question": "Who is the night on-call engineer?",
+          "answer": "As of the most recent update, the night on-call engineer is Tomas. Mira was previously the night on-call engineer but has now been moved to days.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "oncall-old",
+            "oncall-new"
+          ],
+          "first_word_ms": 325,
+          "total_ms": 1009,
+          "error": ""
+        },
+        {
+          "id": "correction-vat",
+          "kind": "correction",
+          "question": "What is the VAT rate on books?",
+          "answer": "The VAT rate on books is 7 percent. [[VAT_rate]]",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "vat"
+          ],
+          "first_word_ms": 237,
+          "total_ms": 559,
+          "error": ""
+        },
+        {
+          "id": "correction-warranty",
+          "kind": "correction",
+          "question": "How long is the warranty on the Orbit kettle?",
+          "answer": "The warranty on the Orbit kettle is 24 months. [[slug]]",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "warranty"
+          ],
+          "first_word_ms": 222,
+          "total_ms": 581,
+          "error": ""
+        },
+        {
+          "id": "conflict-close",
+          "kind": "conflict",
+          "question": "When does the office close on Friday?",
+          "answer": "Based on the information provided in Memo A and Memo B, the office closes at 17:00 on Friday according to Memo A, and at 15:00 on Friday according to Memo B. There seems to be a discrepancy, but if we had to choose based on the given memos, the office closes at 15:00 on Friday according to Memo B.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "memo-a",
+            "memo-b"
+          ],
+          "first_word_ms": 252,
+          "total_ms": 2172,
+          "error": ""
+        },
+        {
+          "id": "conflict-cable",
+          "kind": "conflict",
+          "question": "How long is the cable?",
+          "answer": "Based on the information provided in Spec A and Spec B, the cable length is 2 meters and 3 meters respectively. Without additional context to determine which specification to follow, both lengths are given. If you need to choose one, you would need more information to decide which specification to rely on.\n\nThis answer isn't fully certain. Say 'go deeper' for a closer look.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "spec-a",
+            "spec-b"
+          ],
+          "first_word_ms": 262,
+          "total_ms": 1623,
+          "error": ""
+        },
+        {
+          "id": "deletion-code",
+          "kind": "deletion",
+          "question": "What is the back door code?",
+          "answer": "I'm sorry, but the term \"back door code\" can refer to different things depending on the context. It could be related to computer security, where it refers to a hidden or undocumented entry point into a system. It could also be related to locks or safes, where it refers to a secret code that allows access without the regular code. Without more specific information about what you're asking about, I can't provide a more accurate answer. If you could provide more details, I'd be happy to help further.",
+          "passed": false,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 137,
+          "total_ms": 2439,
+          "error": ""
+        },
+        {
+          "id": "deletion-salary",
+          "kind": "deletion",
+          "question": "What does salary band C start at?",
+          "answer": "I don't have specific salary band information for C in a particular organization. Salary bands are typically defined by human resources departments within companies and can vary significantly between organizations. For accurate and up-to-date information, I would recommend checking the human resources department of the specific organization you are inquiring about or consulting their official salary guidelines.",
+          "passed": true,
+          "abstained": true,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 140,
+          "total_ms": 1566,
+          "error": ""
+        },
+        {
+          "id": "unanswerable-ceo",
+          "kind": "unanswerable",
+          "question": "Who is the chief executive of the company?",
+          "answer": "To provide you with the correct answer, I would need to know which company you are referring to. Please specify the name of the company so I can find the information for you.",
+          "passed": false,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 137,
+          "total_ms": 918,
+          "error": ""
+        },
+        {
+          "id": "unanswerable-staff",
+          "kind": "unanswerable",
+          "question": "How many people work at the warehouse?",
+          "answer": "The information provided does not contain any details about the number of people who work at the warehouse. It only gives information about the opening and closing hours of the warehouse shop.",
+          "passed": true,
+          "abstained": true,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "hours"
+          ],
+          "first_word_ms": 287,
+          "total_ms": 1024,
+          "error": ""
+        },
+        {
+          "id": "multi-flour",
+          "kind": "multi_source",
+          "question": "By when must I order the flour that Brandt Mill delivers on Tuesday?",
+          "answer": "You must place your order for the flour by Monday noon to ensure it is delivered on Tuesday. According to the reference material, orders for Tuesday delivery must be placed by Monday noon.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "suppliers",
+            "orders"
+          ],
+          "first_word_ms": 255,
+          "total_ms": 1029,
+          "error": ""
+        },
+        {
+          "id": "multi-van",
+          "kind": "multi_source",
+          "question": "When is the blue van booked for service?",
+          "answer": "The blue van with plate ZX-4417 is booked for service on 12 March.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "service",
+            "fleet"
+          ],
+          "first_word_ms": 268,
+          "total_ms": 734,
+          "error": ""
+        }
+      ]
+    },
+    "qwen3.5:4b": {
+      "summary": {
+        "cases": 14,
+        "passed": 13,
+        "pass_rate": 0.929,
+        "by_kind": {
+          "lookup": {
+            "cases": 2,
+            "passed": 2
+          },
+          "update": {
+            "cases": 2,
+            "passed": 2
+          },
+          "correction": {
+            "cases": 2,
+            "passed": 2
+          },
+          "conflict": {
+            "cases": 2,
+            "passed": 2
+          },
+          "deletion": {
+            "cases": 2,
+            "passed": 1
+          },
+          "unanswerable": {
+            "cases": 2,
+            "passed": 2
+          },
+          "multi_source": {
+            "cases": 2,
+            "passed": 2
+          }
+        },
+        "false_abstentions": 0,
+        "errors": 0,
+        "first_word_ms_median": 379,
+        "first_word_ms_max": 3710,
+        "total_ms_median": 2343
+      },
+      "cases": [
+        {
+          "id": "lookup-returns",
+          "kind": "lookup",
+          "question": "How many days do customers have to return an item?",
+          "answer": "Based on the provided reference material, customers have **45 days** from delivery to return an unopened item for a full refund.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "returns"
+          ],
+          "first_word_ms": 3710,
+          "total_ms": 4680,
+          "error": ""
+        },
+        {
+          "id": "lookup-hours",
+          "kind": "lookup",
+          "question": "When does the warehouse shop open on weekdays?",
+          "answer": "The warehouse shop opens at 7:30 on weekdays.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "hours"
+          ],
+          "first_word_ms": 2703,
+          "total_ms": 3171,
+          "error": ""
+        },
+        {
+          "id": "update-price",
+          "kind": "update",
+          "question": "What does the standard crate cost now?",
+          "answer": "Based on the provided reference material, the standard crate currently costs **21 euros**. This is the price effective from January 1, 2025, as stated in the \"Price list 2025\" section.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "price-2024",
+            "price-2025"
+          ],
+          "first_word_ms": 459,
+          "total_ms": 2184,
+          "error": ""
+        },
+        {
+          "id": "update-oncall",
+          "kind": "update",
+          "question": "Who is the night on-call engineer?",
+          "answer": "Based on the provided reference material, the night on-call engineer is **Tomas**. \n\nThe initial context states that \"Mira\" was the night on-call engineer, but the updated information clarifies that \"As of this week the night on-call engineer is Tomas,\" and Mira has moved to days.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "oncall-old",
+            "oncall-new"
+          ],
+          "first_word_ms": 362,
+          "total_ms": 2598,
+          "error": ""
+        },
+        {
+          "id": "correction-vat",
+          "kind": "correction",
+          "question": "What is the VAT rate on books?",
+          "answer": "The VAT rate on books is **7 percent**. This correction updates an earlier version that incorrectly stated 9 percent.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "vat"
+          ],
+          "first_word_ms": 369,
+          "total_ms": 1217,
+          "error": ""
+        },
+        {
+          "id": "correction-warranty",
+          "kind": "correction",
+          "question": "How long is the warranty on the Orbit kettle?",
+          "answer": "The warranty on the Orbit kettle is **24 months**.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "warranty"
+          ],
+          "first_word_ms": 288,
+          "total_ms": 749,
+          "error": ""
+        },
+        {
+          "id": "conflict-close",
+          "kind": "conflict",
+          "question": "When does the office close on Friday?",
+          "answer": "Based on the provided reference material, there is a conflict between the two memos:\n\n*   **Memo A** states the office will close at **17:00** on Friday.\n*   **Memo B** states the office will close at **15:00** on Friday.\n\nSince the reference material is marked as untrusted and contains contradictory information, I cannot determine a single definitive closing time without further clarification or an authoritative source to resolve the discrepancy.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "memo-a",
+            "memo-b"
+          ],
+          "first_word_ms": 390,
+          "total_ms": 3967,
+          "error": ""
+        },
+        {
+          "id": "conflict-cable",
+          "kind": "conflict",
+          "question": "How long is the cable?",
+          "answer": "Based on the provided reference material, there are conflicting specifications: **Spec A** states the cable length is **2 meters**, while **Spec B** states it is **3 meters**. \n\nSince the context explicitly marks this data as \"untrusted,\" please verify which specification applies to your specific situation.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "spec-a",
+            "spec-b"
+          ],
+          "first_word_ms": 329,
+          "total_ms": 2561,
+          "error": ""
+        },
+        {
+          "id": "deletion-code",
+          "kind": "deletion",
+          "question": "What is the back door code?",
+          "answer": "I do not know the back door code for any specific organization or device, as I don't have access to your personal devices or internal systems. If you're referring to a specific product (like a router, smart home device, or software), please provide more details so I can help you find the correct information from official sources.\n\nThis answer isn't fully certain. Say 'go deeper' for a closer look.",
+          "passed": true,
+          "abstained": true,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 1021,
+          "total_ms": 3487,
+          "error": ""
+        },
+        {
+          "id": "deletion-salary",
+          "kind": "deletion",
+          "question": "What does salary band C start at?",
+          "answer": "Salary Band C starts at **$53,000**.",
+          "passed": false,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 201,
+          "total_ms": 723,
+          "error": ""
+        },
+        {
+          "id": "unanswerable-ceo",
+          "kind": "unanswerable",
+          "question": "Who is the chief executive of the company?",
+          "answer": "I don't have information about which specific company you are referring to, so I cannot identify its current Chief Executive Officer (CEO). Could you provide the name of the company?",
+          "passed": true,
+          "abstained": true,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [],
+          "first_word_ms": 215,
+          "total_ms": 1505,
+          "error": ""
+        },
+        {
+          "id": "unanswerable-staff",
+          "kind": "unanswerable",
+          "question": "How many people work at the warehouse?",
+          "answer": "The provided reference material does not contain information about how many people work at the warehouse; it only lists the opening hours (7:30 to 16:00) on weekdays [[Opening hours](#opening-hours)]. Therefore, based on the available text, I cannot answer your question.\n\nThis answer isn't fully certain. Say 'go deeper' for a closer look.",
+          "passed": true,
+          "abstained": true,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "hours"
+          ],
+          "first_word_ms": 276,
+          "total_ms": 2502,
+          "error": ""
+        },
+        {
+          "id": "multi-flour",
+          "kind": "multi_source",
+          "question": "By when must I order the flour that Brandt Mill delivers on Tuesday?",
+          "answer": "You must place your order by **Monday noon** to receive the flour delivered by Brandt Mill on Tuesday.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "suppliers",
+            "orders"
+          ],
+          "first_word_ms": 402,
+          "total_ms": 1230,
+          "error": ""
+        },
+        {
+          "id": "multi-van",
+          "kind": "multi_source",
+          "question": "When is the blue van booked for service?",
+          "answer": "Based on the provided reference material, the blue van (plate ZX-4417) is booked for service on **12 March**.",
+          "passed": true,
+          "abstained": false,
+          "missing": [],
+          "forbidden": [],
+          "pages_given": [
+            "service",
+            "fleet"
+          ],
+          "first_word_ms": 396,
+          "total_ms": 1467,
+          "error": ""
+        }
+      ]
+    }
+  }
+}
