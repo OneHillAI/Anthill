@@ -16,11 +16,10 @@ from ..inference.base import BackendError, InferenceBackend, Message
 from ..lifecycle.version import read_provenance
 from ..mesh_auth import mesh_headers
 from ..routing import TaskRouter
-from . import answer_record, prompts
+from . import answer_record, prompt_blocks, prompts
 from .cache_freshness import judge_for
-from .doc_context import document_passages, format_block, source_tags, summary_labels
+from .doc_context import document_passages, source_tags
 from .page_index import embed_text
-from .passages import PAGE_SEPARATOR, build_reference
 from .workspace import Workspace
 
 # Minimum cosine similarity for a wiki page to ground an answer. Below this, the "closest" page is
@@ -428,10 +427,14 @@ def ask(
     cited = _cited_slugs(pages, scores)
     # No "(the wiki is empty)" placeholder: small models parrot it back ("there are no relevant wiki
     # pages") instead of just answering. When there are no pages, the wiki context is simply empty.
-    context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
+    context, doc_hits, blocks = _reference(spaces, pages, question, small_talk=small_talk)
     cited = cited + source_tags(doc_hits)
     if on_record is not None:
-        on_record(answer_record.build(pages, doc_hits, spaces))
+        on_record(
+            prompt_blocks.record_of(
+                blocks, rules=principles, profile=profile, memory=memory_context, history=history
+            )
+        )
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -774,10 +777,14 @@ def ask_stream(
     scores: dict[Path, float] = {}
     pages = [] if small_talk else _merge_relevant(spaces, question, k, q_vec, scores)
     cited = _cited_slugs(pages, scores)
-    context, doc_hits = _reference(spaces, pages, question, small_talk=small_talk)
+    context, doc_hits, blocks = _reference(spaces, pages, question, small_talk=small_talk)
     cited = cited + source_tags(doc_hits)
     if on_record is not None:
-        on_record(answer_record.build(pages, doc_hits, spaces))
+        on_record(
+            prompt_blocks.record_of(
+                blocks, rules=principles, profile=profile, memory=memory_context, history=history
+            )
+        )
     context = _decorate_context(context, profile=profile, principles=principles)
     context_no_mem = context  # the web path receives memory as its own labelled block
     if memory_context:
@@ -1054,10 +1061,8 @@ def _reference(spaces, pages: list[Path], question: str, *, small_talk: bool = F
     ``ask_stream()``; costs one index query per workspace and no model call, and adds nothing when no passage
     qualifies."""
     doc_hits = [] if small_talk else document_passages(spaces, question)
-    context = build_reference(pages, question, summary_labels(pages, doc_hits)) if pages else ""
-    if doc_hits:
-        context = format_block(doc_hits) + (PAGE_SEPARATOR + context if context else "")
-    return context, doc_hits
+    blocks = prompt_blocks.knowledge_blocks(spaces, pages, doc_hits, question)
+    return prompt_blocks.render_reference(blocks), doc_hits, blocks
 
 
 def _decorate_context(context: str, *, profile: str = "", principles: str = "") -> str:

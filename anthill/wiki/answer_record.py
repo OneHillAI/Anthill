@@ -245,4 +245,7 @@ def loads(text: str) -> dict:
         data = None
     if not isinstance(data, dict) or not isinstance(data.get("items"), list):
         return {"v": 1, "items": [], "more": 0}
-    return {"v": 1, "items": data["items"], "more": int(data.get("more") or 0)}
+    out = {"v": 1, "items": data["items"], "more": int(data.get("more") or 0)}
+    if isinstance(data.get("blocks"), list):
+        out["blocks"] = [b for b in data["blocks"] if isinstance(b, dict)]
+    return out

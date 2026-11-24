@@ -45,7 +45,10 @@ text has no identity of its own, and the other paths record nothing.
 
 - Whether to show a short item tag to the model, and what that costs the stable start of the prompt and the answer, is a measurement for
   later with the evaluation set (`docs/specs/knowledge-eval-set.md`); this step does not show ids.
-- A `memory` block carries the id of the memory row until memory is replaced; such a block is not an item with a record.
+- In slice a the answer path receives the memory only as text, so the memory is recorded as a block without an item (type, hash and
+  length). It gets an id when memory rows reach the builder, or goes when memory is replaced (step 2.3).
+- The earlier turns in the record are the turns the chat passed in, before the prompt is shortened to fit. A turn the fit drops is
+  still listed. Slice a records what was placed in the reference, not what the fit kept.
 - In an agent turn that takes several steps, tool results accumulate; the record keeps the first 50 items and says how many more, as the
   answer record does.
 - This step produces the complete record; it does not by itself show the rules, the profile or the earlier turns to the person or
