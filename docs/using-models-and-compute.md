@@ -32,7 +32,7 @@ A model download shows live progress: the percentage, how much is downloaded, th
 left. You see it on the Dashboard, on the **Models** page and under **Settings**, on the **Model** tab.
 It keeps going if you leave the page, and your current model keeps working until the new one is ready.
 Asking for a download that is already running reuses it, and **Cancel download** on the **Models**
-page stops it.
+page stops it. If a download does not finish, the page says so: "The download did not finish. Nothing was changed and your current model keeps working.", with **Try again**, or a plain note when there was not enough free disk space.
 
 To uninstall a model, find it in the model list under **Settings**, on the **Model** tab, and click
 **Uninstall**, then confirm. That frees the disk space it used. A model currently in use, as the
