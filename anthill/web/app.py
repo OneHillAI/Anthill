@@ -1837,6 +1837,18 @@ def _verify_wiki_write(cfg, *, content: str, source: str):
         return None
 
 
+def _page_changed_outside(ws, slug: str) -> bool:
+    """True when the page this write would replace was changed outside the app since it was last saved."""
+    from ..common.text import slugify
+    from ..wiki.page_store import outside_edit
+
+    path = ws.wiki / f"{slugify(slug)}.md"
+    try:
+        return path.is_file() and outside_edit(path.read_text(encoding="utf-8")) is not None
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def propose_wiki_write(
     db: Session,
     *,
@@ -1887,10 +1899,15 @@ def propose_wiki_write(
     outline = outline_change(_backend_from_cfg(cfg), ws, slug, content, scope=target_scope)
     verdict = _verify_wiki_write(cfg, content=content, source=source)
     verifier_flagged = verdict is not None and not verdict.ok
-    if outline.flags or verifier_flagged or conflict or always_review:
+    changed = _page_changed_outside(ws, slug)
+    if outline.flags or verifier_flagged or conflict or always_review or changed:
         flags = list(outline.flags)
         if always_review:
             flags.append("agent-written")
+        if changed:
+            flags.append(
+                "page-changed"
+            )  # a person changed the page outside the app: a model never replaces it
         outline_text = outline.text
         if conflict:
             flags.append(conflict["flag"])
@@ -1931,7 +1948,28 @@ def propose_wiki_write(
         # matching this function's own "the single gate for a wiki write" contract.
         db.commit()
         return False
-    ws.write_page(slug, content)
+    from ..wiki.page_store import StaleSave
+
+    try:
+        ws.write_page(slug, content)
+    except (
+        StaleSave
+    ):  # the page was changed between the check above and the write: hold it for a person
+        return propose_wiki_write(
+            db,
+            org_id=org_id,
+            proposed_by=proposed_by,
+            slug=slug,
+            content=content,
+            target_scope=target_scope,
+            team_id=team_id,
+            source=source,
+            source_conversation_id=source_conversation_id,
+            source_message_id=source_message_id,
+            provenance_hash=provenance_hash,
+            conflict=conflict,
+            always_review=True,
+        )
     ws.rebuild_index()
     ws.append_log("write", slug)
     # Keep the DB registry in sync (#683 phase 7) - this is the single funnel every clean wiki-page
@@ -8064,7 +8102,16 @@ async def approve_review(
         ws.append_log("promote", f"skill:{rev.slug}")
     else:
         # Approved through the review gate -> stamp the OKGF review state on the native page.
-        ws.write_page(rev.slug, rev.content, review="approved")
+        from ..wiki.page_store import StaleSave
+
+        try:
+            ws.write_page(rev.slug, rev.content, review="approved")
+        except StaleSave as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="The page was changed outside Anthill after this was proposed, so it was not replaced. "
+                "Reject this change, or copy what you need into the page.",
+            ) from exc
         ws.rebuild_index()
         ws.append_log("promote", rev.slug)
 
@@ -9039,6 +9086,7 @@ def _edit_target(db, user, scope: str, team_id, slug: str):
 
 def _edit_form(request, user, org, scope, team_id, path, text: str, error: str = "", status=200):
     from ..common.text import first_h1
+    from ..wiki.page_store import page_hash
 
     return templates.TemplateResponse(
         request,
@@ -9052,6 +9100,7 @@ def _edit_form(request, user, org, scope, team_id, path, text: str, error: str =
             "slug": path.stem,
             "title": first_h1(path.read_text()) or path.stem,
             "text": text,
+            "base_hash": page_hash(path.read_text()),
             "error": error,
             "query": f"?scope={scope}" + (f"&team_id={team_id}" if team_id else ""),
         },
@@ -9088,11 +9137,14 @@ def wiki_page_edit_save(
     content: str = Form(""),
     scope: str = Form("personal"),
     team_id: int | None = Form(None),
+    base_hash: str = Form(""),
     user: dict = Depends(_require_user),
 ):
     """Save a person's correction to a page. The text is theirs from then on: the page's record says so, the page
-    keeps its source, and a model upgrade never regenerates it."""
+    keeps its source, and a model upgrade never regenerates it. ``base_hash`` is the hash of the page the form was
+    opened on: if the page is not that text now, nothing is saved and the person is told."""
     from ..lifecycle.version import PROVENANCE_RE
+    from ..wiki.page_store import StaleSave
 
     db = _db()
     org = _require_org(db, user)
@@ -9112,7 +9164,17 @@ def wiki_page_edit_save(
     if text == _editable_text(old):
         return RedirectResponse(back, status_code=303)  # nothing changed: nothing is written
     tag = PROVENANCE_RE.search(old)
-    ws.write_page(path.stem, f"{text}\n\n{tag.group(0)}\n" if tag else text, by_person=True)
+    try:
+        ws.write_page(
+            path.stem,
+            f"{text}\n\n{tag.group(0)}\n" if tag else text,
+            by_person=True,
+            base_hash=base_hash or None,
+        )
+    except StaleSave as exc:
+        return _edit_form(
+            request, user, org, scope, team_id, path, content, _stale_message(exc), 409
+        )
     ws.rebuild_index()
     ws.append_log("edit", path.stem)
     _registry_sync_page(db, org.id, scope, team_id, path, user)
@@ -9124,6 +9186,19 @@ def wiki_page_edit_save(
         user_id=user["sub"],
     )
     return RedirectResponse(f"{back}&saved=1", status_code=303)
+
+
+def _stale_message(exc) -> str:
+    """What a person is told when their save was refused because the page is not the text they opened."""
+    which = (
+        "was changed outside Anthill after you opened it"
+        if exc.outside
+        else "was changed by someone else after you opened it"
+    )
+    return (
+        f"This page {which}, so your text was not saved. Your text is still in the box. "
+        "The page as it is now is kept in its history. Saving again replaces the page with your text."
+    )
 
 
 def _registry_sync_page(db, org_id, scope, team_id, path, user) -> None:

@@ -11,6 +11,7 @@ from ..wiki.ingest import (
     source_to_page,
 )
 from ..wiki.items import is_person_edited
+from ..wiki.page_store import StaleSave
 from ..wiki.workspace import Workspace
 from .version import is_verbatim, read_provenance, stale_pages, tag_page
 
@@ -95,7 +96,11 @@ def renovate(
             pipeline_model=new_model,
         )
         title = first_h1(page_md) or slug
-        ws.write_page(title, page_md)
+        try:
+            ws.write_page(title, page_md)
+        except StaleSave:  # changed outside the app: a person's text is never regenerated over
+            report.skipped.append(f"{slug}: changed outside the app")
+            continue
         report.regenerated.append(slug)
 
     if not dry_run and report.regenerated:
