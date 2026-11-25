@@ -2334,6 +2334,34 @@ def _cluster_workers_from_cfg(cfg) -> list[dict]:
 # ── memory layer (recall into answers; distil from chats) ─────────────────────
 
 
+def _core_guidance(user: dict, legacy_profile: str) -> tuple[str, dict | None]:
+    """The profile and preferences for the owner's own turn, from their core page (wiki/core_page.py), and the page's item for the
+    answer record. The profile saved before the core page becomes the page the first time it is needed. Never raises: a problem with
+    the core page leaves the profile as it was and never costs the person their answer."""
+    from ..wiki import core_page
+
+    try:
+        ws = workspace_for("personal", user_id=int(user["sub"]))
+        if not ws.exists() and (legacy_profile or "").strip():
+            ws.init()
+        return core_page.guidance_for(ws, legacy_profile)
+    except Exception as e:  # noqa: BLE001 - the core page must never cost the person their answer
+        logger.warning("core page skipped: %s", e)
+        return legacy_profile or "", None
+
+
+def _profile_for_form(user: dict, me) -> str:
+    """The profile as the person sees and edits it: the core page's profile when they have one, else the one saved before it."""
+    from ..wiki import core_page
+
+    legacy = (me.profile if me else "") or ""
+    try:
+        return core_page.profile_text(workspace_for("personal", user_id=int(user["sub"])), legacy)
+    except Exception as e:  # noqa: BLE001 - a problem reading the core page leaves the form showing the saved profile
+        logger.warning("core page skipped: %s", e)
+        return legacy
+
+
 def _recall_memory(db, org_id, user_id, question: str, k: int = 3) -> str:
     """Durable memories relevant to the question, as a bullet block ('' if none).
     Spans the user's own, their teams', and org-wide memory."""
@@ -6875,7 +6903,7 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
             "cloud_models": (picker or {}).get("cloud_models", []),
             "other_installed": (picker or {}).get("other_installed", []),
             "fields": _PROFILE_FIELDS,
-            "profile": (me.profile if me else "") or "",
+            "profile": _profile_for_form(user, me),
             "memory_on": not bool(getattr(me, "auto_memory_off", False)) if me else True,
             "web_access_on": bool(getattr(me, "web_access_on", False)) if me else False,
             "thinking_on": bool(getattr(me, "thinking_on", False)) if me else False,
@@ -6951,7 +6979,17 @@ async def personalize_post(request: Request, user: dict = Depends(_require_user)
     values = {k: form.get(k, "") for k, _ in _PROFILE_FIELDS}
     edited = (form.get("profile") or "").strip()  # the editable, approved draft
     profile = edited or _compose_profile(values)
-    me.profile = profile
+    from ..wiki import core_page
+
+    core_ws = workspace_for("personal", user_id=me.id)
+    if not core_ws.exists():
+        core_ws.init()
+    try:
+        core_page.save(
+            core_ws, profile=profile
+        )  # the profile lives on the core page (spec: core-page.md)
+    except core_page.TooLong as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     me.onboarding_done = True  # completing personalization counts as onboarded
     # (The old "use the org model for personal chats" opt-in is retired: in an org account a Solo chat
     # runs on the org model by default now - one model per account, Finding A. The DB column is kept
@@ -7278,7 +7316,7 @@ def onboarding_status(user: dict = Depends(_require_user)):
     me = db.query(User).filter(User.id == int(user["sub"])).first()
     return {
         "done": bool(me.onboarding_done) if me else True,
-        "personalized": bool(me and me.profile),
+        "personalized": bool(_profile_for_form(user, me).strip()),
     }
 
 
@@ -8138,10 +8176,13 @@ async def approve_review(
         ws.append_log("promote", f"skill:{rev.slug}")
     else:
         # Approved through the review gate -> stamp the OKGF review state on the native page.
+        from ..wiki import core_page
         from ..wiki.page_store import StaleSave
 
         try:
             ws.write_page(rev.slug, rev.content, review="approved")
+        except core_page.TooLong as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except StaleSave as exc:
             raise HTTPException(
                 status_code=409,
@@ -9230,6 +9271,7 @@ def wiki_page_edit_save(
     keeps its source, and a model upgrade never regenerates it. ``base_hash`` is the hash of the page the form was
     opened on: if the page is not that text now, nothing is saved and the person is told."""
     from ..lifecycle.version import PROVENANCE_RE
+    from ..wiki import core_page
     from ..wiki.page_store import StaleSave
 
     db = _db()
@@ -9261,6 +9303,8 @@ def wiki_page_edit_save(
         return _edit_form(
             request, user, org, scope, team_id, path, content, _stale_message(exc), 409
         )
+    except core_page.TooLong as exc:
+        return _edit_form(request, user, org, scope, team_id, path, content, str(exc), 400)
     ws.rebuild_index()
     ws.append_log("edit", path.stem)
     _registry_sync_page(db, org.id, scope, team_id, path, user)
@@ -14583,10 +14627,16 @@ async def chat_stream(
                     if plane_inf.use_personal_context
                     else ""
                 )
-                if profile and plane_inf.use_personal_context:
+                agent_profile, agent_core_item = (
+                    _core_guidance(user, profile) if plane_inf.use_personal_context else ("", None)
+                )
+                if agent_profile:
                     agent_mem = (
-                        f"About the user (honor these preferences):\n{profile}\n\n" + agent_mem
+                        f"About the user (honor these preferences):\n{agent_profile}\n\n"
+                        + agent_mem
                     )
+                    if agent_core_item:
+                        executor.note_core_page(agent_profile, agent_core_item)
                 async for chunk in iterate_in_threadpool(
                     executor.stream(effective_message, context=agent_mem)
                 ):
@@ -14742,7 +14792,9 @@ async def chat_stream(
                 # another user's team-wiki answer + slugs to a user without that access. Personal-plane
                 # caches are per-user and unaffected.
                 org_cache_shared = not plane_inf.use_personal_context
-                profile_used = profile if plane_inf.use_personal_context else ""
+                profile_used, profile_item = (
+                    _core_guidance(user, profile) if plane_inf.use_personal_context else ("", None)
+                )
                 skip_shared_cache = org_cache_shared and (bool(extra_ws) or bool(profile_used))
                 if web_effective:
                     # A turn that searches the web is answered fresh: a cached answer must not stand in for the
@@ -14789,6 +14841,7 @@ async def chat_stream(
                             backend,
                             history=history,
                             profile=profile_used,
+                            profile_item=profile_item,
                             principles=principles,
                             memory_context=memory_context,
                             extra_workspaces=extra_ws,
@@ -14841,6 +14894,7 @@ async def chat_stream(
                         images_b64=images_b64,  # a vision turn when an image was attached
                         memory_context=memory_context,
                         profile=profile_used,
+                        profile_item=profile_item,
                         principles=principles,
                         extra_workspaces=extra_ws,
                         shared_cache=org_cache_shared,
