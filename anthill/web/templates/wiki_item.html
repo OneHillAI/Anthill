@@ -25,6 +25,19 @@
     {% endif %}
   </dl>
 
+  <h3 style="font-size:14px;margin:16px 0 2px">Used in</h3>
+  <p class="text-sm text-muted" style="margin:0 0 6px">Answers you can open that were given this {{ 'page' if row.kind == 'page' else 'document' }}: your own chats and the runs of the tasks and agents you created.</p>
+  {% if not used.tracked %}
+  <p class="text-sm text-muted" style="margin:0">This {{ 'page' if row.kind == 'page' else 'document' }} has no record yet, so where it is used is not tracked.</p>
+  {% elif used.rows %}
+  <ul class="text-sm item-used" style="margin:0 0 0 18px;padding:0;line-height:1.8">
+    {% for u in used.rows %}<li>{% if u.href %}<a href="{{ u.href }}">{{ u.title }}</a>{% else %}{{ u.title }}{% endif %} <span class="text-muted">&middot; {{ u.route }}{% if u.day %}, {{ u.day }}{% endif %}{% if u.version %}, given version {{ u.version }}{% endif %}{% if u.standing %}, {{ u.standing }}{% endif %}</span></li>{% endfor %}
+  </ul>
+  {% if used.more %}<p class="text-sm text-muted" style="margin:4px 0 0 18px">and {{ used.more }} more</p>{% endif %}
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0">None of your answers has been given this yet.</p>
+  {% endif %}
+
   <p class="text-sm" id="item-actions" style="margin:16px 0 0">
     <a href="{{ row.href }}">Open {{ 'the page' if row.kind == 'page' else 'the original' }}</a>
     {% if row.text_href %}<span class="text-muted">&middot;</span> <a href="{{ row.text_href }}">text read from it</a>{% endif %}
