@@ -1,0 +1,1 @@
+**An answer's list of what it was given is now made from the same parts the prompt is built from.** The two always agree, and a part that cannot name the page or document it came from is left out of the prompt. The record also notes which rules, profile, memory and earlier turns were given, without keeping their text.
