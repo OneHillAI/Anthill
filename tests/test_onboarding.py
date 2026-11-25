@@ -57,7 +57,12 @@ def test_personalize_saves_profile_and_memory(tmp_path, monkeypatch):
         assert r.status_code == 302
         s = app_mod._SessionFactory()
         u = s.get(User, uid)
-        assert "SRE" in u.profile and u.onboarding_done is True
+        from anthill.wiki import core_page
+        from anthill.wiki.workspace import workspace_for
+
+        # the profile lives on the person's core page now (docs/specs/core-page.md)
+        assert "SRE" in core_page.read(workspace_for("personal", user_id=uid))[0]
+        assert u.onboarding_done is True
         mems = (
             s.query(MemoryItem)
             .filter(MemoryItem.user_id == uid, MemoryItem.source == "profile")
