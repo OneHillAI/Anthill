@@ -309,6 +309,14 @@ def test_the_eval_gate_still_rejects_and_removes_a_losing_merged_model(tmp_path,
 # ── the training image ───────────────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    "value, expected", [("", False), ("0", False), ("1", True), ("true", True), (" On ", True)]
+)
+def test_the_owner_declares_that_the_image_merges(monkeypatch, value, expected):
+    monkeypatch.setenv(trainer.TRAINER_MERGES_ENV, value)
+    assert trainer.trainer_merges_gguf() is expected
+
+
 def test_the_trainer_image_pins_the_converter_by_tag_and_checksum():
     text = (Path(__file__).resolve().parents[1] / "docker" / "Dockerfile.trainer").read_text()
     assert "ARG LLAMACPP_TAG=b6000" in text

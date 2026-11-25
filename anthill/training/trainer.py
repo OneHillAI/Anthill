@@ -258,6 +258,7 @@ def _train_mlx(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
 MERGED_GGUF_NAME = (
     "merged.gguf"  # written next to the adapter files, so every backend fetches it with them
 )
+TRAINER_MERGES_ENV = "ANTHILL_TRAINER_MERGES_GGUF"  # set on the org machine once the training image has the converter
 GGUF_CONVERTER_ENV = (
     "ANTHILL_GGUF_CONVERTER"  # path of llama.cpp's convert_hf_to_gguf.py (pinned in the image)
 )
@@ -300,6 +301,13 @@ def merge_adapter_to_gguf(
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return str(out)
+
+
+def trainer_merges_gguf() -> bool:
+    """Whether this organisation's training image is known to write ``merged.gguf``. The org machine cannot see the
+    image, so the owner says so (``ANTHILL_TRAINER_MERGES_GGUF=1``) after rebuilding it from
+    ``docker/Dockerfile.trainer``; until then a refusing Ollama still stops a run before any compute is spent."""
+    return os.environ.get(TRAINER_MERGES_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _merge_to_gguf_if_configured(adapter_dir: str, base_model: str) -> None:

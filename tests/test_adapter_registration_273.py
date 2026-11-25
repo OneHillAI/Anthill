@@ -185,10 +185,34 @@ def _wire(monkeypatch, accepts, local_mlx=False):
     return backend
 
 
+def test_a_refusing_ollama_stops_the_run_before_any_compute_unless_the_image_merges(
+    db, monkeypatch
+):
+    # No training image known to write a merged GGUF: the adapter could not be registered, so no GPU is rented.
+    monkeypatch.delenv(trainer.TRAINER_MERGES_ENV, raising=False)
+    backend = _wire(monkeypatch, accepts=False)
+    run = _scheduled_run(db)
+    executor.execute_run(db, run)
+    cfg = db.query(OrgSettings).filter_by(org_id=1).first()
+    assert backend.calls == 0
+    assert run.status == "failed" and run.finished_at is not None
+    assert run.eval_note == f"not started: {trainer.ADAPTERS_REFUSED_NOTE}"
+    assert cfg.training_status == "idle" and cfg.training_model_ver == 0
+
+
 @pytest.mark.parametrize("accepts", [False, True, None])
-def test_the_run_goes_ahead_on_any_ollama(db, monkeypatch, accepts):
-    # The training image also writes a merged GGUF, which every Ollama accepts (#273), so a refusing engine no
-    # longer stops the run before it starts.
+def test_the_run_goes_ahead_when_the_image_merges_whatever_the_ollama(db, monkeypatch, accepts):
+    # The owner rebuilt the image (it writes merged.gguf, which every Ollama accepts) and said so (#273).
+    monkeypatch.setenv(trainer.TRAINER_MERGES_ENV, "1")
+    backend = _wire(monkeypatch, accepts=accepts)
+    run = _scheduled_run(db)
+    executor.execute_run(db, run)
+    assert backend.calls == 1 and run.status == "promoted"
+
+
+@pytest.mark.parametrize("accepts", [True, None])
+def test_an_accepting_or_unknown_ollama_runs_as_before(db, monkeypatch, accepts):
+    monkeypatch.delenv(trainer.TRAINER_MERGES_ENV, raising=False)
     backend = _wire(monkeypatch, accepts=accepts)
     run = _scheduled_run(db)
     executor.execute_run(db, run)

@@ -251,6 +251,17 @@ def execute_run(db, run: TrainingRun) -> None:
         if _write_scrubbed_dataset(train_rows, dataset) == 0:
             raise BackendError("no gold examples to train on")
 
+        if (
+            not _is_local_mlx(cfg)
+            and not trainer.trainer_merges_gguf()
+            and trainer.local_ollama_accepts_adapters() is False
+        ):
+            # Without a training image that sends a merged file, the adapter could not be registered afterwards,
+            # so do not spend the training compute (possibly a rented GPU) on it (#273).
+            run.status = "failed"
+            run.eval_note = f"not started: {trainer.ADAPTERS_REFUSED_NOTE}"
+            cfg.training_status = "idle"
+            return
         backend = get_backend(cfg)
         result = backend.run(cfg, dataset_path=dataset, base_model=run.base_model, run=run)
         if not result.adapter_path:
