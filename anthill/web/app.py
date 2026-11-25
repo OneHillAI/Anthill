@@ -9055,6 +9055,7 @@ def wiki_page_view(
             "can_remove": _wiki_can_edit(db, user, scope, team_id),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "edited_by_person": wiki_items.is_person_edited(md),
+            "source_removed": wiki_items.source_removed(ws, md),
             "edit_query": query,
             "saved": saved == "1",
         },
