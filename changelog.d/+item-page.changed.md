@@ -1,0 +1,1 @@
+**Every page and document in the Library now has its own page.** Open "Details" on a row, or "About this page" on a page, to see what it is, where it came from, and which document it was made from or which pages were made from it. Nothing is changed by looking.

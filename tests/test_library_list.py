@@ -203,3 +203,40 @@ def test_a_page_is_read_again_only_when_its_file_changed(tmp_path, monkeypatch):
     page.write_text(page.read_text(encoding="utf-8").replace("# Notes", "# Notes, corrected"))
     again = _rows(ws)
     assert len(reads) == 1 and "Notes, corrected" in again and "Notes" not in again
+
+
+# ── one item, found directly ───────────────────────────────────────────────────
+
+
+def test_a_single_row_is_the_same_as_its_row_in_the_whole_list(tmp_path):
+    ws = _world(tmp_path / "user-1")
+    raw = [
+        {
+            "name": p.name,
+            "size": p.stat().st_size,
+            "mtime": p.stat().st_mtime,
+            "has_text": (ws.text / f"{p.name}.txt").is_file(),
+        }
+        for p in sorted(ws.raw.iterdir())
+    ]
+    whole = library.build(ws, raw, scope="personal")
+    assert len(whole) == 6
+    for listed in whole:
+        direct = library.row(ws, listed["kind"], listed["key"], scope="personal")
+        assert direct == listed, listed["title"]
+    assert library.row(ws, "page", "no-such-page", scope="personal") is None
+    assert library.row(ws, "document", "no-such-file.pdf", scope="personal") is None
+    assert library.row(ws, "original", "ferry", scope="personal") is None
+
+
+def test_the_item_page_does_not_rebuild_the_whole_list(tmp_path, monkeypatch):
+    _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
+    _personal(ids)
+    _login(client, ids["owner"])
+
+    def boom(*a, **k):
+        raise AssertionError("the item page rebuilt the whole Library")
+
+    monkeypatch.setattr(library, "build", boom)
+    assert client.get("/wiki/item?kind=page&name=ferry&scope=personal").status_code == 200
+    assert client.get(f"/wiki/item?kind=document&name={A}&scope=personal").status_code == 200

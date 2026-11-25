@@ -11,13 +11,11 @@
 <div class="card">
   <div class="task-md task-md-raw" data-md>{{ content }}</div>
 </div>
-{% if can_edit or can_remove %}
 <p class="text-sm" id="page-actions" style="margin:10px 0 0">
-  {% if can_edit %}<a href="/wiki/page/{{ slug }}/edit{{ edit_query }}">Edit this page</a>{% endif %}
-  {% if can_edit and can_remove %}<span class="text-muted">&middot;</span>{% endif %}
-  {% if can_remove %}<a href="/wiki/remove?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove this page</a>{% endif %}
+  <a href="/wiki/item?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">About this page</a>
+  {% if can_edit %}<span class="text-muted">&middot;</span> <a href="/wiki/page/{{ slug }}/edit{{ edit_query }}">Edit this page</a>{% endif %}
+  {% if can_remove %}<span class="text-muted">&middot;</span> <a href="/wiki/remove?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove this page</a>{% endif %}
 </p>
-{% endif %}
 {% if provenance %}
 <p class="text-sm text-muted" style="margin:10px 0 0">{% if verbatim %}The note as uploaded{% else %}AI summary written by {{ provenance.model }}{% endif %} on {{ provenance.date }}{% if provenance.source %} from {% if source_link %}<a href="{{ source_link }}">{{ source_name }}</a>{% else %}{{ source_name }}{% endif %}{% endif %}{% if edited_by_person %}, then edited by a person{% endif %}.{% if not verbatim %} It is not the text of your document{% if source_link %}; the original is kept in the Library{% if text_link %}, and you can <a href="{{ text_link }}">open the text Anthill read from it</a>{% endif %}{% endif %}.{% endif %}</p>
 {% endif %}
