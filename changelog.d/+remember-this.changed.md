@@ -1,0 +1,1 @@
+**You can add a line to your core page and see it first.** Anthill shows the exact line, what the page will look like after, and anything in it that looks sensitive, and saves only when you confirm. In chat agent mode, "remember" now proposes a line for you to approve instead of writing it somewhere nothing reads, and it is not offered where your core page cannot be read.
