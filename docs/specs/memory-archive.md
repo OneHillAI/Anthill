@@ -12,8 +12,9 @@ plan says existing memory is exported to a file archive, never deleted, and offe
 
 ## Requirements
 
-1. **An archive file, once, automatically.** The first time a person's own turn is given their core page after this change (the owner's
-   own personal-context sessions only), their personal memory rows are written to `archive/memory-<date>.json` and a readable
+1. **An archive file, once, automatically.** The first time one of a person's own turns is allowed personal context after this change (the same
+   rule as reading the core page, so never an organisation turn, Slack or the widget) and their personal wiki exists, their personal memory
+   rows are written to `archive/memory-<date>.json` and a readable
    `archive/memory-<date>.md` in their personal wiki folder, and `archive/.memory-archived.json` records that it was done. The marker is
    checked before any database read, so later turns cost one file check. If the write fails the reason is logged, nothing else changes,
    and it is tried again at the next turn.
@@ -32,7 +33,7 @@ plan says existing memory is exported to a file archive, never deleted, and offe
 
 ## Acceptance
 
-- A person with memory rows gets the two archive files on their first personal-context turn, with exactly their personal rows and no
+- A person with memory rows gets the two archive files on their first personal-context turn (their wiki existing), with exactly their personal rows and no
   embedding; a second turn writes nothing; a person with no rows gets an empty archive and the marker.
 - No `MemoryItem` row changes or disappears, and recall still returns what it returned.
 - Another person's rows, and team and organisation rows, are not in the archive or the import list.
