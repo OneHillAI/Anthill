@@ -9008,6 +9008,7 @@ def wiki_page_view(
     scope: str = "personal",
     team_id: int | None = None,
     saved: str = "",
+    version: int | None = None,
     user: dict = Depends(_require_user),
 ):
     """Read a single wiki page (a markdown file in this scope's workspace). Makes the Pages list
@@ -9065,6 +9066,7 @@ def wiki_page_view(
             "has_history": bool(page_store.versions(ws, path.stem)),
             "edit_query": query,
             "saved": saved == "1",
+            "restored": version if saved == "restored" else None,
         },
     )
 
@@ -9265,19 +9267,36 @@ def _history_page(
     """The history of a page, or (with ``number``) one earlier version of it."""
     from ..common.text import first_h1
     from ..wiki import page_store
+    from .upload_dedup import compare_with_existing
 
     query = f"?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
     current = path.read_text(encoding="utf-8")
-    kept = [
-        {"number": n, **page_store.describe(p.read_text(encoding="utf-8"))}
-        for n, p in reversed(page_store.versions(ws, path.stem))
-    ]
+    texts = [(n, p.read_text(encoding="utf-8")) for n, p in page_store.versions(ws, path.stem)]
+    now_number = (texts[-1][0] if texts else 0) + 1
+    chain = [*texts, (now_number, current)]  # oldest first, the page now last
+    rows = []
+    for i, (n, text) in enumerate(chain):
+        older = chain[i - 1][1] if i else None
+        rows.append(
+            {
+                "number": n,
+                "now": n == now_number,
+                **page_store.describe(text),
+                "changed": page_store.changed(older, text),
+            }
+        )
+    rows.reverse()  # newest first
     shown = None
     if number is not None:
-        text = page_store.version_text(ws, path.stem, number)
+        text = dict(texts).get(number)
         if text is None:
             raise HTTPException(status_code=404)
-        shown = {"number": number, "text": _editable_text(text), **page_store.describe(text)}
+        shown = {
+            "number": number,
+            "text": _editable_text(text),
+            "compare": compare_with_existing(ws, path.stem, text),
+            **page_store.describe(text),
+        }
     return templates.TemplateResponse(
         request,
         "wiki_page_history.html",
@@ -9289,8 +9308,8 @@ def _history_page(
             "team_id": team_id,
             "slug": path.stem,
             "title": first_h1(current) or path.stem,
-            "current": page_store.describe(current),
-            "kept": kept,
+            "rows": rows,
+            "now_number": now_number,
             "shown": shown,
             "can_edit": can_edit,
             "base_hash": page_store.page_hash(current),
@@ -9364,6 +9383,7 @@ def wiki_page_restore(
             f"{text}\n\n{tag.group(0)}\n" if tag else text,
             by_person=True,
             base_hash=base_hash or None,
+            restored_from=number,
         )
     except StaleSave as exc:
         return _history_page(
@@ -9380,24 +9400,24 @@ def wiki_page_restore(
         org_id=user["org"],
         user_id=user["sub"],
     )
-    return RedirectResponse(f"{back}&saved=1", status_code=303)
+    return RedirectResponse(f"{back}&saved=restored&version={number}", status_code=303)
 
 
 def _stale_message(exc, *, restoring: bool = False) -> str:
     """What a person is told when their save was refused because the page is not the text they opened."""
-    which = (
+    changed = (
         "was changed outside Anthill after you opened it"
         if exc.outside
-        else "was changed by someone else after you opened it"
+        else "changed after you opened it"
     )
     if restoring:
         return (
-            f"This page {which}, so the earlier version was not restored. "
+            f"This page {changed}, so the earlier version was not restored. "
             "Look at the page as it is now, then restore again if you still want this version."
         )
     return (
-        f"This page {which}, so your text was not saved. Your text is still in the box. "
-        "Saving again replaces the page with your text; the text it replaces is kept in the page's history."
+        f"This page {changed}, so your text was not saved. Your text is still in the box. "
+        "Save anyway replaces the page with your text; the text it replaces is kept in History."
     )
 
 

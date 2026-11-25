@@ -15,6 +15,7 @@ Nothing here calls a model."""
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import os
 import re
@@ -24,12 +25,17 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..common.text import strip_frontmatter
 from . import items, okf
+from .doc_context import original_name
 
 if TYPE_CHECKING:
     from .workspace import Workspace
 
 HISTORY_DIR = "history"
+RESTORED_KEY = (
+    "x-anthill-restored-from"  # front matter of a version made by restoring an earlier one
+)
 MAX_VERSIONS = 50  # earlier versions kept of one page; the oldest go first
 _VERSION_FILE = re.compile(r"^(\d{4,})-([0-9a-f]{12})\.md$")
 
@@ -181,17 +187,49 @@ def version_text(ws: Workspace, slug: str, number: int) -> str | None:
 
 
 def describe(text: str) -> dict:
-    """What a person is told about a kept version: the day it was written and who wrote its text."""
+    """What a person is told about a kept version: the day and time it was written and who wrote its text."""
     page = okf.parse_okf(text)
     try:
         rec = items.read_page_record(text)
     except items.RecordError:
         rec = None
     origin = rec.origin if rec is not None else "unknown"
-    who = {
-        "person-edited": "a person",
-        "model-written": "an AI summary",
-        "own": "a note filed as uploaded",
-        "imported": "an import",
-    }.get(origin, "not recorded")
-    return {"day": page.timestamp[:10], "who": who, "version": rec.version if rec else 0}
+    restored = page.extra.get(RESTORED_KEY)
+    if isinstance(restored, int) and not isinstance(restored, bool):
+        by = f"restored from version {restored}"
+    elif origin == "person-edited":
+        by = "by a person"
+    elif origin == "model-written":
+        by = "as an AI summary"
+    elif origin == "own":
+        source = items.source_name_of(text)
+        by = f"as uploaded from {original_name(source)}" if source else "as uploaded"
+    elif origin == "imported":
+        by = "by an import"
+    else:
+        by = "(author not recorded)"
+    stamp = page.timestamp
+    return {"day": stamp[:10], "time": stamp[11:16], "by": by}
+
+
+def changed(older: str | None, newer: str) -> str:
+    """One short line on what a version changed from the one before it: how many lines were added and removed."""
+    if older is None:
+        return "first kept version"
+    a, b = _lines(older), _lines(newer)
+    added = removed = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag != "equal":
+            removed += i2 - i1
+            added += j2 - j1
+    parts = [f"{added} line{'s' if added != 1 else ''} added"] if added else []
+    if removed:
+        parts.append(f"{removed} line{'s' if removed != 1 else ''} removed")
+    return ", ".join(parts) or "no change in the text"
+
+
+def _lines(text: str) -> list[str]:
+    body = strip_frontmatter(text)
+    return [
+        ln.strip() for ln in body.splitlines() if ln.strip() and not ln.strip().startswith("<!--")
+    ]

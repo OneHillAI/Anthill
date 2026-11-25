@@ -145,6 +145,7 @@ class Workspace:
         sources: list[str] | None = None,
         by_person: bool = False,
         base_hash: str | None = None,
+        restored_from: int | None = None,
     ) -> Path:
         """Write a page in the native OKGF format: OKF frontmatter (type/title/timestamp + this
         workspace's ``x-anthill-scope``, plus any review/tier/sources) over the markdown body. The
@@ -157,7 +158,8 @@ class Workspace:
         started from (``page_store.page_hash``): if the page is not that text now, nothing is written and
         ``page_store.StaleSave`` is raised. A page changed outside the app is recorded as a person's edit first, and
         only a person's save made from that text may replace it (``StaleSave`` for anything else). The page always
-        gets a record."""
+        gets a record. ``restored_from`` says the text is an earlier version put back (its number), so the history can
+        say so."""
         from . import okf, page_store
 
         body = strip_frontmatter(markdown).strip()
@@ -166,6 +168,8 @@ class Workspace:
         with page_store.page_lock(path):
             before = page_store.prepare(self, path, base_hash=base_hash, by_person=by_person)
             page = self._page_to_write(path, body, title_or_slug, review, tier, sources, by_person)
+            if restored_from is not None:
+                page.extra = {page_store.RESTORED_KEY: restored_from}
             text = okf.to_okf(page)
             if before is not None and page_store.page_hash(before) != page_store.page_hash(text):
                 page_store.keep_previous(self, path.stem, before)

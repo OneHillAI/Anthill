@@ -11,14 +11,17 @@ changed, the message says so but gives no way to look at what the page says now 
 ## Requirements
 
 1. **History.** A page that has earlier versions shows a "History" link next to Edit and Remove. The history page lists the page as it
-   is now and each earlier version, newest first, with the day it was written and who wrote it (an AI summary, a note filed as it was
-   uploaded, or a person's edit). Whoever may read the page may read its history.
-2. **One earlier version.** Opening a version shows its text as it was. Who may edit the page sees "Restore this version" there.
+   is now and each earlier version, newest first, with the day and time it was written, who wrote it (an AI summary, a note as uploaded, a person's edit, or a restore
+   of an earlier version) and one short line on what changed from the version before (lines added and removed). The newest row is
+   labelled "(now)". Whoever may read the page may read its history.
+2. **One earlier version.** Opening a version shows its text as it was and how it differs from the page now (the changed
+   words marked, as in the comparison for a newer upload), and says which row of the list it is. Who may edit the page sees "Restore this version" there.
 3. **Restore.** Restoring writes the old text as a new version of the page, by the person who restored it, through the one write
    function: the text it replaces is kept in history too, a restore made from a page that has since changed is refused like any save, and
-   nothing is erased. The page keeps its record and its source.
-4. **The conflict message.** When a save from the edit screen is refused, the screen keeps the person's text in the box and the message
-   links to the page as it is now and to its history, so they can see what changed before they save again.
+   nothing is erased. The page keeps its record and its source. The version made says it was restored from version N, and the page then says so
+   ("Restored version N. The page as it was before is kept in History.").
+4. **The conflict message.** When a save from the edit screen is refused, the screen keeps the person's text in the box, shows one alert (the page changed after it was opened, or was changed
+   outside Anthill) with links to the page as it is now and to its history, and the button says "Save anyway".
 5. A person who never opens the history sees nothing new but the link.
 
 ## Not changed

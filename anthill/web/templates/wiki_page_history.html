@@ -3,12 +3,29 @@
 {% block page_title %}History of {{ title }}{% endblock %}
 {% block content %}
 <p class="text-sm" style="margin:0 0 12px"><a href="/wiki/page/{{ slug }}{{ query }}">&larr; Back to the page</a></p>
-{% if error %}<p class="text-sm" role="alert" style="margin:0 0 10px;color:var(--danger, #b3261e)">{{ error }}</p>{% endif %}
+{% if error %}<div class="alert alert-warn text-sm" role="alert" style="max-width:780px;margin:0 0 10px">{{ error }}</div>{% endif %}
 {% if shown %}
 <div class="card" style="max-width:780px" id="history-version">
-  <h2 style="font-size:15px;margin:0 0 4px">Earlier version {{ shown.number }}</h2>
-  <p class="text-sm text-muted" style="margin:0 0 8px">Written {{ shown.day }} by {{ shown.who }}. This is how the page read then; it is not the page now.</p>
+  <h2 style="font-size:15px;margin:0 0 4px">Version {{ shown.number }}</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">Written {{ shown.day }} {{ shown.time }}, {{ shown.by }}. This is how the page read then; it is not the page now.</p>
   <pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:13px;margin:0">{{ shown.text }}</pre>
+  {% if shown.compare %}
+  <h3 style="font-size:14px;margin:14px 0 4px" id="history-compare">How it differs from the page now</h3>
+  {% if shown.compare.rows %}
+  <table class="text-sm" style="width:100%;border-collapse:collapse">
+    <tr><th style="text-align:left;padding:4px 8px;width:50%">The page now (version {{ now_number }})</th><th style="text-align:left;padding:4px 8px">Version {{ shown.number }}</th></tr>
+    {% for row in shown.compare.rows %}
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 8px;vertical-align:top;color:var(--muted)">{% for changed, text in row.old %}{% if changed %}<mark>{{ text }}</mark>{% else %}{{ text }}{% endif %} {% else %}(nothing){% endfor %}</td>
+      <td style="padding:6px 8px;vertical-align:top">{% for changed, text in row.new %}{% if changed %}<mark>{{ text }}</mark>{% else %}{{ text }}{% endif %} {% else %}(removed){% endfor %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if shown.compare.more %}<p class="text-sm text-muted" style="margin:6px 0 0">and {{ shown.compare.more }} more change(s) in the text above.</p>{% endif %}
+  {% else %}
+  <p class="text-sm text-muted" style="margin:0">The text is the same as the page now.</p>
+  {% endif %}
+  {% endif %}
   {% if can_edit %}
   <form method="post" action="/wiki/page/{{ slug }}/history/{{ shown.number }}/restore" style="margin:12px 0 0">
     <input type="hidden" name="scope" value="{{ scope }}">
@@ -23,9 +40,13 @@
 <div class="card" style="max-width:780px;margin-top:12px" id="history-list">
   <h2 style="font-size:15px;margin:0 0 8px">Versions of this page</h2>
   <ul class="text-sm" style="margin:0;padding-left:18px">
-    <li><a href="/wiki/page/{{ slug }}{{ query }}">The page now</a>, written {{ current.day }} by {{ current.who }}</li>
-    {% for v in kept %}
-    <li><a href="/wiki/page/{{ slug }}/history/{{ v.number }}{{ query }}">Version {{ v.number }}</a>, written {{ v.day }} by {{ v.who }}</li>
+    {% for v in rows %}
+    <li>
+      {% if v.now %}<a href="/wiki/page/{{ slug }}{{ query }}">Version {{ v.number }} (now)</a>
+      {% elif shown and shown.number == v.number %}<b>Version {{ v.number }}</b> <span class="text-muted">(shown above)</span>
+      {% else %}<a href="/wiki/page/{{ slug }}/history/{{ v.number }}{{ query }}">Version {{ v.number }}</a>{% endif %}
+      <span class="text-muted">&middot; {{ v.day }} {{ v.time }}, {{ v.by }}, {{ v.changed }}</span>
+    </li>
     {% endfor %}
   </ul>
 </div>

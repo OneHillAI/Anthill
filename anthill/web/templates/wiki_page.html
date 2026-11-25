@@ -8,6 +8,7 @@
 </p>
 
 {% if saved %}<p class="text-sm" role="status" style="margin:0 0 10px">Saved. The page now shows your text.</p>{% endif %}
+{% if restored %}<div class="alert alert-ok" role="status" id="page-restored" style="max-width:760px;margin:0 0 10px">Restored version {{ restored }}. The page as it was before is kept in <a href="/wiki/page/{{ slug }}/history{{ edit_query }}">History</a>.</div>{% endif %}
 <div class="card">
   <div class="task-md task-md-raw" data-md>{{ content }}</div>
 </div>

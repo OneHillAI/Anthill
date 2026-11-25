@@ -7,11 +7,13 @@
   <input type="hidden" name="scope" value="{{ scope }}">
   {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
   <input type="hidden" name="base_hash" value="{{ base_hash }}">
+  {% if error and conflict %}<div class="alert alert-warn text-sm" role="alert" id="wiki-edit-conflict" style="margin:0 0 10px">{{ error }}<br><a href="/wiki/page/{{ slug }}{{ query }}" target="_blank" rel="noopener">See the page as it is now</a> &middot; <a href="/wiki/page/{{ slug }}/history{{ query }}" target="_blank" rel="noopener">History</a> (both open in a new tab, so your text stays here)</div>
+  {% else %}
   {% if error %}<p class="text-sm" role="alert" style="margin:0 0 8px;color:var(--danger, #b3261e)">{{ error }}</p>{% endif %}
-  {% if conflict %}<p class="text-sm" id="wiki-edit-conflict" style="margin:0 0 8px"><a href="/wiki/page/{{ slug }}{{ query }}" target="_blank" rel="noopener">See the page as it is now</a> &middot; <a href="/wiki/page/{{ slug }}/history{{ query }}" target="_blank" rel="noopener">Earlier versions</a> (both open in a new tab, so your text stays here)</p>{% endif %}
   <p class="alert alert-warn text-sm" id="wiki-edit-notice" style="margin:0 0 10px">Your text replaces the page. The earlier text is kept.</p>
+  {% endif %}
   <label class="text-sm" for="wiki-edit-text" style="display:block;margin:0 0 4px">The page, in Markdown. The first heading, the line that starts with #, is the page's title.</label>
   <textarea id="wiki-edit-text" name="content" rows="22" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:13px">{{ text }}</textarea>
-  <p style="margin:10px 0 0"><button class="btn btn-primary" type="submit">Save</button> <a class="text-sm" href="/wiki/page/{{ slug }}{{ query }}" style="margin-left:8px">Cancel</a></p>
+  <p style="margin:10px 0 0"><button class="btn btn-primary" type="submit">{% if conflict %}Save anyway{% else %}Save{% endif %}</button> <a class="text-sm" href="/wiki/page/{{ slug }}{{ query }}" style="margin-left:8px">Cancel</a></p>
 </form>
 {% endblock %}
