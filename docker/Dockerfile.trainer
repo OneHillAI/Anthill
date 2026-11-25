@@ -18,7 +18,20 @@ COPY . /app
 # The training toolchain (kept here, not in the app's runtime deps, so only the trainer image is heavy).
 RUN pip3 install --upgrade pip \
     && pip3 install . \
-    && pip3 install torch transformers peft trl datasets accelerate
+    && pip3 install torch transformers peft trl datasets accelerate gguf sentencepiece
+
+# The merge-to-GGUF step (#273): after training, the adapter is merged into its base and converted with llama.cpp's
+# own converter, so the org machine can register the model on any engine version (newer engines refuse adapters). The
+# script is one pinned release file (llama.cpp tag b6000, MIT licence) checked against its SHA-256; the current
+# master version needs a whole package of files. To move the pin: change the tag and the checksum together.
+ARG LLAMACPP_TAG=b6000
+ARG CONVERTER_SHA256=2e73750c607b61ff4cfcade65005c30b8248decc05fbcb52c09cc8c2c0b55552
+RUN mkdir -p /opt/llama.cpp \
+    && python3 -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
+       "https://raw.githubusercontent.com/ggml-org/llama.cpp/${LLAMACPP_TAG}/convert_hf_to_gguf.py" \
+       /opt/llama.cpp/convert_hf_to_gguf.py \
+    && echo "${CONVERTER_SHA256}  /opt/llama.cpp/convert_hf_to_gguf.py" | sha256sum -c -
+ENV ANTHILL_GGUF_CONVERTER=/opt/llama.cpp/convert_hf_to_gguf.py
 
 # `anthill train-adapter --dataset /in/gold.jsonl --base <model> --out /out/adapter` is the run command.
 ENTRYPOINT ["anthill"]
