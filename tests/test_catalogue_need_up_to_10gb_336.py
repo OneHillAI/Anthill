@@ -28,8 +28,13 @@ def _rows():
     return json.loads(SEED.read_text(encoding="utf-8"))["models"]
 
 
+def _plain(r):
+    """The row's plain tag: the older tag it replaces (#345), else its own."""
+    return (r.get("replaces") or [r["ollama_tag"]])[0]
+
+
 def test_the_13_rows_have_the_rule_and_nothing_else_has_a_need():
-    got = {r["ollama_tag"]: r.get("need_gb") for r in _rows() if "need_gb" in r}
+    got = {_plain(r): r.get("need_gb") for r in _rows() if "need_gb" in r}
     assert set(got) == set(FILE_GB)
     for tag, file_gb in FILE_GB.items():
         assert got[tag] == round(1.3 * file_gb + 1.2, 1), tag
@@ -39,7 +44,7 @@ def test_the_13_rows_have_the_rule_and_nothing_else_has_a_need():
 def test_a_row_without_a_need_is_a_row_above_10_gb_or_a_cloud_row():
     for r in _rows():
         if "need_gb" not in r:
-            assert r["ollama_tag"] not in FILE_GB
+            assert _plain(r) not in FILE_GB
             assert "need_basis" not in r
 
 
@@ -50,14 +55,14 @@ def test_each_need_says_where_it_comes_from():
 
 
 def test_the_shipped_file_still_loads_and_the_app_reads_the_needs():
-    cat = {m.ollama_tag: m for m in sizing.load_catalog()}
+    cat = {sizing.row_tags(m)[-1]: m for m in sizing.load_catalog()}  # keyed by the plain tag
     assert all(sizing.is_safe_row(r) for r in _rows())
     for tag in FILE_GB:
         assert cat[tag].need_gb > 0.0
 
 
 def test_the_verdicts_that_change_against_the_flat_formula():
-    cat = {m.ollama_tag: m for m in sizing.load_catalog()}
+    cat = {sizing.row_tags(m)[-1]: m for m in sizing.load_catalog()}  # keyed by the plain tag
     flat = {t: sizing.fit_tier(m.params_b, 16.0, active_b=m.active_b) for t, m in cat.items()}
     now = {t: sizing.model_fit_tier(m, 16.0) for t, m in cat.items()}
     changed = {t for t in cat if flat[t] != now[t]}
