@@ -223,6 +223,14 @@ class AgentExecutor:
         self._context = context
         self._given: list = []  # the knowledge blocks the wiki tools return in this run, handed to each call
 
+    def note_core_page(self, text: str, item: dict) -> None:
+        """Say that the context this run starts with holds the owner's core page, so the record lists it as an item."""
+        from ..wiki import prompt_blocks
+
+        block = prompt_blocks.core_page_block(text, item)
+        if block is not None:
+            self._core_page = block
+
     def record(self) -> dict:
         """The record of what this run was given, made from the knowledge blocks its tools returned and the rules and context it was
         started with. Pages are listed once however often they were found or read. No text is kept."""
@@ -230,6 +238,7 @@ class AgentExecutor:
 
         rec = prompt_blocks.record_of(
             getattr(self, "_given", []),
+            core_page=getattr(self, "_core_page", None),
             rules=self.principles,
             context=getattr(self, "_context", ""),
             route="agent",

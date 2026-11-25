@@ -316,6 +316,8 @@ def ask(
     images_b64: list[str] | None = None,
     memory_context: str = "",  # durable memory recalled for this user/org
     profile: str = "",  # the user's "make it yours" persona/preferences
+    profile_item: dict
+    | None = None,  # the item of the core page the profile came from, for the record
     principles: str = "",  # always-on guiding principles (org/team/personal)
     extra_workspaces: list | None = None,  # team/org wikis to blend into retrieval
     router: TaskRouter | None = None,
@@ -432,7 +434,14 @@ def ask(
     if on_record is not None:
         on_record(
             prompt_blocks.record_of(
-                blocks, rules=principles, profile=profile, memory=memory_context, history=history
+                blocks,
+                rules=principles,
+                profile=profile,
+                memory=memory_context,
+                history=history,
+                core_page=prompt_blocks.core_page_block(profile, profile_item)
+                if profile_item and profile
+                else None,
             )
         )
     reference = context  # what was found for THIS question: the pages and passages
@@ -736,6 +745,7 @@ def ask_stream(
     k: int = 3,
     history: list[tuple[str, str]] | None = None,
     profile: str = "",
+    profile_item: dict | None = None,
     principles: str = "",
     memory_context: str = "",
     extra_workspaces: list | None = None,
@@ -788,7 +798,14 @@ def ask_stream(
     if on_record is not None:
         on_record(
             prompt_blocks.record_of(
-                blocks, rules=principles, profile=profile, memory=memory_context, history=history
+                blocks,
+                rules=principles,
+                profile=profile,
+                memory=memory_context,
+                history=history,
+                core_page=prompt_blocks.core_page_block(profile, profile_item)
+                if profile_item and profile
+                else None,
             )
         )
     reference = context  # what was found for THIS question: the pages and passages
@@ -905,6 +922,9 @@ def ask_stream(
                             profile=profile,
                             memory=memory_context,
                             history=history,
+                            core_page=prompt_blocks.core_page_block(profile, profile_item)
+                            if profile_item and profile
+                            else None,
                         )
                     )
         except Exception:
