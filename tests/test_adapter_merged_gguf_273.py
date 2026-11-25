@@ -45,11 +45,13 @@ def fake_libs(monkeypatch):
         @staticmethod
         def from_pretrained(name, **kw):
             calls.append(("base", name))
+            calls.append(("base_revision", kw.get("revision")))
             return object()
 
     class _Tok:
         @staticmethod
-        def from_pretrained(name):
+        def from_pretrained(name, **kw):
+            calls.append(("tok_revision", kw.get("revision")))
             return types.SimpleNamespace(save_pretrained=lambda p: calls.append(("save_tok", p)))
 
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(bfloat16="bf16"))
@@ -121,6 +123,64 @@ def test_a_missing_converter_or_a_failing_one_is_a_plain_error(tmp_path, monkeyp
         TrainerError, match=r"Converting the merged model to GGUF failed: .*bad tensor"
     ):
         trainer.merge_adapter_to_gguf(str(adapter), "qwen2.5:0.5b", converter=_converter(tmp_path))
+
+
+def test_the_converter_has_a_time_limit_and_a_stalled_one_is_a_plain_error(
+    tmp_path, monkeypatch, fake_libs
+):
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    seen = {}
+
+    def stall(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    monkeypatch.setattr(trainer.subprocess, "run", stall)
+    with pytest.raises(TrainerError, match=r"did not finish within 2 hours.*adapter is kept"):
+        trainer.merge_adapter_to_gguf(str(adapter), "qwen2.5:0.5b", converter=_converter(tmp_path))
+    assert seen["timeout"] == trainer.GGUF_CONVERT_TIMEOUT_S == 7200
+    assert not (adapter / trainer.MERGED_GGUF_NAME).exists()
+
+
+def test_the_merge_loads_the_base_commit_the_adapter_was_trained_on(
+    tmp_path, monkeypatch, fake_libs
+):
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / trainer.BASE_REVISION_FILE).write_text("abc123def\n")
+    monkeypatch.setenv(trainer.BASE_REVISION_ENV, "some-other-pin")  # the recorded commit wins
+    _fake_convert(monkeypatch)
+    trainer.merge_adapter_to_gguf(str(adapter), "qwen2.5:0.5b", converter=_converter(tmp_path))
+    assert ("base_revision", "abc123def") in fake_libs and (
+        "tok_revision",
+        "abc123def",
+    ) in fake_libs
+
+
+def test_without_a_recorded_commit_the_owners_pin_or_nothing_is_used(
+    tmp_path, monkeypatch, fake_libs
+):
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    _fake_convert(monkeypatch)
+    monkeypatch.delenv(trainer.BASE_REVISION_ENV, raising=False)
+    assert trainer._base_revision(str(adapter)) is None
+    monkeypatch.setenv(trainer.BASE_REVISION_ENV, " v1.2 ")
+    assert trainer._base_revision(str(adapter)) == "v1.2"
+    trainer.merge_adapter_to_gguf(str(adapter), "qwen2.5:0.5b", converter=_converter(tmp_path))
+    assert ("base_revision", "v1.2") in fake_libs and ("tok_revision", "v1.2") in fake_libs
+
+
+def test_a_training_run_records_the_base_commit_it_loaded(tmp_path):
+    model = types.SimpleNamespace(config=types.SimpleNamespace(_commit_hash=" 9f8e7d \n"))
+    trainer._record_base_revision(str(tmp_path), model)
+    assert (tmp_path / trainer.BASE_REVISION_FILE).read_text().strip() == "9f8e7d"
+    other = tmp_path / "none"
+    other.mkdir()
+    trainer._record_base_revision(str(other), types.SimpleNamespace(config=types.SimpleNamespace()))
+    trainer._record_base_revision(str(other), object())
+    assert not (other / trainer.BASE_REVISION_FILE).exists()
 
 
 def test_missing_libraries_are_a_plain_error(tmp_path, monkeypatch):

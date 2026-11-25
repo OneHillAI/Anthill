@@ -101,9 +101,10 @@ def _train_peft(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
 
     ds = load_dataset("json", data_files=dataset_path, split="train")
     hf_model = _hf_base_model(base_model)  # the served tag (e.g. "qwen3:8b") is not an HF repo id
-    tok = AutoTokenizer.from_pretrained(hf_model)
+    revision = _base_revision()
+    tok = AutoTokenizer.from_pretrained(hf_model, revision=revision)
     model = AutoModelForCausalLM.from_pretrained(
-        hf_model, torch_dtype=torch.bfloat16, device_map="auto"
+        hf_model, revision=revision, torch_dtype=torch.bfloat16, device_map="auto"
     )
     peft_cfg = LoraConfig(r=rank, lora_alpha=rank * 2, lora_dropout=0.05, task_type="CAUSAL_LM")
 
@@ -120,6 +121,7 @@ def _train_peft(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
     )
     trainer.train()
     trainer.model.save_pretrained(out_dir)
+    _record_base_revision(out_dir, model)
     return out_dir
 
 
@@ -264,6 +266,38 @@ GGUF_CONVERTER_ENV = (
 )
 GGUF_OUTTYPE_ENV = "ANTHILL_GGUF_OUTTYPE"  # f16 | bf16 | q8_0 (the converter's own choices)
 GGUF_DEFAULT_OUTTYPE = "q8_0"
+GGUF_CONVERT_TIMEOUT_S = (
+    7200  # a stalled conversion must not hold a training run forever (2 h covers a 70B)
+)
+BASE_REVISION_ENV = (
+    "ANTHILL_HF_REVISION"  # optional: pin the Hugging Face base to one commit or tag
+)
+BASE_REVISION_FILE = (
+    "base_revision.txt"  # the base commit the adapter was trained on, written beside it
+)
+
+
+def _base_revision(adapter_dir: str | None = None) -> str | None:
+    """The Hugging Face revision of the base model: the commit the adapter was trained on (recorded beside it) when
+    merging, else the pin the owner set (``ANTHILL_HF_REVISION``), else None (the repo's default branch)."""
+    if adapter_dir:
+        recorded = Path(adapter_dir) / BASE_REVISION_FILE
+        if recorded.is_file():
+            text = recorded.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+    return os.environ.get(BASE_REVISION_ENV, "").strip() or None
+
+
+def _record_base_revision(out_dir: str, model) -> None:
+    """Write the base commit this run loaded, so the merge later uses the very same weights even if the base
+    repo moved. Best effort: a model without a known commit leaves nothing and the merge falls back to the pin."""
+    commit = getattr(getattr(model, "config", None), "_commit_hash", None)
+    if isinstance(commit, str) and commit.strip():
+        try:
+            (Path(out_dir) / BASE_REVISION_FILE).write_text(commit.strip() + "\n", encoding="utf-8")
+        except OSError:
+            pass
 
 
 def merge_adapter_to_gguf(
@@ -287,15 +321,25 @@ def merge_adapter_to_gguf(
     out = Path(adapter_dir) / MERGED_GGUF_NAME
     work = tempfile.mkdtemp(prefix="anthill-merge-")
     try:
-        base = AutoModelForCausalLM.from_pretrained(hf_model, torch_dtype=torch.bfloat16)
+        revision = _base_revision(adapter_dir)
+        base = AutoModelForCausalLM.from_pretrained(
+            hf_model, revision=revision, torch_dtype=torch.bfloat16
+        )
         merged = PeftModel.from_pretrained(base, adapter_dir).merge_and_unload()
         merged.save_pretrained(work, safe_serialization=True)
-        AutoTokenizer.from_pretrained(hf_model).save_pretrained(work)
-        proc = subprocess.run(
-            [sys.executable, converter, work, "--outfile", str(out), "--outtype", outtype],
-            capture_output=True,
-            text=True,
-        )
+        AutoTokenizer.from_pretrained(hf_model, revision=revision).save_pretrained(work)
+        try:
+            proc = subprocess.run(
+                [sys.executable, converter, work, "--outfile", str(out), "--outtype", outtype],
+                capture_output=True,
+                text=True,
+                timeout=GGUF_CONVERT_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise TrainerError(
+                f"Converting the merged model to GGUF did not finish within {GGUF_CONVERT_TIMEOUT_S // 3600} hours "
+                "and was stopped; the adapter is kept."
+            ) from e
         if proc.returncode != 0 or not out.is_file():
             raise TrainerError(f"Converting the merged model to GGUF failed: {proc.stderr[-400:]}")
     finally:

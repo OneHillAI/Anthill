@@ -38,6 +38,10 @@ on 2026-11-24 with a real tiny adapter, on private copies of Ollama 0.30.10 and 
 5. `docker/Dockerfile.trainer` installs `gguf` and `sentencepiece`, downloads the converter pinned to llama.cpp tag `b6000`
    and checks its SHA-256 (one release file; the current master version needs a whole package), and sets
    `ANTHILL_GGUF_CONVERTER`.
+6. The converter runs with a time limit (`GGUF_CONVERT_TIMEOUT_S`, 2 hours); a stalled conversion is stopped, named plainly,
+   and the adapter is kept like any failed merge. The base model is loaded at the Hugging Face commit the adapter was trained
+   on (`base_revision.txt`, written beside the adapter after a PEFT run), else at the owner's pin (`ANTHILL_HF_REVISION`),
+   else the repo's default as before, so the merge never reads weights the adapter was not trained on.
 
 ## Verified (2026-11-24 and 2026-11-25, real engines)
 
