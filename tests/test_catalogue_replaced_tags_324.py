@@ -13,6 +13,11 @@ from anthill.web.db import Organization, OrgSettings, User
 
 BUILD = "qwen3.5:4b-q4_K_M"
 PLAIN = "qwen3.5:4b"
+EXACT_BUILD_PLAIN_TAGS = {
+    "qwen3.5:0.8b", "qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b", "qwen3.5:27b", "qwen3.6",
+    "gemma4:e2b", "gemma4:e4b", "gemma4:12b", "gemma4:26b", "gemma4:31b",
+    "nemotron-3-nano:30b", "nemotron-3-nano:4b",
+}  # fmt: skip
 
 
 def _row(**kw):
@@ -87,31 +92,48 @@ def test_the_loader_applies_the_claim_rule(tmp_path, monkeypatch):
 # ── nothing changes for the shipped catalogue ──────────────────────────────────────────────────────────────
 
 
-def test_no_shipped_row_replaces_a_tag_and_every_lookup_is_the_same_as_before():
+def test_the_shipped_rows_that_replace_a_tag_are_the_13_exact_build_rows():
     cat = sizing.load_catalog()
-    assert all(m.replaces == () for m in cat)
+    assert {m.replaces[0] for m in cat if m.replaces} == EXACT_BUILD_PLAIN_TAGS  # #345
     for m in cat:
-        assert sizing.row_tags(m) == (m.ollama_tag,)
+        assert sizing.row_tags(m) == (m.ollama_tag, *m.replaces)
         assert sizing.row_for_tag(cat, m.ollama_tag) is next(
             c for c in cat if c.ollama_tag == m.ollama_tag
         )
+        for old in m.replaces:
+            assert (
+                sizing.row_for_tag(cat, old) is m
+            )  # an install pinned to the old plain tag finds its row
+            assert sizing.row_installed_tag(m, {old}) == old  # and shows as installed
         assert sizing.row_installed_tag(m, {m.ollama_tag}) == m.ollama_tag
         assert sizing.row_installed_tag(m, set()) == ""
 
 
 @pytest.mark.parametrize("mem_gb", [8, 16, 24, 32, 64, 128])
-def test_every_pick_and_suggestion_is_the_same_with_the_field_absent(mem_gb):
+def test_the_replaces_field_never_changes_which_model_is_picked(mem_gb):
     cat = sizing.load_catalog()
     stripped = tuple(dataclasses.replace(m, replaces=()) for m in cat)
-    assert sizing.recommend_by_family(
-        mem_gb, kind="apple", catalog=cat
-    ) == sizing.recommend_by_family(mem_gb, kind="apple", catalog=stripped)
-    assert sizing.recommend(mem_gb, kind="apple", concurrency=1, catalog=cat) == sizing.recommend(
-        mem_gb, kind="apple", concurrency=1, catalog=stripped
+
+    def tags(picks):
+        return {p.family: (p.recommended.ollama_tag if p.recommended else None) for p in picks}
+
+    assert tags(sizing.recommend_by_family(mem_gb, kind="apple", catalog=cat)) == tags(
+        sizing.recommend_by_family(mem_gb, kind="apple", catalog=stripped)
     )
-    assert sizing.suggest_local_setup(mem_gb, "apple", catalog=cat) == sizing.suggest_local_setup(
-        mem_gb, "apple", catalog=stripped
+    a = sizing.recommend(mem_gb, kind="apple", concurrency=1, catalog=cat)
+    b = sizing.recommend(mem_gb, kind="apple", concurrency=1, catalog=stripped)
+    assert (a.recommended and a.recommended.ollama_tag) == (
+        b.recommended and b.recommended.ollama_tag
     )
+    assert {f.model.ollama_tag: f.fits for f in a.fits} == {
+        f.model.ollama_tag: f.fits for f in b.fits
+    }
+    sa = sizing.suggest_local_setup(mem_gb, "apple", catalog=cat)
+    sb = sizing.suggest_local_setup(mem_gb, "apple", catalog=stripped)
+    assert sa.mode == sb.mode
+    assert [p.recommended.ollama_tag for p in sa.members] == [
+        p.recommended.ollama_tag for p in sb.members
+    ]
 
 
 # ── an install pinned to the old tag keeps working ─────────────────────────────────────────────────────────

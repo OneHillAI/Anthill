@@ -255,7 +255,9 @@ def test_bare_catalog_tag_matches_ollama_latest_in_picker_and_pull(tmp_path, mon
     cfg = app_mod._SessionFactory().query(OrgSettings).first()
     view = app_mod._model_picker_view(cfg)
     qwen_models = [m for f in view["families"] if f["family"] == "Qwen" for m in f["models"]]
-    qwen36 = next(m for m in qwen_models if m["tag"] == "qwen3.6")
+    qwen36 = next(
+        m for m in qwen_models if m["tag"] == "qwen3.6:35b-a3b-q4_K_M"
+    )  # the row now names the exact build (#345)
     assert qwen36["installed"] is True
     assert all(m["tag"] != "qwen3.6:latest" for m in view["other_installed"])
 

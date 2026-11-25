@@ -146,7 +146,9 @@ CHANGED_FAMILY_PICKS = {8: {"Nemotron"}, 16: {"Gemma"}}
 
 
 def test_only_the_rows_up_to_10_gb_carry_a_need(shipped):
-    assert {m.ollama_tag for m in shipped if m.need_gb} == NEED_ROWS
+    assert {
+        sizing.row_tags(m)[-1] for m in shipped if m.need_gb
+    } == NEED_ROWS  # keyed by plain tag (#345)
 
 
 @pytest.mark.parametrize("mem_gb", TIERS_GB)
