@@ -197,7 +197,7 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
         path = ws.wiki / f"{key}.md"
         if not path.is_file():
             return None
-        title, rec, mtime, source = _page_facts(path)
+        title, rec, mtime, source_name = _page_facts(path)
         wanted = set(rec.derived_from) if rec is not None else set()
         found: dict[str, dict] = {}
         for name in _raw_names(ws) if wanted else []:
@@ -213,7 +213,9 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
             query,
             scope,
             team_id,
-            source_gone=bool(source) and not (ws.raw / source).is_file() and _had_source(rec),
+            source_gone=bool(source_name)
+            and not (ws.raw / source_name).is_file()
+            and _had_source(rec),
         )
     if kind == "document":
         f = _raw_entry(ws, key)
