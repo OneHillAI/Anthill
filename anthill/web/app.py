@@ -9090,6 +9090,7 @@ def wiki_page_view(
             "source_link": _raw_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "text_link": _text_link(ws, (read_provenance(md) or {}).get("source", ""), query),
             "wiki_url": _wiki_page_url(scope, team_id),
+            "source_removed": wiki_items.source_removed(ws, md),
             "can_remove": _wiki_can_edit(db, user, scope, team_id),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "edited_by_person": wiki_items.is_person_edited(md),

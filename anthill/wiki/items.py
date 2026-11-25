@@ -561,6 +561,21 @@ def _plain_record(ws: Workspace, path: Path, body: str, by_person: bool) -> dict
     ).to_dict()
 
 
+def source_removed(ws: Workspace, markdown: str) -> bool:
+    """True for a page made from an original that was kept and is no longer: the page's record links a real
+    source id and the original is not in ``raw/``. The page stays when a person edited or approved it. Nothing is
+    stored for this, so restoring the original clears it. A page that never had a kept original (its record links
+    only a name), or has no record, is not tagged."""
+    name = source_name_of(markdown)
+    if not name or (ws.raw / name).is_file():
+        return False
+    try:
+        rec = read_page_record(markdown)
+    except RecordError:
+        return False
+    return rec is not None and any(not link.startswith("name:") for link in rec.derived_from)
+
+
 def is_person_edited(markdown: str) -> bool:
     """True for a page whose record says a person wrote its text. A page with no record, or a damaged one, is not."""
     try:
