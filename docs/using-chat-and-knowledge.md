@@ -18,7 +18,12 @@ before the page's summary, which is marked as a summary that may contain errors.
 **What this answer was given** lists each page and document the model was given, with the wiki it
 came from, the page's version or the document's page numbers, and a link that opens it. A page a
 model wrote that nobody has checked is labelled **AI-written, unchecked**; it still answers. The
-list doesn't show which parts the answer relied on. The chat page also lists everything used across
+list doesn't show which parts the answer relied on. Under it, an **Also given** list names your rules,
+your profile (the core page), the remembered notes that were given, how many earlier messages of the
+chat went in, and any web pages, marked **From the web (not checked)** and shown as links. A last line
+says which model answered and in which mode. It never shows the text of your rules or messages. An
+answer from agent mode lists the pages the agent's own search and read steps returned, and Slack
+answers, task runs and agent runs keep the same list. The chat page also lists everything used across
 the chat under **Used in this chat**. Answers from before this was added show the two plain lines
 **Documents in context** and **Pages in context** instead. A question that no document answers is
 not slowed down.
@@ -76,7 +81,7 @@ looks like a newer version of a page, Anthill writes nothing and holds it in **N
 **Keep both**, and one is marked as recommended. For a possible newer version the card shows the old
 and new text side by side with the changed words marked, and you choose to replace the old page, keep
 both, or keep the old page and discard the new one. Replacing writes over the old page's text; the
-file you uploaded earlier stays under **Files**. **Needs review** also holds pages the automatic check
+file you uploaded earlier stays in the **Library**. **Needs review** also holds pages the automatic check
 flagged, pages an agent proposed (marked as written by an agent) and your AI's proposals, with one count
 that also shows on **Knowledge** in the sidebar.
 While an upload is waiting there, or after it is rejected or removed, Anthill does not use it in
@@ -84,32 +89,47 @@ answers: not in chat, by agents, in scheduled tasks or in cached answers. An upl
 rule existed may still be read until the install owner runs `anthill knowledge inventory --apply`,
 which makes a backup first and can be undone.
 
-The wiki has three tabs:
+The wiki has two tabs, **Library** and **Principles**.
 
-- **Pages**. The knowledge itself. Browse, search, add, or research a topic into new pages. Each page
-  says how it was made: "AI summary written by" the model that read the document, or "The note as
-  uploaded" for a note filed as written, with a link to the original file. If a page is wrong, open
-  it and choose **Edit this page** to correct the text. Your text replaces the page (the earlier text
-  isn't kept), the page then says it was edited by a person, and a model upgrade never rewrites it. You
-  can edit pages in your own wiki, in a team wiki if you own the team, and in the organisation wiki
-  if you're an admin.
+- **Library**. Every page and every original document you've uploaded, in one list. Search by title,
+  show only pages or only documents, or show only pages marked **AI-written, unchecked**. A page made
+  from a document links to it, and the document links back to the pages made from it. Each page says how
+  it was made: "AI summary written by" the model that read the document, or "The note as uploaded" for a
+  note filed as written. For a PDF, Word, PowerPoint, Excel or HTML file there is also a **text read from
+  it** link, which opens the text Anthill extracted, so you can check what your AI actually saw. Nothing
+  is kept for a note, which already is the text, or for a scan or picture where no text could be read.
+  The page Anthill wrote from a document is a summary, not a replacement. Adding a document, importing
+  from a connected service and researching a topic into new pages are on the same page.
 - **Principles**. Your own (or your org's) writing rules and house style. Applied automatically
   whenever Anthill answers or drafts something in that scope.
-- **Files**. Every original document you've uploaded, with its size and date, and a link to
-  download it back. For a PDF, Word, PowerPoint, Excel or HTML file there is also a **text read from
-  it** link, which opens the text Anthill extracted, so you can check what your AI actually saw.
-  Nothing is kept for a note, which already is the text, or for a scan or picture where no text could
-  be read. The page Anthill wrote from it is a summary, not a replacement.
 
-To remove something, choose **Remove** next to a document under **Files**, or **Remove this page** on a
-page. You can remove in the wikis where you can edit. Anthill first shows what goes and what stays.
-Removing a document removes the document and the text Anthill read from it, and also the pages a model
-made only from it that nobody has checked. Pages that have been checked, or may have other sources,
-stay. Removing a page keeps the document it was made from. Answers stop using what you removed at
-once. It waits under **Removed**, below the files, with the days left. **Restore** brings it back,
-**Delete now** deletes it for good, and anything left is deleted after 30 days. A delete takes it out
-of Anthill and its search. It cannot remove copies you already exported, backups, or anything a model
-was already trained on.
+Choose **Details** on a row, or **About this page** on a page, to see what it is, where it came from and
+when, its version, the document it was made from or the pages made from it, and **Used in**: your own
+chats and the runs of the tasks and agents you created whose answer was given this page or document,
+newest first, with the version it was given and whether it has changed or been removed since. Only your
+own answers are listed. Looking changes nothing.
+
+If a page is wrong, open it and choose **Edit this page** to correct the text, or **Edit** on its row.
+Your text replaces the page and the earlier text is kept; the page then says it was edited by a person,
+and a model upgrade never rewrites it. A page that has been changed has a **History** link. It lists the
+page as it is now and each earlier version with its day and who wrote it. Open one to read it and to see
+how it differs from the page now, and choose **Restore this version** to make it the page again as a new
+version, so nothing is erased. If you save from an out-of-date copy of a page, the save is refused and
+your text stays on the edit screen, with links to the page as it is now and to its history. You can edit
+pages in your own wiki, in a team wiki if you own the team, and in the organisation wiki if you're an
+admin.
+
+To remove something, choose **Remove** on its row in the Library, or **Remove this page** on a page. You
+can remove in the wikis where you can edit. Anthill first shows what goes and what stays. Removing a
+document removes the document and the text Anthill read from it, and also the pages a model made only
+from it that nobody has checked. Pages that have been checked, or may have other sources, stay, and a
+page you edited or approved says **Source removed** in the Library and on the page. Removing a page keeps
+the document it was made from. Answers stop using what you removed at once. Anthill also clears the
+page's search entry and the answers it saved from earlier questions, and the page's earlier versions
+move into **Removed** with it. It waits under **Removed**, below the Library, with the days left.
+**Restore** brings it back with its earlier versions, **Delete now** deletes it for good, and anything
+left is deleted after 30 days. A delete takes it out of Anthill and its search. It cannot remove copies
+you already exported, backups, or anything a model was already trained on.
 
 A wiki made before this version is prepared once, automatically, the first time Anthill reads it: it
 backs up first, changes no page text, and says so on the wiki page, with how to undo it. Anthill uses a
@@ -139,11 +159,36 @@ Anthill quietly distills durable facts and preferences from your chats, tasks, a
 marking anything is required. Each memory links back to where it came from, so you can always see
 why Anthill remembers something.
 
-You're always in control. Search, edit, or delete any memory. Add one directly. Pause the whole
-auto-learning pipeline whenever you want; memories already learned keep working even while paused.
+You're always in control. Search, edit, or delete any memory. Add one directly. Pause
+**Auto-remember** whenever you want; memories already learned keep working even while paused. That
+switch is only about remembering facts: your answered chats are still kept on this device, privately, as
+possible training examples whether it is on or paused, and nothing trains a model until you decide.
 Mark anything **keep personal** so it's never shared, even if it comes up for someone else too.
 That's reversible any time.
 
 A memory stays personal, however many other people hold a similar one. An admin can promote one to
 the shared project or org level by hand. Any memory
 can be turned into a full wiki page proposal when it deserves more than a one-line fact.
+
+### Your core page
+
+Your profile and standing preferences live on one private page, the page called `core-page` in your
+personal wiki. It has two parts, **Profile** and **Preferences**. What you write under **Settings**, on
+the **Personality** tab ("How your AI sounds"), is saved to its Profile. The page is kept short, about 800
+tokens, so it can go into every answer: a save over that size is refused and says how much to cut. It is
+given to the model as guidance and is never used as a source of facts. It is read only in your own chats:
+your plain chat, chat agent mode, and a project chat on a Solo account. It is not read in team or
+organisation chats, Slack, Discord, the widget, scheduled tasks or persistent agents. The list under an
+answer shows when it was given. If you never set a profile, you get no core page and nothing changes.
+
+In chat agent mode the agent's **remember** tool proposes one line for the Preferences part. The line
+waits in **Needs review**, marked as written by an agent, and it is not on your page, or in any answer,
+until you approve it. The tool is not offered where your core page cannot be read. Adding a line yourself,
+with a preview, is not on a screen yet.
+
+### What Anthill remembered, kept in a file
+
+The first time you chat after this version, your own memory items are written once to a readable file, and
+a data file, in the `archive` folder of your personal wiki. Nothing is deleted or changed, and memory works
+as before: automatic memory and saved answers are still on in this release. Choosing items from the
+archive to add to your core page is not on a screen yet.
