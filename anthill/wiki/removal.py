@@ -160,14 +160,49 @@ def _new(kind: str, name: str) -> Removed:
     )
 
 
+def _history_files(ws: Workspace, slugs: list[str]) -> list[str]:
+    """The earlier versions kept of these pages (``history/<slug>/``), as paths relative to the workspace. They
+    hold the page's old text, so they go with the page and come back with it."""
+    from .page_store import versions
+
+    return [str(p.relative_to(ws.root)) for slug in slugs for _n, p in versions(ws, slug)]
+
+
 def _finish_removal(ws: Workspace, rec: Removed, rels: list[str]) -> Removed:
+    slugs = [Path(r).stem for r in rels if r.startswith("wiki/")]
+    rels = rels + _history_files(ws, slugs)
     rec.files = rels
     _move(ws, rec, rels)
+    for slug in slugs:
+        try:
+            (ws.root / "history" / slug).rmdir()  # empty now: its files went with the page
+        except OSError:
+            pass
     _write_manifest(ws, rec)
     ws.rebuild_index()
-    _forget_in_search(ws, [Path(r).stem for r in rels if r.startswith("wiki/")])
+    _forget_derived(ws, [f"wiki/{s}.md" for s in slugs], slugs)
     ws.append_log("remove", rec.name)
     return rec
+
+
+def _forget_derived(ws: Workspace, page_keys: list[str], slugs: list[str]) -> None:
+    """Clear what was derived from the removed pages, now and not after the days of grace: their search entries,
+    their page vectors and the answers saved from them. Restoring puts the pages back and they are indexed
+    again; saved answers are made again by the next question."""
+    _forget_in_search(ws, slugs)
+    if page_keys:
+        from ..cache.page_vectors import PageVectorIndex
+
+        PageVectorIndex(ws.root / ".cache").forget(page_keys)
+    _drop_saved_answers(ws)
+
+
+def _drop_saved_answers(ws: Workspace) -> None:
+    """Delete the workspace's saved answers. A saved answer is the text of a reply that was made from items, and
+    it records which ones only by name; it is a performance copy that fills again, so all of them go."""
+    from ..cache import store
+
+    shutil.rmtree(ws.root / ".cache" / f"{store.TABLE}.lance", ignore_errors=True)
 
 
 def _forget_in_search(ws: Workspace, slugs: list[str]) -> None:
