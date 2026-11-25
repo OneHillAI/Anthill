@@ -144,17 +144,42 @@ class Workspace:
         tier: str = "",
         sources: list[str] | None = None,
         by_person: bool = False,
+        base_hash: str | None = None,
     ) -> Path:
         """Write a page in the native OKGF format: OKF frontmatter (type/title/timestamp + this
         workspace's ``x-anthill-scope``, plus any review/tier/sources) over the markdown body. The
         body keeps Anthill's ``[[slug]]`` authoring shorthand (only the export view in ``okf`` rewrites
         those to OKF links). Any frontmatter already on the input is stripped first, so re-saving a page
-        never double-wraps it. ``by_person`` records that a person wrote this text (see ``items.record_for_save``)."""
-        from . import items, okf
+        never double-wraps it. ``by_person`` records that a person wrote this text (see ``items.record_for_save``).
+
+        This is the one place a page is written (spec: docs/specs/one-page-write.md). The file is replaced in one
+        step and the version it replaces is kept in ``history/``. ``base_hash`` is the hash of the text the writer
+        started from (``page_store.page_hash``): if the page is not that text now, nothing is written and
+        ``page_store.StaleSave`` is raised. A page changed outside the app is recorded as a person's edit first, and
+        only a person's save made from that text may replace it (``StaleSave`` for anything else). The page always
+        gets a record."""
+        from . import okf, page_store
 
         body = strip_frontmatter(markdown).strip()
         path = self.wiki / f"{slugify(title_or_slug)}.md"
-        page = okf.OkfPage(
+        self.wiki.mkdir(parents=True, exist_ok=True)
+        with page_store.page_lock(path):
+            before = page_store.prepare(self, path, base_hash=base_hash, by_person=by_person)
+            page = self._page_to_write(path, body, title_or_slug, review, tier, sources, by_person)
+            text = okf.to_okf(page)
+            if before is not None and page_store.page_hash(before) != page_store.page_hash(text):
+                page_store.keep_previous(self, path.stem, before)
+            page_store.atomic_write(path, text)
+        # Embed the saved page in the background so the first question that needs it finds it ready.
+        from .page_index import warm_page_soon
+
+        warm_page_soon(self.root, path)
+        return path
+
+    def _page_to_write(self, path, body, title_or_slug, review, tier, sources, by_person):
+        from . import items, okf
+
+        return okf.OkfPage(
             type="Concept",
             title=first_h1(body) or title_or_slug,
             description=_first_para(body),
@@ -168,12 +193,6 @@ class Workspace:
                 self, path, body, review=review, by_person=by_person
             ),  # keeps an existing record
         )
-        path.write_text(okf.to_okf(page))
-        # Embed the saved page in the background so the first question that needs it finds it ready.
-        from .page_index import warm_page_soon
-
-        warm_page_soon(self.root, path)
-        return path
 
     def migrate_to_okgf(self) -> int:
         """Rewrite legacy (frontmatter-less) pages in this workspace into native OKGF, stamping this

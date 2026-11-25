@@ -153,7 +153,7 @@ def test_the_edit_page_has_a_primary_save_a_visible_notice_and_says_what_the_tit
     notice = soup.find(id="wiki-edit-notice")
     assert (
         notice is not None
-        and "earlier text is not kept" in notice.get_text()
+        and "earlier text is kept" in notice.get_text()
         and "alert" in notice["class"]
     )
     assert (
