@@ -9154,6 +9154,8 @@ def wiki_item_page(
 ):
     """One page or one original document of a wiki: what it is, where it came from and what was made from it.
     The access rules are those of the page view."""
+    from ..wiki import page_store
+
     db = _db()
     org = _require_org(db, user)
     if scope not in ("personal", "team", "org"):
@@ -9181,6 +9183,7 @@ def wiki_item_page(
             "team_id": team_id,
             "row": row,
             "facts": item_page.facts(rec, space),
+            "has_history": kind == "page" and bool(page_store.versions(ws, name)),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "wiki_url": _wiki_page_url(scope, team_id),
         },

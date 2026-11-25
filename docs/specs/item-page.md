@@ -13,7 +13,7 @@ and what was made from it. The record of each item already says all of that.
    from a "Details" link on each Library row and an "About this page" link on the page view.
 2. It shows the title, the kind and the wiki (Your wiki, Team wiki, Organisation wiki), the Library's chips, where
    it came from in words (uploaded or written by you, written by a model, edited by a person, imported), the
-   version with the plain note that the earlier text is not kept, the day it was learned, and a short content
+   version (for a page, with a link to its History when earlier versions are kept, and "no earlier versions yet" when not), the day it was learned, and a short content
    fingerprint.
 3. "Made from" (a page's document) or "Pages made from it" (a document's pages), as links.
 4. The actions the person already had: open the page or the original, "text read from it", Edit (pages) and
@@ -32,5 +32,4 @@ and what was made from it. The record of each item already says all of that.
 ## Not here
 
 Which of the person's chats used the item: that needs an index of answers to items, not a search of the stored
-answer records, and comes with that index. A version list, restore of an earlier version and supersede (the
-earlier text is not kept); training status; connector status and expiry; project and space.
+answer records, and comes with that index. Training status; connector status and expiry; project and space.
