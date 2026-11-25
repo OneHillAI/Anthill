@@ -79,7 +79,9 @@ def train_adapter(
     if tc == "mlx":
         return _train_mlx(dataset_path, base_model, out_dir=out_dir, rank=rank, epochs=epochs)
     if tc == "peft":
-        return _train_peft(dataset_path, base_model, out_dir=out_dir, rank=rank, epochs=epochs)
+        adapter = _train_peft(dataset_path, base_model, out_dir=out_dir, rank=rank, epochs=epochs)
+        _merge_to_gguf_if_configured(adapter, base_model)
+        return adapter
     raise TrainerError(
         "No LoRA toolchain available. Install mlx-lm (Apple Silicon) or peft+torch (NVIDIA) "
         "in the training/GPU environment."
@@ -250,6 +252,69 @@ def _train_mlx(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
     return out_dir
 
 
+# ── the merged GGUF (GPU side): the one form of a fine-tune every Ollama accepts (#273) ──────────────────────
+
+
+MERGED_GGUF_NAME = (
+    "merged.gguf"  # written next to the adapter files, so every backend fetches it with them
+)
+GGUF_CONVERTER_ENV = (
+    "ANTHILL_GGUF_CONVERTER"  # path of llama.cpp's convert_hf_to_gguf.py (pinned in the image)
+)
+GGUF_OUTTYPE_ENV = "ANTHILL_GGUF_OUTTYPE"  # f16 | bf16 | q8_0 (the converter's own choices)
+GGUF_DEFAULT_OUTTYPE = "q8_0"
+
+
+def merge_adapter_to_gguf(
+    adapter_dir: str, base_model: str, *, converter: str, outtype: str = GGUF_DEFAULT_OUTTYPE
+) -> str:
+    """Merge the LoRA adapter in ``adapter_dir`` into its base model and write ``merged.gguf`` beside it,
+    using llama.cpp's converter. Runs where the base weights and torch are (the training image), because the
+    org machine that serves the model has neither. Returns the GGUF path; raises ``TrainerError``."""
+    import shutil
+    import tempfile
+
+    if not converter or not Path(converter).is_file():
+        raise TrainerError(f"The GGUF converter was not found ({converter or 'not configured'}).")
+    try:
+        import torch
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except Exception as e:  # missing deps in this environment
+        raise TrainerError(f"The merge toolchain is not importable: {e}") from e
+    hf_model = _hf_base_model(base_model)
+    out = Path(adapter_dir) / MERGED_GGUF_NAME
+    work = tempfile.mkdtemp(prefix="anthill-merge-")
+    try:
+        base = AutoModelForCausalLM.from_pretrained(hf_model, torch_dtype=torch.bfloat16)
+        merged = PeftModel.from_pretrained(base, adapter_dir).merge_and_unload()
+        merged.save_pretrained(work, safe_serialization=True)
+        AutoTokenizer.from_pretrained(hf_model).save_pretrained(work)
+        proc = subprocess.run(
+            [sys.executable, converter, work, "--outfile", str(out), "--outtype", outtype],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0 or not out.is_file():
+            raise TrainerError(f"Converting the merged model to GGUF failed: {proc.stderr[-400:]}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return str(out)
+
+
+def _merge_to_gguf_if_configured(adapter_dir: str, base_model: str) -> None:
+    """After a PEFT run: write ``merged.gguf`` when the image configured the converter. A failure here never
+    loses the adapter; the org side then says why no model could be registered."""
+    converter = os.environ.get(GGUF_CONVERTER_ENV, "").strip()
+    if not converter:
+        return
+    outtype = os.environ.get(GGUF_OUTTYPE_ENV, "").strip() or GGUF_DEFAULT_OUTTYPE
+    try:
+        merge_adapter_to_gguf(adapter_dir, base_model, converter=converter, outtype=outtype)
+    except TrainerError as e:
+        print(f"warning: no merged GGUF was produced; the adapter is kept. {e}", file=sys.stderr)
+
+
 # ── Ollama registration (org-side) ────────────────────────────────────────────
 
 
@@ -257,9 +322,9 @@ def _train_mlx(dataset_path, base_model, *, out_dir, rank, epochs) -> str:
 ADAPTERS_REFUSED_FROM = (0, 34, 1)
 ADAPTERS_REFUSED_TEXT = "LoRA adapters are no longer supported"  # what Ollama answers
 ADAPTERS_REFUSED_NOTE = (
-    "This Ollama does not accept adapters (Ollama removed that in 0.34.1), so a trained model cannot be "
-    "registered with it. Nothing was wrong with the training. Use an Ollama older than 0.34.1, or serve "
-    "the adapter another way."
+    "This Ollama does not accept adapters (Ollama removed that in 0.34.1), and the training machine did not "
+    "send a merged model file either, so the trained model cannot be registered. Nothing was wrong with the "
+    "training. Update the training machine's image, or use an Ollama older than 0.34.1."
 )
 
 
@@ -288,7 +353,15 @@ def register_with_ollama(
     model_name: str, base_model: str, adapter_path: str, *, ollama_url: str | None = None
 ) -> None:
     """Register ``model_name`` in Ollama from ``base_model`` + the LoRA ``adapter_path`` via a
-    ``FROM`` / ``ADAPTER`` Modelfile. Raises ``TrainerError`` on failure."""
+    ``FROM`` / ``ADAPTER`` Modelfile. Raises ``TrainerError`` on failure.
+
+    A ``merged.gguf`` next to the adapter (written by the training image) is registered instead, whatever the
+    Ollama version: it is accepted by every engine, runs on the memory-safe GGUF runner, and keeps the base
+    model's chat template. Without it the ADAPTER route is the only option (#273)."""
+    merged = Path(adapter_path) / MERGED_GGUF_NAME
+    if merged.is_file():
+        _register_merged_gguf(model_name, base_model, str(merged))
+        return
     modelfile = Path(adapter_path).parent / f"Modelfile.{model_name}"
     modelfile.write_text(f"FROM {base_model}\nADAPTER {adapter_path}\n")
     try:
@@ -305,6 +378,45 @@ def register_with_ollama(
     if proc.returncode != 0:
         if ADAPTERS_REFUSED_TEXT in f"{proc.stderr}{proc.stdout}":
             raise TrainerError(ADAPTERS_REFUSED_NOTE)
+        raise TrainerError(f"`ollama create {model_name}` failed: {proc.stderr[-500:]}")
+
+
+def _base_modelfile_without_weights(base_model: str) -> str:
+    """The base model's Modelfile (its chat template, stop words and parameters) without its weights lines, read
+    from the Ollama that ``ollama create`` will talk to. Raises ``TrainerError`` when it cannot be read."""
+    try:
+        data = httpx.post(
+            f"{_cli_ollama_url()}/api/show", json={"model": base_model}, timeout=15
+        ).json()
+        text = data.get("modelfile", "") if isinstance(data, dict) else ""
+    except (httpx.HTTPError, ValueError) as e:
+        raise TrainerError(f"Could not read the base model {base_model} from Ollama: {e}") from e
+    if not text:
+        raise TrainerError(f"Ollama has no Modelfile for the base model {base_model}.")
+    return "\n".join(
+        line
+        for line in text.splitlines()
+        if not line.lstrip().upper().startswith(("FROM ", "ADAPTER "))
+    )
+
+
+def _register_merged_gguf(model_name: str, base_model: str, gguf_path: str) -> None:
+    """Register a merged GGUF as ``model_name``, keeping the base model's template and parameters."""
+    body = _base_modelfile_without_weights(base_model)
+    gguf = Path(gguf_path).resolve()  # a relative FROM would be read by Ollama as a registry name
+    modelfile = gguf.parent / f"Modelfile.{model_name}"
+    modelfile.write_text(f"FROM {gguf}\n{body}\n")
+    try:
+        proc = subprocess.run(
+            [find_ollama_bin() or "ollama", "create", model_name, "-f", str(modelfile)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as e:
+        raise TrainerError(
+            "Ollama was not found on this machine, so the model cannot be registered."
+        ) from e
+    if proc.returncode != 0:
         raise TrainerError(f"`ollama create {model_name}` failed: {proc.stderr[-500:]}")
 
 

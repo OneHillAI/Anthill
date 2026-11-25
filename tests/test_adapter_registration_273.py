@@ -1,9 +1,9 @@
-"""An Ollama that refuses adapters is reported as that, before any training compute is spent (#273).
+"""An Ollama that refuses adapters is named as that, and the run no longer depends on it (#273).
 
 Ollama removed `ollama create ... ADAPTER` in 0.34.1 and every later release refuses it. The registration step
-(`trainer.register_with_ollama`) used to surface that as a generic `ollama create ... failed` after the adapter had
-been trained, possibly on a rented GPU. Now the executor asks the local Ollama's version first and stops the
-non-MLX path with a plain note; the registration step also names the refusal if it still happens.
+(`trainer.register_with_ollama`) names that refusal when only an adapter is available. The training image now also
+writes a merged GGUF next to the adapter (tests/test_adapter_merged_gguf_273.py), which every Ollama accepts, so the
+executor no longer stops a run because the local Ollama refuses adapters.
 """
 
 import subprocess
@@ -185,19 +185,10 @@ def _wire(monkeypatch, accepts, local_mlx=False):
     return backend
 
 
-def test_a_refusing_ollama_stops_the_run_before_any_compute(db, monkeypatch):
-    backend = _wire(monkeypatch, accepts=False)
-    run = _scheduled_run(db)
-    executor.execute_run(db, run)
-    cfg = db.query(OrgSettings).filter_by(org_id=1).first()
-    assert backend.calls == 0  # no GPU rented for an adapter that cannot be registered
-    assert run.status == "failed" and run.finished_at is not None
-    assert run.eval_note == f"not started: {trainer.ADAPTERS_REFUSED_NOTE}"
-    assert cfg.training_status == "idle" and cfg.training_model_ver == 0
-
-
-@pytest.mark.parametrize("accepts", [True, None])
-def test_an_accepting_or_unknown_ollama_runs_as_before(db, monkeypatch, accepts):
+@pytest.mark.parametrize("accepts", [False, True, None])
+def test_the_run_goes_ahead_on_any_ollama(db, monkeypatch, accepts):
+    # The training image also writes a merged GGUF, which every Ollama accepts (#273), so a refusing engine no
+    # longer stops the run before it starts.
     backend = _wire(monkeypatch, accepts=accepts)
     run = _scheduled_run(db)
     executor.execute_run(db, run)
