@@ -9079,6 +9079,7 @@ def wiki_page_view(
     scope: str = "personal",
     team_id: int | None = None,
     saved: str = "",
+    version: int | None = None,
     user: dict = Depends(_require_user),
 ):
     """Read a single wiki page (a markdown file in this scope's workspace). Makes the Pages list
@@ -9087,6 +9088,7 @@ def wiki_page_view(
 
     from ..common.text import WIKILINK_RE, first_h1, slugify, strip_frontmatter
     from ..lifecycle.version import PROVENANCE_RE, is_verbatim, read_provenance
+    from ..wiki import page_store
 
     db = _db()
     org = _require_org(db, user)
@@ -9132,8 +9134,10 @@ def wiki_page_view(
             "can_remove": _wiki_can_edit(db, user, scope, team_id),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "edited_by_person": wiki_items.is_person_edited(md),
+            "has_history": bool(page_store.versions(ws, path.stem)),
             "edit_query": query,
             "saved": saved == "1",
+            "restored": version if saved == "restored" else None,
         },
     )
 
@@ -9223,6 +9227,7 @@ def _edit_form(request, user, org, scope, team_id, path, text: str, error: str =
             "text": text,
             "base_hash": page_hash(path.read_text()),
             "error": error,
+            "conflict": status == 409,
             "query": f"?scope={scope}" + (f"&team_id={team_id}" if team_id else ""),
         },
         status_code=status,
@@ -9312,16 +9317,181 @@ def wiki_page_edit_save(
     return RedirectResponse(f"{back}&saved=1", status_code=303)
 
 
-def _stale_message(exc) -> str:
+def _read_target(db, user, scope: str, team_id, slug: str):
+    """(workspace, page path, may edit) of a page this person may read: 404 for a scope or page that is not
+    theirs, 403 for a team they are not in. The rules of the page view."""
+    from ..common.text import slugify
+
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    path = ws.wiki / f"{slugify(slug)}.md"
+    if not path.is_file() or path.resolve().parent != ws.wiki.resolve():
+        raise HTTPException(status_code=404)
+    return ws, path, _wiki_can_edit(db, user, scope, team_id)
+
+
+def _history_page(
+    request, user, org, scope, team_id, ws, path, can_edit, *, number=None, error="", status=200
+):
+    """The history of a page, or (with ``number``) one earlier version of it."""
+    from ..common.text import first_h1
+    from ..wiki import page_store
+    from .upload_dedup import compare_with_existing
+
+    query = f"?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
+    current = path.read_text(encoding="utf-8")
+    texts = [(n, p.read_text(encoding="utf-8")) for n, p in page_store.versions(ws, path.stem)]
+    now_number = (texts[-1][0] if texts else 0) + 1
+    chain = [*texts, (now_number, current)]  # oldest first, the page now last
+    rows = []
+    for i, (n, text) in enumerate(chain):
+        older = chain[i - 1][1] if i else None
+        rows.append(
+            {
+                "number": n,
+                "now": n == now_number,
+                **page_store.describe(text),
+                "changed": page_store.changed(older, text),
+            }
+        )
+    rows.reverse()  # newest first
+    shown = None
+    if number is not None:
+        text = dict(texts).get(number)
+        if text is None:
+            raise HTTPException(status_code=404)
+        shown = {
+            "number": number,
+            "text": _editable_text(text),
+            "compare": compare_with_existing(ws, path.stem, text),
+            **page_store.describe(text),
+        }
+    return templates.TemplateResponse(
+        request,
+        "wiki_page_history.html",
+        {
+            "request": request,
+            "user": user,
+            "org": org,
+            "scope": scope,
+            "team_id": team_id,
+            "slug": path.stem,
+            "title": first_h1(current) or path.stem,
+            "rows": rows,
+            "now_number": now_number,
+            "shown": shown,
+            "can_edit": can_edit,
+            "base_hash": page_store.page_hash(current),
+            "error": error,
+            "query": query,
+        },
+        status_code=status,
+    )
+
+
+@app.get("/wiki/page/{slug}/history", response_class=HTMLResponse)
+def wiki_page_history(
+    slug: str,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    db = _db()
+    org = _require_org(db, user)
+    ws, path, can_edit = _read_target(db, user, scope, team_id, slug)
+    return _history_page(request, user, org, scope, team_id, ws, path, can_edit)
+
+
+@app.get("/wiki/page/{slug}/history/{number}", response_class=HTMLResponse)
+def wiki_page_version(
+    slug: str,
+    number: int,
+    request: Request,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    db = _db()
+    org = _require_org(db, user)
+    ws, path, can_edit = _read_target(db, user, scope, team_id, slug)
+    return _history_page(request, user, org, scope, team_id, ws, path, can_edit, number=number)
+
+
+@app.post("/wiki/page/{slug}/history/{number}/restore")
+def wiki_page_restore(
+    slug: str,
+    number: int,
+    request: Request,
+    scope: str = Form("personal"),
+    team_id: int | None = Form(None),
+    base_hash: str = Form(""),
+    user: dict = Depends(_require_user),
+):
+    """Make an earlier version the page again. It is written as a new version by this person, through the one
+    write function, so the text it replaces is kept and a restore made from a page that has changed is refused."""
+    from ..lifecycle.version import PROVENANCE_RE
+    from ..wiki import page_store
+    from ..wiki.page_store import StaleSave
+
+    db = _db()
+    org = _require_org(db, user)
+    ws, path = _edit_target(db, user, scope, team_id, slug)  # may edit, or 403
+    old = page_store.version_text(ws, path.stem, number)
+    if old is None:
+        raise HTTPException(status_code=404)
+    current = path.read_text(encoding="utf-8")
+    text = _editable_text(old)
+    back = f"/wiki/page/{path.stem}?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
+    if text == _editable_text(current):
+        return RedirectResponse(back, status_code=303)  # the page already says this
+    tag = PROVENANCE_RE.search(current)
+    try:
+        ws.write_page(
+            path.stem,
+            f"{text}\n\n{tag.group(0)}\n" if tag else text,
+            by_person=True,
+            base_hash=base_hash or None,
+            restored_from=number,
+        )
+    except StaleSave as exc:
+        return _history_page(
+            request, user, org, scope, team_id, ws, path, True, number=number,
+            error=_stale_message(exc, restoring=True), status=409,
+        )  # fmt: skip
+    ws.rebuild_index()
+    ws.append_log("restore-version", path.stem)
+    _registry_sync_page(db, org.id, scope, team_id, path, user)
+    _audit_request(
+        request,
+        "wiki.restore_version",
+        f"scope={scope} page={path.stem} version={number}",
+        org_id=user["org"],
+        user_id=user["sub"],
+    )
+    return RedirectResponse(f"{back}&saved=restored&version={number}", status_code=303)
+
+
+def _stale_message(exc, *, restoring: bool = False) -> str:
     """What a person is told when their save was refused because the page is not the text they opened."""
-    which = (
+    changed = (
         "was changed outside Anthill after you opened it"
         if exc.outside
-        else "was changed by someone else after you opened it"
+        else "changed after you opened it"
     )
+    if restoring:
+        return (
+            f"This page {changed}, so the earlier version was not restored. "
+            "Look at the page as it is now, then restore again if you still want this version."
+        )
     return (
-        f"This page {which}, so your text was not saved. Your text is still in the box. "
-        "The page as it is now is kept in its history. Saving again replaces the page with your text."
+        f"This page {changed}, so your text was not saved. Your text is still in the box. "
+        "Save anyway replaces the page with your text; the text it replaces is kept in History."
     )
 
 
