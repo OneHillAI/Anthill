@@ -90,7 +90,7 @@ engines on 2026-11-20 (nothing is refused by the old engine; the four rows needi
   0.30.10 keeps it after an app update; only fresh installs download 0.40.16. `sizing.bundled_engine_version()` reads the pin, not the engine
   actually in use. Nothing breaks (the exact tags are accepted by both engines and no row needs a newer engine yet), but the faster decode and
   the cached-token counts reach fresh installs only until an upgrade step exists (a separate change).
-- The merge-to-GGUF fine-tune route (#273, PR #360) makes a fine-tune registrable on this engine once the trainer image is rebuilt.
+- The merge-to-GGUF fine-tune route (#273, merged as #360) makes a fine-tune registrable on this engine once the owner rebuilds the trainer image and sets `ANTHILL_TRAINER_MERGES_GGUF=1`; until then a refusing engine stops such a run before it starts (#276).
 
 ## Acceptance
 
