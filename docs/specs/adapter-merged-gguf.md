@@ -31,9 +31,10 @@ on 2026-11-24 with a real tiny adapter, on private copies of Ollama 0.30.10 and 
    `ADAPTER` route is unchanged and a refusal is named (`ADAPTERS_REFUSED_NOTE`, now also saying that the training machine
    sent no merged file).
 3. The eval gate and the rule that a rejected candidate never replaces the live model are untouched (`promote_if_better`).
-4. `execute_run` no longer stops a run because the local Ollama refuses adapters: the merged file registers anywhere. (If the
-   training image is out of date and sends no merged file, the run ends at registration with the note; the image is rebuilt
-   from `docker/Dockerfile.trainer`.)
+4. The early stop of #276 stays in `execute_run`: a run on an Ollama that refuses adapters is stopped before any compute is spent,
+   unless the owner declares that the rebuilt training image writes `merged.gguf` (`ANTHILL_TRAINER_MERGES_GGUF=1` on the org
+   machine, `trainer.trainer_merges_gguf()`); the org machine cannot see the image. The owner rebuilds the image from
+   `docker/Dockerfile.trainer` and sets the flag; until then nothing changes for a user.
 5. `docker/Dockerfile.trainer` installs `gguf` and `sentencepiece`, downloads the converter pinned to llama.cpp tag `b6000`
    and checks its SHA-256 (one release file; the current master version needs a whole package), and sets
    `ANTHILL_GGUF_CONVERTER`.
