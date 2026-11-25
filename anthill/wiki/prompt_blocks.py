@@ -87,6 +87,11 @@ def knowledge_blocks(spaces, pages: list[Path], doc_hits: list[Hit], question: s
     return blocks
 
 
+def core_page_block(text: str, item: dict | None) -> Block | None:
+    """The block for the guidance that came from a person's core page, with its item. Refused (None) and logged without one."""
+    return _try("core_page", text, item, "the core page")
+
+
 def web_blocks(results) -> list[Block]:
     """A block per web result the model is given, as the line it is given. Web text is untrusted evidence, not an item of the
     knowledge base: the block carries its address and the time it was fetched and needs no item id."""
@@ -139,6 +144,7 @@ def record_of(
     profile: str = "",
     memory: str = "",
     context: str = "",
+    core_page: Block | None = None,
     history: list[tuple[str, str]] | None = None,
     route: str = "",
     model: str = "",
@@ -149,6 +155,9 @@ def record_of(
     by_doc: dict[str, dict] = {}
     seen_ids: set = set()
     web: list[dict] = []
+    if core_page is not None:
+        blocks = [core_page, *blocks]
+        profile = ""  # the profile is listed as the core page's item, not as a block of its own
     for b in blocks:
         item = dict(b.item or {})
         if b.kind == "web_evidence":
