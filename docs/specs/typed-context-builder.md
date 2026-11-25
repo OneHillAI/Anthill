@@ -59,6 +59,25 @@ What an agent run reads and is given becomes typed blocks with item ids, and the
    skills are not recorded; the tool results kept in a long run's earlier steps are what the model was given at the time, and a step that
    the compaction later shortens is still listed.
 
+## Slice c: the web answer, the council and the document command
+
+1. **Web results.** In the answer that searches the web, each result the prompt holds becomes a `web_evidence` block: its address, the time
+   it was fetched and the line the model is given. It is untrusted evidence, not an item, so it needs no item id. The answer's record is
+   made again once the web part has run and then also lists each result by type, address, time, a hash and a length, never its text. The wiki
+   items in the record are the ones the first record already listed. When the search fails or finds nothing, the record is the first one.
+2. **The council.** It is given the messages the single model would be given, built from the same blocks, and only its members' drafts
+   are added. Its record is therefore the answer path's record; a page that cannot name its item reaches neither. The reviewer of a finished
+   agent or task answer sees only the goal and the draft, no knowledge, so it has nothing to record.
+3. **The document command** (`anthill generate`) reads the pages an answer may read as blocks, each with its item; a page that cannot name
+   its item is left out and logged. The text the model is given is the same. The command prints the pages it was built from.
+4. **Routes this spec does not make blocks of, and why.** A cached answer is recorded after the fact from its stored sources
+   (`answer_record.from_sources`) and goes with the saved answers (step 2.4). `search_and_answer` in `search/web.py` is a library function
+   that no route calls. The files attached to a task and the memory given to an agent are recorded as one `context` block by type, hash and
+   length: they are not items of the knowledge base.
+5. **What is tested, and what is not.** Tests drive the blocking and streamed answer, the agent run, the web answer, the council and the
+   document command, each with a page that cannot name its item. The widget, Slack, the MCP wiki tool and the node agent call the answer
+   path and have no test of their own for this; this spec does not claim "every route" for them.
+
 ## Known limits
 
 - Whether to show a short item tag to the model, and what that costs the stable start of the prompt and the answer, is a measurement for

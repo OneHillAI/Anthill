@@ -337,7 +337,7 @@ def ask(
     provider_available: bool = False,  # #278: a connected org/RunPod/inference-provider backend exists
     # and this turn answered locally - names it in the "go deeper" suggestion as a second option.
     think: bool | None = None,  # False = no hidden thinking for the answer (web-composed or local)
-    on_record=None,  # callback(dict) called once with the record of the items this answer was given
+    on_record=None,  # callback(dict) called with the record of what this answer was given (again, with the web results added, when the web part ran)
 ) -> tuple[str, list[str], bool]:
     """Answer a question.
 
@@ -750,7 +750,7 @@ def ask_stream(
     web_search: bool = False,  # search the web too; yields Stage markers, then the answer streams
     search_query: str = "",  # what to search for (planned by decide_web); defaults to the question
     member_question: str = "",  # what the member typed, when `question` carries more (a redo's earlier answer)
-    on_record=None,  # callback(dict) called once with the record of the items this answer was given
+    on_record=None,  # callback(dict) called with the record of what this answer was given (again, with the web results added, when the web part ran)
 ):
     """Stream a wiki-grounded answer token-by-token (a generator yielding text chunks).
 
@@ -895,6 +895,18 @@ def ask_stream(
                     history=prepared_history,
                     question_for_rules=asked,
                 )
+                if (
+                    on_record is not None
+                ):  # the record now also holds the web results the model was given
+                    on_record(
+                        prompt_blocks.record_of(
+                            [*blocks, *prompt_blocks.web_blocks(results)],
+                            rules=principles,
+                            profile=profile,
+                            memory=memory_context,
+                            history=history,
+                        )
+                    )
         except Exception:
             web_messages = (
                 None  # offline, rate-limited or no search library: answer without the web
