@@ -20,7 +20,8 @@ person edited or approved stays when its document is removed, and nothing on the
 2. **The earlier versions go with the page.** The files in `history/<slug>/` of a removed page (and of each page that goes with a
    removed document) move into the removed-items folder with it, come back with a restore, and are deleted with the item.
 3. **A page that stays says so.** A page that names the document it was made from, when that document is not kept, shows "Source
-   removed" in the Library and on the page. Nothing is stored for this: restoring the document clears it, and a page that never had a
+   removed" in the Library, and on the page, on a line of its own that names the document and says why the page stays, with a link to
+   the list of removed items where the document can be restored. Nothing is stored for this: restoring the document clears it, and a page that never had a
    document is never tagged. The page is still used in answers (its record is unchanged).
 4. **The check.** A test ingests two documents, one with a phrase nothing else contains, asks about it, removes it, and asks again. The
    phrase is looked for in what the model is given, in the answers, in the results of the tools, and in every file of the wiki folder

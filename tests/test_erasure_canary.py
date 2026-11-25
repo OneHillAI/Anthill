@@ -319,7 +319,12 @@ def test_the_page_view_says_the_source_was_removed_until_it_is_restored(tmp_path
     rec = removal.remove_original(ws, A)  # "ferry-checked" was approved by a person, so it stays
     page = _soup(client, "/wiki/page/ferry-checked")
     assert page.find(id="source-removed") is not None
-    assert "The document it was made from was removed" in page.get_text()
+    text = " ".join(page.find(id="source-removed").get_text().split())
+    assert (
+        "The document this page was made from (" in text
+        and ") was removed. This page stays because" in text
+    )
+    assert page.find(id="source-removed").find("a")["href"].endswith("#wiki-removed")
     assert _soup(client, "/wiki/page/notes").find(id="source-removed") is None  # no source, no tag
     removal.restore(ws, rec.id)
     assert _soup(client, "/wiki/page/ferry-checked").find(id="source-removed") is None
