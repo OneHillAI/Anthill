@@ -53,7 +53,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Belt and braces, as in the macOS job: only a plain stable tag (vX.Y.Z) may add files to a LIVE release.
       - name: Refuse anything but a stable version tag
@@ -89,7 +89,7 @@ jobs:
       # uv comes from a commit-pinned action, not from a script piped straight into a shell.
       - name: Install uv
         if: ${{ env.SIGN_KEY != '' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
