@@ -1,6 +1,6 @@
 # Spec: a trained adapter that Ollama will not register is reported before it is trained
 
-Status: implemented (the reporting part); the replacement route is open. Lane: `pillar:model`. Issue: #273. Related:
+Status: implemented (the reporting part); the replacement route is `docs/specs/adapter-merged-gguf.md`, which also removes the early stop in requirement 2. Lane: `pillar:model`. Issue: #273. Related:
 #264 (the bundled engine update), `docs/specs/ollama-engine-update-macos.md`.
 
 ## Problem
