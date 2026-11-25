@@ -3320,6 +3320,8 @@ def _model_picker_view(cfg):
                 == "offload",  # overflows VRAM, but a modest MoE CPU-RAM spill still runs (slower)
                 "recommended": bool(pick and m.ollama_tag == pick.ollama_tag),
                 "installed": bool(row_installed_tag(m, installed)),
+                # the tag actually on disk (an older plain tag this row replaces, or its own): what Uninstall removes
+                "installed_tag": row_installed_tag(m, installed),
                 "intelligence": m.intelligence,  # for the capability bar (relative to intel_max)
             }
             for m in fam_models
@@ -6808,6 +6810,17 @@ def personalize_get(request: Request, user: dict = Depends(_require_user)):
         current_council_tags = [cfg.org_model] if cfg and cfg.org_model else []
     else:
         current_council_tags = [cfg.ollama_model] if cfg and cfg.ollama_model else []
+    # A saved model chosen under an older plain tag that a catalogue row now replaces is the same model as
+    # that row: name it by the row's tag so the picker marks it selected and never offers to uninstall the
+    # active model (docs/specs/catalogue-exact-gguf-tags.md).
+    from ..hosting.sizing import load_catalog as _load_catalog_for_tags
+    from ..hosting.sizing import row_for_tag as _row_for_tag
+
+    _tag_catalog = _load_catalog_for_tags()
+    current_council_tags = [
+        (_row_for_tag(_tag_catalog, t).ollama_tag if _row_for_tag(_tag_catalog, t) else t)
+        for t in current_council_tags
+    ]
     council_fit = None
     try:
         from ..hosting.sizing import load_catalog, local_hardware, suggest_local_setup
@@ -12733,6 +12746,13 @@ def models_page(request: Request, user: dict = Depends(_require_admin)):
     picker = _model_picker_view(cfg)
     current = (cfg.ollama_model if cfg else "") or ""
     catalog_tags = {m["tag"] for fam in picker["families"] for m in fam["models"]}
+    from ..hosting.sizing import load_catalog as _load_catalog_for_current
+    from ..hosting.sizing import row_for_tag as _row_for_current
+
+    _row = _row_for_current(_load_catalog_for_current(), current) if current else None
+    current_in_catalog = current in catalog_tags or (
+        _row is not None and _row.ollama_tag in catalog_tags
+    )
     # How many org gold answers exist (a benchmark scores a candidate against these); and any current
     # benchmark run's state, for the result banner + poller (issue #276).
     from ..training.executor import _gold
@@ -12752,8 +12772,10 @@ def models_page(request: Request, user: dict = Depends(_require_admin)):
             "frontier_models": picker["frontier_models"],
             "hw_label": picker["hw_label"],
             "current_model": current,
-            "current_is_custom": bool(current) and current not in catalog_tags,
-            "selected_tag": current if current in catalog_tags else picker["default_tag"],
+            "current_is_custom": bool(current) and not current_in_catalog,
+            "selected_tag": (_row.ollama_tag if _row is not None else current)
+            if current_in_catalog
+            else picker["default_tag"],
             "pulling": (cfg.local_model_pulling if cfg else "") or "",
             "pull_failed": _model_pull_failure(org.id),
             "resident": resident,

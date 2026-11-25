@@ -69,7 +69,7 @@
              running model would both fail server-side and make no sense mid-selection. A <button>,
              not a nested <form> - this row sits inside chooser_form / the outer settings form, and a
              nested <form> silently detaches later content from its outer form (see mcUninstall). #}
-          <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.tag }}')">Uninstall</button>
+          <button type="button" class="mp-badge uninstall" onclick="event.preventDefault(); event.stopPropagation(); mcUninstall(this, '{{ m.installed_tag or m.tag }}')">Uninstall</button>
           {% endif %}
           {% endif %}
         </div>
