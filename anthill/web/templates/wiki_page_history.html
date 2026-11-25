@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}History of {{ title }}{% endblock %}
+{% block page_title %}History of {{ title }}{% endblock %}
+{% block content %}
+<p class="text-sm" style="margin:0 0 12px"><a href="/wiki/page/{{ slug }}{{ query }}">&larr; Back to the page</a></p>
+{% if error %}<p class="text-sm" role="alert" style="margin:0 0 10px;color:var(--danger, #b3261e)">{{ error }}</p>{% endif %}
+{% if shown %}
+<div class="card" style="max-width:780px" id="history-version">
+  <h2 style="font-size:15px;margin:0 0 4px">Earlier version {{ shown.number }}</h2>
+  <p class="text-sm text-muted" style="margin:0 0 8px">Written {{ shown.day }} by {{ shown.who }}. This is how the page read then; it is not the page now.</p>
+  <pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:13px;margin:0">{{ shown.text }}</pre>
+  {% if can_edit %}
+  <form method="post" action="/wiki/page/{{ slug }}/history/{{ shown.number }}/restore" style="margin:12px 0 0">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+    <input type="hidden" name="base_hash" value="{{ base_hash }}">
+    <button class="btn btn-primary" type="submit">Restore this version</button>
+    <span class="text-sm text-muted" style="margin-left:8px">The page now is kept in the history too.</span>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+<div class="card" style="max-width:780px;margin-top:12px" id="history-list">
+  <h2 style="font-size:15px;margin:0 0 8px">Versions of this page</h2>
+  <ul class="text-sm" style="margin:0;padding-left:18px">
+    <li><a href="/wiki/page/{{ slug }}{{ query }}">The page now</a>, written {{ current.day }} by {{ current.who }}</li>
+    {% for v in kept %}
+    <li><a href="/wiki/page/{{ slug }}/history/{{ v.number }}{{ query }}">Version {{ v.number }}</a>, written {{ v.day }} by {{ v.who }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

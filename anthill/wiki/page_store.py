@@ -167,3 +167,31 @@ def versions(ws: Workspace, slug: str) -> list[tuple[int, Path]]:
         if m:
             out.append((int(m.group(1)), p))
     return sorted(out)
+
+
+def version_text(ws: Workspace, slug: str, number: int) -> str | None:
+    """The whole file of kept version ``number`` of a page, or None when there is no such version."""
+    for n, path in versions(ws, slug):
+        if n == number:
+            try:
+                return path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                return None
+    return None
+
+
+def describe(text: str) -> dict:
+    """What a person is told about a kept version: the day it was written and who wrote its text."""
+    page = okf.parse_okf(text)
+    try:
+        rec = items.read_page_record(text)
+    except items.RecordError:
+        rec = None
+    origin = rec.origin if rec is not None else "unknown"
+    who = {
+        "person-edited": "a person",
+        "model-written": "an AI summary",
+        "own": "a note filed as uploaded",
+        "imported": "an import",
+    }.get(origin, "not recorded")
+    return {"day": page.timestamp[:10], "who": who, "version": rec.version if rec else 0}
