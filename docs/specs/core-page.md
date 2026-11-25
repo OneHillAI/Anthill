@@ -32,10 +32,11 @@ independent evaluation. After 2.3a the old memory and the core page both feed an
 3. **The profile moves onto it.** The first time a person's core page is needed and `User.profile` is not empty, the profile text becomes the
    `## Profile` section of a new core page. `User.profile` is left in place (nothing is deleted, and the person can go back). From then on the
    "make it yours" form edits the `## Profile` section of the core page and no longer writes `User.profile`. The text the model receives
-   for a person whose only content is the migrated profile is byte for byte what it was.
+   for a person whose only content is the migrated profile is what it was, apart from whitespace at the start and end of the profile.
 4. **Read only in the owner's own sessions.** The core page is read into the guidance of a turn exactly when the profile is today: when the
    session is allowed personal context for its owner (`plane_inf.use_personal_context`): the owner's plain chat and chat agent mode. A team,
-   project or organisation chat, the Slack and Discord route and the widget do not read it. Scheduled tasks and persistent agents do not read
+   project or organisation turn in an account that shares a model, the Slack and Discord route and the widget do not read it. A project chat
+   in a Solo account, which has one member and is allowed personal context today, reads it as it reads the profile. Scheduled tasks and persistent agents do not read
    the profile today and do not read the core page. There is no setting that widens this in this slice (per-session permission is step 4.2).
 5. **A typed block with its item.** The guidance part that comes from the core page is a `core_page` block carrying the page's item (id,
    version, hash, space). The answer record lists it as an item ("Your core page") and no longer lists the profile as a hash-only block.
@@ -46,13 +47,13 @@ independent evaluation. After 2.3a the old memory and the core page both feed an
 
 ## Acceptance
 
-- A person with a profile gets a core page whose `## Profile` section is that text, and the prompt text of their next answer is byte for
-  byte the old one. `User.profile` is unchanged.
+- A person with a profile gets a core page whose `## Profile` section is that text, and the prompt text of their next answer is the old one
+  (apart from whitespace at the start and end of the profile). `User.profile` is unchanged.
 - Editing the core page changes the next answer from the next turn; two saves at once do not lose text (the one write function).
 - A core page is not in `retrievable_pages()`, the search results or the document passages, and a question that matches its words does not
   retrieve it.
-- A team chat, a project chat, an organisation-plane turn, Slack, Discord, the widget, a task and a persistent agent do not receive it; the
-  owner's personal chat and chat agent mode do.
+- A turn that is not allowed personal context (an organisation or team turn in an account that shares a model), Slack, Discord, the widget, a
+  task and a persistent agent do not receive it; the owner's personal chat and chat agent mode do.
 - The answer record of a personal turn lists the core page with its id and version; the record of a team turn does not.
 - A save over the cap is refused, and the page is unchanged.
 - A person with no profile and no core page: no page is created by asking a question.

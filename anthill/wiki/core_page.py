@@ -86,8 +86,7 @@ def save(ws, *, profile: str | None = None, preferences: str | None = None) -> P
         old_profile if profile is None else profile,
         old_prefs if preferences is None else preferences,
     )
-    check_cap(body)
-    return ws.write_page(SLUG, body, by_person=True)
+    return ws.write_page(SLUG, body, by_person=True)  # refused over the cap by write_page itself
 
 
 def profile_text(ws, legacy_profile: str) -> str:

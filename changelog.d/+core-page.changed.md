@@ -1,0 +1,1 @@
+**Your profile now lives on a private core page.** "Make it yours" saves to a page you can open and edit, and the list under an answer shows when it was given. The page is kept short so it can go into every answer, is never used as a source of facts, and is read only in your own chats. Nothing changes for you if you have not set a profile.
