@@ -71,8 +71,10 @@ def test_choosing_a_model_records_it_and_starts_the_pull(tmp_path, monkeypatch):
     r = c.post("/setup/model", data={"choice": "qwen3.5:9b"}, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/"
     cfg = app_mod._SessionFactory().query(OrgSettings).first()
-    assert cfg.ollama_model == "qwen3.5:9b" and cfg.local_model_chosen is True
-    assert pulled["tag"] == "qwen3.5:9b"  # download started for the chosen model
+    assert cfg.ollama_model == "qwen3.5:9b-q4_K_M" and cfg.local_model_chosen is True
+    assert (
+        pulled["tag"] == "qwen3.5:9b-q4_K_M"
+    )  # the old plain tag is never pulled: the row's exact build is (#345)
 
 
 def test_skipping_defers_without_downloading(tmp_path, monkeypatch):
