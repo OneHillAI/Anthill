@@ -219,7 +219,8 @@ def test_the_unchecked_label_follows_the_review_state(tmp_path, embeds):  # noqa
 def test_a_stored_record_that_cannot_be_read_is_an_empty_one():
     for bad in ("", "{not json", "[]", '{"items": "x"}', "null"):
         assert answer_record.loads(bad)["items"] == []
-    assert answer_panel.panel("{not json") == {"rows": [], "more": 0}
+    empty = answer_panel.panel("{not json")
+    assert empty["rows"] == [] and empty["more"] == 0 and empty["also"] == [] and empty["web"] == []
 
 
 # ── through the chat ──────────────────────────────────────────────────────────
@@ -332,9 +333,10 @@ def test_the_page_after_a_reload_is_the_same_as_the_live_panel(chat):  # noqa: F
         for line in stream.splitlines()
         if line.startswith("data: {") and "record_html" in line
     )
-    reloaded = BeautifulSoup(chat.client.get(f"/chat/{conv}").text, "html.parser").select_one(
+    # the live panel is the newest answer's: the reloaded page has one panel per answer, so take the last
+    reloaded = BeautifulSoup(chat.client.get(f"/chat/{conv}").text, "html.parser").select(
         "div.msg.assistant details.answer-record"
-    )
+    )[-1]
     assert " ".join(BeautifulSoup(live, "html.parser").get_text().split()) == " ".join(
         reloaded.get_text().split()
     )

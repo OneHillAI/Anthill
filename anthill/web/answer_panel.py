@@ -3,7 +3,8 @@ answer, and the list of items used across a chat. Spec: docs/specs/answer-manife
 
 from __future__ import annotations
 
-from urllib.parse import quote
+import json
+from urllib.parse import quote, urlsplit
 
 from ..wiki import answer_record
 
@@ -41,10 +42,77 @@ def rows(record: dict) -> list[dict]:
     return [_row(i) for i in record.get("items", []) if isinstance(i, dict)]
 
 
+# What the panel says of the other blocks a record holds (rules, profile, ...). The record keeps a type, a hash and a
+# length for each and never the text, so a line names the kind of thing and nothing more. A kind not listed here is
+# not shown.
+OTHER_BLOCKS = (
+    ("rules", "Your rules", "The principles that applied to this answer."),
+    ("profile", "Your profile", "What Anthill knows about you from your profile."),
+    (
+        "memory",
+        "Notes Anthill remembered",
+        "Remembered notes that were added to this answer's prompt.",
+    ),
+    (
+        "context",
+        "The context this run started with",
+        "What an agent run was given before it began.",
+    ),
+)
+ROUTE_WORDS = {"chat": "in chat", "agent": "in agent mode"}
+
+
+def _web_link(entry: dict) -> dict:
+    """A page from the web the answer was given: a link only for an http or https address; anything else is text."""
+    address = str(entry.get("url") or "")[:500]
+    parts = urlsplit(address)
+    safe = parts.scheme in ("http", "https") and bool(parts.netloc)
+    return {"url": address, "host": parts.netloc if safe else "", "link": safe}
+
+
+def other_blocks(blocks: list[dict]) -> dict:
+    """The lines of the "Also given" list and the web pages, from the non-item blocks of a record."""
+    kinds = {str(b.get("type")) for b in blocks}
+    lines = [
+        {"label": label, "title": title} for kind, label, title in OTHER_BLOCKS if kind in kinds
+    ]
+    turns = sum(1 for b in blocks if b.get("type") == "history_turn")
+    if turns:
+        lines.append(
+            {
+                "label": f"{turns} earlier message{'' if turns == 1 else 's'} in this chat",
+                "title": "Earlier turns of this conversation that went into the prompt.",
+            }
+        )
+    web = [_web_link(b) for b in blocks if b.get("type") == "web_evidence" and b.get("url")]
+    return {"also": lines, "web": web}
+
+
+def _answered_by(stored: str) -> str:
+    """ "Answered by <model>, in chat" from the route and model the record carries, or an empty text."""
+    try:
+        raw = json.loads(stored) if stored else {}
+    except ValueError:
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    model = str(raw.get("model") or "").strip()[:80]
+    route = ROUTE_WORDS.get(str(raw.get("route") or ""), "")
+    if not model:
+        return ""
+    return f"Answered by {model}{', ' + route if route else ''}"
+
+
 def panel(stored: str) -> dict:
-    """The rows and the count left out of a stored record, for the panel under one answer."""
+    """The rows and the count left out of a stored record, and the other things the answer was given, for the panel
+    under one answer."""
     rec = answer_record.loads(stored)
-    return {"rows": rows(rec), "more": rec["more"]}
+    return {
+        "rows": rows(rec),
+        "more": rec["more"],
+        **other_blocks(rec.get("blocks", [])),
+        "by": _answered_by(stored),
+    }
 
 
 def used_in_chat(messages) -> list[dict]:
