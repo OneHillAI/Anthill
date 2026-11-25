@@ -11,5 +11,15 @@
     {% endfor %}
   </ul>
   {% if panel.more %}<div style="margin-left:18px">and {{ panel.more }} more</div>{% endif %}
+  {% if panel.also or panel.web %}
+  <div class="answer-also" style="margin-top:8px">
+    <div style="font-weight:600">Also given</div>
+    <ul style="margin:2px 0 0 18px;padding:0">
+      {% for a in panel.also %}<li title="{{ a.title }}">{{ a.label }}</li>{% endfor %}
+      {% for w in panel.web %}<li>From the web (not checked): {% if w.link %}<a href="{{ w.url }}" target="_blank" rel="noopener noreferrer" title="{{ w.url }}">{{ w.host }}</a>{% else %}{{ w.url }}{% endif %}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if panel.by %}<div class="answer-by" style="margin-top:8px">{{ panel.by }}</div>{% endif %}
 </details>
 {% endif %}
