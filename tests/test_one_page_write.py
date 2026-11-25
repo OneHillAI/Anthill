@@ -273,7 +273,8 @@ def test_a_save_in_the_edit_screen_made_after_another_save_is_refused_with_a_mes
     )  # a second tab, same start
     assert res.status_code == 409
     plain = " ".join(BeautifulSoup(res.text, "html.parser").get_text().split())
-    assert "was changed by someone else after you opened it" in plain
+    assert "This page changed after you opened it, so your text was not saved." in plain
+    assert "someone else" not in plain
     assert "eleven" in plain  # their text is still in the box
     assert "ten" in _text(ws) and "eleven" not in _text(ws)
 
