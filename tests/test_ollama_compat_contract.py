@@ -248,7 +248,8 @@ def test_show_gives_the_window_the_capabilities_and_the_attention_shape(monkeypa
 
 @pytest.mark.parametrize("version", VERSIONS)
 def test_a_vision_model_says_so_in_its_capabilities(version):
-    show = fixture(version, "show_vision.json" if version == "0.40.7" else "show_chat.json")
+    has_vision = (ROOT / version / "show_vision.json").is_file()
+    show = fixture(version, "show_vision.json" if has_vision else "show_chat.json")
     assert "vision" in show["capabilities"]
 
 

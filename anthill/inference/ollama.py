@@ -678,15 +678,16 @@ def bundled_ollama_bin() -> str | None:
 # desktop app ships WITHOUT Ollama so the dmg and every auto-update stay small; it fetches the engine
 # once into the data dir on first launch instead. macOS only here - the cross-platform builds add the
 # per-OS urls/checksums.
-_OLLAMA_VERSION = "0.30.10"
-_OLLAMA_DARWIN_SHA256 = "ad8a4d2918ed09480b8160419570602b4f49e48c9e3792efb601c0f54619e48e"
+_OLLAMA_VERSION = "0.40.16"  # macOS (and the build script); Windows keeps its own pin below
+_OLLAMA_WINDOWS_VERSION = "0.30.10"  # not moved with macOS: it is not tested on 0.40.x (#264)
+_OLLAMA_DARWIN_SHA256 = "a743717494315da7cd352982b805f6b992d4b4452ca117fd5fbf86c4ee46fca0"
 _OLLAMA_DARWIN_URL = (
     f"https://github.com/ollama/ollama/releases/download/v{_OLLAMA_VERSION}/ollama-darwin.tgz"
 )
 # Windows: Ollama's own zip (ollama.exe at the root, the GPU runtimes under lib/ollama). It is 1.46 GB because
 # it carries the NVIDIA runtime; without an NVIDIA card Ollama simply runs on the CPU.
 _OLLAMA_WINDOWS_SHA256 = "9606cee7501703a0969682667def313130f99ed73f44a88a7a8efe82d4b565f0"
-_OLLAMA_WINDOWS_URL = f"https://github.com/ollama/ollama/releases/download/v{_OLLAMA_VERSION}/ollama-windows-amd64.zip"
+_OLLAMA_WINDOWS_URL = f"https://github.com/ollama/ollama/releases/download/v{_OLLAMA_WINDOWS_VERSION}/ollama-windows-amd64.zip"
 _OLLAMA_WINDOWS_MIN_FREE_BYTES = (
     5 * 1024**3
 )  # the zip plus what it unpacks to (about 2 GB) plus slack

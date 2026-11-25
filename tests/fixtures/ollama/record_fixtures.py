@@ -1,6 +1,6 @@
 """Record real replies from a LOCAL Ollama into tests/fixtures/ollama/<version>/ (#227).
 
-Run by hand, never by the test suite:  python tests/fixtures/ollama/record_fixtures.py [chat-model] [vision-model] [embed-model]
+Run by hand, never by the test suite:  [OLLAMA_URL=http://localhost:11436] python tests/fixtures/ollama/record_fixtures.py [chat-model] [vision-model] [embed-model]
 
 It only reads and generates with models that are already installed: no pull, no delete. The embedding is cut to its
 first 8 values, tokenizer arrays and the Modelfile, template, built-in instructions and licence text in /api/show are dropped, and home folders in paths become /Users/user. It writes
@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import datetime
 import json
+import os
 import platform
 import re
 import struct
@@ -21,7 +22,9 @@ import urllib.request
 import zlib
 from pathlib import Path
 
-BASE = "http://localhost:11434"
+BASE = os.environ.get(
+    "OLLAMA_URL", "http://localhost:11434"
+)  # a second engine on its own port: OLLAMA_URL=http://localhost:11436
 
 
 def _call(method: str, path: str, body: dict | None = None) -> tuple[int, bytes]:

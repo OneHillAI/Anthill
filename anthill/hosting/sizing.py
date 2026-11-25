@@ -248,9 +248,13 @@ def _valid_engine_version(value: object) -> str:
 
 def bundled_engine_version() -> tuple[int, int, int] | None:
     """The Ollama version the app ships (the pin in ``anthill.inference.ollama``), read without touching the network."""
-    from ..inference.ollama import _OLLAMA_VERSION
+    import sys
 
-    return _engine_version_tuple(_OLLAMA_VERSION)
+    from ..inference.ollama import _OLLAMA_VERSION, _OLLAMA_WINDOWS_VERSION
+
+    return _engine_version_tuple(
+        _OLLAMA_WINDOWS_VERSION if sys.platform == "win32" else _OLLAMA_VERSION
+    )
 
 
 def runs_on_bundled_engine(model: Model) -> bool:
