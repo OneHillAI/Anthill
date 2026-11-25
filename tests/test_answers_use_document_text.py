@@ -69,6 +69,9 @@ def embeds(monkeypatch):
 def _wiki(tmp_path, name="w", *, summary=SUMMARY, text=HANDBOOK, raw=RAW) -> Workspace:
     ws = Workspace(tmp_path / name, scope="personal")
     ws.init()
+    (ws.raw / raw).write_bytes(
+        b"%PDF-1.4 handbook"
+    )  # the original is kept; writing its page gives it its record
     ws.write_page(
         "hollis-bakery-operations-handbook",
         tag_page(summary, "qwen2.5:3b", on="2026-11-18", source=raw),
@@ -315,6 +318,9 @@ def chat(tmp_path, monkeypatch, embeds):
 
     personal = workspace_for("personal", user_id=uid)
     personal.init()
+    (personal.raw / RAW).write_bytes(
+        b"%PDF-1.4 handbook"
+    )  # the original is kept; writing its page gives it its record
     personal.write_page(
         "hollis-bakery-operations-handbook",
         tag_page(SUMMARY, "qwen2.5:3b", on="2026-11-18", source=RAW),
