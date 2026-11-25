@@ -725,6 +725,8 @@ class AgentRun(Base):
     status = Column(String(12), nullable=False, default="ok")  # ok | error
     result = Column(Text, nullable=False, default="")  # the run's answer ("" on error)
     error = Column(Text, nullable=False, default="")  # the failure message when status == error
+    # What the run was given, as JSON (anthill/wiki/answer_record.py); "" for a failed or older run.
+    record = Column(Text, nullable=False, default="")
     # per-run verifier verdict (the Agent row only holds the latest; this preserves each run's)
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
@@ -791,6 +793,8 @@ class TaskRun(Base):
     status = Column(String(12), nullable=False, default="ok")  # running | ok | error
     result = Column(Text, nullable=False, default="")  # the run's result ("" on error)
     error = Column(Text, nullable=False, default="")  # the failure message when status == error
+    # What the run was given, as JSON (anthill/wiki/answer_record.py); "" for a failed or older run.
+    record = Column(Text, nullable=False, default="")
     verify_needs_review = Column(Boolean, nullable=False, default=False)
     verify_reason = Column(String(400), nullable=False, default="")
     verify_confidence = Column(String(8), nullable=False, default="")
