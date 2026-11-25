@@ -1,0 +1,1 @@
+**The page of a Library item now shows where it was used.** "About this page" has a "Used in" section: the chats, task runs and agent runs of yours whose answer was given this page or document, newest first, with the version it was given and whether the item has changed or been removed since. Only your own answers are listed.

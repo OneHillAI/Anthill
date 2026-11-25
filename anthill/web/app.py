@@ -9190,6 +9190,7 @@ def wiki_item_page(
             "row": row,
             "facts": item_page.facts(rec, space),
             "has_history": kind == "page" and bool(page_store.versions(ws, name)),
+            "used": item_page.used_rows(db, rec, user_id=int(user["sub"]), org_id=org.id),
             "can_edit": _wiki_can_edit(db, user, scope, team_id),
             "wiki_url": _wiki_page_url(scope, team_id),
         },
