@@ -1,0 +1,1 @@
+**Slack answers, task runs and agent runs now keep the list of what they were given.** Each is stored with the answer or the run, locally, as ids, versions and addresses without the text of any page. Anthill can also now say which of your answers a page was used in, and whether the page has changed since.

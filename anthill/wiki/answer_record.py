@@ -150,8 +150,8 @@ def _pages_of_tag(tag: str) -> list[int]:
     return [int(n) for n in inside.replace(" ", "").split(",") if n.isdigit()]
 
 
-def _root_of(item: dict) -> Path | None:
-    """The folder of the wiki an item was read from, from the space its record names. None when it cannot be told."""
+def _workspace_of_item(item: dict):
+    """The wiki an item was read from, from the space its record names. None when it cannot be told."""
     from .workspace import workspace_for
 
     space, ref = str(item.get("space") or "personal"), str(item.get("space_ref") or "")
@@ -159,12 +159,18 @@ def _root_of(item: dict) -> Path | None:
     n = int(num) if num.isdigit() else None
     try:
         if space == "team" and n is not None:
-            return workspace_for("team", team_id=n).root
+            return workspace_for("team", team_id=n)
         if space == "org":
-            return workspace_for("org", org_id=n).root if n is not None else None
-        return workspace_for("personal", user_id=n).root
+            return workspace_for("org", org_id=n) if n is not None else None
+        return workspace_for("personal", user_id=n)
     except (ValueError, OSError):
         return None
+
+
+def _root_of(item: dict) -> Path | None:
+    """The folder of the wiki an item was read from. None when it cannot be told."""
+    ws = _workspace_of_item(item)
+    return None if ws is None else ws.root
 
 
 def still_eligible(item: dict) -> bool:
@@ -230,6 +236,47 @@ def training_context(record: dict) -> str:
     return json.dumps(
         {"v": 1, "space": narrowest_space(record), "items": items_}, separators=(",", ":")
     )
+
+
+def _status_of(item: dict) -> str:
+    """Where one recorded item stands now: ``unchanged`` (same content hash), ``changed``, ``gone`` (removed, waiting or
+    rejected, so an answer may not read it) or ``not_held`` (its wiki is not on this machine). ``unknown`` when the record
+    kept no hash to compare. No model is involved."""
+    ws = _workspace_of_item(item)
+    root = None if ws is None else ws.root
+    if ws is None or root is None or not root.is_dir():
+        return "not_held"
+    if not still_eligible(item):
+        return "gone"
+    recorded = str(item.get("hash") or "")
+    if not recorded:
+        return "unknown"
+    try:
+        if item.get("kind") == "document":
+            rec = items.read_source_record(ws, str(item.get("name") or ""))
+        else:
+            rec = items.read_page_record(
+                (root / "wiki" / f"{item.get('slug')}.md").read_text(encoding="utf-8")
+            )
+    except (items.RecordError, OSError):
+        return "unknown"
+    current = getattr(rec, "content_hash", "") if rec is not None else ""
+    return "unchanged" if current == recorded else "changed"
+
+
+def changed_since(record: dict) -> list[dict]:
+    """For each item an answer was given: its id and name and where it stands now (see ``_status_of``)."""
+    out = []
+    for item in record.get("items", []):
+        if isinstance(item, dict):
+            out.append(
+                {
+                    "id": item.get("id", ""),
+                    "title": item.get("title") or item.get("slug") or item.get("name") or "",
+                    "status": _status_of(item),
+                }
+            )
+    return out
 
 
 def dumps(record: dict) -> str:

@@ -25,10 +25,11 @@ removes or corrects an item cannot see what depended on it, and a person looking
    keep no message), the MCP wiki tool, the node agent and the command line return an answer without keeping it. They are not given a store in this step; the spec says so and does not claim a record for them.
 3. **"Used in".** One function takes an item id and a viewer and returns the answers whose record lists that item, newest first, each as
    the route (chat, task, agent), the title or goal, the time, the version of the item the answer was given and whether that version is
-   still the current one. Only answers the viewer may already open are returned: their own chats, and the runs of tasks and agents they may
-   already see. Nothing here widens who sees an answer.
+   still the current one. Only answers the viewer may already open are returned: their own chats, and the runs of the tasks and agents
+   they created (the narrowest rule that is safe; a wider one needs its own decision). At most the newest fifty of each kind are scanned.
+   Nothing here widens who sees an answer.
 4. **Has the item changed since?** A pure function takes a record and the workspaces and says, for each item: unchanged (same id and content
-   hash), changed, gone, or not held here. It makes no model call. It is what the "used in" result and a later panel use to say
+   hash), changed, gone (removed, waiting or rejected), not held here, or unknown (the record kept no hash to compare). It makes no model call. It is what the "used in" result and a later panel use to say
    "2 of 5 items have changed since this answer".
 5. **Words.** Every string this step adds says "given" or "used in", never "caused" or "because of".
 6. **Nothing is asked of the person.** A person who never opens a new screen gets the same answers, at the same speed.
@@ -41,7 +42,7 @@ removes or corrects an item cannot see what depended on it, and a person looking
   none that did not use it; an item that was given twice to one answer yields one answer.
 - "Changed since" reports unchanged, changed (the page was edited after the answer), gone (the page was removed) and not held, with no model
   call.
-- The record added to a task or agent run costs less than five milliseconds at fifty items (measured and reported in the PR).
+- The record added to a task or agent run costs less than five milliseconds at fifty items (measured: 0.05 ms for a 50-item record).
 - The full suite passes; the tests check behaviour (a stored record, a returned answer), not structure.
 
 ## Not in this step
@@ -54,6 +55,9 @@ removes or corrects an item cannot see what depended on it, and a person looking
 
 ## Known limits
 
-- "Used in" scans the stored records. It is measured at one thousand answers in the PR; an index is added only if the scan is too slow.
+- "Used in" scans the stored records of the viewer's own answers. Measured at one thousand answers: 67 ms. An index is added only if that
+  becomes too slow.
+- A task answer replaced by an escalation to the connected backend is stored with the context it was sent and the route
+  `task-escalated`, not with the pages the run read, because the backend was not given those.
 - A record lists what was placed in the prompt, not what the fit to the model's window kept (see `typed-context-builder.md`).
 - Slack, Discord, the widget, the MCP wiki tool and the node agent share the answer path; only the stored record of Slack is tested here.
