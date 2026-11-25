@@ -14,7 +14,7 @@
   <dl class="item-facts text-sm">
     {% if facts.known %}
     <dt>Where it came from</dt><dd>{{ facts.origin }}{% if facts.learned %}, on {{ facts.learned }}{% endif %}</dd>
-    <dt>Version</dt><dd>{{ facts.version }} <span class="text-muted">(the earlier text is not kept)</span></dd>
+    <dt>Version</dt><dd>{{ facts.version }}{% if row.kind == 'page' %}{% if has_history %} <span class="text-muted">&middot; earlier versions are kept:</span> <a href="/wiki/page/{{ row.key | urlencode }}/history?scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">History</a>{% else %} <span class="text-muted">(no earlier versions yet)</span>{% endif %}{% endif %}</dd>
     {% if facts.fingerprint %}<dt>Fingerprint</dt><dd><code>{{ facts.fingerprint }}</code></dd>{% endif %}
     {% else %}
     <dt>Record</dt><dd class="text-muted">Nothing recorded about this {{ 'page' if row.kind == 'page' else 'document' }} yet.</dd>

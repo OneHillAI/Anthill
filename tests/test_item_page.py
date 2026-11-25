@@ -21,7 +21,7 @@ def test_a_page_says_what_it_is_where_it_came_from_and_what_it_was_made_from(tmp
     text = " ".join(story.get_text(" ", strip=True).split())
     assert story.find("h2").get_text() == "Ferry" and "Page in Your wiki" in text
     assert "AI-written, unchecked" in text and "Written by a model" in text
-    assert "Version 1 (the earlier text is not kept)" in text
+    assert "Version 1 (no earlier versions yet)" in text
     assert story.find("a", string="ferry.pdf")["href"] == f"/wiki/raw/{A}?scope=personal"
     assert soup.select_one("title").get_text().startswith("About Ferry")
 
@@ -93,3 +93,23 @@ def test_a_team_wiki_needs_membership(tmp_path, monkeypatch):
     _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
     _login(client, ids["owner"])
     assert client.get("/wiki/item?kind=page&name=ferry&scope=team&team_id=999").status_code == 403
+
+
+def test_a_page_with_earlier_versions_links_to_its_history_and_a_document_says_nothing_of_them(
+    tmp_path, monkeypatch
+):
+    from anthill.wiki import page_store
+
+    _app, _eng, client, ids = _setup(tmp_path, monkeypatch)
+    ws = _personal(ids)
+    page_store.keep_previous(ws, "ferry", (ws.wiki / "ferry.md").read_text(encoding="utf-8"))
+    _login(client, ids["owner"])
+    story = _item(client, "page", "ferry").find(id="item-story")
+    link = story.find("a", string="History")
+    assert link["href"] == "/wiki/page/ferry/history?scope=personal"
+    assert "earlier versions are kept" in story.get_text(" ", strip=True)
+    assert "no earlier versions yet" not in story.get_text(" ", strip=True)
+    assert "not kept" not in story.get_text()  # the old sentence is gone
+    doc = _item(client, "document", A).find(id="item-story")
+    assert "earlier" not in doc.get_text(" ", strip=True).lower()
+    assert doc.find("a", string="History") is None
