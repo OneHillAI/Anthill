@@ -1,0 +1,1 @@
+**New users are invited to the early-adopter Slack group.** Everyone who signs up gets one notification, in the bell and under "Needs your attention" on the dashboard, with a "Join Slack" button: join to receive support, give feedback, and steer the development of Anthill. "Not now", joining, or opening your notifications clears it. Links in notifications now open in a new tab.

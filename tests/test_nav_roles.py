@@ -261,7 +261,14 @@ def test_team_review_does_not_inflate_org_badge(tmp_path, monkeypatch):
     _auth(client, ids["admin"], ids["org"], "admin")
     page = client.get("/wiki/review").text
     assert "No pending wiki updates" in page  # the page has nothing to do...
-    assert 'class="nav-badge"' not in page  # ...so the badge must not claim otherwise
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(page, "html.parser")
+    # ...so no review badge may claim otherwise: not on the Knowledge tabs and not on Knowledge in the rail
+    # (the notification bell has its own badge, for the Slack invitation every new user gets)
+    assert not soup.select(".knowledge-tabs .nav-badge")
+    rail = next(a for a in soup.select("a[href='/wiki']") if "Knowledge" in a.get_text())
+    assert rail.select_one(".nav-badge") is None
 
 
 def test_org_review_badge_counts_only_org_scope(tmp_path, monkeypatch):
