@@ -297,10 +297,10 @@ def test_undo_leaves_a_page_that_changed_since(tmp_path):
     assert "Edited since." in (ws.wiki / "report.md").read_text()
 
 
-# ── the records live in the files, not in a database ──────────────────────────
+# ── the records live in the files, not in the cache folder (the whole database is tested in test_database_is_an_index.py) ──
 
 
-def test_losing_everything_rebuildable_loses_no_record(tmp_path):
+def test_the_records_are_not_kept_in_the_cache_folder(tmp_path):
     import shutil
 
     ws = _build(tmp_path)
