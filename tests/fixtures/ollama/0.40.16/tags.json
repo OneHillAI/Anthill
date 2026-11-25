@@ -1,0 +1,99 @@
+{
+ "models": [
+  {
+   "name": "qwen3.5:4b",
+   "model": "qwen3.5:4b",
+   "modified_at": "2026-11-19T00:18:42.691360361+01:00",
+   "size": 3973305013,
+   "digest": "7f3251fa6878a78a606bcb3c074283306e5ad2ea411a7774a9dd98a4bc7f2d13",
+   "details": {
+    "parent_model": "",
+    "format": "safetensors",
+    "family": "",
+    "families": null,
+    "parameter_size": "",
+    "quantization_level": "nvfp4",
+    "runner": "mlx"
+   },
+   "capabilities": [
+    "completion",
+    "vision",
+    "thinking",
+    "tools"
+   ]
+  },
+  {
+   "name": "granite3.2-vision:2b",
+   "model": "granite3.2-vision:2b",
+   "modified_at": "2026-11-19T00:18:42.691068277+01:00",
+   "size": 2437852465,
+   "digest": "3be41a661804ad72cd08269816c5a145f1df6479ad07e2b3a7e29dba575d2669",
+   "details": {
+    "parent_model": "/Users/user/.ollama/models/blobs/sha256-1aefcd9a8a15091b670951963b5f8a7e6653bb1350345e9621e179685ac9bc5f",
+    "format": "gguf",
+    "family": "granite",
+    "families": [
+     "granite",
+     "clip"
+    ],
+    "parameter_size": "2.5B",
+    "quantization_level": "Q4_K_M",
+    "context_length": 16384,
+    "embedding_length": 2048,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "tools",
+    "completion",
+    "vision"
+   ]
+  },
+  {
+   "name": "qwen2.5:3b",
+   "model": "qwen2.5:3b",
+   "modified_at": "2026-11-19T00:18:42.690765402+01:00",
+   "size": 1929912432,
+   "digest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "qwen2",
+    "families": [
+     "qwen2"
+    ],
+    "parameter_size": "3.1B",
+    "quantization_level": "Q4_K_M",
+    "context_length": 32768,
+    "embedding_length": 2048,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion",
+    "tools"
+   ]
+  },
+  {
+   "name": "bge-m3:latest",
+   "model": "bge-m3:latest",
+   "modified_at": "2026-11-19T00:18:42.690433401+01:00",
+   "size": 1157672605,
+   "digest": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "bert",
+    "families": [
+     "bert"
+    ],
+    "parameter_size": "566.70M",
+    "quantization_level": "F16",
+    "context_length": 8192,
+    "embedding_length": 1024,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "embedding"
+   ]
+  }
+ ]
+}

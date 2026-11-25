@@ -258,10 +258,10 @@ def test_macos_engine_download_and_paths_are_unchanged(tmp_path, monkeypatch):
         == tmp_path / "Library" / "Application Support" / "Anthill" / "ollama-runtime"
     )
     assert ollama._ollama_exe_name() == "ollama"
-    assert ollama._OLLAMA_DARWIN_URL.endswith("/v0.30.10/ollama-darwin.tgz")
+    assert ollama._OLLAMA_DARWIN_URL.endswith("/v0.40.16/ollama-darwin.tgz")
     assert (
         ollama._OLLAMA_DARWIN_SHA256
-        == "ad8a4d2918ed09480b8160419570602b4f49e48c9e3792efb601c0f54619e48e"
+        == "a743717494315da7cd352982b805f6b992d4b4452ca117fd5fbf86c4ee46fca0"
     )
 
 

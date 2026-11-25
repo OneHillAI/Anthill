@@ -50,13 +50,13 @@ fi
 # 2.5) Bundle the Ollama runtime (the local-model engine) so the app works with NOTHING
 # else installed - no separate Ollama download. Pinned + checksum-verified, extracted into
 # build-ollama/, which Anthill.spec ships as ollama-runtime/ (find_ollama_bin prefers it).
-# ~137 MB download / ~450 MB on disk (the engine + its GPU/runner libs). Set BUNDLE_OLLAMA=0
+# ~186 MB download / ~630 MB on disk (the engine + its GPU/runner libs). Set BUNDLE_OLLAMA=0
 # for a lean dev build (then the local model needs a separately installed Ollama).
-OLLAMA_VERSION="0.30.10"
-OLLAMA_SHA256="ad8a4d2918ed09480b8160419570602b4f49e48c9e3792efb601c0f54619e48e"
+OLLAMA_VERSION="0.40.16"
+OLLAMA_SHA256="a743717494315da7cd352982b805f6b992d4b4452ca117fd5fbf86c4ee46fca0"
 rm -rf build-ollama
 if [ "${BUNDLE_OLLAMA:-1}" = "1" ]; then
-  echo "→ fetching Ollama ${OLLAMA_VERSION} to bundle (~137 MB)…"
+  echo "→ fetching Ollama ${OLLAMA_VERSION} to bundle (~186 MB)…"
   OLLAMA_TGZ="$BUILD_DIR/ollama-darwin.tgz"
   curl -fsSL -o "$OLLAMA_TGZ" \
     "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-darwin.tgz"
