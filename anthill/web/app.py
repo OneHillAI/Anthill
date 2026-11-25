@@ -39,7 +39,7 @@ from ..wiki import answer_record, doc_index
 from ..wiki import items as wiki_items
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import answer_panel, audit, bring_in, key_startup, library, metrics
+from . import answer_panel, audit, bring_in, item_page, key_startup, library, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -9061,6 +9061,50 @@ def wiki_page_view(
     )
 
 
+@app.get("/wiki/item", response_class=HTMLResponse)
+def wiki_item_page(
+    request: Request,
+    kind: str,
+    name: str,
+    scope: str = "personal",
+    team_id: int | None = None,
+    user: dict = Depends(_require_user),
+):
+    """One page or one original document of a wiki: what it is, where it came from and what was made from it.
+    The access rules are those of the page view."""
+    db = _db()
+    org = _require_org(db, user)
+    if scope not in ("personal", "team", "org"):
+        scope = "personal"
+    if scope == "org" and _user_is_solo(user):
+        raise HTTPException(status_code=404)
+    if scope == "team" and _team_role(db, int(user["sub"]), team_id) is None:
+        raise HTTPException(status_code=403, detail="Not a member of this team")
+    ws = _wiki_ws(user, scope, team_id)
+    if kind not in ("page", "document") or Path(name).name != name:
+        raise HTTPException(status_code=404)
+    row = library.row(ws, kind, name, scope=scope, team_id=team_id)
+    if row is None:
+        raise HTTPException(status_code=404)
+    rec = row["record"]
+    space, _ref = wiki_items.workspace_space(ws)
+    return templates.TemplateResponse(
+        request,
+        "wiki_item.html",
+        {
+            "request": request,
+            "user": user,
+            "org": org,
+            "scope": scope,
+            "team_id": team_id,
+            "row": row,
+            "facts": item_page.facts(rec, space),
+            "can_edit": _wiki_can_edit(db, user, scope, team_id),
+            "wiki_url": _wiki_page_url(scope, team_id),
+        },
+    )
+
+
 MAX_PAGE_EDIT_CHARS = 100_000  # several times the largest page an upload writes
 
 
@@ -14332,6 +14376,15 @@ async def chat_stream(
                 ):
                     full_response.append(chunk)
                     yield f"data: {json.dumps({'token': chunk})}\n\n"
+                try:
+                    agent_record = executor.record()
+                except Exception as e:  # noqa: BLE001 - a record must never cost the person their answer
+                    agent_record = {}
+                    logger.debug("agent record skipped: %s", e)
+                if agent_record:
+                    record_box.append(agent_record)
+                    if agent_record.get("items"):
+                        yield f"data: {json.dumps({'meta': {'record_html': _answer_record_html(answer_record.dumps(agent_record))}})}\n\n"
             else:
                 # Normal chat with wiki context + smart routing. Org plane grounds in the org wiki;
                 # Solo grounds in the personal wiki.
