@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}About {{ row.title }}{% endblock %}
+{% block page_title %}About this {{ 'page' if row.kind == 'page' else 'document' }}{% endblock %}
+{% block content %}
+<p class="text-sm" style="margin:0 0 12px"><a href="{{ wiki_url }}">&larr; Library</a></p>
+
+<div class="card" id="item-story" style="max-width:760px">
+  <h2 style="font-size:18px;margin:0">{{ row.title }}</h2>
+  <p class="text-sm text-muted" style="margin:2px 0 0">
+    {{ 'Page' if row.kind == 'page' else 'Document' }} in {{ facts.wiki }}
+    {% for c in row.chips %}<span class="lib-chip" {% if c == 'AI-written, unchecked' %}title="A model wrote this page and nobody has checked it. It still answers."{% endif %}>{{ c }}</span>{% endfor %}
+  </p>
+
+  <dl class="item-facts text-sm">
+    {% if facts.known %}
+    <dt>Where it came from</dt><dd>{{ facts.origin }}{% if facts.learned %}, on {{ facts.learned }}{% endif %}</dd>
+    <dt>Version</dt><dd>{{ facts.version }} <span class="text-muted">(the earlier text is not kept)</span></dd>
+    {% if facts.fingerprint %}<dt>Fingerprint</dt><dd><code>{{ facts.fingerprint }}</code></dd>{% endif %}
+    {% else %}
+    <dt>Record</dt><dd class="text-muted">Nothing recorded about this {{ 'page' if row.kind == 'page' else 'document' }} yet.</dd>
+    {% endif %}
+    {% if row.links %}
+    <dt>{{ row.links_label }}</dt>
+    <dd>{% for l in row.links %}<a href="{{ l.href }}">{{ l.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    {% endif %}
+  </dl>
+
+  <p class="text-sm" id="item-actions" style="margin:16px 0 0">
+    <a href="{{ row.href }}">Open {{ 'the page' if row.kind == 'page' else 'the original' }}</a>
+    {% if row.text_href %}<span class="text-muted">&middot;</span> <a href="{{ row.text_href }}">text read from it</a>{% endif %}
+    {% if can_edit and row.edit_href %}<span class="text-muted">&middot;</span> <a href="{{ row.edit_href }}">Edit</a>{% endif %}
+    {% if can_edit %}<span class="text-muted">&middot;</span> <a href="{{ row.remove_href }}">Remove</a>{% endif %}
+  </p>
+</div>
+<style>
+  .item-facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:14px 0 0}
+  .item-facts dt{color:var(--muted)}
+  .item-facts dd{margin:0}
+  .lib-chip{display:inline-block;margin-left:6px;padding:0 7px;border:1px solid var(--border);border-radius:999px;font-size:11px;line-height:18px;color:var(--muted);vertical-align:1px}
+</style>
+{% endblock %}
