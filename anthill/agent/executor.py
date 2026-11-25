@@ -63,6 +63,9 @@ class AgentResult:
     # The model cannot call tools, so the answer is one plain chat (it starts with NO_TOOLS_NOTE). A caller
     # that runs unattended should treat the run as one that may not have done what the goal asked.
     answered_without_tools: bool = False
+    # What the run was given: the pages its wiki tools returned, the rules and the context, as an answer record
+    # (anthill/wiki/answer_record.py). Empty when the run was given none of these.
+    record: dict = field(default_factory=dict)
 
     @property
     def used_tools(self) -> list[str]:
@@ -215,8 +218,42 @@ class AgentExecutor:
         except Exception as e:
             raise BackendError(f"Backend error: {e}") from e
 
+    def _begin(self, context: str) -> None:
+        """A new run: forget what an earlier run read, and remember the context this one was given."""
+        self._context = context
+        for sink in self._sinks():
+            sink.clear()
+
+    def _sinks(self) -> list[list]:
+        seen: dict[int, list] = {}
+        for t in self.tools.values():
+            if t.sink is not None:
+                seen[id(t.sink)] = t.sink
+        return list(seen.values())
+
+    def record(self) -> dict:
+        """The record of what this run was given, made from the knowledge blocks its tools returned and the rules and context it was
+        started with. Pages are listed once however often they were found or read. No text is kept."""
+        from ..wiki import prompt_blocks
+
+        blocks = [b for sink in self._sinks() for b in sink]
+        rec = prompt_blocks.record_of(
+            blocks,
+            rules=self.principles,
+            context=getattr(self, "_context", ""),
+            route="agent",
+            model=self.model or "",
+        )
+        return rec if rec.get("items") or rec.get("blocks") else {}
+
     def run(self, goal: str, *, context: str = "") -> AgentResult:
-        """Run the agent synchronously and return the full result."""
+        """Run the agent synchronously and return the full result, with the record of what it was given."""
+        self._begin(context)
+        result = self._run(goal, context=context)
+        result.record = self.record()
+        return result
+
+    def _run(self, goal: str, *, context: str = "") -> AgentResult:
         if not self._model_can_use_tools():
             return AgentResult(
                 answer=self._answer_without_tools(goal, context), answered_without_tools=True
@@ -309,9 +346,10 @@ class AgentExecutor:
         """Stream the agent's progress as text chunks.
 
         Yields human-readable progress lines so the chat UI can display
-        what the agent is doing in real time.
+        what the agent is doing in real time. ``record()`` holds what it was given once the stream has ended.
         """
 
+        self._begin(context)
         if not self._model_can_use_tools():
             yield from self._stream_answer_without_tools(goal, context)
             return

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..common.text import slugify
@@ -68,6 +68,9 @@ class Tool:
     parameters: dict  # JSON Schema for the arguments
     fn: Callable  # the actual function
     needs_approval: bool = False  # pause and ask human before running
+    # The knowledge blocks this tool gave the model in the current run (anthill/wiki/prompt_blocks.py); the executor
+    # clears it at the start of a run and makes the record of the run from it. None for a tool that gives no knowledge.
+    sink: list | None = field(default=None, repr=False)
 
     def ollama_spec(self) -> dict:
         """Ollama / OpenAI tool-call format."""
@@ -108,7 +111,26 @@ def _fetch_url(url: str) -> str:
     return body or "(could not fetch page)"
 
 
-def _read_wiki(slug: str, workspace: str = "workspace") -> str:
+def _give(path: Path, text: str, workspace: str, sink: list | None) -> bool:
+    """Make the knowledge block for a page the tool is about to give the model, and keep it in ``sink``. A page whose
+    item cannot be named is refused: the caller gives the model nothing of it (spec: typed-context-builder, slice b)."""
+    if sink is None:
+        return True
+    from ..wiki import answer_record, prompt_blocks
+    from ..wiki.workspace import Workspace
+
+    try:
+        item = answer_record._page_item(path, Workspace(Path(workspace)))
+        sink.append(prompt_blocks.Block("page", text, item))
+    except prompt_blocks.MissingItemId:
+        prompt_blocks.log.warning(
+            "the page %s was left out of the agent's reading: it has no item id", path.stem
+        )
+        return False
+    return True
+
+
+def _read_wiki(slug: str, workspace: str = "workspace", sink: list | None = None) -> str:
     # Confine to the wiki dir: slugify the caller-supplied slug (dropping any '/' or '..') so a
     # crafted slug like '../../etc/passwd' can't escape. Pages are WRITTEN under slugify(title), so a
     # legitimate slug is already slug-form and this round-trips; a traversal payload collapses to a
@@ -117,12 +139,25 @@ def _read_wiki(slug: str, workspace: str = "workspace") -> str:
     path = Path(workspace) / "wiki" / f"{safe}.md"
     if not path.exists() or not items.page_file_retrievable(path):
         return f"(page '{slug}' not found in wiki)"
-    return path.read_text()
+    text = path.read_text()
+    if not _give(path, text, workspace, sink):
+        return f"(page '{slug}' not found in wiki)"
+    return text
 
 
-def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[dict]:
+def _search_wiki(
+    query: str, workspace: str = "workspace", k: int = 3, sink: list | None = None
+) -> list[dict]:
     from ..cache import embedder as emb
     from ..wiki.workspace import Workspace
+
+    def listed(found: list[Path], preview: bool = True) -> list[dict]:
+        out = []
+        for p in found:
+            text = p.read_text()[:200] if preview else ""
+            if _give(p, text, workspace, sink):
+                out.append({"slug": p.stem, "preview": text})
+        return out
 
     ws = Workspace(Path(workspace))
     if not ws.exists():
@@ -138,14 +173,14 @@ def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[d
             by_slug[s] for s in meili.search_slugs(query, k, index=ws.meili_index) if s in by_slug
         ]
         if hits:
-            return [{"slug": p.stem, "preview": p.read_text()[:200]} for p in hits]
+            return listed(hits)
     try:
         q_vec = emb.embed(query)
         scored = [(emb.cosine(q_vec, emb.embed(p.read_text()[:2000])), p) for p in pages]
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [{"slug": p.stem, "preview": p.read_text()[:200]} for _, p in scored[:k]]
+        return listed([p for _, p in scored[:k]])
     except Exception:
-        return [{"slug": p.stem, "preview": ""} for p in pages[:k]]
+        return listed(pages[:k], preview=False)
 
 
 def _write_wiki_draft(slug: str, content: str, propose=None) -> str:
@@ -362,11 +397,13 @@ def make_tools(
     def _rw(slug, content):
         return _write_wiki_draft(slug, content, propose_write)
 
+    knowledge: list = []  # the pages the two wiki tools gave the model in the current run
+
     def _sw(query, k=3):
-        return _search_wiki(query, workspace, k)
+        return _search_wiki(query, workspace, k, knowledge)
 
     def _rkw(slug):
-        return _read_wiki(slug, workspace)
+        return _read_wiki(slug, workspace, knowledge)
 
     def _rem(fact):
         return _remember(fact, workspace)
@@ -412,12 +449,14 @@ def make_tools(
                 "required": ["query"],
             },
             _sw,
+            sink=knowledge,
         ),
         Tool(
             "read_wiki",
             "Read the full content of a wiki page by slug.",
             {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
             _rkw,
+            sink=knowledge,
         ),
         Tool(
             "write_wiki_draft",

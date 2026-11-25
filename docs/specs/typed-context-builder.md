@@ -41,6 +41,23 @@ text has no identity of its own, and the other paths record nothing.
    - 2.1c: the web-search messages, the council and the document command.
 7. Retrieval, the pack budget, memory, history summarising and the trust level of each block are unchanged.
 
+## Slice b: the agent executor
+
+What an agent run reads and is given becomes typed blocks with item ids, and the run has a record made from them.
+
+1. `search_wiki` and `read_wiki` make a `page` block for every page they return, with the item of that page. A page that cannot name its
+   item is refused and logged: the tool tells the model "page not found" (read) or leaves the page out of the list (search), as it does for
+   a page that is not eligible. What the tools return to the model is otherwise the same text as before.
+2. The executor keeps the blocks of the current run and clears them when a run starts. `record()` returns the record of the run: the pages
+   found or read (a page found and then read is one item), the rules (`principles`) and the context the run was started with (memory,
+   profile, and for a task the files attached to it) each as a block with its type, a hash and its length, and no text; and the route
+   (`agent`) and the model.
+3. Chat agent mode stores the record with the answer and shows the answer panel, as plain chat does. Scheduled tasks and persistent agents
+   have the record on their result; storing and showing it for them is step 2.2.
+4. Not in this slice: the web results (`web_search`, `fetch_url`) are not items and are slice c; the system text of an agent run and its
+   skills are not recorded; the tool results kept in a long run's earlier steps are what the model was given at the time, and a step that
+   the compaction later shortens is still listed.
+
 ## Known limits
 
 - Whether to show a short item tag to the model, and what that costs the stable start of the prompt and the answer, is a measurement for

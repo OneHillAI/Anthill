@@ -14257,6 +14257,15 @@ async def chat_stream(
                 ):
                     full_response.append(chunk)
                     yield f"data: {json.dumps({'token': chunk})}\n\n"
+                try:
+                    agent_record = executor.record()
+                except Exception as e:  # noqa: BLE001 - a record must never cost the person their answer
+                    agent_record = {}
+                    logger.debug("agent record skipped: %s", e)
+                if agent_record:
+                    record_box.append(agent_record)
+                    if agent_record.get("items"):
+                        yield f"data: {json.dumps({'meta': {'record_html': _answer_record_html(answer_record.dumps(agent_record))}})}\n\n"
             else:
                 # Normal chat with wiki context + smart routing. Org plane grounds in the org wiki;
                 # Solo grounds in the personal wiki.

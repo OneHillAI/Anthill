@@ -1,0 +1,1 @@
+**An answer from agent mode now lists the pages it read.** The list shows below the answer as it does for a plain chat answer, and it is made from the pages the agent's search and read steps returned, so it cannot name a page the agent did not get. A page that cannot be identified is not given to the agent.
