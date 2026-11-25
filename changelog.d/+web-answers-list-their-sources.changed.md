@@ -1,0 +1,1 @@
+**The record of a web-search answer now lists the web pages it was given, and `anthill generate` says which wiki pages it was built from.** Web pages are listed by address and time, apart from your own pages and marked as untrusted, and their text is not kept. A page that cannot be identified is not given to the document command.

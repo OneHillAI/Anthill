@@ -567,8 +567,13 @@ def generate(
     backend = build_backend(cfg)
 
     # Build context from the wiki
+    from .wiki import prompt_blocks
+
     pages = ws.retrievable_pages()[:6]  # only what an answer may read
-    context = "\n\n---\n\n".join(p.read_text() for p in pages) if pages else ""
+    blocks = prompt_blocks.whole_page_blocks(
+        ws, pages
+    )  # a page that cannot name its item is left out
+    context = "\n\n---\n\n".join(b.text for b in blocks)
 
     from .inference.base import Message
 
@@ -591,6 +596,12 @@ def generate(
         console.print(f"[red]error:[/] {e}")
         raise typer.Exit(code=1)
 
+    if blocks:
+        console.print(
+            "[dim]Built from: "
+            + ", ".join(i["slug"] for i in prompt_blocks.record_of(blocks)["items"])
+            + "[/]"
+        )
     suffix = output.suffix.lower()
     if suffix == ".pdf":
         from .multimodal.writer import markdown_to_pdf
