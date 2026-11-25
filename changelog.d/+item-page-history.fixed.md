@@ -1,0 +1,1 @@
+**The item page no longer says a page's earlier text is not kept.** Now that pages keep their earlier versions, the "About this page" page links to the page's History, or says "no earlier versions yet".
