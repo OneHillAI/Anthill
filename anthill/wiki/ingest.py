@@ -22,6 +22,7 @@ from ..multimodal import read_file
 from ..multimodal.reader import PDF_HARD_PROCESSING_SECONDS
 from . import prompts
 from .items import ensure_source_record
+from .page_store import StaleSave
 from .workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -299,7 +300,11 @@ def _file_page(ws: Workspace, title: str, page_md: str, on_write) -> Path | None
     if on_write is not None:  # caller routes the page through a review gate
         on_write(title, page_md)
         return None
-    path = ws.write_page(title, page_md)
+    try:
+        path = ws.write_page(title, page_md)
+    except StaleSave:  # a person changed this page outside the app: it is left as they made it
+        log.warning("not replacing %r: the page was changed outside the app", title)
+        return None
     ws.rebuild_index()
     ws.append_log("ingest", title)
     return path

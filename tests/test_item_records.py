@@ -165,16 +165,19 @@ def test_the_record_survives_okf_parsing_and_export(tmp_path):
     assert items.read_page_record(exported).id == _record_of(ws, "report").id
 
 
-def test_a_failure_to_make_a_record_never_stops_a_page_being_saved(tmp_path, monkeypatch):
+def test_a_failure_to_make_a_record_never_stops_a_page_being_saved_and_it_still_has_one(
+    tmp_path, monkeypatch
+):
     ws = _ws(tmp_path)
 
     def boom(*a, **k):
         raise RuntimeError("no record today")
 
-    monkeypatch.setattr(items, "file_hash", boom)
-    monkeypatch.setattr(items.hashlib, "sha256", boom)
+    monkeypatch.setattr(items, "source_name_of", boom)
     path = ws.write_page("report", _model_page())
     assert path.is_file() and "Revenue grew in March." in path.read_text()
+    rec = items.read_page_record(path.read_text())
+    assert rec is not None and rec.name == "report" and items.is_retrievable(rec)
 
 
 # ── a source's record is a sidecar ────────────────────────────────────────────

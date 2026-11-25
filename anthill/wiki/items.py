@@ -542,7 +542,23 @@ def record_for_save(
         return rec.validate().to_dict()
     except Exception as exc:  # noqa: BLE001 - a record must never be the reason a page is not saved
         log.warning("could not make the record of %s: %s", path.name, exc)
-        return {}
+        return _plain_record(ws, path, body, by_person)
+
+
+def _plain_record(ws: Workspace, path: Path, body: str, by_person: bool) -> dict:
+    """A page's record when the usual one could not be made: a new item with only what is certain. A page is never
+    written without a record, because a page with none is not used in answers."""
+    space, ref = workspace_space(ws)
+    return ItemRecord(
+        kind="page",
+        space=space,
+        space_ref=ref,
+        name=path.stem,
+        origin="person-edited" if by_person else "unknown",
+        review_state="checked" if by_person else "unchecked",
+        learned=now_iso(),
+        content_hash=hashlib.sha256(body.strip().encode("utf-8", "replace")).hexdigest(),
+    ).to_dict()
 
 
 def is_person_edited(markdown: str) -> bool:
