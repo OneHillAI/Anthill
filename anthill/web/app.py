@@ -2335,7 +2335,7 @@ def _cluster_workers_from_cfg(cfg) -> list[dict]:
 # ── memory layer (recall into answers; distil from chats) ─────────────────────
 
 
-def _core_guidance(user: dict, legacy_profile: str) -> tuple[str, dict | None]:
+def _core_guidance(user: dict, legacy_profile: str, db=None) -> tuple[str, dict | None]:
     """The profile and preferences for the owner's own turn, from their core page (wiki/core_page.py), and the page's item for the
     answer record. The profile saved before the core page becomes the page the first time it is needed. Never raises: a problem with
     the core page leaves the profile as it was and never costs the person their answer."""
@@ -2345,6 +2345,12 @@ def _core_guidance(user: dict, legacy_profile: str) -> tuple[str, dict | None]:
         ws = workspace_for("personal", user_id=int(user["sub"]))
         if not ws.exists() and (legacy_profile or "").strip():
             ws.init()
+        if (
+            db is not None
+        ):  # the first personal-context turn keeps what Anthill remembered in a file (memory-archive.md)
+            from .memory_archive import ensure_archive
+
+            ensure_archive(db, int(user["sub"]), ws)
         return core_page.guidance_for(ws, legacy_profile)
     except Exception as e:  # noqa: BLE001 - the core page must never cost the person their answer
         logger.warning("core page skipped: %s", e)
@@ -14664,7 +14670,9 @@ async def chat_stream(
                     else ""
                 )
                 agent_profile, agent_core_item = (
-                    _core_guidance(user, profile) if plane_inf.use_personal_context else ("", None)
+                    _core_guidance(user, profile, db)
+                    if plane_inf.use_personal_context
+                    else ("", None)
                 )
                 if agent_profile:
                     agent_mem = (
@@ -14829,7 +14837,9 @@ async def chat_stream(
                 # caches are per-user and unaffected.
                 org_cache_shared = not plane_inf.use_personal_context
                 profile_used, profile_item = (
-                    _core_guidance(user, profile) if plane_inf.use_personal_context else ("", None)
+                    _core_guidance(user, profile, db)
+                    if plane_inf.use_personal_context
+                    else ("", None)
                 )
                 skip_shared_cache = org_cache_shared and (bool(extra_ws) or bool(profile_used))
                 if web_effective:
@@ -15434,6 +15444,38 @@ async def core_page_remember(
     try:
         done = core_page.add_line(_core_remember_ws(user), text, base_hash_=base_hash)
     except ValueError as exc:  # an empty line, or TooLong (a ValueError that says how much to cut)
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except StaleSave as exc:
+        return JSONResponse({"error": _stale_message(exc)}, status_code=409)
+    return JSONResponse(done)
+
+
+@app.get("/core-page/memory-import")
+def core_page_memory_import_list(user: dict = Depends(_require_user)):
+    """The archived memory rows that are not yet on the signed-in person's core page, each with the line it would become and anything
+    sensitive in it (docs/specs/memory-archive.md). Writes nothing beyond the one-time archive."""
+    from ..wiki import memory_archive
+
+    ws = _core_remember_ws(user)
+    from .memory_archive import ensure_archive
+
+    ensure_archive(_db(), int(user["sub"]), ws)
+    return JSONResponse(
+        {"archived": memory_archive.archived(ws), "rows": memory_archive.candidates(ws)}
+    )
+
+
+@app.post("/core-page/memory-import")
+async def core_page_memory_import(
+    ids: list[int] = Form(default=[]), user: dict = Depends(_require_user)
+):
+    """Add the chosen archived rows to the signed-in person's core page, one line each, in one save as their own edit."""
+    from ..wiki import core_page, memory_archive
+    from ..wiki.page_store import StaleSave
+
+    try:
+        done = memory_archive.import_rows(_core_remember_ws(user), ids)
+    except core_page.TooLong as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     except StaleSave as exc:
         return JSONResponse({"error": _stale_message(exc)}, status_code=409)
