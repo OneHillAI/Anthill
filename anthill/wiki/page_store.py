@@ -6,7 +6,8 @@
   see the old page or the new one, never half of one.
 - Writes to one page take turns. A save made from a copy of the page that has since changed is refused
   (``StaleSave``), not applied over the newer text.
-- The version a write replaces is kept in ``history/<slug>/``, a whole page file as it was, record included.
+- The version a write replaces is kept in ``history/<slug>/``, a whole page file as it was, record included. The newest
+  ``MAX_VERSIONS`` are kept; older ones are deleted.
 - A page file whose text no longer matches the hash in its record was changed outside the app. That is noticed
   here, recorded as a person's edit, and never overwritten by anything but a person's save made from that text.
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 HISTORY_DIR = "history"
+MAX_VERSIONS = 50  # earlier versions kept of one page; the oldest go first
 _VERSION_FILE = re.compile(r"^(\d{4,})-([0-9a-f]{12})\.md$")
 
 
@@ -47,18 +49,26 @@ class StaleSave(Exception):
         )
 
 
-_locks: dict[str, threading.Lock] = {}
+_locks: dict[str, list] = {}  # page file -> [its lock, how many writers hold or wait for it]
 _locks_guard = threading.Lock()
 
 
 @contextmanager
 def page_lock(path: Path):
-    """Writes to one page file take turns (within this process, which is the one that writes pages)."""
+    """Writes to one page file take turns (within this process, which is the one that writes pages). A page's lock
+    exists only while a write holds or waits for it."""
     key = str(path)
     with _locks_guard:
-        lock = _locks.setdefault(key, threading.Lock())
-    with lock:
-        yield
+        entry = _locks.setdefault(key, [threading.Lock(), 0])
+        entry[1] += 1
+    try:
+        with entry[0]:
+            yield
+    finally:
+        with _locks_guard:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del _locks[key]
 
 
 def page_hash(text: str) -> str:
@@ -97,6 +107,8 @@ def keep_previous(ws: Workspace, slug: str, text: str) -> Path | None:
         return kept[-1][1]
     dest = history_dir(ws, slug) / f"{(kept[-1][0] if kept else 0) + 1:04d}-{digest}.md"
     atomic_write(dest, text)
+    for _n, old in kept[: max(len(kept) + 1 - MAX_VERSIONS, 0)]:
+        old.unlink(missing_ok=True)
     return dest
 
 

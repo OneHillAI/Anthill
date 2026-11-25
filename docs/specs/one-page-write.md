@@ -17,7 +17,8 @@ its record is never compared with the file. If making the record fails, the page
    the old page as it was and no temporary file behind.
 3. **The earlier version is kept.** Before a write replaces a page whose text changes, the whole previous file (record included) is
    kept as `history/<slug>/<number>-<hash>.md`, numbered in order. A write that does not change the text keeps nothing. History is not
-   a page: it is not listed, indexed or read by an answer.
+   a page: it is not listed, indexed or read by an answer. At most the newest 50 versions of a page are kept, so history cannot grow
+   without limit.
 4. **A save from an old copy is refused.** A caller that read the page first passes the hash of the text it read (`base_hash`, the
    same hash the record holds). If the page is not that text when the write runs, nothing is written and `StaleSave` is raised. Writes
    to one page take turns, so of several saves made from the same copy one is applied and the others are refused.
@@ -43,7 +44,7 @@ its record is never compared with the file. If making the record fails, the page
 ## Known limits
 
 - Writes take turns inside one running app. Two separate app processes writing the same wiki folder are not coordinated.
-- History grows with every changed write and is not trimmed.
+- Only the newest 50 earlier versions of a page are kept; older ones are deleted.
 - A queued change is applied as written when it is approved; it is not compared with edits made to the page after it was proposed.
 - A change made outside the app to the front matter of a page, not its text, is not noticed here.
 

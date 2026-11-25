@@ -324,3 +324,30 @@ def test_a_model_proposal_over_a_page_changed_outside_the_app_waits_for_a_person
         s.close()
     assert applied is False and len(rows) == 1 and "page-changed" in rows[0].flags
     assert "half past eight" in _text(ws) and "cancelled" not in _text(ws)
+
+
+# ── history and locks stay small ──────────────────────────────────────────────
+
+
+def test_only_the_newest_versions_are_kept_and_numbering_goes_on(tmp_path):
+    ws = _ws(tmp_path)
+    total = page_store.MAX_VERSIONS + 12
+    for i in range(total):
+        ws.write_page("ferry", f"# Ferry\n\nDeparture number {i}.\n")
+    kept = page_store.versions(ws, "ferry")
+    assert len(kept) == page_store.MAX_VERSIONS
+    numbers = [n for n, _p in kept]
+    assert numbers == list(range(total - page_store.MAX_VERSIONS, total))  # the newest, in order
+    assert "Departure number 10." not in "".join(
+        p.read_text() for _n, p in kept
+    )  # an old one is gone
+    assert (
+        f"Departure number {total - 2}." in kept[-1][1].read_text()
+    )  # the one just replaced is there
+
+
+def test_a_pages_lock_is_gone_once_nobody_is_writing_it(tmp_path):
+    ws = _ws(tmp_path)
+    for slug in ("a", "b", "c"):
+        ws.write_page(slug, f"# {slug}\n\nText.\n")
+    assert page_store._locks == {}
