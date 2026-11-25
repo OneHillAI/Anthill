@@ -44,14 +44,10 @@ def test_reading_and_searching_give_the_model_what_they_gave_it_before(tmp_path)
 def test_the_record_lists_each_page_once_with_its_id_and_never_its_text(tmp_path):
     ws = _wiki(tmp_path)
     tools = make_tools(workspace=str(ws.root))
-    _tool(tools, "search_wiki").call({"query": "Flurf trowel shed", "k": 2})
-    _tool(tools, "read_wiki").call({"slug": "gardening"})
     ex = AgentExecutor(None, tools, principles="Answer in plain words.", model="m1")
     ex._begin("Name: Sam. The deck oven.")
-    ex._context = "Name: Sam. The deck oven."
-    # the two calls above ran before _begin cleared the sink, so run them again inside the run
-    _tool(tools, "search_wiki").call({"query": "Flurf trowel shed", "k": 2})
-    _tool(tools, "read_wiki").call({"slug": "gardening"})
+    _tool(tools, "search_wiki").call({"query": "Flurf trowel shed", "k": 2}, ex._given)
+    _tool(tools, "read_wiki").call({"slug": "gardening"}, ex._given)
     rec = ex.record()
     slugs = [i["slug"] for i in rec["items"]]
     assert slugs.count("gardening") == 1 and set(slugs) <= {
@@ -69,14 +65,37 @@ def test_the_record_lists_each_page_once_with_its_id_and_never_its_text(tmp_path
     )  # it can be stored and shown by the panel
 
 
+def test_the_model_cannot_hand_a_tool_its_own_list_and_a_call_without_one_gives_nothing_to_record(
+    tmp_path,
+):
+    ws = _wiki(tmp_path)
+    tools = make_tools(workspace=str(ws.root))
+    given: list = []
+    assert "weekly watering" in _tool(tools, "read_wiki").call(
+        {"slug": "gardening", "given": "x"}, given
+    )
+    assert (
+        len(given) == 1 and given[0].item["slug"] == "gardening"
+    )  # the list is the caller's, not the model's
+    assert "weekly watering" in _tool(tools, "read_wiki").call(
+        {"slug": "gardening"}
+    )  # a direct call still works
+    assert "weekly watering" in _tool(tools, "read_wiki").call(
+        {"slug": "gardening", "given": "x"}
+    )  # and the model's own "given" does not break it
+
+
 def test_a_page_that_cannot_name_its_item_is_not_given_to_the_model(tmp_path, caplog, monkeypatch):
     ws = _wiki(tmp_path)
     monkeypatch.setattr(answer_record, "_page_item", lambda *a, **k: {"kind": "page"})
     tools = make_tools(workspace=str(ws.root))
+    given: list = []
     with caplog.at_level("WARNING"):
-        assert "not found" in _tool(tools, "read_wiki").call({"slug": "gardening"})
-        found = json.loads(_tool(tools, "search_wiki").call({"query": "Flurf trowel", "k": 3}))
-    assert found == [] and "no item id" in caplog.text
+        assert "not found" in _tool(tools, "read_wiki").call({"slug": "gardening"}, given)
+        found = json.loads(
+            _tool(tools, "search_wiki").call({"query": "Flurf trowel", "k": 3}, given)
+        )
+    assert found == [] and given == [] and "no item id" in caplog.text
     ex = AgentExecutor(None, tools)
     ex._begin("")
     assert ex.record() == {}  # nothing was given, so nothing is listed
@@ -89,8 +108,8 @@ def test_a_trashed_page_is_not_read_and_not_listed(tmp_path):
     tools = make_tools(workspace=str(ws.root))
     ex = AgentExecutor(None, tools)
     ex._begin("")
-    assert "not found" in _tool(tools, "read_wiki").call({"slug": "old"})
-    _tool(tools, "search_wiki").call({"query": "Plink secret", "k": 5})
+    assert "not found" in _tool(tools, "read_wiki").call({"slug": "old"}, ex._given)
+    _tool(tools, "search_wiki").call({"query": "Plink secret", "k": 5}, ex._given)
     assert "old" not in [i["slug"] for i in ex.record().get("items", [])]
 
 

@@ -221,24 +221,15 @@ class AgentExecutor:
     def _begin(self, context: str) -> None:
         """A new run: forget what an earlier run read, and remember the context this one was given."""
         self._context = context
-        for sink in self._sinks():
-            sink.clear()
-
-    def _sinks(self) -> list[list]:
-        seen: dict[int, list] = {}
-        for t in self.tools.values():
-            if t.sink is not None:
-                seen[id(t.sink)] = t.sink
-        return list(seen.values())
+        self._given: list = []  # the knowledge blocks the wiki tools return in this run, handed to each call
 
     def record(self) -> dict:
         """The record of what this run was given, made from the knowledge blocks its tools returned and the rules and context it was
         started with. Pages are listed once however often they were found or read. No text is kept."""
         from ..wiki import prompt_blocks
 
-        blocks = [b for sink in self._sinks() for b in sink]
         rec = prompt_blocks.record_of(
-            blocks,
+            getattr(self, "_given", []),
             rules=self.principles,
             context=getattr(self, "_context", ""),
             route="agent",
@@ -302,7 +293,7 @@ class AgentExecutor:
                         result_str = block
                     else:
                         t0 = time.monotonic()
-                        result_str = tool.call(arguments)
+                        result_str = tool.call(arguments, self._given)
                         dur_ms = int((time.monotonic() - t0) * 1000)
                         ran = True
 
@@ -390,7 +381,7 @@ class AgentExecutor:
                     if block is not None:
                         result_str = block
                     else:
-                        result_str = tool.call(arguments)
+                        result_str = tool.call(arguments, self._given)
                         ran = True
 
                 yield f"✓ {result_str[:200]}{'...' if len(result_str) > 200 else ''}\n"

@@ -48,7 +48,8 @@ What an agent run reads and is given becomes typed blocks with item ids, and the
 1. `search_wiki` and `read_wiki` make a `page` block for every page they return, with the item of that page. A page that cannot name its
    item is refused and logged: the tool tells the model "page not found" (read) or leaves the page out of the list (search), as it does for
    a page that is not eligible. What the tools return to the model is otherwise the same text as before.
-2. The executor keeps the blocks of the current run and clears them when a run starts. `record()` returns the record of the run: the pages
+2. The executor owns the list of blocks of the current run, starts it empty for each run and hands it to each wiki tool call (a tool marked
+   as giving knowledge adds a block to the list it is given; the model cannot supply that list). There is no state kept in the tools. `record()` returns the record of the run: the pages
    found or read (a page found and then read is one item), the rules (`principles`) and the context the run was started with (memory,
    profile, and for a task the files attached to it) each as a block with its type, a hash and its length, and no text; and the route
    (`agent`) and the model.
