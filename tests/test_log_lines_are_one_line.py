@@ -4,7 +4,6 @@ from datetime import date
 
 import pytest
 
-from anthill.agent.tools import _remember
 from anthill.wiki.workspace import Workspace
 
 
@@ -23,9 +22,9 @@ def test_a_note_with_line_breaks_makes_one_entry(tmp_path):
     ws = Workspace(tmp_path / "w")
     ws.init()
     before = len(_entries(ws))
-    _remember(
+    ws.append_log(
+        "agent-note",
         "note\n## [2020-01-01] write | notes-page\r\n## [2020-01-02] delete | everything",
-        str(ws.root),
     )
     got = _entries(ws)
     assert (

@@ -25,7 +25,9 @@ def test_excluding_web_tools_drops_exactly_those_two():
     assert "search_wiki" in names
     assert "read_wiki" in names
     assert "create_file" in names
-    assert "remember" in names
+    assert (
+        "remember" not in names
+    )  # it proposes for the core page, so only where one can be read (docs/specs/remember-this.md)
 
 
 def test_web_tools_constant_matches_the_existing_web_scope():

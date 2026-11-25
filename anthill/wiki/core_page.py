@@ -22,6 +22,7 @@ PROFILE_HEADING = "## Profile"
 PREFERENCES_HEADING = "## Preferences"
 CAP_TOKENS = 800
 CAP_CHARS = CAP_TOKENS * 4  # a character count over four, not the model's tokenizer
+MAX_LINE = 300  # one remembered line, in characters
 
 
 class TooLong(ValueError):
@@ -80,7 +81,7 @@ def read(ws) -> tuple[str, str]:
 
 
 def save(ws, *, profile: str | None = None, preferences: str | None = None) -> Path:
-    """Write the core page as its owner's own edit, changing only the parts given. Raises ``TooLong`` over the cap."""
+    """Write the core page as its owner's own edit, changing only the parts given. Raises ``TooLong`` over the cap (from the write itself)."""
     old_profile, old_prefs = read(ws)
     body = compose(
         old_profile if profile is None else profile,
@@ -120,3 +121,96 @@ def guidance_for(ws, legacy_profile: str) -> tuple[str, dict | None]:
     if prompt_blocks.core_page_block(text, item) is None:
         return "", None
     return text, item
+
+
+# ---- "Remember this": one line added to the preferences, shown first (spec: docs/specs/remember-this.md) -------------------
+
+_KIND_WORDS = {
+    "EMAIL": "an email address",
+    "IPV4": "an IP address",
+    "CARD": "a card number",
+    "SSN": "a social security number",
+    "PHONE": "a phone number",
+    "APIKEY": "a secret key",
+    "JWT": "a login token",
+    "IBAN": "a bank account number",
+    "MAC": "a device address",
+    "URL": "a web address",
+    "PERSON": "a name",
+    "LOCATION": "a place",
+}
+
+
+def one_line(text: str) -> str:
+    """What a person typed as one remembered line: whitespace collapsed, a bullet mark of theirs dropped (the page adds its own),
+    cut to ``MAX_LINE`` characters."""
+    line = " ".join((text or "").split()).lstrip("-*" + chr(0x2022) + " ").strip()
+    return line[:MAX_LINE].rstrip()
+
+
+def sensitive_kinds(line: str) -> list[str]:
+    """What the PII detector finds in ``line``, in plain words (structured identifiers, and names and places when the privacy pack is
+    installed). It finds what it can: finding nothing is not a promise that there is nothing."""
+    from ..hybrid.scrub import scrub
+
+    try:
+        counts = scrub(line).counts
+    except Exception as e:  # noqa: BLE001 - a detector problem must not stop a person saving their own line
+        log.debug("sensitive check skipped: %s", e)
+        return []
+    return [_KIND_WORDS.get(k, k.lower().replace("_", " ")) for k in counts]
+
+
+def _lines_of(preferences: str) -> list[str]:
+    return [
+        ln[2:].strip() if ln.startswith("- ") else ln.strip()
+        for ln in preferences.splitlines()
+        if ln.strip()
+    ]
+
+
+def base_hash(ws) -> str:
+    """The hash of the core page as it reads now, for a save to prove it started from this text. Empty when there is no page."""
+    from . import page_store
+
+    path = path_of(ws)
+    return page_store.page_hash(path.read_text(encoding="utf-8")) if path.is_file() else ""
+
+
+def preview(ws, text: str) -> dict:
+    """What saving ``text`` as a remembered line would do, without doing it: the line as it would be written, whether it is already
+    there, the core page as it would read, how many characters are left (or over) under the cap, anything sensitive in it, and the
+    hash a confirm must carry. Raises ``ValueError`` for an empty line."""
+    line = one_line(text)
+    if not line:
+        raise ValueError("There is nothing to remember: the line is empty.")
+    profile, prefs = read(ws)
+    already = line.casefold() in {x.casefold() for x in _lines_of(prefs)}
+    new_prefs = prefs if already else (f"{prefs}\n" if prefs else "") + f"- {line}"
+    after = compose(profile, new_prefs)
+    room = CAP_CHARS - len(after)
+    return {
+        "line": line,
+        "already": already,
+        "page_after": after,
+        "left": max(room, 0),
+        "over": max(-room, 0),
+        "sensitive": sensitive_kinds(line),
+        "base_hash": base_hash(ws),
+        "preferences_after": new_prefs,
+    }
+
+
+def add_line(ws, text: str, *, base_hash_: str = "") -> dict:
+    """Add ``text`` as one line under Preferences, as the owner's own edit. Does nothing when the line is already there. Raises
+    ``TooLong`` over the cap and ``page_store.StaleSave`` when the page is not the text the preview was made from."""
+    shown = preview(ws, text)
+    if shown["already"]:
+        return {**shown, "saved": False}
+    ws.write_page(
+        SLUG,
+        shown["page_after"],
+        by_person=True,
+        base_hash=(base_hash_ or None) if exists(ws) else None,
+    )
+    return {**shown, "saved": True}
