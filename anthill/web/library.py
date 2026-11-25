@@ -20,15 +20,25 @@ def _query(scope: str, team_id: int | None) -> str:
     return f"?scope={scope}" + (f"&team_id={team_id}" if team_id else "")
 
 
-def _chips(rec: items.ItemRecord | None) -> list[str]:
+SOURCE_REMOVED_CHIP = "Source removed"
+
+
+def _chips(rec: items.ItemRecord | None, *, source_removed: bool = False) -> list[str]:
     if rec is None:
         return []
     chips = [LIFECYCLE_CHIPS[rec.lifecycle]] if rec.lifecycle in LIFECYCLE_CHIPS else []
+    if source_removed:
+        chips.append(SOURCE_REMOVED_CHIP)
     if rec.review_state in REVIEW_CHIPS:
         chips.append(REVIEW_CHIPS[rec.review_state])
     if rec.origin == "model-written" and rec.review_state == "unchecked":
         chips.append(UNCHECKED_CHIP)
     return chips
+
+
+def _had_source(rec: items.ItemRecord | None) -> bool:
+    """The page's record links a source that was once kept (a name only means it never was)."""
+    return rec is not None and any(not link.startswith("name:") for link in rec.derived_from)
 
 
 def _day(rec: items.ItemRecord | None, mtime: float) -> str:
@@ -46,29 +56,29 @@ def _page_record(text: str) -> items.ItemRecord | None:
 
 # Reading a page's record parses its front matter, about 2 ms a page. A page is read again only when its file
 # changed (its modified time, size, inode or change time), so a wiki of thousands of pages pays that once.
-_PAGE_CACHE: dict[str, tuple[tuple, str, items.ItemRecord | None]] = {}
+_PAGE_CACHE: dict[str, tuple[tuple, str, items.ItemRecord | None, str]] = {}
 _PAGE_CACHE_MAX = 20_000
 
 
-def _page_facts(path) -> tuple[str, items.ItemRecord | None, float]:
-    """The title, the record and the modified time of a page file."""
+def _page_facts(path) -> tuple[str, items.ItemRecord | None, float, str]:
+    """The title, the record, the modified time and the stored name of the original a page was made from."""
     try:
         st = path.stat()
     except OSError:
-        return path.stem, None, 0.0
+        return path.stem, None, 0.0, ""
     sig = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     hit = _PAGE_CACHE.get(str(path))
     if hit is not None and hit[0] == sig:
-        return hit[1], hit[2], st.st_mtime
+        return hit[1], hit[2], st.st_mtime, hit[3]
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         text = ""
-    title, rec = first_h1(text) or path.stem, _page_record(text)
+    title, rec, source = first_h1(text) or path.stem, _page_record(text), items.source_name_of(text)
     if len(_PAGE_CACHE) >= _PAGE_CACHE_MAX:
         _PAGE_CACHE.clear()
-    _PAGE_CACHE[str(path)] = (sig, title, rec)
-    return title, rec, st.st_mtime
+    _PAGE_CACHE[str(path)] = (sig, title, rec, source)
+    return title, rec, st.st_mtime, source
 
 
 def _source_record(ws, name: str) -> items.ItemRecord | None:
@@ -78,9 +88,11 @@ def _source_record(ws, name: str) -> items.ItemRecord | None:
         return None
 
 
-def _page_row(path, title, rec, mtime, made_from, query, scope, team_id) -> dict:
+def _page_row(
+    path, title, rec, mtime, made_from, query, scope, team_id, *, source_gone: bool = False
+) -> dict:
     slug = quote(path.stem)
-    chips = _chips(rec)
+    chips = _chips(rec, source_removed=source_gone)
     return {
         "kind": "page",
         "key": path.stem,
@@ -139,21 +151,32 @@ def build(ws, raw_files: list[dict], *, scope: str, team_id: int | None = None) 
     query = _query(scope, team_id)
     pages = []
     for path in ws.pages():
-        title, rec, mtime = _page_facts(path)
-        pages.append((path, title, rec, mtime))
+        title, rec, mtime, source = _page_facts(path)
+        pages.append((path, title, rec, mtime, source))
     docs = [(f, _source_record(ws, f["name"])) for f in raw_files]
 
     doc_of_id = {rec.id: f for f, rec in docs if rec is not None}
     pages_of_id: dict[str, list[dict]] = {}
-    for path, title, rec, _mtime in pages:
+    kept = {f["name"] for f in raw_files}
+    for path, title, rec, _mtime, _source in pages:
         for source_id in rec.derived_from if rec is not None else []:
             pages_of_id.setdefault(source_id, []).append(
                 {"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"}
             )
 
     rows = [
-        _page_row(path, title, rec, mtime, _made_from(doc_of_id, rec, query), query, scope, team_id)
-        for path, title, rec, mtime in pages
+        _page_row(
+            path,
+            title,
+            rec,
+            mtime,
+            _made_from(doc_of_id, rec, query),
+            query,
+            scope,
+            team_id,
+            source_gone=bool(source) and source not in kept and _had_source(rec),
+        )
+        for path, title, rec, mtime, source in pages
     ]
     rows += [
         _doc_row(
@@ -174,7 +197,7 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
         path = ws.wiki / f"{key}.md"
         if not path.is_file():
             return None
-        title, rec, mtime = _page_facts(path)
+        title, rec, mtime, source_name = _page_facts(path)
         wanted = set(rec.derived_from) if rec is not None else set()
         found: dict[str, dict] = {}
         for name in _raw_names(ws) if wanted else []:
@@ -182,7 +205,17 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
             if source is not None and source.id in wanted:
                 found[source.id] = {"name": name}
         return _page_row(
-            path, title, rec, mtime, _made_from(found, rec, query), query, scope, team_id
+            path,
+            title,
+            rec,
+            mtime,
+            _made_from(found, rec, query),
+            query,
+            scope,
+            team_id,
+            source_gone=bool(source_name)
+            and not (ws.raw / source_name).is_file()
+            and _had_source(rec),
         )
     if kind == "document":
         f = _raw_entry(ws, key)
@@ -192,7 +225,7 @@ def row(ws, kind: str, key: str, *, scope: str, team_id: int | None = None) -> d
         pages = []
         if rec is not None:
             for path in ws.pages():
-                title, page_rec, _mtime = _page_facts(path)
+                title, page_rec, _mtime, _source = _page_facts(path)
                 if page_rec is not None and rec.id in page_rec.derived_from:
                     pages.append({"title": title, "href": f"/wiki/page/{quote(path.stem)}{query}"})
         return _doc_row(f, rec, pages, query, scope, team_id)

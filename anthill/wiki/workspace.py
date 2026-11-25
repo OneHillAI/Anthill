@@ -121,9 +121,14 @@ class Workspace:
         """The pages an answer may read: those whose record says active and approved (see
         ``items.is_retrievable``). A page with no record is not retrievable; a wiki from before records is given
         its records once, automatically."""
-        from . import items
+        from . import core_page, items
 
-        return [p for p in self.pages() if items.page_file_retrievable(p)]
+        # the core page is guidance for its owner's own turns, never a page an answer retrieves
+        return [
+            p
+            for p in self.pages()
+            if not core_page.is_core_page(p) and items.page_file_retrievable(p)
+        ]
 
     @property
     def meili_index(self) -> str:
@@ -145,6 +150,7 @@ class Workspace:
         sources: list[str] | None = None,
         by_person: bool = False,
         base_hash: str | None = None,
+        restored_from: int | None = None,
     ) -> Path:
         """Write a page in the native OKGF format: OKF frontmatter (type/title/timestamp + this
         workspace's ``x-anthill-scope``, plus any review/tier/sources) over the markdown body. The
@@ -157,15 +163,22 @@ class Workspace:
         started from (``page_store.page_hash``): if the page is not that text now, nothing is written and
         ``page_store.StaleSave`` is raised. A page changed outside the app is recorded as a person's edit first, and
         only a person's save made from that text may replace it (``StaleSave`` for anything else). The page always
-        gets a record."""
-        from . import okf, page_store
+        gets a record. ``restored_from`` says the text is an earlier version put back (its number), so the history can
+        say so."""
+        from . import core_page, okf, page_store
 
         body = strip_frontmatter(markdown).strip()
         path = self.wiki / f"{slugify(title_or_slug)}.md"
+        if core_page.is_core_page(path):
+            core_page.check_cap(
+                body
+            )  # the core page is kept short; the save is refused over the cap
         self.wiki.mkdir(parents=True, exist_ok=True)
         with page_store.page_lock(path):
             before = page_store.prepare(self, path, base_hash=base_hash, by_person=by_person)
             page = self._page_to_write(path, body, title_or_slug, review, tier, sources, by_person)
+            if restored_from is not None:
+                page.extra = {page_store.RESTORED_KEY: restored_from}
             text = okf.to_okf(page)
             if before is not None and page_store.page_hash(before) != page_store.page_hash(text):
                 page_store.keep_previous(self, path.stem, before)
@@ -231,7 +244,12 @@ class Workspace:
             from ..search import meili
 
             if meili.enabled():
-                meili.index_pages(self.pages(), index=self.meili_index)
+                from . import core_page
+
+                meili.index_pages(
+                    [p for p in self.pages() if not core_page.is_core_page(p)],
+                    index=self.meili_index,
+                )
         except Exception:
             pass
 

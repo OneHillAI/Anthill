@@ -141,7 +141,13 @@ def _read_wiki(slug: str, workspace: str = "workspace", given: list | None = Non
     # harmless in-dir name. Mirrors workspace.page()'s write-side slugify.
     safe = slugify(slug)
     path = Path(workspace) / "wiki" / f"{safe}.md"
-    if not path.exists() or not items.page_file_retrievable(path):
+    from ..wiki import core_page
+
+    if (
+        not path.exists()
+        or core_page.is_core_page(path)  # guidance for its owner's own turns, not a page to read
+        or not items.page_file_retrievable(path)
+    ):
         return f"(page '{slug}' not found in wiki)"
     text = path.read_text()
     if not _give(path, text, workspace, given):
