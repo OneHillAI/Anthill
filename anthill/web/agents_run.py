@@ -279,7 +279,9 @@ def run_agent(agent, db) -> str:
         if (agent.created_by and plane_inf.use_personal_context)
         else ""
     )
+    agent._record = {}  # what this run was given; the run's history row keeps it
     result = executor.run(goal, context=mem_ctx)
+    agent._record = getattr(result, "record", None) or {}
     answer = result.answer
     # A model that cannot call tools answered with one plain chat. The caller (the agent tick) reads this to
     # flag the run for the owner; the note is ours, so review and escalation see only the answer.

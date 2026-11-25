@@ -693,6 +693,7 @@ def _mig_0004_task_run_occurrence_fk(conn: Connection) -> None:
         "status",
         "result",
         "error",
+        "record",
         "verify_needs_review",
         "verify_reason",
         "verify_confidence",
@@ -710,6 +711,7 @@ def _mig_0004_task_run_occurrence_fk(conn: Connection) -> None:
         "status": "'ok'",
         "result": "''",
         "error": "''",
+        "record": "''",
         "verify_needs_review": "0",
         "verify_reason": "''",
         "verify_confidence": "''",
@@ -791,7 +793,7 @@ def _mig_0004_task_run_occurrence_fk(conn: Connection) -> None:
             "CREATE TABLE task_runs__migration_4 ("
             "id INTEGER NOT NULL PRIMARY KEY, org_id INTEGER, task_id INTEGER NOT NULL, "
             "occurrence_id INTEGER, trigger VARCHAR(12) NOT NULL, status VARCHAR(12) NOT NULL, "
-            "result TEXT NOT NULL, error TEXT NOT NULL, verify_needs_review BOOLEAN NOT NULL, "
+            "result TEXT NOT NULL, error TEXT NOT NULL, record TEXT NOT NULL, verify_needs_review BOOLEAN NOT NULL, "
             "verify_reason VARCHAR(400) NOT NULL, verify_confidence VARCHAR(8) NOT NULL, "
             "claimed_inputs TEXT NOT NULL, cancel_requested BOOLEAN NOT NULL, scheduled_for DATETIME, "
             "started_at DATETIME, finished_at DATETIME, duration_ms INTEGER, "
