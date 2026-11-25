@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..common.text import strip_frontmatter
@@ -86,6 +87,33 @@ def knowledge_blocks(spaces, pages: list[Path], doc_hits: list[Hit], question: s
     return blocks
 
 
+def web_blocks(results) -> list[Block]:
+    """A block per web result the model is given, as the line it is given. Web text is untrusted evidence, not an item of the
+    knowledge base: the block carries its address and the time it was fetched and needs no item id."""
+    from ..search.web import _result_line
+
+    fetched = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return [
+        Block("web_evidence", _result_line(r), {"url": r.url, "fetched": fetched})
+        for r in results
+        if r.snippet  # the lines the prompt holds (see search.web.web_messages)
+    ]
+
+
+def whole_page_blocks(ws, pages: list[Path]) -> list[Block]:
+    """A block per page, whole and as written, for a route that gives pages to the model without choosing passages. A page that
+    cannot name its item is left out and logged."""
+    blocks: list[Block] = []
+    for path in pages:
+        path = Path(path)
+        block = _try(
+            "page", path.read_text(), answer_record._page_item(path, ws), f"the page {path.stem}"
+        )
+        if block:
+            blocks.append(block)
+    return blocks
+
+
 def render_reference(blocks: list[Block]) -> str:
     """The reference text the model is given: the document passages under their header, then the pages, as before."""
     docs = [b.text for b in blocks if b.kind == "document_passage"]
@@ -120,9 +148,16 @@ def record_of(
     listed: list[dict] = []
     by_doc: dict[str, dict] = {}
     seen_ids: set = set()
+    web: list[dict] = []
     for b in blocks:
         item = dict(b.item or {})
-        if b.kind == "document_passage":
+        if b.kind == "web_evidence":
+            web.append(
+                _entry(
+                    "web_evidence", b.text, url=item.get("url", ""), fetched=item.get("fetched", "")
+                )
+            )
+        elif b.kind == "document_passage":
             seen = by_doc.get(str(item.get("name")))
             if seen is None:
                 by_doc[str(item.get("name"))] = item
@@ -145,6 +180,7 @@ def record_of(
         )
         if text.strip()
     ]
+    others += web
     others += [_entry("history_turn", content, role=role) for role, content in history or []]
     if others:
         record["blocks"] = others
