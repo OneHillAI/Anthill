@@ -68,7 +68,9 @@ New:
 - The routes `/core-page/remember`, `/core-page/remember/preview` and `/core-page/memory-import` have no screen; they are
   in the specs, not in the guide. The three specs still say "Status: proposed" although the code is merged; that wording
   is not copied.
-- Whether the Library lists the core page was not checked, so the guide does not say how to open it.
+- The Library lists the core page as a page titled "Core page": `anthill/web/library.py` `build()` loops every page of the
+  wiki with no filter and the title is the page's first heading (`core_page.TITLE`). This was read in the code (by the
+  Knowledge Dev session and again here), not seen in a running app; the guide says how to open it with that basis.
 - `docs/SYSTEM_IMPACT_LOG.md` still mentions a Files tab; it is frozen history and is not edited.
 - Not changed: the model-list changes (#264, #318 to #324, #327, #336, #345) that alter which models are offered; the guide
   names no model and the fit labels are unchanged.

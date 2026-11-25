@@ -173,7 +173,8 @@ can be turned into a full wiki page proposal when it deserves more than a one-li
 ### Your core page
 
 Your profile and standing preferences live on one private page, the page called `core-page` in your
-personal wiki. It has two parts, **Profile** and **Preferences**. What you write under **Settings**, on
+personal wiki. Once it exists it shows in your own Library as a page titled **Core page**, and you can
+open and edit it like any page; an edit keeps the earlier version. It has two parts, **Profile** and **Preferences**. What you write under **Settings**, on
 the **Personality** tab ("How your AI sounds"), is saved to its Profile. The page is kept short, about 800
 tokens, so it can go into every answer: a save over that size is refused and says how much to cut. It is
 given to the model as guidance and is never used as a source of facts. It is read only in your own chats:
