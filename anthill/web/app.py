@@ -14552,7 +14552,7 @@ async def chat_stream(
                 from ..agent.executor import AgentExecutor
                 from ..agent.tools import WEB_TOOLS, make_tools
                 from .agent_context import agent_context_for
-                from .agent_writes import wiki_proposer
+                from .agent_writes import core_line_proposer, wiki_proposer
                 from .agents import audit_hook, get_or_create_identity, principal_for
                 from .mcp_store import mcp_client_tools
 
@@ -14566,6 +14566,11 @@ async def chat_stream(
                         ws_path=str(ws_path),
                         who="the chat agent",
                     ),
+                    propose_core_line=core_line_proposer(
+                        db, org_id=org.id, user_id=int(user["sub"]), who="the chat agent"
+                    )
+                    if plane_inf.use_personal_context
+                    else None,
                     # The "Web search" toggle otherwise only affected the plain-chat path below (its own
                     # decide_web/auto-augmentation) - agent mode kept web_search/fetch_url available
                     # regardless, including when the router silently auto-triggers agent mode (agent_auto,
@@ -15368,6 +15373,44 @@ async def snippet_save(
         "wiki_applied": wiki_applied,
         "wiki_slug": slug,
     }
+
+
+def _core_remember_ws(user: dict):
+    """The signed-in person's own personal wiki: "Remember this" acts on their core page and no one else's."""
+    ws = workspace_for("personal", user_id=int(user["sub"]))
+    if not ws.exists():
+        ws.init()
+    return ws
+
+
+@app.post("/core-page/remember/preview")
+async def core_page_remember_preview(text: str = Form(...), user: dict = Depends(_require_user)):
+    """What remembering ``text`` would do to the core page, without doing it (docs/specs/remember-this.md)."""
+    from ..wiki import core_page
+
+    try:
+        shown = core_page.preview(_core_remember_ws(user), text)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(shown)
+
+
+@app.post("/core-page/remember")
+async def core_page_remember(
+    text: str = Form(...), base_hash: str = Form(""), user: dict = Depends(_require_user)
+):
+    """Add ``text`` as one line under Preferences on the signed-in person's core page, as their own edit. Saved only on this
+    confirm, and only if the page is still the text the preview was made from."""
+    from ..wiki import core_page
+    from ..wiki.page_store import StaleSave
+
+    try:
+        done = core_page.add_line(_core_remember_ws(user), text, base_hash_=base_hash)
+    except ValueError as exc:  # an empty line, or TooLong (a ValueError that says how much to cut)
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except StaleSave as exc:
+        return JSONResponse({"error": _stale_message(exc)}, status_code=409)
+    return JSONResponse(done)
 
 
 @app.get("/memory", response_class=HTMLResponse)

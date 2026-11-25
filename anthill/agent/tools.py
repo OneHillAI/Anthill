@@ -273,16 +273,6 @@ def _create_chart(
     return f"Created {out.name} ({out.stat().st_size:,} bytes). Download: /files/{out.name}"
 
 
-def _remember(fact: str, workspace: str = "workspace") -> str:
-    """Append a quick note to the wiki log."""
-    from ..wiki.workspace import Workspace
-
-    ws = Workspace(Path(workspace))
-    if ws.exists():
-        ws.append_log("agent-note", fact[:100])
-    return f"noted: {fact}"
-
-
 def _list_files(directory: str = ".", *, base_dir: Path | None = None) -> list[str]:
     base = base_dir or _files_dir()
     if not base.exists():
@@ -391,6 +381,7 @@ def make_tools(
     *,
     exclude: set[str] | None = None,
     propose_write=None,
+    propose_core_line=None,
 ) -> list[Tool]:
     """Return the full set of built-in tools, bound to a workspace and (optionally)
     an owner. File tools read and write only inside that owner's download dir.
@@ -400,7 +391,10 @@ def make_tools(
     included, rather than the toggle only affecting the non-agent chat path's own web augmentation.
 
     ``propose_write(slug, content) -> str`` is what ``write_wiki_draft`` hands a page to: the review queue of
-    the wiki the run belongs to. Without it the tool writes nothing."""
+    the wiki the run belongs to. Without it the tool writes nothing.
+
+    ``propose_core_line(fact) -> str`` is what ``remember`` hands a line to: a proposal to add it to the owner's core page, which they
+    review. Without it (a session that cannot read the core page) ``remember`` is not offered."""
 
     _fdir = _files_dir(owner)
 
@@ -412,9 +406,6 @@ def make_tools(
 
     def _rkw(slug, given=None):
         return _read_wiki(slug, workspace, given)
-
-    def _rem(fact):
-        return _remember(fact, workspace)
 
     def _rf(path):
         return _read_file(path, base_dir=_fdir)
@@ -543,13 +534,20 @@ def make_tools(
             {"type": "object", "properties": {"directory": {"type": "string", "default": "."}}},
             _lf,
         ),
-        Tool(
-            "remember",
-            "Save a quick note or fact to the wiki log.",
-            {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]},
-            _rem,
-        ),
     ]
+    if propose_core_line is not None:
+        _tools.append(
+            Tool(
+                "remember",
+                "Propose one line to remember about the user (a standing preference). A person reviews it; it is not on their core page until they approve it.",
+                {
+                    "type": "object",
+                    "properties": {"fact": {"type": "string"}},
+                    "required": ["fact"],
+                },
+                lambda fact: propose_core_line(fact),
+            )
+        )
     return [t for t in _tools if t.name not in (exclude or ())]
 
 
