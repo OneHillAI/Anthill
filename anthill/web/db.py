@@ -532,6 +532,9 @@ class WikiReview(Base):
     source_conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True)
     source_message_id = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
     provenance_hash = Column(String(64), nullable=False, default="")
+    # The name of the file that keeps this proposal beside the wiki it is for (proposals/<uid>.json, see
+    # anthill/web/proposal_files.py), so a pending proposal is not lost with the database.
+    uid = Column(String(32), nullable=False, default="")
     slug = Column(String(120), nullable=False)
     kind = Column(String(12), nullable=False, default="page")  # page | principles | skill
     content = Column(Text, nullable=False)
@@ -546,6 +549,11 @@ class WikiReview(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+from . import proposal_files as _proposal_files  # noqa: E402 - needs the session event API only
+
+_proposal_files.install(WikiReview)
 
 
 class QueryMetric(Base):
