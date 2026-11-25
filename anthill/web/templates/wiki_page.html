@@ -8,12 +8,14 @@
 </p>
 
 {% if saved %}<p class="text-sm" role="status" style="margin:0 0 10px">Saved. The page now shows your text.</p>{% endif %}
+{% if restored %}<div class="alert alert-ok" role="status" id="page-restored" style="max-width:760px;margin:0 0 10px">Restored version {{ restored }}. The page as it was before is kept in <a href="/wiki/page/{{ slug }}/history{{ edit_query }}">History</a>.</div>{% endif %}
 <div class="card">
   <div class="task-md task-md-raw" data-md>{{ content }}</div>
 </div>
 <p class="text-sm" id="page-actions" style="margin:10px 0 0">
   <a href="/wiki/item?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">About this page</a>
   {% if can_edit %}<span class="text-muted">&middot;</span> <a href="/wiki/page/{{ slug }}/edit{{ edit_query }}">Edit this page</a>{% endif %}
+  {% if has_history %}<span class="text-muted">&middot;</span> <a href="/wiki/page/{{ slug }}/history{{ edit_query }}">History</a>{% endif %}
   {% if can_remove %}<span class="text-muted">&middot;</span> <a href="/wiki/remove?kind=page&name={{ slug | urlencode }}&scope={{ scope }}{% if team_id %}&team_id={{ team_id }}{% endif %}">Remove this page</a>{% endif %}
 </p>
 {% if provenance %}
