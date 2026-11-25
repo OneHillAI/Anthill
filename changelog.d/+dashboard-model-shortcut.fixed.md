@@ -1,0 +1,1 @@
+**The dashboard no longer says "Update your model" when there is nothing to update.** The shortcut to the model settings is now a quiet row called "Change your model" (or "Change your council"), not a solid green button that looked like a task waiting for you.

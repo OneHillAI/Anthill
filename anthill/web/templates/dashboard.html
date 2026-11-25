@@ -77,18 +77,13 @@
   .provider-line.on{color:var(--accent-dk);font-weight:600}
   .provider-line i{width:14px;height:14px;flex:none}
 
-  /* Quick actions: one filled "do this" action, the rest as quieter icon-chip rows - not six identical
-     outlined buttons with equal visual weight. */
+  /* Quick actions: shortcuts, all of the same quiet weight. None is filled: a solid button reads as something
+     waiting to be done, and these are only ways in. */
   .qa-row{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:11px;text-decoration:none;color:var(--text);margin-bottom:8px;border:1px solid var(--border)}
   .qa-row:last-child{margin-bottom:0}
   .qa-row:hover{background:var(--bg-subtle)}
-  .qa-row.feature{background:var(--accent);border-color:var(--accent);color:#fff}
-  .qa-row.feature:hover{background:var(--accent-dk)}
-  .qa-row.feature .ic-chip{background:rgba(255,255,255,.2);color:#fff}
   .qa-label{flex:1;font-size:var(--fs-2);font-weight:600}
-  .qa-row.feature .qa-label{font-weight:700}
   .qa-arrow{flex:none;opacity:.55}
-  .qa-row.feature .qa-arrow{opacity:.9}
 </style>
 
 {% for alert in alerts %}
@@ -293,9 +288,9 @@
   <div class="card">
     <h3>Quick actions</h3>
     <div style="margin-top:12px">
-      <a href="/personalize#model" class="qa-row feature">
-        <span class="ic-chip"><i data-lucide="boxes"></i></span>
-        <span class="qa-label">{% if council_members|length > 1 %}Update your council{% else %}Update your model{% endif %}</span>
+      <a href="/personalize#model" class="qa-row">
+        <span class="ic-chip ic-muted"><i data-lucide="boxes"></i></span>
+        <span class="qa-label">{% if council_members|length > 1 %}Change your council{% else %}Change your model{% endif %}</span>
         <i data-lucide="arrow-right" class="qa-arrow"></i>
       </a>
       {% if not solo %}
