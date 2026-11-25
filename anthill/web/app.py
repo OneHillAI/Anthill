@@ -552,6 +552,10 @@ def _startup():
         except Exception:
             pass
         try:
+            _put_back_pending_proposals()  # a database that lost them gets them back from the files
+        except Exception:
+            logging.getLogger(__name__).exception("could not put back the pending proposals")
+        try:
             _maybe_pull_embedding_model()  # first-run: fetch Ollama's bge-m3 if not already pulled
         except Exception:
             pass
@@ -801,6 +805,19 @@ def _migrate_legacy_personal_wiki() -> None:
         admin = db.query(User).filter(User.role == "admin").order_by(User.id).first()
         if admin:
             migrate_legacy_personal_wiki(admin.id)
+    finally:
+        db.close()
+
+
+def _put_back_pending_proposals() -> None:
+    """Re-create, from ``proposals/*.json`` beside each wiki, the pending proposals the database no longer has."""
+    from .proposal_files import reconcile
+
+    db = _db()
+    try:
+        n = reconcile(db)
+        if n:
+            logging.getLogger(__name__).info("put back %d pending proposal(s) from their files", n)
     finally:
         db.close()
 
