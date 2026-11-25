@@ -5,6 +5,10 @@
 
 {% if msg %}<div class="alert alert-ok">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-err">{{ err }}</div>{% endif %}
+<div id="node-busy-bar" class="node-busy-bar" role="status" aria-live="polite" style="margin-bottom:12px">
+  <span class="node-spinner" aria-hidden="true"></span>
+  <span id="node-busy-text">Working...</span>
+</div>
 
 {% if not settings.enabled %}
 <div class="node-cover">
@@ -76,20 +80,25 @@
     <div class="node-token-box" id="invite-token-{{ inv.id }}">{{ inv.token }}</div>
     <div class="node-row-between">
       <div class="node-row">
-        <button type="button" class="btn btn-outline btn-sm"
+        <button type="button" class="btn btn-primary btn-sm"
                 onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('invite-token-{{ inv.id }}').textContent.trim());showToast('Copied one-time invite token')">
           Copy invite
         </button>
-        <span class="text-sm text-muted">Hill: {{ inv.hill_name }} ({{ inv.scope }})</span>
+        <span class="node-poll-pill" title="Checks automatically every 2.5 seconds for the other desktop's signed handshake">
+          <span class="node-spinner" aria-hidden="true"></span>
+          Waiting for peer to join - auto-updating
+        </span>
       </div>
       <form method="post" action="/peers/invites/{{ inv.id }}/cancel" style="margin:0">
         <button type="submit" class="btn btn-outline btn-sm">Cancel</button>
       </form>
     </div>
+    <div class="text-sm text-muted">Hill: <b>{{ inv.hill_name }}</b> ({{ inv.scope }})</div>
     <details class="adv-disclosure" style="margin-top:4px">
       <summary>Offline handshake? Paste the joining desktop's signed response JSON</summary>
       <div class="adv-disclosure-body">
-        <form method="post" action="/peers/invites/{{ inv.id }}/attach-response" class="node-stack-sm">
+        <form method="post" action="/peers/invites/{{ inv.id }}/attach-response" class="node-stack-sm"
+              data-loading="Verifying signed join response and computing 6-digit SAS code...">
           <textarea name="response_json" rows="3" placeholder='{"v":1,"nonce":"...","joiner_root_key":"..."}'></textarea>
           <div><button type="submit" class="btn btn-outline btn-sm">Verify join response &amp; show SAS code</button></div>
         </form>
@@ -124,7 +133,8 @@
     </details>
     {% endif %}
     <div class="node-row" style="margin-top:4px">
-      <form method="post" action="/peers/invites/{{ inv.id }}/confirm" style="margin:0">
+      <form method="post" action="/peers/invites/{{ inv.id }}/confirm" style="margin:0"
+            data-loading="Pinning Ed25519 keys and signing updated Hill membership...">
         <button type="submit" class="btn btn-primary btn-sm">Codes match - Trust &amp; Connect</button>
       </form>
       <form method="post" action="/peers/invites/{{ inv.id }}/cancel" style="margin:0">
@@ -135,55 +145,17 @@
   {% endif %}
   {% endfor %}
 
-  {# Invite & Join Cards #}
-  <div class="grid-2">
-    <div class="card node-stack-sm">
-      <div class="node-row-between">
-        <h3 style="margin:0">Invite another desktop</h3>
-        <span class="badge badge-clay">Admin - One-time token</span>
-      </div>
-      <p class="text-sm text-muted">
-        Generate an expiring <code>anthill-pair://v1/...</code> token. Keys pin directly between desktops with no central account server.
-      </p>
-      <form method="post" action="/peers/invites/create" class="node-stack-sm">
-        <select name="hill_id" aria-label="Hill to invite to">
-          {% for h in hills %}
-          {% if h.admin_root_key == ident.root_pub_key %}
-          <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }})</option>
-          {% endif %}
-          {% endfor %}
-        </select>
-        <input type="text" name="endpoint_url" value="{{ settings.public_endpoint }}"
-               placeholder="Optional direct LAN/Tailscale URL (e.g. http://192.168.1.20:8001)">
-        <div><button type="submit" class="btn btn-primary btn-sm">Create pairing invite</button></div>
-      </form>
-    </div>
-
-    <div class="card node-stack-sm">
-      <div class="node-row-between">
-        <h3 style="margin:0">Join with an invite</h3>
-        <span class="badge badge-pending">SAS verified</span>
-      </div>
-      <p class="text-sm text-muted">
-        Paste an active token from another Anthill desktop. Inbound records stay Proposed until you accept them.
-      </p>
-      <form method="post" action="/peers/invites/join" class="node-stack-sm">
-        <input type="text" name="token" placeholder="Paste anthill-pair://v1/..." required>
-        <input type="text" name="my_endpoint_url" value="{{ settings.public_endpoint }}"
-               placeholder="Optional: this desktop's reachable URL (for live LAN sync)">
-        <div><button type="submit" class="btn btn-outline btn-sm">Verify invite &amp; compute SAS</button></div>
-      </form>
-    </div>
-  </div>
-
-  {# Connected Peers & Hills #}
+  {# Connected Peers & Hills (shown first when you already have peers) #}
   <div class="node-stack-sm">
     <div class="node-row-between">
       <h3 style="margin:0;font-size:15px">Connected peers &amp; Hills</h3>
       <div class="node-row">
         <a href="/peers?tab=connections&hill=all" class="btn btn-sm {{ 'btn-primary' if selected_hill == 'all' else 'btn-outline' }}">All ({{ all_peers|length }})</a>
         {% for h in hills %}
-        <a href="/peers?tab=connections&hill={{ h.hill_id }}" class="btn btn-sm {{ 'btn-primary' if selected_hill == h.hill_id else 'btn-outline' }}">{{ h.name }}</a>
+        {% set pcnt = peer_counts.get(h.hill_id, 0) %}
+        <a href="/peers?tab=connections&hill={{ h.hill_id }}" class="btn btn-sm {{ 'btn-primary' if selected_hill == h.hill_id else 'btn-outline' }}">
+          {{ h.name }} ({{ pcnt }} peer{{ '' if pcnt == 1 else 's' }})
+        </a>
         {% endfor %}
       </div>
     </div>
@@ -191,7 +163,7 @@
     <div class="node-peer-list">
       {% if not peers %}
       <div style="padding:20px;text-align:center" class="text-sm text-muted">
-        No verified peers in this Hill yet. Create or join a one-time pairing invite above to connect two Anthill desktops.
+        No verified peers in this Hill yet. Create or join a one-time pairing invite below to connect two Anthill desktops.
       </div>
       {% else %}
       {% for p in peers %}
@@ -203,7 +175,7 @@
             <div class="node-row">
               <b>{{ p.display_name }}</b>
               <span class="badge {{ 'badge-active' if p.status == 'online' else 'badge-clay' }}">
-                <span class="node-dot"></span> {{ 'Direct HTTP' if p.status == 'online' else 'Offline - bundle ready' }}
+                <span class="node-dot"></span> {{ 'Direct HTTPS / LAN' if p.status == 'online' else 'Offline - bundle ready' }}
               </span>
               {% if h %}<span class="badge badge-pending">{{ h.name }} ({{ h.scope }})</span>{% endif %}
             </div>
@@ -233,10 +205,11 @@
           </div>
         </div>
         <div class="node-row">
-          <form method="post" action="/peers/{{ p.id }}/sync" style="margin:0">
+          <form method="post" action="/peers/{{ p.id }}/sync" style="margin:0"
+                data-loading="Syncing signed record log with {{ p.display_name }}...">
             <button type="submit" class="btn btn-outline btn-sm">Sync</button>
           </form>
-          <a href="/peers/consult" class="btn btn-outline btn-sm">Consult</a>
+          <a href="/peers/consult?hill_id={{ p.hill_id }}&new=1" class="btn btn-primary btn-sm">Consult</a>
           <form method="post" action="/peers/{{ p.id }}/remove" style="margin:0"
                 data-confirm="Remove {{ p.display_name }} and sign an updated Membership list? Future records from their key will be rejected.">
             <button type="submit" class="btn btn-danger btn-sm">Remove</button>
@@ -246,27 +219,90 @@
       {% endfor %}
       {% endif %}
     </div>
-
-    <details class="adv-disclosure" style="margin-top:4px">
-      <summary>Create a new Hill (Private group, Internal, or Open)</summary>
-      <div class="adv-disclosure-body card">
-        <form method="post" action="/peers/hills/create" class="node-row">
-          <input type="text" name="name" placeholder="Hill name (e.g. Solar Co-op Research)" style="flex:2;min-width:200px" required>
-          <select name="scope" style="flex:1;min-width:150px">
-            <option value="private-group">Private group (invite-only)</option>
-            <option value="internal">Internal (org)</option>
-            <option value="open">Open (quarantine low-trust)</option>
-          </select>
-          <button type="submit" class="btn btn-primary btn-sm">Create Hill</button>
-        </form>
-      </div>
-    </details>
   </div>
 
-  {# Transport Selector (Sec 4.1 #5) #}
-  <div class="node-stack-sm">
-    <h3 style="margin:0;font-size:15px">Transport layer (sync is transport-agnostic)</h3>
-    <div class="node-transport-grid">
+  {# Invite & Join Cards (open by default when unpaired; tucked neatly once connected) #}
+  <details class="adv-disclosure" style="margin-top:0" {% if not all_peers %}open{% endif %}>
+    <summary style="font-size:14px;color:var(--text)">Pair another desktop (create or join a one-time invite)</summary>
+    <div class="adv-disclosure-body node-stack-sm">
+      <div class="grid-2">
+        <div class="card node-stack-sm">
+          <div class="node-row-between">
+            <h3 style="margin:0">Invite another desktop</h3>
+            <span class="badge badge-clay">Admin - One-time token</span>
+          </div>
+          <p class="text-sm text-muted">
+            Generate an expiring <code>anthill-pair://v1/...</code> token. Keys pin directly between desktops with no central account server.
+          </p>
+          <form method="post" action="/peers/invites/create" class="node-stack-sm"
+                data-loading="Signing one-time Ed25519 pairing invite...">
+            <select name="hill_id" aria-label="Hill to invite to">
+              {% for h in hills %}
+              {% if h.admin_root_key == ident.root_pub_key %}
+              {% set pcnt = peer_counts.get(h.hill_id, 0) %}
+              <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }} - {{ pcnt }} peer{{ '' if pcnt == 1 else 's' }})</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+            <input type="text" name="endpoint_url" value="{{ settings.public_endpoint }}"
+                   placeholder="This desktop's URL (https://...trycloudflare.com or LAN IP)">
+            <div><button type="submit" class="btn btn-primary btn-sm">Create pairing invite</button></div>
+          </form>
+        </div>
+
+        <div class="card node-stack-sm">
+          <div class="node-row-between">
+            <h3 style="margin:0">Join with an invite</h3>
+            <span class="badge badge-pending">SAS verified</span>
+          </div>
+          <p class="text-sm text-muted">
+            Paste an active token from another Anthill desktop. Inbound records stay Proposed until you accept them.
+          </p>
+          <form method="post" action="/peers/invites/join" class="node-stack-sm"
+                data-loading="Verifying invite signature, reaching peer, and computing 6-digit SAS code...">
+            <input type="text" name="token" placeholder="Paste anthill-pair://v1/..." required>
+            <input type="text" name="my_endpoint_url" value="{{ settings.public_endpoint }}"
+                   placeholder="Your URL (https://...trycloudflare.com or blank for one-sided NAT)">
+            <div><button type="submit" class="btn btn-outline btn-sm">Verify invite &amp; compute SAS</button></div>
+          </form>
+        </div>
+      </div>
+
+      <details class="adv-disclosure" style="margin-top:4px">
+        <summary>Create a new Hill (Private group, Internal, or Open)</summary>
+        <div class="adv-disclosure-body card">
+          <form method="post" action="/peers/hills/create" class="node-row">
+            <input type="text" name="name" placeholder="Hill name (e.g. Travel Tips Pilot)" style="flex:2;min-width:200px" required>
+            <select name="scope" style="flex:1;min-width:150px">
+              <option value="private-group">Private group (invite-only)</option>
+              <option value="internal">Internal (org)</option>
+              <option value="open">Open (quarantine low-trust)</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Create Hill</button>
+          </form>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  {# Peer URL & Transport Settings #}
+  <form method="post" action="/peers/toggle" class="card node-row" style="padding:12px 16px">
+    <input type="hidden" name="action" value="endpoint">
+    <label for="peer-ep" style="margin:0;font-size:13px;white-space:nowrap">This desktop's peer URL:</label>
+    <input id="peer-ep" type="text" name="public_endpoint" value="{{ settings.public_endpoint }}"
+           placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8001" style="flex:1;min-width:220px">
+    <button type="submit" class="btn btn-outline btn-sm">Save URL</button>
+    {% if settings.public_endpoint %}
+    <button type="button" class="btn btn-outline btn-sm"
+            onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('peer-ep').value.trim());showToast('Copied peer URL')">
+      Copy
+    </button>
+    {% endif %}
+  </form>
+
+  <details class="adv-disclosure" style="margin-top:0">
+    <summary>Transport options (current: {{ 'Encrypted file bundle' if settings.transport == 'bundle' else 'Local network / HTTPS peer sync' }})</summary>
+    <div class="adv-disclosure-body node-transport-grid">
       <form method="post" action="/peers/toggle" style="margin:0">
         <input type="hidden" name="action" value="transport">
         <input type="hidden" name="transport" value="bundle">
@@ -279,8 +315,8 @@
         <input type="hidden" name="action" value="transport">
         <input type="hidden" name="transport" value="lan">
         <button type="submit" class="node-transport-card {{ 'active' if settings.transport == 'lan' else '' }}">
-          <div class="node-row-between"><b>Local network</b><span class="badge badge-active">LAN HTTP</span></div>
-          <span class="text-sm text-muted">Authenticated Ed25519 peer HTTP sync on the same LAN, loopback, or Tailscale.</span>
+          <div class="node-row-between"><b>Direct HTTP / Tunnel</b><span class="badge badge-active">LAN / HTTPS</span></div>
+          <span class="text-sm text-muted">Authenticated Ed25519 peer HTTP sync over LAN, Tailscale, or Cloudflare Quick Tunnel.</span>
         </button>
       </form>
       <button type="button" class="node-transport-card" disabled>
@@ -288,15 +324,7 @@
         <span class="text-sm text-muted">Pluggable NodeTransport interface ready for iroh or Tor relays after the H2 pilot.</span>
       </button>
     </div>
-
-    <form method="post" action="/peers/toggle" class="card node-row" style="padding:12px 16px">
-      <input type="hidden" name="action" value="endpoint">
-      <label for="peer-ep" style="margin:0;font-size:13px;white-space:nowrap">This desktop's peer URL:</label>
-      <input id="peer-ep" type="text" name="public_endpoint" value="{{ settings.public_endpoint }}"
-             placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8001" style="flex:1;min-width:220px">
-      <button type="submit" class="btn btn-outline btn-sm">Save URL</button>
-    </form>
-  </div>
+  </details>
 </div>
 
 {# ======================= TAB 2: KNOWLEDGE LENDING ======================= #}
@@ -588,4 +616,41 @@
 </div>
 {% endif %}
 {% endif %}
+
+<script>
+(function () {
+  // Progressive loading feedback for all async node forms.
+  var bar = document.getElementById("node-busy-bar");
+  var txt = document.getElementById("node-busy-text");
+  document.querySelectorAll("form[data-loading]").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      var msg = form.getAttribute("data-loading") || "Working...";
+      if (bar && txt) {
+        txt.textContent = msg;
+        bar.classList.add("active");
+      }
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn && !btn.disabled) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="node-spinner" aria-hidden="true"></span> ' + btn.textContent.trim() + "...";
+      }
+    });
+  });
+
+  // Auto-poll while an inviter is waiting for a remote desktop to paste their token.
+  {% if settings.enabled and active_tab == 'connections' and has_pending_inviter %}
+  var _pollTimer = setInterval(function () {
+    fetch("/peers/invites/status", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.awaiting_sas > 0) {
+          clearInterval(_pollTimer);
+          window.location.reload();
+        }
+      })
+      .catch(function () {});
+  }, 2500);
+  {% endif %}
+})();
+</script>
 {% endblock %}

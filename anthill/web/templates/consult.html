@@ -5,6 +5,10 @@
 
 {% if msg %}<div class="alert alert-ok">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-err">{{ err }}</div>{% endif %}
+<div id="node-busy-bar" class="node-busy-bar" role="status" aria-live="polite" style="margin-bottom:12px">
+  <span class="node-spinner" aria-hidden="true"></span>
+  <span id="node-busy-text">Working...</span>
+</div>
 
 <div class="node-stack">
   <div class="node-row-between">
@@ -21,15 +25,36 @@
     {% endif %}
   </div>
 
+  {# Clear 3-step visual progress bar #}
+  {% set step_num = 3 if (active and suggestions) else 2 if (active and show_preview) else 1 %}
+  <div class="node-steps" aria-label="Consultation steps">
+    <div class="node-step {{ 'done' if step_num > 1 else 'active' }}">
+      <span class="node-step-num">1</span>
+      <span>Draft locally ({{ local_model }})</span>
+    </div>
+    <div class="node-step {{ 'done' if step_num > 2 else 'active' if step_num == 2 else '' }}">
+      <span class="node-step-num">2</span>
+      <span>Review visible exit brief</span>
+    </div>
+    <div class="node-step {{ 'active' if step_num == 3 else '' }}">
+      <span class="node-step-num">3</span>
+      <span>Accept or reject peer diffs</span>
+    </div>
+  </div>
+
   {# Start a new consultation #}
-  <details class="card" {% if not active %}open{% endif %}>
+  <details class="card" {% if open_new %}open{% endif %}>
     <summary style="cursor:pointer;font-weight:600;font-size:14px">Start a new peer counter-check consultation</summary>
-    <form method="post" action="/peers/consult/start" class="node-stack-sm" style="margin-top:12px">
+    <form method="post" action="/peers/consult/start" class="node-stack-sm" style="margin-top:12px"
+          data-loading="Drafting answer locally with {{ local_model }} (stays on your machine until you confirm exit)...">
       <div class="node-row">
         <input type="text" name="question" placeholder="Ask a question to draft locally and counter-check with peers..." style="flex:2;min-width:240px" required>
-        <select name="hill_id" style="flex:1;min-width:160px">
+        <select name="hill_id" aria-label="Hill to consult" style="flex:1;min-width:190px">
           {% for h in hills %}
-          <option value="{{ h.hill_id }}">{{ h.name }} ({{ h.scope }})</option>
+          {% set pcnt = peer_counts.get(h.hill_id, 0) %}
+          <option value="{{ h.hill_id }}" {% if h.hill_id == selected_hill_id %}selected{% endif %}>
+            {{ h.name }} ({{ pcnt }} peer{{ '' if pcnt == 1 else 's' }} - {{ h.scope }})
+          </option>
           {% endfor %}
         </select>
       </div>
@@ -86,7 +111,24 @@
 
     <div class="node-row">
       {% if not peers %}
+      {% if hills_with_peers %}
+      <div class="alert alert-warn node-row-between" style="width:100%;margin:0">
+        <span class="text-sm">
+          This consultation is on a Hill with <b>0 connected peers</b>. Switch to a Hill with paired peers to consult live:
+        </span>
+        <form method="post" action="/peers/consult/{{ active.id }}/switch-hill" class="node-row" style="margin:0">
+          <select name="hill_id" style="width:auto">
+            {% for hp in hills_with_peers %}
+            {% set pcnt = peer_counts.get(hp.hill_id, 0) %}
+            <option value="{{ hp.hill_id }}">{{ hp.name }} ({{ pcnt }} peer{{ '' if pcnt == 1 else 's' }})</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">Switch Hill</button>
+        </form>
+      </div>
+      {% else %}
       <span class="text-sm text-muted">No paired peers in this Hill yet - sending will still sign a Question record into the log for offline bundle sync.</span>
+      {% endif %}
       {% else %}
       {% for p in peers %}
       <span class="badge {{ 'badge-active' if p.status == 'online' else 'badge-clay' }}">
@@ -107,7 +149,8 @@
         <b>Draft sent:</b> {{ brief_preview.draft }}
         {% if brief_preview.had_pii %}<br><i>PII scrubber automatically redacted: {{ brief_preview.scrub_counts }}</i>{% endif %}
       </div>
-      <form method="post" action="/peers/consult/{{ active.id }}/send" class="node-stack-sm">
+      <form method="post" action="/peers/consult/{{ active.id }}/send" class="node-stack-sm"
+            data-loading="Consulting selected peer AI(s) over HTTPS (0 tools, lent areas only) - usually 5-25 seconds...">
         <input type="hidden" name="confirm_egress" value="yes">
         {% if peers %}
         <div class="node-row">
@@ -244,10 +287,32 @@
 
   <div class="node-row-between" style="padding-top:10px;border-top:1px solid var(--border)">
     <span class="text-sm text-muted">Signed records run underneath - your AI decides nothing without your approval.</span>
-    <form method="post" action="/peers/consult/{{ active.id }}/propose-wiki" style="margin:0">
+    <form method="post" action="/peers/consult/{{ active.id }}/propose-wiki" style="margin:0"
+          data-loading="Writing signed PageChange proposal into your Knowledge Review Gate...">
       <button type="submit" class="btn btn-primary btn-sm">Propose to my wiki</button>
     </form>
   </div>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  var bar = document.getElementById("node-busy-bar");
+  var txt = document.getElementById("node-busy-text");
+  document.querySelectorAll("form[data-loading]").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      var msg = form.getAttribute("data-loading") || "Working...";
+      if (bar && txt) {
+        txt.textContent = msg;
+        bar.classList.add("active");
+      }
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn && !btn.disabled) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="node-spinner" aria-hidden="true"></span> ' + btn.textContent.trim() + "...";
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

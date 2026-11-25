@@ -185,6 +185,40 @@ def _ensure_default_hill(
     return hill
 
 
+def _hills_with_peer_counts(
+    db: Session, user_id: int, default_hill: NodeHill
+) -> tuple[list[NodeHill], dict[str, int], NodeHill]:
+    """Return Hills sorted with peer-populated Hills first, verified peer counts, and preferred Hill."""
+    hills = (
+        db.query(NodeHill)
+        .filter(NodeHill.user_id == user_id)
+        .order_by(NodeHill.created_at.asc())
+        .all()
+    )
+    active_peers = (
+        db.query(NodePeer)
+        .filter(
+            NodePeer.user_id == user_id,
+            NodePeer.verified.is_(True),
+            NodePeer.revoked.is_(False),
+        )
+        .all()
+    )
+    counts: dict[str, int] = {h.hill_id: 0 for h in hills}
+    for p in active_peers:
+        counts[p.hill_id] = counts.get(p.hill_id, 0) + 1
+    hills_sorted = sorted(
+        hills,
+        key=lambda h: (
+            0 if counts.get(h.hill_id, 0) > 0 else 1,
+            -counts.get(h.hill_id, 0),
+            h.id,
+        ),
+    )
+    preferred = hills_sorted[0] if hills_sorted else default_hill
+    return hills_sorted, counts, preferred
+
+
 def _local_model_info(db: Session, org_id: int) -> tuple[str, str]:
     cfg = db.query(OrgSettings).filter(OrgSettings.org_id == org_id).first()
     url = (getattr(cfg, "ollama_url", "") or "http://127.0.0.1:11434").strip()
@@ -871,12 +905,7 @@ def build_node_router(
 
         ident, dev = _ensure_identity(db, uid)
         default_hill = _ensure_default_hill(db, uid, ident, dev)
-        hills = (
-            db.query(NodeHill)
-            .filter(NodeHill.user_id == uid)
-            .order_by(NodeHill.created_at.asc())
-            .all()
-        )
+        hills, peer_counts, preferred_hill = _hills_with_peer_counts(db, uid, default_hill)
         hill_by_id = {h.hill_id: h for h in hills}
         peers_q = db.query(NodePeer).filter(
             NodePeer.user_id == uid, NodePeer.verified.is_(True), NodePeer.revoked.is_(False)
@@ -968,12 +997,17 @@ def build_node_router(
                 "active_tab": active_tab,
                 "selected_hill": hill,
                 "default_hill": default_hill,
+                "preferred_hill": preferred_hill,
                 "hills": hills,
                 "hill_by_id": hill_by_id,
+                "peer_counts": peer_counts,
                 "all_peers": all_peers,
                 "peers": filtered_peers,
                 "online_count": online_count,
                 "invites": invites_view,
+                "has_pending_inviter": any(
+                    inv.status == "pending" and inv.role == "inviter" for inv in invites
+                ),
                 "areas": areas,
                 "lending_matrix": lending_matrix,
                 "records": records_view,
@@ -1079,6 +1113,31 @@ def build_node_router(
         )
 
     # -- Pairing & SAS Verification --------------------------------------------
+
+    @router.get("/peers/invites/status")
+    def invites_status(user: dict[str, Any] = Depends(require_user)):
+        """Lightweight JSON poll so pending inviter screens flip to SAS automatically."""
+        db = get_db()
+        uid = int(user["sub"])
+        rows = (
+            db.query(NodeInvite)
+            .filter(
+                NodeInvite.user_id == uid,
+                NodeInvite.status.in_(("pending", "awaiting_sas")),
+            )
+            .order_by(NodeInvite.id.desc())
+            .all()
+        )
+        return JSONResponse(
+            {
+                "pending": sum(1 for r in rows if r.status == "pending"),
+                "awaiting_sas": sum(1 for r in rows if r.status == "awaiting_sas"),
+                "invites": [
+                    {"id": r.id, "role": r.role, "status": r.status, "sas_code": r.sas_code}
+                    for r in rows
+                ],
+            }
+        )
 
     @router.post("/peers/invites/create")
     def create_invite(
@@ -1961,6 +2020,8 @@ def build_node_router(
     def consult_page(
         request: Request,
         cid: int | None = None,
+        hill_id: str = "",
+        new: int = 0,
         sort: str = "new",
         preview: int = 0,
         msg: str = "",
@@ -1978,7 +2039,8 @@ def build_node_router(
 
         ident, dev = _ensure_identity(db, uid)
         default_hill = _ensure_default_hill(db, uid, ident, dev)
-        hills = db.query(NodeHill).filter(NodeHill.user_id == uid).all()
+        hills, peer_counts, preferred_hill = _hills_with_peer_counts(db, uid, default_hill)
+        hill_by_id = {h.hill_id: h for h in hills}
         consults = (
             db.query(NodeConsultation)
             .filter(NodeConsultation.user_id == uid)
@@ -1991,19 +2053,25 @@ def build_node_router(
             .filter(NodeConsultation.id == cid, NodeConsultation.user_id == uid)
             .first()
             if cid
-            else (consults[0] if consults else None)
+            else (None if new else (consults[0] if consults else None))
         )
-        hill_id = active.hill_id if active else default_hill.hill_id
+        selected_hill_id = (
+            hill_id.strip()
+            if hill_id.strip() in hill_by_id
+            else (active.hill_id if active else preferred_hill.hill_id)
+        )
+        active_hill_id = active.hill_id if active else selected_hill_id
         peers = (
             db.query(NodePeer)
             .filter(
                 NodePeer.user_id == uid,
-                NodePeer.hill_id == hill_id,
+                NodePeer.hill_id == active_hill_id,
                 NodePeer.verified.is_(True),
                 NodePeer.revoked.is_(False),
             )
             .all()
         )
+        hills_with_peers = [h for h in hills if peer_counts.get(h.hill_id, 0) > 0]
 
         suggestions: list[dict[str, Any]] = json.loads(active.suggestions_json) if active else []
         if active and active.mode == "open":
@@ -2031,7 +2099,11 @@ def build_node_router(
                 "request": request,
                 "user": user,
                 "hills": hills,
-                "default_hill": default_hill,
+                "hill_by_id": hill_by_id,
+                "peer_counts": peer_counts,
+                "hills_with_peers": hills_with_peers,
+                "selected_hill_id": selected_hill_id,
+                "default_hill": preferred_hill,
                 "consults": consults,
                 "active": active,
                 "peers": peers,
@@ -2039,6 +2111,7 @@ def build_node_router(
                 "own_answers": own_answers,
                 "brief_preview": brief_preview,
                 "show_preview": bool(preview),
+                "open_new": bool(new) or active is None,
                 "sort": sort,
                 "local_model": local_model,
                 "msg": msg,
@@ -2062,7 +2135,8 @@ def build_node_router(
             raise HTTPException(status_code=403, detail="Enable Node peer-to-peer first.")
         ident, dev = _ensure_identity(db, uid)
         default_hill = _ensure_default_hill(db, uid, ident, dev)
-        chosen_hill = hill_id.strip() or default_hill.hill_id
+        _hills, _counts, preferred_hill = _hills_with_peer_counts(db, uid, default_hill)
+        chosen_hill = hill_id.strip() or preferred_hill.hill_id
         _, local_model = _local_model_info(db, org_id)
 
         q_text = question.strip()
@@ -2168,10 +2242,12 @@ def build_node_router(
         existing_sugs: list[dict[str, Any]] = json.loads(c.suggestions_json or "[]")
         dev_priv = node_id.decrypt_secret(dev.device_priv_key_enc)
         consulted_names: list[str] = []
+        failed_errors: list[str] = []
         new_count = 0
 
         for peer in targets:
             if not peer.endpoint_url:
+                failed_errors.append(f"{peer.display_name} has no direct peer URL saved")
                 continue
             client = node_transport.HttpPeerTransport(
                 peer.endpoint_url,
@@ -2182,8 +2258,9 @@ def build_node_router(
             )
             try:
                 reply = client.consult(hill.hill_id, brief["question"], brief["draft"])
-            except node_transport.TransportError:
+            except node_transport.TransportError as exc:
                 peer.status = "offline"
+                failed_errors.append(f"{peer.display_name}: {exc}")
                 continue
             peer.status = "online"
             peer.last_seen_at = _now_utc()
@@ -2246,13 +2323,77 @@ def build_node_router(
         c.updated_at = _now_utc()
         db.commit()
 
-        note = (
-            f"Consulted {', '.join(consulted_names)}: received {new_count} structured suggestion(s)."
-            if consulted_names
-            else "Peers offline: Question + draft brief signed into record log for offline bundle sync."
+        if consulted_names:
+            note = f"Consulted {', '.join(consulted_names)}: received {new_count} structured suggestion(s)."
+            if failed_errors:
+                return RedirectResponse(
+                    f"/peers/consult?cid={c.id}&msg={quote_plus(note)}&err={quote_plus('; '.join(failed_errors))}",
+                    status_code=303,
+                )
+            return RedirectResponse(
+                f"/peers/consult?cid={c.id}&msg={quote_plus(note)}", status_code=303
+            )
+
+        if not targets:
+            other_peers = (
+                db.query(NodePeer)
+                .filter(
+                    NodePeer.user_id == uid,
+                    NodePeer.hill_id != hill.hill_id,
+                    NodePeer.verified.is_(True),
+                    NodePeer.revoked.is_(False),
+                )
+                .count()
+            )
+            if other_peers:
+                return RedirectResponse(
+                    f"/peers/consult?cid={c.id}&err={quote_plus('No verified peers in this Hill. Switch to a Hill with connected peers below and re-run.')}",
+                    status_code=303,
+                )
+            return RedirectResponse(
+                f"/peers/consult?cid={c.id}&msg={quote_plus('No peers paired yet: Question + draft brief signed into record log for offline bundle sync.')}",
+                status_code=303,
+            )
+
+        err_text = (
+            "Could not reach peer(s) live ("
+            + "; ".join(failed_errors)
+            + "). Brief was still signed into your log for offline bundle sync."
         )
         return RedirectResponse(
-            f"/peers/consult?cid={c.id}&msg={quote_plus(note)}", status_code=303
+            f"/peers/consult?cid={c.id}&err={quote_plus(err_text)}", status_code=303
+        )
+
+    @router.post("/peers/consult/{cid}/switch-hill")
+    def switch_consultation_hill(
+        cid: int,
+        hill_id: str = Form(...),
+        user: dict[str, Any] = Depends(require_user),
+    ):
+        db = get_db()
+        uid = int(user["sub"])
+        c = (
+            db.query(NodeConsultation)
+            .filter(NodeConsultation.id == cid, NodeConsultation.user_id == uid)
+            .first()
+        )
+        if c is None:
+            raise HTTPException(status_code=404, detail="Consultation not found.")
+        hill = (
+            db.query(NodeHill)
+            .filter(NodeHill.user_id == uid, NodeHill.hill_id == hill_id.strip())
+            .first()
+        )
+        if hill is None:
+            return RedirectResponse(
+                f"/peers/consult?cid={cid}&err=Hill+not+found.", status_code=303
+            )
+        c.hill_id = hill.hill_id
+        c.updated_at = _now_utc()
+        db.commit()
+        return RedirectResponse(
+            f"/peers/consult?cid={cid}&preview=1&msg={quote_plus(f'Switched consultation to {hill.name}. Review exit preview to consult peers.')}",
+            status_code=303,
         )
 
     @router.post("/peers/consult/{cid}/decide")

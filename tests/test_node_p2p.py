@@ -1007,3 +1007,223 @@ def test_cross_internet_tunnel_and_nat_peer_pilot(tmp_path: Path, monkeypatch):
         assert "Cross-network check" in html
     finally:
         node_routes.set_test_hooks(transport_resolver=None, backend_factory=None)
+
+
+def test_bidirectional_consult_prefers_paired_hill_and_3node_fanout(tmp_path: Path, monkeypatch):
+    """Regression for live PoC findings:
+    1. Joining another desktop's 'Anthill Core Pilot' creates a second Hill with the same name;
+       starting a consult without hill_id must default to the Hill WITH verified peers so
+       two-way queries (A -> B and B -> A) work seamlessly.
+    2. GET /peers/invites/status reports awaiting_sas for auto-polling without manual refresh.
+    3. 3-node fan-out (Raul + Christoph + Peter) merges structured suggestions from both peers.
+    """
+    raul = _make_desktop_instance(tmp_path, name="Raul", email="raul@3node.example", org_id=21)
+    christoph = _make_desktop_instance(
+        tmp_path, name="Christoph", email="christoph@3node.example", org_id=22
+    )
+    peter = _make_desktop_instance(
+        tmp_path, name="Peter De Vreede", email="peter@3node.example", org_id=23
+    )
+    ws_by_org = {
+        raul["oid"]: raul["ws"],
+        christoph["oid"]: christoph["ws"],
+        peter["oid"]: peter["ws"],
+    }
+
+    def _fake_workspace_for(scope="personal", *, user_id=None, team_id=None, org_id=None):
+        if scope == "personal" and org_id in ws_by_org:
+            return ws_by_org[org_id]
+        empty = Workspace(tmp_path / f"tri-empty-{scope}-{org_id}", scope=scope)
+        empty.init()
+        return empty
+
+    monkeypatch.setattr(node_routes, "workspace_for", _fake_workspace_for)
+
+    url_r = "https://raul-demo.trycloudflare.com"
+    url_c = "https://christoph-demo.trycloudflare.com"
+    url_p = "https://peter-demo.trycloudflare.com"
+    internet = _ProxiedInternetTransport(
+        {url_r: raul["client"], url_c: christoph["client"], url_p: peter["client"]}
+    )
+
+    stub_r = _StubPeerBackend(
+        "inkling-2-mini:latest",
+        {
+            "suggestions": [
+                {
+                    "kind": "add",
+                    "issue": "Raul note",
+                    "wording": "Include Trastevere evening walk on day 1.",
+                    "reason": "From Raul's lent travel outline.",
+                    "sources": ["rome-trip-outline.md"],
+                }
+            ]
+        },
+    )
+    stub_c = _StubPeerBackend(
+        "qwen3.5:9b",
+        {
+            "suggestions": [
+                {
+                    "kind": "add",
+                    "issue": "Airport train",
+                    "wording": "Take the EUR 8 FL1 regional train to Roma Trastevere.",
+                    "reason": "Half the price of Leonardo Express for Trastevere stays.",
+                    "sources": ["rome-fiumicino-airport-trains.md"],
+                }
+            ]
+        },
+    )
+    stub_p = _StubPeerBackend(
+        "qwen2.5:7b",
+        {
+            "suggestions": [
+                {
+                    "kind": "add",
+                    "issue": "Day trip",
+                    "wording": "Take the 35-minute train to Ostia Antica on day 4.",
+                    "reason": "Well-preserved ruins with fewer crowds than Pompeii.",
+                    "sources": ["rome-day-trips-by-train.md"],
+                }
+            ]
+        },
+    )
+    stubs_by_org = {raul["oid"]: stub_r, christoph["oid"]: stub_c, peter["oid"]: stub_p}
+
+    node_routes.set_test_hooks(
+        transport_resolver=lambda _url: internet,
+        backend_factory=lambda _db, oid, _uid: stubs_by_org[oid],
+    )
+    try:
+        for inst, ep in ((raul, url_r), (christoph, url_c), (peter, url_p)):
+            inst["client"].post("/peers/toggle", data={"action": "enabled"}, follow_redirects=False)
+            inst["client"].post(
+                "/peers/toggle",
+                data={"action": "endpoint", "public_endpoint": ep},
+                follow_redirects=False,
+            )
+
+        # Christoph creates the shared Hill and invites BOTH Raul and Peter.
+        with christoph["factory"]() as db_c:
+            hill_c = db_c.query(web_db.NodeHill).first()
+            assert hill_c is not None
+            shared_hill_id = hill_c.hill_id
+
+        for joiner, joiner_ep in ((raul, url_r), (peter, url_p)):
+            christoph["client"].post(
+                "/peers/invites/create",
+                data={"hill_id": shared_hill_id, "endpoint_url": url_c},
+                follow_redirects=False,
+            )
+            # Before joiner pastes token, status endpoint reports pending=1, awaiting_sas=0.
+            st_before = christoph["client"].get("/peers/invites/status").json()
+            assert st_before["pending"] == 1
+            assert st_before["awaiting_sas"] == 0
+
+            with christoph["factory"]() as db_c:
+                inv_c = (
+                    db_c.query(web_db.NodeInvite)
+                    .filter_by(role="inviter", status="pending")
+                    .order_by(web_db.NodeInvite.id.desc())
+                    .first()
+                )
+                assert inv_c is not None
+                token = inv_c.token
+                inv_c_id = inv_c.id
+
+            joiner["client"].post(
+                "/peers/invites/join",
+                data={"token": token, "my_endpoint_url": joiner_ep},
+                follow_redirects=False,
+            )
+
+            # Auto-poll status endpoint now immediately signals awaiting_sas=1 for Christoph.
+            st_after = christoph["client"].get("/peers/invites/status").json()
+            assert st_after["awaiting_sas"] == 1
+
+            with joiner["factory"]() as db_j:
+                inv_j = (
+                    db_j.query(web_db.NodeInvite)
+                    .filter_by(role="joiner", status="awaiting_sas")
+                    .order_by(web_db.NodeInvite.id.desc())
+                    .first()
+                )
+                assert inv_j is not None
+                inv_j_id = inv_j.id
+
+            christoph["client"].post(f"/peers/invites/{inv_c_id}/confirm", follow_redirects=False)
+            joiner["client"].post(f"/peers/invites/{inv_j_id}/confirm", follow_redirects=False)
+
+        # Raul now has TWO Hills both named "Anthill Core Pilot": his own empty Hill AND Christoph's!
+        with raul["factory"]() as db_r:
+            assert db_r.query(web_db.NodeHill).count() == 2
+
+        # 1. Raul -> Christoph WITHOUT passing hill_id: must auto-pick Christoph's Hill (not Raul's empty twin!).
+        start_r = raul["client"].post(
+            "/peers/consult/start",
+            data={
+                "question": "How do I get from Fiumicino to Trastevere?",
+                "draft": "Take a taxi.",
+            },
+            follow_redirects=False,
+        )
+        cid_r = int(start_r.headers["location"].split("cid=")[1].split("&")[0])
+        send_r = raul["client"].post(
+            f"/peers/consult/{cid_r}/send",
+            data={"confirm_egress": "yes"},
+            follow_redirects=False,
+        )
+        assert send_r.status_code == 303 and "err=" not in send_r.headers["location"]
+        html_r = raul["client"].get(f"/peers/consult?cid={cid_r}").text
+        assert "FL1 regional train" in html_r
+
+        # 2. Switch-Hill recovery: if a consult was started on Raul's empty Hill, switch-hill fixes it.
+        with raul["factory"]() as db_r:
+            empty_hill = (
+                db_r.query(web_db.NodeHill)
+                .filter(web_db.NodeHill.hill_id != shared_hill_id)
+                .first()
+            )
+            assert empty_hill is not None
+            empty_hill_id = empty_hill.hill_id
+        start_empty = raul["client"].post(
+            "/peers/consult/start",
+            data={"question": "Rome advice?", "draft": "Stay central.", "hill_id": empty_hill_id},
+            follow_redirects=False,
+        )
+        cid_e = int(start_empty.headers["location"].split("cid=")[1].split("&")[0])
+        send_empty = raul["client"].post(
+            f"/peers/consult/{cid_e}/send",
+            data={"confirm_egress": "yes"},
+            follow_redirects=False,
+        )
+        assert "err=" in send_empty.headers["location"]
+        sw = raul["client"].post(
+            f"/peers/consult/{cid_e}/switch-hill",
+            data={"hill_id": shared_hill_id},
+            follow_redirects=False,
+        )
+        assert sw.status_code == 303 and "preview=1" in sw.headers["location"]
+
+        # 3. 3-node fan-out: Christoph consults BOTH Raul and Peter in one round -> receives both suggestions!
+        start_c = christoph["client"].post(
+            "/peers/consult/start",
+            data={
+                "question": "What should a 4-day Rome itinerary include?",
+                "draft": "Colosseum and Vatican.",
+                "hill_id": shared_hill_id,
+            },
+            follow_redirects=False,
+        )
+        cid_c = int(start_c.headers["location"].split("cid=")[1].split("&")[0])
+        send_c = christoph["client"].post(
+            f"/peers/consult/{cid_c}/send",
+            data={"confirm_egress": "yes"},
+            follow_redirects=False,
+        )
+        assert send_c.status_code == 303 and "err=" not in send_c.headers["location"]
+        html_c = christoph["client"].get(f"/peers/consult?cid={cid_c}").text
+        assert "Trastevere evening walk" in html_c
+        assert "Ostia Antica" in html_c
+    finally:
+        node_routes.set_test_hooks(transport_resolver=None, backend_factory=None)
