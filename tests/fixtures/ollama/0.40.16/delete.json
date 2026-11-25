@@ -1,0 +1,9 @@
+{
+ "description": "DELETE /api/delete: no body; 200 on success, 404 for a model that is not installed",
+ "ok": {
+  "status": 200
+ },
+ "missing": {
+  "status": 404
+ }
+}
