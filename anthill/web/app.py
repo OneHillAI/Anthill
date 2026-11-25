@@ -4959,10 +4959,11 @@ def _slack_bot_for_request(db, ts: str, raw: bytes, sig: str):
     return None
 
 
-def _org_plane_answer(db, org, member, question, *, history=None):
+def _org_plane_answer(db, org, member, question, *, history=None, record_box=None):
     """Answer a question on the ORG plane (org model + org wiki, never personal context) for the members
     interaction service. Shared by Slack, Discord, and the web widget. Raises PlaneUnavailable if the org
-    model is not connected. Returns (answer_text, model_name)."""
+    model is not connected. Returns (answer_text, model_name). A list passed as ``record_box`` receives the record of what the
+    answer was given (wiki/answer_record.py), for a caller that keeps the answer."""
     from ..config import Config
     from ..inference.base import build_backend
     from ..wiki.ask import ask
@@ -5002,6 +5003,7 @@ def _org_plane_answer(db, org, member, question, *, history=None):
         extra_workspaces=extra_ws,
         history=history or [],
         shared_cache=True,
+        on_record=None if record_box is None else record_box.append,
     )
     answer = (answer or "").strip() or "I couldn't find anything on that in the org wiki yet."
     return answer, config.model
@@ -5112,7 +5114,10 @@ def _slack_answer(
                 for m in conv.messages
                 if m.role in ("user", "assistant") and m.content and m.id not in stale
             ][-20:]
-            answer, model = _org_plane_answer(db, org, member, question, history=history)
+            record_box: list = []
+            answer, model = _org_plane_answer(
+                db, org, member, question, history=history, record_box=record_box
+            )
             db.add(ChatMessage(conversation_id=conv.id, role="user", content=question))
             db.add(
                 ChatMessage(
@@ -5120,6 +5125,7 @@ def _slack_answer(
                     role="assistant",
                     content=answer,
                     model=model,
+                    manifest=answer_record.dumps(record_box[-1]) if record_box else "",
                     # the ORG plane always runs on the org's shared network endpoint, never on-device
                     answered_locally=False,
                 )

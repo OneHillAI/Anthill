@@ -387,7 +387,9 @@ def _run_task(task: ScheduledTask, db) -> str:
         db, task
     )  # connected-service files + snippets the creator attached
     ctx = f"{attached}\n\n{mem_ctx}".strip() if attached else mem_ctx
+    task._record = {}  # what this run was given; the run's history row keeps it (see _finish_task_run)
     result = executor.run(goal, context=ctx)
+    task._record = getattr(result, "record", None) or {}
     answer = result.answer
     no_tools = bool(getattr(result, "answered_without_tools", False))
     if no_tools:
@@ -411,6 +413,7 @@ def _run_task(task: ScheduledTask, db) -> str:
     answer = _maybe_escalate_task(
         task, cfg_row, decrypt, plane_inf, goal=goal, context=ctx, answer=answer, db=db
     )
+    task._record = _run_record(answer, task._record, ctx)
     if no_tools:
         # A plain answer is not the work an action task asked for (write a page, post a message): mark the
         # run for the owner's review instead of recording a silent success every time it runs.
@@ -485,12 +488,32 @@ def _maybe_escalate_task(
         )
         cfg_row.task_escalations_this_month = used + 1
         content = backend.chat([Message("user", f"{goal}\n\n{context}".strip())])
-        return f"[Answered by the connected backend] {content}"
+        return f"{ESCALATED_PREFIX}{content}"
     except Exception:
         _flag_task_for_review(
             task, "Answer looked uncertain; escalating to the connected backend failed."
         )
         return answer
+
+
+ESCALATED_PREFIX = "[Answered by the connected backend] "
+
+
+def _run_record(answer: str, record: dict, context: str) -> dict:
+    """The record of a task run: what the executor was given, unless the answer was escalated. The connected backend was given the goal
+    and the context, not the pages the run read, so only the context is listed."""
+    if not answer.startswith(ESCALATED_PREFIX):
+        return record
+    from ..wiki import prompt_blocks
+
+    return prompt_blocks.record_of([], context=context, route="task-escalated")
+
+
+def _record_text(record) -> str:
+    """The record of a run, as kept with its history row: "" when the run was given nothing to record."""
+    from ..wiki import answer_record
+
+    return answer_record.dumps(record) if isinstance(record, dict) and record else ""
 
 
 def _start_task_run(db, task, started_at):
@@ -508,6 +531,7 @@ def _finish_task_run(db, run, task, *, started_at, result: str, error: str) -> N
         run.status = "error" if error else "ok"
         run.result = (result or "")[:8000]
         run.error = (error or "")[:800]
+        run.record = "" if error else _record_text(getattr(task, "_record", None))
         run.verify_needs_review = bool(task.verify_needs_review)
         run.verify_reason = task.verify_reason or ""
         run.verify_confidence = task.verify_confidence or ""
@@ -1432,6 +1456,7 @@ def _finish_agent_run(db, run, agent, *, started_at, result: str, error: str) ->
         run.status = "error" if error else "ok"
         run.result = (result or "")[:8000]
         run.error = (error or "")[:800]
+        run.record = "" if error else _record_text(getattr(agent, "_record", None))
         run.verify_needs_review = bool(agent.verify_needs_review)
         run.verify_reason = agent.verify_reason or ""
         run.verify_confidence = agent.verify_confidence or ""
