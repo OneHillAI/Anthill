@@ -68,6 +68,9 @@ class Tool:
     parameters: dict  # JSON Schema for the arguments
     fn: Callable  # the actual function
     needs_approval: bool = False  # pause and ask human before running
+    # True for a tool that gives the model pages of the wiki: the caller hands it a list in ``call`` and the tool adds a
+    # knowledge block (anthill/wiki/prompt_blocks.py) for each page it returns.
+    gives_knowledge: bool = False
 
     def ollama_spec(self) -> dict:
         """Ollama / OpenAI tool-call format."""
@@ -80,10 +83,14 @@ class Tool:
             },
         }
 
-    def call(self, arguments: dict) -> str:
-        """Execute and return a string result the model can read."""
+    def call(self, arguments: dict, given: list | None = None) -> str:
+        """Execute and return a string result the model can read. A tool that ``gives_knowledge`` adds a block to ``given``
+        for each page it returns (the model cannot set ``given``: it is never taken from the arguments)."""
         try:
-            result = self.fn(**arguments)
+            args = {k: v for k, v in arguments.items() if k != "given"}
+            if self.gives_knowledge and given is not None:
+                args["given"] = given
+            result = self.fn(**args)
             if isinstance(result, (dict, list)):
                 return json.dumps(result, ensure_ascii=False, indent=2)
             return str(result)
@@ -108,7 +115,26 @@ def _fetch_url(url: str) -> str:
     return body or "(could not fetch page)"
 
 
-def _read_wiki(slug: str, workspace: str = "workspace") -> str:
+def _give(path: Path, text: str, workspace: str, given: list | None) -> bool:
+    """Make the knowledge block for a page the tool is about to give the model, and keep it in ``given``. A page whose
+    item cannot be named is refused: the caller gives the model nothing of it (spec: typed-context-builder, slice b)."""
+    if given is None:
+        return True
+    from ..wiki import answer_record, prompt_blocks
+    from ..wiki.workspace import Workspace
+
+    try:
+        item = answer_record._page_item(path, Workspace(Path(workspace)))
+        given.append(prompt_blocks.Block("page", text, item))
+    except prompt_blocks.MissingItemId:
+        prompt_blocks.log.warning(
+            "the page %s was left out of the agent's reading: it has no item id", path.stem
+        )
+        return False
+    return True
+
+
+def _read_wiki(slug: str, workspace: str = "workspace", given: list | None = None) -> str:
     # Confine to the wiki dir: slugify the caller-supplied slug (dropping any '/' or '..') so a
     # crafted slug like '../../etc/passwd' can't escape. Pages are WRITTEN under slugify(title), so a
     # legitimate slug is already slug-form and this round-trips; a traversal payload collapses to a
@@ -117,12 +143,25 @@ def _read_wiki(slug: str, workspace: str = "workspace") -> str:
     path = Path(workspace) / "wiki" / f"{safe}.md"
     if not path.exists() or not items.page_file_retrievable(path):
         return f"(page '{slug}' not found in wiki)"
-    return path.read_text()
+    text = path.read_text()
+    if not _give(path, text, workspace, given):
+        return f"(page '{slug}' not found in wiki)"
+    return text
 
 
-def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[dict]:
+def _search_wiki(
+    query: str, workspace: str = "workspace", k: int = 3, given: list | None = None
+) -> list[dict]:
     from ..cache import embedder as emb
     from ..wiki.workspace import Workspace
+
+    def listed(found: list[Path], preview: bool = True) -> list[dict]:
+        out = []
+        for p in found:
+            text = p.read_text()[:200] if preview else ""
+            if _give(p, text, workspace, given):
+                out.append({"slug": p.stem, "preview": text})
+        return out
 
     ws = Workspace(Path(workspace))
     if not ws.exists():
@@ -138,14 +177,14 @@ def _search_wiki(query: str, workspace: str = "workspace", k: int = 3) -> list[d
             by_slug[s] for s in meili.search_slugs(query, k, index=ws.meili_index) if s in by_slug
         ]
         if hits:
-            return [{"slug": p.stem, "preview": p.read_text()[:200]} for p in hits]
+            return listed(hits)
     try:
         q_vec = emb.embed(query)
         scored = [(emb.cosine(q_vec, emb.embed(p.read_text()[:2000])), p) for p in pages]
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [{"slug": p.stem, "preview": p.read_text()[:200]} for _, p in scored[:k]]
+        return listed([p for _, p in scored[:k]])
     except Exception:
-        return [{"slug": p.stem, "preview": ""} for p in pages[:k]]
+        return listed(pages[:k], preview=False)
 
 
 def _write_wiki_draft(slug: str, content: str, propose=None) -> str:
@@ -362,11 +401,11 @@ def make_tools(
     def _rw(slug, content):
         return _write_wiki_draft(slug, content, propose_write)
 
-    def _sw(query, k=3):
-        return _search_wiki(query, workspace, k)
+    def _sw(query, k=3, given=None):
+        return _search_wiki(query, workspace, k, given)
 
-    def _rkw(slug):
-        return _read_wiki(slug, workspace)
+    def _rkw(slug, given=None):
+        return _read_wiki(slug, workspace, given)
 
     def _rem(fact):
         return _remember(fact, workspace)
@@ -412,12 +451,14 @@ def make_tools(
                 "required": ["query"],
             },
             _sw,
+            gives_knowledge=True,
         ),
         Tool(
             "read_wiki",
             "Read the full content of a wiki page by slug.",
             {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
             _rkw,
+            gives_knowledge=True,
         ),
         Tool(
             "write_wiki_draft",

@@ -110,14 +110,16 @@ def record_of(
     rules: str = "",
     profile: str = "",
     memory: str = "",
+    context: str = "",
     history: list[tuple[str, str]] | None = None,
     route: str = "",
     model: str = "",
 ) -> dict:
     """The record of what the prompt held: every knowledge block as an item (a document once, with the pages its passages came from),
-    and the rules, the profile, the memory and each earlier turn as blocks of their own kind with a hash and a length, never the text."""
+    and the rules, the profile, the memory, the context an agent run was given and each earlier turn as blocks of their own kind with a hash and a length, never the text."""
     listed: list[dict] = []
     by_doc: dict[str, dict] = {}
+    seen_ids: set = set()
     for b in blocks:
         item = dict(b.item or {})
         if b.kind == "document_passage":
@@ -127,12 +129,20 @@ def record_of(
                 listed.append(item)
             else:
                 seen["pages"] = sorted(set(seen.get("pages", [])) | set(item.get("pages", [])))
+        elif item.get("id") and item["id"] in seen_ids:
+            continue  # the same page given twice (found, then read) is one item
         else:
+            seen_ids.add(item.get("id"))
             listed.append(item)
     record = answer_record._cap(listed)
     others = [
         _entry(kind, text)
-        for kind, text in (("rules", rules), ("profile", profile), ("memory", memory))
+        for kind, text in (
+            ("rules", rules),
+            ("profile", profile),
+            ("memory", memory),
+            ("context", context),
+        )
         if text.strip()
     ]
     others += [_entry("history_turn", content, role=role) for role, content in history or []]
