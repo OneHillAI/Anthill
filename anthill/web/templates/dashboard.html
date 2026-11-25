@@ -44,6 +44,8 @@
   .row-title{flex:1;min-width:0;font-size:var(--fs-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .row-meta{flex:none;font-size:var(--fs-1);color:var(--muted)}
   .attn-count{font-weight:700}
+  .invite-row{flex-wrap:wrap}
+  .invite-row .row-title{white-space:normal;overflow:visible;text-overflow:clip;flex:1 1 260px;min-width:0}
   .row-chevron{flex:none;color:var(--muted);opacity:.6}
 
   .active-sub{font-size:var(--fs-1);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;display:flex;align-items:center;gap:6px}
@@ -142,11 +144,20 @@
   <h3>Needs your attention</h3>
   <div style="margin-top:12px">
     {% for a in attention %}
+    {% if a.invite %}
+    <div class="row-link invite-row" id="slack-invite">
+      <span class="ic-chip"><i data-lucide="{{ a.icon }}"></i></span>
+      <span class="row-title"><b>{{ a.title }}</b><br><span class="text-sm text-muted">{{ a.body }}</span></span>
+      <a href="{{ a.href }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" onclick="try{fetch('/community/slack/done',{method:'POST',keepalive:true})}catch(e){}">Join Slack</a>
+      <form method="post" action="/community/slack/done" style="margin:0"><input type="hidden" name="next" value="/"><button type="submit" class="btn btn-outline btn-sm">Not now</button></form>
+    </div>
+    {% else %}
     <a href="{{ a.href }}" class="row-link">
       <span class="ic-chip ic-warn"><i data-lucide="{{ a.icon }}"></i></span>
       <span class="row-title"><span class="attn-count">{{ a.count }}</span> {{ a.label }}</span>
       <i data-lucide="chevron-right" class="row-chevron"></i>
     </a>
+    {% endif %}
     {% endfor %}
   </div>
 </div>

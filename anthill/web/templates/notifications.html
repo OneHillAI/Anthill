@@ -20,7 +20,7 @@
         <span class="text-sm text-muted" style="flex:none">{{ n.created_at.strftime('%b %d, %H:%M') if n.created_at else '' }}</span>
       </div>
       {% if n.body %}<div class="text-sm text-muted" style="margin-top:2px">{{ n.body }}</div>{% endif %}
-      {% if n.link %}<a href="{{ n.link }}" class="btn btn-outline btn-sm" style="margin-top:8px">Open</a>{% endif %}
+      {% if n.link %}{% if n.link.startswith('https://') or n.link.startswith('http://') %}<a href="{{ n.link }}" target="_blank" rel="noopener noreferrer" class="btn {{ 'btn-primary' if n.kind == 'community' else 'btn-outline' }} btn-sm" style="margin-top:8px">{{ 'Join Slack' if n.kind == 'community' else 'Open' }}</a>{% else %}<a href="{{ n.link }}" class="btn btn-outline btn-sm" style="margin-top:8px">Open</a>{% endif %}{% endif %}
     </div>
   </div>
   {% endfor %}

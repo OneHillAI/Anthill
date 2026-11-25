@@ -39,7 +39,7 @@ from ..wiki import answer_record, doc_index
 from ..wiki import items as wiki_items
 from ..wiki.doc_context import original_name, split_sources
 from ..wiki.workspace import org_wiki_root, workspace_for
-from . import answer_panel, audit, bring_in, item_page, key_startup, library, metrics
+from . import answer_panel, audit, bring_in, community, item_page, key_startup, library, metrics
 from . import upload_status as ups
 from .crypto import (
     SESSION_MAX_AGE_SECONDS,
@@ -303,6 +303,7 @@ def _nav_context(request: Request) -> dict:
                 .count()
             )
             # Unread in-app notifications (#284): the bell badge. Cheap count, every render.
+            community.ensure_invite(db, user_id=uid, org_id=org_id)  # once, for a new user (#369)
             base["nav_badges"]["notifications"] = (
                 db.query(Notification)
                 .filter(Notification.user_id == uid, Notification.read.is_(False))
@@ -2473,6 +2474,17 @@ async def push_test(user: dict = Depends(_require_user)):
 # ── in-app notification centre (#284) ────────────────────────────────────────
 
 
+@app.post("/community/slack/done")
+def community_slack_done(next: str = Form(""), user: dict = Depends(_require_user)):
+    """The person joined the early-adopter Slack group or does not want the invitation now: it stops showing on
+    the dashboard and in the bell. A form sends ``next`` (back to the dashboard); a click on "Join Slack" sends none."""
+    db = _db()
+    community.mark_done(db, user_id=int(user["sub"]))
+    if next == "/":
+        return RedirectResponse("/", status_code=303)
+    return Response(status_code=204)
+
+
 @app.get("/notifications", response_class=HTMLResponse)
 def notifications_page(request: Request, user: dict = Depends(_require_user)):
     """The notification centre: this user's notifications, newest first. Opening it marks the unread ones
@@ -2480,6 +2492,9 @@ def notifications_page(request: Request, user: dict = Depends(_require_user)):
     visit are flagged so you can still spot them."""
     db = _db()
     uid = int(user["sub"])
+    community.ensure_invite(
+        db, user_id=uid, org_id=user.get("org")
+    )  # a new user's first page may be this one
     items = (
         db.query(Notification)
         .filter(Notification.user_id == uid)
@@ -5912,6 +5927,18 @@ def dashboard(request: Request, user: dict = Depends(_require_user)):
                 "label": "agent action%s awaiting your approval"
                 % ("" if agent_approvals_pending == 1 else "s"),
                 "href": "/agents",
+            }
+        )
+
+    invite = community.open_invite(db, user_id=int(user["sub"]), org_id=org.id)
+    if invite:
+        attention.append(
+            {
+                "invite": True,
+                "icon": "message-circle",
+                "title": invite["title"],
+                "body": invite["body"],
+                "href": invite["url"],
             }
         )
 
