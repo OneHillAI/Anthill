@@ -210,7 +210,16 @@ def test_member_cannot_overwrite_the_shared_model_compute_or_scrub(tmp_path, mon
     assert r.status_code == 403
     assert _org_wide() == before
     s = app_mod._SessionFactory()
-    assert s.query(User).filter(User.email == "member@acme.com").one().profile == "I am a member"
+    assert _core_profile(s, "member@acme.com") == "I am a member"
+
+
+def _core_profile(session, email):
+    """The profile a person saved: it lives on their core page (docs/specs/core-page.md), not in User.profile."""
+    from anthill.wiki import core_page
+    from anthill.wiki.workspace import workspace_for
+
+    user = session.query(User).filter(User.email == email).one()
+    return core_page.read(workspace_for("personal", user_id=user.id))[0]
 
 
 def test_member_profile_save_works_and_leaves_org_settings_alone(tmp_path, monkeypatch):
@@ -220,7 +229,7 @@ def test_member_profile_save_works_and_leaves_org_settings_alone(tmp_path, monke
     assert r.status_code == 302 and "saved=1" in r.headers["location"]
     assert _org_wide() == before  # absent scrub_pii did not switch the shared setting off
     s = app_mod._SessionFactory()
-    assert s.query(User).filter(User.email == "member@acme.com").one().profile == "Just my profile"
+    assert _core_profile(s, "member@acme.com") == "Just my profile"
 
 
 def test_member_cannot_run_the_model_picker_or_council_setup(tmp_path, monkeypatch):
