@@ -47,6 +47,15 @@ def test_the_two_platform_pins_are_what_the_spec_says():
     assert ollama._OLLAMA_WINDOWS_VERSION == "0.30.10"
 
 
+def test_one_function_picks_the_platforms_pin(monkeypatch):
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert ollama.pinned_engine_version() == ollama._OLLAMA_VERSION
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert ollama.pinned_engine_version() == ollama._OLLAMA_WINDOWS_VERSION
+
+
 def test_the_catalogue_check_reads_the_platforms_own_pin(monkeypatch):
     import sys
 

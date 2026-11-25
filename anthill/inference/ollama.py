@@ -693,6 +693,12 @@ _OLLAMA_WINDOWS_MIN_FREE_BYTES = (
 )  # the zip plus what it unpacks to (about 2 GB) plus slack
 
 
+def pinned_engine_version() -> str:
+    """The Ollama version this platform's app is pinned to (the one place that picks between the two pins, #264).
+    Windows keeps its own pin until the evidence in the Windows engine issue exists (#365)."""
+    return _OLLAMA_WINDOWS_VERSION if sys.platform == "win32" else _OLLAMA_VERSION
+
+
 def _managed_ollama_dir() -> Path:
     """Where a first-run-downloaded Ollama lives: under the app data dir (``ANTHILL_HOME``), so it
     persists across launches AND app auto-updates (it is not inside the .app bundle, which the

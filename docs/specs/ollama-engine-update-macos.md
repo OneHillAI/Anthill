@@ -75,6 +75,19 @@ home): the pinned checksum was verified, 632 MB unpacked, the managed binary was
 **Catalogue.** All 13 exact GGUF tags of #345 and the plain tags of every other catalogue row were accepted at the pull handshake by both
 engines on 2026-11-20 (nothing is refused by the old engine; the four rows needing a newer one were removed in #319).
 
+## Why two pins for now, and the way back to one
+
+Windows stays on 0.30.10 because its download (a 1.46 GB zip with the NVIDIA runtime), its checks and its tests were never run on 0.40.x and no
+Windows machine was available for this change. The split is one function, `ollama.pinned_engine_version()`, which the catalogue check reads; it
+is not spread through the code. The written path back to one pin is issue #365: the real 0.40.x Windows archive downloaded and verified with the
+app's own code, a store upgrade and rollback, the scoreboard on the same files, no memory growth, and then the second pin and the branch are
+deleted in one change. Until then each pin is covered by its own test.
+
+## Existing installs
+
+The maintainer decided on 2026-11-25 to ship this change without an upgrade step. Existing installs keep the engine they already downloaded
+(nothing breaks); the staged, checksummed and reversible upgrade is designed in issue #366, with its risks, and is a separate change.
+
 ## Not shown
 
 - The full app smoke test on a BUILT app (Rust and PyInstaller are not installed here and nothing was installed). The beta is built by
