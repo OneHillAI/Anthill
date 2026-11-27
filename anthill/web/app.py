@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
@@ -430,6 +431,8 @@ def _as_utc(dt):
 
 _engine = None
 _SessionFactory = None
+# Serialises set-up in _ensure_engine. Not re-entrant: set-up never calls _db() or _new_session().
+_ENGINE_LOCK = threading.Lock()
 _scheduler_started = False
 
 
@@ -1015,30 +1018,44 @@ _request_sessions: contextvars.ContextVar[list | None] = contextvars.ContextVar(
 
 def _ensure_engine() -> None:
     """Initialise the engine and sessions once, including snapshotted schema migrations and the
-    leaked-password display-name remediation."""
+    leaked-password display-name remediation.
+
+    Safe to call from several threads at once (the desktop sidecar's background thread and uvicorn's
+    start-up hook both do): set-up runs under a lock, on local variables, and `_engine` and
+    `_SessionFactory` are published together only after every step has finished. A caller that arrives
+    mid set-up waits for it; a set-up that fails publishes nothing, so the next call tries again
+    instead of finding an engine with no session factory."""
     global _engine, _SessionFactory
-    if _engine is not None:
+    if _engine is not None and _SessionFactory is not None:
         return
-    _engine = get_engine()
-    create_tables(_engine)
-    from .migrate import ensure_columns
+    with _ENGINE_LOCK:
+        if _engine is not None and _SessionFactory is not None:
+            return  # another thread finished set-up while this one waited
+        engine = get_engine()
+        create_tables(engine)
+        from .migrate import ensure_columns
 
-    def _snapshot_before_migrate(cols):
-        from ..backup import snapshot_db
+        def _snapshot_before_migrate(cols):
+            from ..backup import snapshot_db
 
-        snapshot_db(reason="pre-migration")  # reversible safety copy before any schema change
+            snapshot_db(reason="pre-migration")  # reversible safety copy before any schema change
 
-    ensure_columns(_engine, before_change=_snapshot_before_migrate)  # additive; snapshots first
-    _scrub_password_display_names(_engine)  # remediate any leaked-password display name (security)
-    from sqlalchemy.orm import sessionmaker
+        ensure_columns(engine, before_change=_snapshot_before_migrate)  # additive; snapshots first
+        # Remediate any leaked-password display name (security).
+        _scrub_password_display_names(engine)
+        from sqlalchemy.orm import sessionmaker
 
-    _SessionFactory = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
+        factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        _SessionFactory = factory  # both set only now, after set-up succeeded
+        _engine = engine
 
 
 def _new_session() -> Session:
     """A fresh standalone Session. The caller owns its lifecycle and must close it."""
     _ensure_engine()
-    return _SessionFactory()
+    factory = _SessionFactory
+    assert factory is not None  # _ensure_engine publishes it, or raises
+    return factory()
 
 
 def _db() -> Session:
@@ -2846,7 +2863,6 @@ def local_model_status(user: dict = Depends(_require_user)):
 
 import atexit  # noqa: E402
 import contextlib  # noqa: E402
-import threading  # noqa: E402
 import time  # noqa: E402
 from typing import Any  # noqa: E402
 
