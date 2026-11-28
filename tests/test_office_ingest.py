@@ -39,6 +39,41 @@ def _docx_fixture(path: Path) -> None:
     document.save(path)
 
 
+def _word_style_docx_fixture(path: Path) -> None:
+    """A minimal .docx made from the standard library alone: a `w:`-prefixed document part declared
+    once on the root, as Word writes it. Independent of python-docx, so a failure here is the reader
+    stack (MarkItDown, mammoth, lxml), not the fixture library."""
+    import zipfile
+
+    word_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    types_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+    main_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+    decl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    parts = {
+        "[Content_Types].xml": (
+            f'{decl}<Types xmlns="{types_ns}">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            f'<Override PartName="/word/document.xml" ContentType="{main_type}"/></Types>'
+        ),
+        "_rels/.rels": (
+            f'{decl}<Relationships xmlns="{rels_ns}">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            'relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+        ),
+        "word/document.xml": (
+            f'{decl}<w:document xmlns:w="{word_ns}"><w:body>'
+            '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Hand built heading</w:t></w:r></w:p>'
+            "<w:p><w:r><w:t>Plain body text from the standard library.</w:t></w:r></w:p>"
+            "</w:body></w:document>"
+        ),
+    }
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in parts.items():
+            archive.writestr(name, content)
+
+
 def _pptx_fixture(path: Path) -> None:
     import pptx
 
@@ -88,6 +123,21 @@ def test_read_docx_produces_structured_markdown(tmp_path):
     )
     assert fc.images_b64 == []
     assert fc.pdf_preflight is None  # no PDF safety machinery applies to office files
+
+
+def test_read_docx_written_without_python_docx(tmp_path):
+    """A Word-style .docx, not python-docx's own output, reads too. lxml 6.2.0 broke every .docx here
+    (the namespace prefixes were lost before mammoth read the file); see docs/specs/office-docx-new-libs.md."""
+    from anthill.multimodal.reader import read_file
+
+    source = tmp_path / "handbuilt.docx"
+    _word_style_docx_fixture(source)
+
+    fc = read_file(source)
+
+    assert isinstance(fc, FileContent)
+    assert "Hand built heading" in fc.text
+    assert "Plain body text from the standard library." in fc.text
 
 
 def test_read_pptx_produces_structured_markdown(tmp_path):

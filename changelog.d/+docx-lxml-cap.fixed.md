@@ -1,0 +1,1 @@
+**Word documents can be read again on a fresh install.** The newest lxml release (6.2.0) made every `.docx` fail to convert with "Could not find the body element". Anthill now asks for lxml below 6.2 until a fixed release exists, so new installs and rebuilt apps keep reading Word files. Installs that already worked are unaffected.
