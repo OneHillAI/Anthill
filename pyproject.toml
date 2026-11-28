@@ -37,6 +37,12 @@ dependencies = [
     "aiofiles>=23,<26",
     "pypdf>=6.8,<7",  # embedded-image extraction for Anthill's local scanned-PDF vision fallback
     "pypdfium2>=5,<6",  # bounded local rendering for native PDF vector graphics
+    # lxml 6.2.0 stops passing namespace prefixes to parser targets, so BeautifulSoup's XML builder drops
+    # the `w:` prefixes of word/document.xml. MarkItDown rewrites every .docx through BeautifulSoup before
+    # mammoth reads it, and mammoth then fails with "Could not find the body element", so no .docx converts.
+    # Verified: markitdown 0.1.8 and 0.1.9 both fail with lxml 6.2.0 and both pass with 6.0.0 to 6.1.3.
+    # Raise this cap only after a lxml release where tests/test_office_ingest.py passes (docs/specs/office-docx-new-libs.md).
+    "lxml>=6.0,<6.2",
     "markitdown[pdf,docx,pptx,xlsx]>=0.1.6,<0.2",  # local structured Office/PDF-to-Markdown conversion.
     # HTML needs no extra: MarkItDown's HtmlConverter only needs beautifulsoup4, a base dep.
     # Verified against MarkItDown 0.1.7 (PyPI, checked 2026-08-02): `docx` pulls mammoth+lxml,
